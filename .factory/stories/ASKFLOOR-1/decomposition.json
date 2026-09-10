@@ -1523,21 +1523,156 @@
     {
       "id": "ASKFLOOR-1-T6",
       "title": "Judge outage, invariance suite, tap budget",
-      "objective": "A process-local outage latch keyed by app, provider account and conversation sends one notice per episode before the first offline card on both the IPC and inline consult paths (driven by the typed status incl. wiring_missing), the card reason line, and Allow still remembering offline; the AF-AC6 invariance suite across every lane; the S6 fixture and the AF-AC8 aggregation run.",
+      "objective": "When the permission judge is unavailable, a process-local latch keyed by app, provider account and conversation sends one plain notice per outage episode before the first offline card on both consult paths, the card reason says why, wiring-missing bypasses become explicit unavailable results, Allow still remembers offline, deterministic read-only allows still short-circuit, and an invariance suite plus tap-budget S6 and the aggregation run prove every other lane is unchanged.",
       "acceptance_criteria": [
-        "judge unavailable: exactly one notice per (app, provider account, conversation) per episode on both paths; deterministic reads and learned scopes unaffected; an uncovered read asks at most once; latch resets on the next answered verdict",
-        "AF-AC6: ask, auto_strict, autonomous incl. the 0153 matrix, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive asks, the CARDSIMPLE-1 family rail-hit and the inline-scheduled path behave as today except where AC2/AC3/AC4 deliberately change them",
-        "AF-AC8 S6 fixture and the aggregation over S1-S6 pass",
-        "existing unit and Postgres integration suites pass; tsc and check:architecture green (AF-AC7)."
+        "LATCH. `createJudgeOutageLatch()` keyed by `(appId, providerAccountId, targetJid)`: first `Unavailable` \u2192 `noticeDue: true` and the key is open; further `Unavailable` on the same key \u2192 `noticeDue: false`; `Answered` clears the key; `Skipped` is ignored; keys are independent. Tests: NEW `test/unit/application/permission-judge-outage-latch.test.ts` (open/repeat/clear/ignore-skipped/independent keys/copy strings exported).",
+        "IPC PATH. In `resolveIpcPermissionPromptOrTerminal`, when the consult result is `Unavailable` and the latch says due, ONE notice is sent via `deps.sendMessage(targetJid, NOTICE, { threadId })` BEFORE `requestPermissionApproval` (both the normal and denylist branches); the card's `decisionReason` is \"Asking because my safety judge is offline.\"; a second offline request in the same conversation sends no notice; a later `Answered` result clears it so the next outage notifies again; a `sendMessage` failure is swallowed and the card still goes out. The IPC bypass guard (`:359-364`) yields `{ status: Unavailable, failureCode: 'wiring_missing' }` instead of skipping. An `Unavailable` result is never cached (write guard) and a job-lane `Unavailable` sends the notice before the terminal job decision. Tests: `ipc-permission-classifier-decision.test.ts` \u2014 notice once, reason line, card follows, no notice on repeat, reset on answered, swallow, no target \u2192 no notice, wiring_missing only when eligible, ask-mode never notifies, unavailable never cached, job lane notice + reason.",
+        "INLINE PATH. Same contract inside the `beforePrompt` callback of the inline consult (`deps.sendMessage(run.chatJid, NOTICE, { threadId: run.threadId })`), reason line on the inline ask, the inline guard (`:372`) yields `wiring_missing` only for an eligible lane, and the scheduled-job return at `:410` is preceded by the notice with the offline reason on the cancel decision. Tests: `inline-agent-loop-tools.test.ts` \u2014 the same cases plus the scheduled-job notice + reason.",
+        "NO TAP STORM, MEMORY STILL WRITES. With the judge offline: a deterministic read-only request inside a trusted root costs 0 taps and no notice (the read-only gate short-circuits before the LLM path); an uncovered read asks at most once per request; [Allow] with remember still writes the row and the identical repeat costs 0 taps offline (S4's shape, `source: 'human_decision'`); scheduled jobs keep deterministic denial + card recovery. Tests: S6 in `askfloor-tap-budget.test.ts` through the harness knobs of ruling 7.",
+        "INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 and 0157 say: interactive auto asks with the reason line; a job lane reaches its card with the reason line; everything else identical). Test titles are the required leaf ids verbatim.",
+        "AGGREGATION + GATES. The AF-AC8 aggregation run executes S1\u2013S6 + TB1\u2013TB4 + mirrors in one `it` and reports the tap total per lane (no earlier-owned test edited). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: `ipc-permission-classifier-decision.ts` \u2264 700, `inline-agent-loop-tools.ts` \u2264 750, `permission-classifier.ts` \u2264 700, `ipc-interaction-processing.ts` \u2264 865 (untouched), 700 elsewhere; no wrapper, shim, alias or compatibility naming."
       ],
       "depends_on": [
         "ASKFLOOR-1-T4",
         "ASKFLOOR-1-T5b"
       ],
-      "user_facing": true
+      "user_facing": true,
+      "write_scope": [
+        "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
+        "apps/core/src/runtime/permission-judge-outage.ts",
+        "apps/core/src/runtime/permission-classifier.ts",
+        "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+        "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+        "apps/core/test/unit/runtime/permission-judge-outage.test.ts",
+        "apps/core/test/unit/runtime/permission-classifier.test.ts",
+        "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+        "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+        "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+        "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts"
+      ],
+      "reviewer_focus": [
+        "LAYERS (load-bearing; scripts/architecture-map.json:94-120): app/ and runtime/ are the runtime layer and may import application/ and shared/, never channels/. The pure latch + copy is an APPLICATION module (application/permissions/permission-judge-outage-latch.ts, imports nothing from runtime); the process-wide instance, the synthetic wiring_missing prompt result and the notice sender live in the NEW RUNTIME module runtime/permission-judge-outage.ts; both callers make calls into it and send through their already-injected sendMessage port with { threadId, providerAccountId }. Any channel import in the diff is a blocking finding.",
+        "LATCH (AC1 normative; owner ruling story plan line 167): process-local, in-memory, keyed by app id + provider account id + conversation jid; noticeDue only on the FIRST unavailable per key; answered clears; skipped never touches it; clearAll() is the test hook. No persistence. wiring_missing is a FAILURE CODE in the permission-classifier.ts string union, not a status, produced ONLY for an eligible lane whose wiring is absent; an unavailable result is NEVER written to the verdict cache. JOB LANES follow 0157: notice to the job conversation before the terminal job decision; the offline reason rides the decision.",
+        "COPY (AC2, AC3 normative): the notice is exactly 'My safety judge is offline, so I'll check with you more than usual until it's back.' sent BEFORE the first offline card; the card reason is exactly 'Asking because my safety judge is offline.' on request.decisionReason. Both strings are exported from the latch module and nowhere else.",
+        "NO TAP STORM (AC4 normative; AF-AC5): deterministic read-only allows short-circuit inside the classifier before any LLM path and never notify; an uncovered read asks at most once per request; Allow with remember still writes the memory row offline. Scheduled jobs keep deterministic denial + card recovery.",
+        "INVARIANCE (AC5 normative; AF-AC6): the new suite is a table over EXISTING harness fixtures with expected tuples copied verbatim; the only new column is the unavailable stub; no earlier-owned test is edited. Test titles must equal the required_tests ids verbatim.",
+        "CEILINGS: ipc-permission-classifier-decision.ts 691/700 and permission-classifier.ts 688/700 take CALLS only; inline-agent-loop-tools.ts 708/750; measure after prettier. NO LEFTOVERS (owner ruling 2026-09-06): no wrapper, shim, alias, dead branch or compatibility naming.",
+        "Verification: python3 factory/scripts/verify.py with GANTRY_TEST_DATABASE_URL exported; user_facing: functional check before pr-ready."
+      ],
+      "plan_contracts": [
+        {
+          "id": "ASKFLOOR-1-T6-AC1",
+          "statement": "LATCH. `createJudgeOutageLatch()` keyed by `(appId, providerAccountId, targetJid)`: first `Unavailable` \u2192 `noticeDue: true` and the key is open; further `Unavailable` on the same key \u2192 `noticeDue: false`; `Answered` clears the key; `Skipped` is ignored; keys are independent. Tests: NEW `test/unit/application/permission-judge-outage-latch.test.ts` (open/repeat/clear/ignore-skipped/independent keys/copy strings exported).",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T6-AC2",
+          "statement": "IPC PATH. In `resolveIpcPermissionPromptOrTerminal`, when the consult result is `Unavailable` and the latch says due, ONE notice is sent via `deps.sendMessage(targetJid, NOTICE, { threadId })` BEFORE `requestPermissionApproval` (both the normal and denylist branches); the card's `decisionReason` is \"Asking because my safety judge is offline.\"; a second offline request in the same conversation sends no notice; a later `Answered` result clears it so the next outage notifies again; a `sendMessage` failure is swallowed and the card still goes out. The IPC bypass guard (`:359-364`) yields `{ status: Unavailable, failureCode: 'wiring_missing' }` instead of skipping. An `Unavailable` result is never cached (write guard) and a job-lane `Unavailable` sends the notice before the terminal job decision. Tests: `ipc-permission-classifier-decision.test.ts` \u2014 notice once, reason line, card follows, no notice on repeat, reset on answered, swallow, no target \u2192 no notice, wiring_missing only when eligible, ask-mode never notifies, unavailable never cached, job lane notice + reason.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T6-AC3",
+          "statement": "INLINE PATH. Same contract inside the `beforePrompt` callback of the inline consult (`deps.sendMessage(run.chatJid, NOTICE, { threadId: run.threadId })`), reason line on the inline ask, the inline guard (`:372`) yields `wiring_missing` only for an eligible lane, and the scheduled-job return at `:410` is preceded by the notice with the offline reason on the cancel decision. Tests: `inline-agent-loop-tools.test.ts` \u2014 the same cases plus the scheduled-job notice + reason.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T6-AC4",
+          "statement": "NO TAP STORM, MEMORY STILL WRITES. With the judge offline: a deterministic read-only request inside a trusted root costs 0 taps and no notice (the read-only gate short-circuits before the LLM path); an uncovered read asks at most once per request; [Allow] with remember still writes the row and the identical repeat costs 0 taps offline (S4's shape, `source: 'human_decision'`); scheduled jobs keep deterministic denial + card recovery. Tests: S6 in `askfloor-tap-budget.test.ts` through the harness knobs of ruling 7.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T6-AC5",
+          "statement": "INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 and 0157 say: interactive auto asks with the reason line; a job lane reaches its card with the reason line; everything else identical). Test titles are the required leaf ids verbatim.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        },
+        {
+          "id": "ASKFLOOR-1-T6-AC6",
+          "statement": "AGGREGATION + GATES. The AF-AC8 aggregation run executes S1\u2013S6 + TB1\u2013TB4 + mirrors in one `it` and reports the tap total per lane (no earlier-owned test edited). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: `ipc-permission-classifier-decision.ts` \u2264 700, `inline-agent-loop-tools.ts` \u2264 750, `permission-classifier.ts` \u2264 700, `ipc-interaction-processing.ts` \u2264 865 (untouched), 700 elsewhere; no wrapper, shim, alias or compatibility naming.",
+          "source": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria"
+        }
+      ],
+      "verify_commands": [
+        "python3 factory/scripts/verify.py",
+        "npx tsc --noEmit",
+        "npm run check:architecture"
+      ],
+      "review_budget": {
+        "max_changed_files": 15,
+        "max_changed_lines": 1400,
+        "reason": "13-file manifest (plan approved 2026-09-10, grill r1 folded: runtime glue module, cache exclusion, wiring split, job lanes per 0157): NEW latch module + 3 hook edits (calls only, ceilings 691/700, 688/700, 708/750) + NEW latch suite + NEW invariance suite + S6 and harness knobs + cases in the classifier, IPC-decision and inline suites; user_facing."
+      },
+      "required_tests": [
+        {
+          "id": "opens on the first unavailable result per app account and conversation key returns noticeDue once per episode clears on answered ignores skipped and keeps keys independent",
+          "path": "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "exports the offline notice and the offline reason copy verbatim",
+          "path": "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stamps status unavailable for the wiring_missing failure code",
+          "path": "apps/core/test/unit/runtime/permission-classifier.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "builds the synthetic unavailable prompt result sends the offline notice once per key with the provider account skips the send without a target and swallows send failures",
+          "path": "apps/core/test/unit/runtime/permission-judge-outage.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "never caches an unavailable classifier result and consults again on the next identical request",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "sends the offline notice to the job conversation before the terminal job decision with the offline reason",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "sends one offline notice before the first offline card sets the offline reason line skips the notice on repeat re-notifies after an answered result swallows a send failure and yields wiring_missing when the consult wiring is absent",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "sends the offline notice before the denylist-forced card too",
+          "path": "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "sends one offline notice from beforePrompt before the first offline card sets the offline reason line skips the notice on repeat re-notifies after an answered result swallows a send failure and yields wiring_missing when publishRuntimeEvent is absent",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "S6 judge offline sends one notice per episode keeps trusted-root reads at zero taps asks at most once for an uncovered read and Allow still remembers while offline",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps every lane tuple unchanged under an answering judge and under an unavailable judge for the six codes and wiring_missing except the interactive-auto ask and its offline reason",
+          "path": "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "keeps the inline-scheduled path and the attachment_open birthright unchanged under an unavailable judge",
+          "path": "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "aggregates the tap budget across S1 to S6 TB1 to TB4 and the mirror fixtures and reports the total per lane",
+          "path": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ]
     }
   ],
   "project": "",
   "plan_sha256": "1dd7b989a14b6c352fc20f8ee715fb0b21b46b9827d495b79abbb642bb9d271a",
-  "commit": "4839599f5920c9721dab55c1e6112c823ca7c064"
+  "commit": "19303e4f7b20d50424087ca40508e0981c86fc35"
 }

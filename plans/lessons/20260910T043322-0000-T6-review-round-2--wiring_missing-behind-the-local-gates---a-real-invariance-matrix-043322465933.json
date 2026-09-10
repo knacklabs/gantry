@@ -1,0 +1,14 @@
+{
+  "topic": "T6 review round 2: wiring_missing behind the local gates + a real invariance matrix",
+  "lesson": "Exactly three changes; everything else is final. (1) ROOT CAUSE, both callers: wiring_missing must be produced ONLY where the LLM call would otherwise happen, i.e. AFTER every locally-settled outcome inside consultPermissionClassifierBeforePrompt (verdict-cache hit, deterministic gate, gantry-native risk rating, YOLO denylist backstop, the auto_strict deterministic-denial guard) \u2014 today ipc-permission-classifier-decision.ts ~373 and inline-agent-loop-tools.ts ~379 synthesize it BEFORE calling the helper, so a request the helper would have Skipped or allowed locally now notifies and asks. Fix at the shared seam: make publishRuntimeEvent and classifierConfig optional on PermissionClassifierPromptConsultInput, let the helper run its local gates first and return failedResult('wiring_missing') at the point it would consult the model; both callers then ALWAYS call the helper when classifierEligible and delete their own wiring_missing branches (keep the lane/job eligibility split). Pin it: a deterministic read-only request with no publisher is Skipped/allow with no notice; a non-local request with no publisher is Unavailable wiring_missing. Keep permission-classifier.ts within 700 lines \u2014 extract a small helper into runtime/permission-judge-outage.ts if needed. (2) askfloor-invariance.test.ts: NO generic fallback tool. Every row must construct its real path: the scheduler/admin/destructive and family-rail rows run the real command through the rails (assert FAMILY_RULE_RAIL_HIT_REASON for the rail hit); the projection quartet goes through replayRememberedJobProjection; inline-scheduled through the inline gate; attachment_open through the attachmentOpenIds fixture; expected tuples copied verbatim from the owning suites; remove the mcp__crm__lookup default entirely. Test titles stay the required leaf ids verbatim. (3) Nothing else: the latch key set is accepted as-is (process-local, bounded by conversations).",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T6/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/test/unit/runtime/askfloor-invariance.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T04:33:22+00:00"
+}

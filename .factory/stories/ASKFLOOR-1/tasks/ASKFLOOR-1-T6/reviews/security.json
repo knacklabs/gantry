@@ -1,0 +1,40 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "ASKFLOOR-1-T6",
+  "score": 9,
+  "summary": "security lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..3f7415e, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The sequential latch behavior is correct, but the notice sender does not preserve the required ordering when multiple permission requests for one conversation are processed concurrently. A later card can be delivered before the sole outage notice.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/runtime",
+      "summary": "Concurrent outage cards can overtake the first offline notice (apps/core/src/runtime/permission-judge-outage.ts:59): The latch is opened synchronously before the notice send completes."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
+  "reviewed_scope": [
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/runtime/permission-judge-outage.ts",
+    "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-classifier.test.ts",
+    "apps/core/test/unit/runtime/permission-judge-outage.test.ts"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "review_run_id": "d2ad5d64b35eaf3c9d3c45d8d65d83c14009adf54c8b9d3e80a168c474d9db74",
+  "brief_sha256": "6731f8e6b0465dcae326bc785beb19be5d27e2c67207a607a2861edecb0eab94",
+  "branch_diff_digest": "98bd90339a9a06fe64674d9ba641fecd89c84f1e5fe046e18d64f4ea7b94aa55",
+  "residual_risks": [],
+  "recorded_at": "2026-09-10T05:33:44+00:00",
+  "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963"
+}

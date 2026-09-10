@@ -1,0 +1,125 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "task_id": "ASKFLOOR-1-T6",
+  "verdict": "pass",
+  "questions_asked": 2,
+  "inspected_refs": [
+    "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/runtime/ipc-domain-types.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/domain/permission-classifier-status.ts",
+    "apps/core/src/shared/auto-permission-read-only-gate.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "docs/decisions/0157-jobs-use-the-chat-permission-ladder.md",
+    "scripts/architecture-map.json",
+    "plans/exploration/askfloor-1-t6-seam-map.md"
+  ],
+  "current_flow": "The classifier fails closed to ask with status unavailable and the generic 'Classifier unavailable (<code>); ask the user.' reason; every offline request cards with no notice; unavailable verdicts are cached like answers; missing wiring silently skips consultation; no test pins per-lane behaviour under an unavailable judge.",
+  "criteria_map": {
+    "LATCH. `createJudgeOutageLatch()` keyed by `(appId, providerAccountId, targetJid)`: first `Unavailable` \u2192 `noticeDue: true` and the key is open; further `Unavailable` on the same key \u2192 `noticeDue: false`; `Answered` clears the key; `Skipped` is ignored; keys are independent. Tests: NEW `test/unit/application/permission-judge-outage-latch.test.ts` (open/repeat/clear/ignore-skipped/independent keys/copy strings exported).": "AC1 latch: pure application module; first unavailable per key -> noticeDue, repeat -> false, answered clears, skipped ignored, keys independent, clearAll, copy exported.",
+    "IPC PATH. In `resolveIpcPermissionPromptOrTerminal`, when the consult result is `Unavailable` and the latch says due, ONE notice is sent via `deps.sendMessage(targetJid, NOTICE, { threadId })` BEFORE `requestPermissionApproval` (both the normal and denylist branches); the card's `decisionReason` is \"Asking because my safety judge is offline.\"; a second offline request in the same conversation sends no notice; a later `Answered` result clears it so the next outage notifies again; a `sendMessage` failure is swallowed and the card still goes out. The IPC bypass guard (`:359-364`) yields `{ status: Unavailable, failureCode: 'wiring_missing' }` instead of skipping. An `Unavailable` result is never cached (write guard) and a job-lane `Unavailable` sends the notice before the terminal job decision. Tests: `ipc-permission-classifier-decision.test.ts` \u2014 notice once, reason line, card follows, no notice on repeat, reset on answered, swallow, no target \u2192 no notice, wiring_missing only when eligible, ask-mode never notifies, unavailable never cached, job lane notice + reason.": "AC2 IPC path: notice once via the runtime glue before requestPermissionApproval (normal + denylist), reason line, no notice on repeat, reset on answered, swallow, no target -> no notice, wiring_missing only when eligible, ask mode never notifies, unavailable never cached, job lane notice + reason.",
+    "INLINE PATH. Same contract inside the `beforePrompt` callback of the inline consult (`deps.sendMessage(run.chatJid, NOTICE, { threadId: run.threadId })`), reason line on the inline ask, the inline guard (`:372`) yields `wiring_missing` only for an eligible lane, and the scheduled-job return at `:410` is preceded by the notice with the offline reason on the cancel decision. Tests: `inline-agent-loop-tools.test.ts` \u2014 the same cases plus the scheduled-job notice + reason.": "AC3 inline path: same contract in beforePrompt; wiring_missing only for an eligible lane; scheduled cancel return preceded by the notice with the reason on the decision.",
+    "NO TAP STORM, MEMORY STILL WRITES. With the judge offline: a deterministic read-only request inside a trusted root costs 0 taps and no notice (the read-only gate short-circuits before the LLM path); an uncovered read asks at most once per request; [Allow] with remember still writes the row and the identical repeat costs 0 taps offline (S4's shape, `source: 'human_decision'`); scheduled jobs keep deterministic denial + card recovery. Tests: S6 in `askfloor-tap-budget.test.ts` through the harness knobs of ruling 7.": "AC4 no tap storm: deterministic read-only 0 taps no notice; uncovered read asks at most once; Allow with remember writes offline and the repeat is 0 taps (source human_decision); jobs keep denial + card recovery.",
+    "INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 and 0157 say: interactive auto asks with the reason line; a job lane reaches its card with the reason line; everything else identical). Test titles are the required leaf ids verbatim.": "AC5 invariance: table over existing harness fixtures, expected tuples verbatim, the Unavailable stub column for six codes + wiring_missing; offline differs only per AF-AC5 and 0157.",
+    "AGGREGATION + GATES. The AF-AC8 aggregation run executes S1\u2013S6 + TB1\u2013TB4 + mirrors in one `it` and reports the tap total per lane (no earlier-owned test edited). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: `ipc-permission-classifier-decision.ts` \u2264 700, `inline-agent-loop-tools.ts` \u2264 750, `permission-classifier.ts` \u2264 700, `ipc-interaction-processing.ts` \u2264 865 (untouched), 700 elsewhere; no wrapper, shim, alias or compatibility naming.": "AC6 aggregation + gates: S1-S6 + TB1-TB4 + mirrors in one it with per-lane totals; suites, tsc, architecture green; ceilings 700/750/700/865; no leftovers."
+  },
+  "gaps": [
+    "r1 (sol@xhigh cold read): an Unavailable classifier result was cacheable \u2014 the IPC tail writes every non-Skipped result, so a recovery Answered could never be observed and the next card reverted to the generic reason.",
+    "r1: the notice call passed only threadId although the latch key includes the provider account, and targetJid is optional on the request with no defined no-target behaviour.",
+    "r1: the task cited 0156 (AI-employee console) instead of 0157 (jobs use the chat permission ladder) and pinned the inline-scheduled path as unchanged although its cancel return precedes beforePrompt.",
+    "r1: wiring_missing had no type-correct construction \u2014 failedResult is private and returns a raw result, while both callers need a PermissionClassifierPromptConsultResult with decision 'ask'; the should-consult predicate conflated an ineligible lane with missing wiring.",
+    "r1: the latch's process-wide instance owner was unstated (per-call or per-module instances break episode semantics) and the IPC decision file at 691/700 could not absorb import + instance + lifecycle + synthetic result + cache exclusion + notice delivery."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Ruling (AC2, ruling 5): an Unavailable result of any code is never written to the verdict cache \u2014 the write guard gains status !== Unavailable; pinned by a leaf ('never caches an unavailable classifier result and consults again on the next identical request').",
+    "Ruling (rulings 1-2, AC2/AC3): sendJudgeOfflineNotice passes { threadId, providerAccountId }, returns without sending when targetJid is absent (the card still fails closed) and swallows send errors; pinned by the runtime glue leaf.",
+    "Ruling (Decisions, owner rulings, AC5): cite 0157; a job-lane Unavailable takes today's job-ask path with the offline reason on the decision and the one notice sent to the job conversation before the terminal decision (IPC) / before the scheduled cancel return at inline :410; pinned by the job-lane leaf.",
+    "Ruling (rulings 1, 3): NEW runtime/permission-judge-outage.ts exports unavailablePromptConsultResult(failureCode, startedAt) building the full prompt consult result with decision 'ask'; eligibility (lane / hostJobId) is split from wiring (publishRuntimeEvent, classifierConfig) at both guards; ineligible lanes never consult, never produce wiring_missing, never notify.",
+    "Ruling (ruling 1, budget): the process-wide instance is a module-level singleton in runtime/permission-judge-outage.ts with clearAll() as the test hook; the application module stays pure; budget 15 files / 1,400 lines; extracting decision.ts's verdict-cache helpers into the new runtime module is authorised if a call still breaks 700."
+  ],
+  "decision": "keep",
+  "new_abstractions": [
+    "NEW application/permissions/permission-judge-outage-latch.ts (pure latch + copy); NEW runtime/permission-judge-outage.ts (process-wide instance, synthetic unavailable prompt result, notice sender); NEW askfloor-invariance.test.ts; wiring_missing failure code."
+  ],
+  "citations": [
+    {
+      "finding": "r1 (sol@xhigh cold read): an Unavailable classifier result was cacheable \u2014 the IPC tail writes every non-Skipped result, so a recovery Answered could never be observed and the next card reverted to the generic reason.",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:283,502"
+    },
+    {
+      "finding": "r1: the notice call passed only threadId although the latch key includes the provider account, and targetJid is optional on the request with no defined no-target behaviour.",
+      "source": "apps/core/src/runtime/ipc-domain-types.ts:61; apps/core/src/domain/types.ts:193,552"
+    },
+    {
+      "finding": "r1: the task cited 0156 (AI-employee console) instead of 0157 (jobs use the chat permission ladder) and pinned the inline-scheduled path as unchanged although its cancel return precedes beforePrompt.",
+      "source": "docs/decisions/0157-jobs-use-the-chat-permission-ladder.md:28; apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:410"
+    },
+    {
+      "finding": "r1: wiring_missing had no type-correct construction \u2014 failedResult is private and returns a raw result, while both callers need a PermissionClassifierPromptConsultResult with decision 'ask'; the should-consult predicate conflated an ineligible lane with missing wiring.",
+      "source": "apps/core/src/runtime/permission-classifier.ts:162,656; apps/core/src/runtime/ipc-permission-classifier-decision.ts:361"
+    },
+    {
+      "finding": "r1: the latch's process-wide instance owner was unstated (per-call or per-module instances break episode semantics) and the IPC decision file at 691/700 could not absorb import + instance + lifecycle + synthetic result + cache exclusion + notice delivery.",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:691; scripts/architecture-map.json:31"
+    },
+    {
+      "finding": "One shared consult helper serves both paths; failedResult stamps Unavailable with risk high and the generic reason.",
+      "source": "apps/core/src/runtime/permission-classifier.ts:255,656"
+    },
+    {
+      "finding": "The IPC tail caches every non-Skipped classifier result before prompting.",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:283,502"
+    },
+    {
+      "finding": "The should-consult predicate conflates lane eligibility with publishRuntimeEvent/classifierConfig wiring.",
+      "source": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:361"
+    },
+    {
+      "finding": "The inline scheduled path returns a cancel decision before beforePrompt.",
+      "source": "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:410"
+    },
+    {
+      "finding": "sendMessage accepts providerAccountId and threadId; targetJid is optional on the request.",
+      "source": "apps/core/src/runtime/ipc-domain-types.ts:61; apps/core/src/domain/types.ts:193,552"
+    },
+    {
+      "finding": "app/ and runtime/ are the runtime layer; channels is adapters.",
+      "source": "scripts/architecture-map.json:94-137"
+    }
+  ],
+  "summary": "T6 task grill: owner questions were pre-answered by the story plan's line-167 ruling (copy, reset, process-local); r1 sol@xhigh cold read returned five blocking gaps (cache, send routing/no-target, 0157 + job lanes, wiring_missing construction + eligibility split, latch ownership + budget), all repo-answerable and folded into the amended plan v2 in one pass; then ONE bundled owner round (2026-09-10): job conversations get the notice too; the 15-file / 1,400-line budget is accepted as one task.",
+  "rounds": [
+    {
+      "question": "When the judge is offline and a SCHEDULED JOB hits a classifier ask, decision 0157 already routes it to a card in the job's conversation. Should that conversation also get the one-line outage notice before the card, like a DM does?",
+      "options": [
+        "Yes, same one notice per conversation (Recommended)",
+        "No notice for jobs, reason line only"
+      ],
+      "chosen": "Yes, same one notice per conversation (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "The grill folded five fixes into T6; scope is now 13 files with a 15-file / 1,400-line review budget (over the 15-file target only on the budget headroom). Accept that budget, or split T6 into two tasks?",
+      "options": [
+        "Accept 15 files / 1,400 lines (Recommended)",
+        "Split into T6a (latch, hooks, unit suites) and T6b (invariance suite, S6, aggregation)"
+      ],
+      "chosen": "Accept 15 files / 1,400 lines (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "33d5c3dd48750683114d9ee2dc61670f5e6ee97c23b25c42aed2fc4db534146c",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "50c404ead6f73539dffbf5b8436a40ac268e5ff32c151db254213edbec4b2228",
+  "recorded_at": "2026-09-10T02:30:51+00:00",
+  "commit": "401a88934b5a706b4abfcdb88bbe115ecd59902b",
+  "approved_task_plan_sha256": "50c404ead6f73539dffbf5b8436a40ac268e5ff32c151db254213edbec4b2228",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-10T02:30:58+00:00"
+}

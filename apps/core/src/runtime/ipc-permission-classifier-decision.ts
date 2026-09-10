@@ -34,13 +34,14 @@ import {
   permissionPromotionHint,
   type PermissionClassifierPromptConsultResult,
 } from './permission-classifier.js';
+import {
+  judgeOutageReason,
+  sendJudgeOfflineNoticeForRequest,
+  writePermissionClassifierVerdictCache,
+} from './permission-judge-outage.js';
 import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
-import {
-  computePermissionEffectHash,
-  EFFECT_SCHEMA_VERSION,
-  RAIL_CATALOG_VERSION,
-} from '../domain/permission-effect-key.js';
+import { computePermissionEffectHash } from '../domain/permission-effect-key.js';
 import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 import {
@@ -287,7 +288,17 @@ async function resolvePermissionIpcDecisionTail(
   if (routeDecision) return routeDecision;
   const classifier = await consultIpcPermissionClassifier(input);
   const merge = mergeIpcClassifierWithRail(input, classifier.decision);
-  await writeIpcClassifierCache(input, classifier.decision, merge);
+  await writePermissionClassifierVerdictCache({
+    classifierDecision: classifier.decision,
+    lane: input.context.analysis.lane,
+    hostJobId: input.hostJobId,
+    toolName: input.request.toolName,
+    effectHash: input.effectHash,
+    decisionMemory: input.decisionMemory,
+    railRequiresApproval: merge.railRequiresApproval,
+    appId: input.request.appId,
+    agentFolder: input.request.sourceAgentFolder,
+  });
   return resolveIpcPermissionPromptOrTerminal(input, classifier, merge);
 }
 
@@ -358,15 +369,13 @@ async function consultIpcPermissionClassifier(
   const promotion = promotionRepository
     ? { repository: promotionRepository }
     : undefined;
-  const shouldConsultClassifier =
-    (input.context.analysis.lane === PermissionLane.InteractiveAuto ||
-      input.context.analysis.lane === PermissionLane.AutoStrict ||
-      Boolean(input.hostJobId)) &&
-    input.deps.publishRuntimeEvent &&
-    classifierConfig;
+  const classifierEligible =
+    input.context.analysis.lane === PermissionLane.InteractiveAuto ||
+    input.context.analysis.lane === PermissionLane.AutoStrict ||
+    Boolean(input.hostJobId);
   const toolRepository = input.deps.getToolRepository?.();
   const reviewedMcpReadBindings =
-    shouldConsultClassifier &&
+    classifierEligible &&
     toolRepository &&
     /^mcp__(?!gantry__)/.test(input.request.toolName)
       ? ((
@@ -381,7 +390,7 @@ async function consultIpcPermissionClassifier(
           }).catch(() => undefined)
         )?.reviewedMcpReadBindings ?? [])
       : [];
-  const classifierDecision = shouldConsultClassifier
+  const classifierDecision = classifierEligible
     ? await consultPermissionClassifierBeforePrompt({
         permissionMode: input.permissionMode,
         requestFamily: input.request.requestFamily ?? 'tool',
@@ -414,8 +423,8 @@ async function consultIpcPermissionClassifier(
         yoloMode,
         suggestions: input.request.suggestions,
         ...(promotion ? { promotion } : {}),
-        classifierConfig: classifierConfig!,
-        publishRuntimeEvent: input.deps.publishRuntimeEvent!,
+        classifierConfig,
+        publishRuntimeEvent: input.deps.publishRuntimeEvent,
         classifierConsult: input.deps.classifierConsult,
       })
     : undefined;
@@ -475,7 +484,7 @@ function mergeIpcClassifierWithRail(
     input.request.decisionReason = railVetoedClassifierAllow
       ? (railAsk?.reason ??
         'Deterministic permission rail requires human approval.')
-      : classifierDecision.reason;
+      : judgeOutageReason(classifierDecision);
   }
   return {
     railRequiresApproval,
@@ -484,72 +493,17 @@ function mergeIpcClassifierWithRail(
   };
 }
 
-async function writeIpcClassifierCache(
-  input: PermissionIpcDecisionTailInput,
-  classifierDecision: PermissionClassifierPromptConsultResult | undefined,
-  merge: IpcRailMergeResult,
-): Promise<void> {
-  // Cache-miss writeback: the tail is reached only on a miss, so a verdict the
-  // classifier actually produced is cached here (never a human allow_once —
-  // those flow through requestPermissionApproval below and never reach this).
-  // Skipped when effectHash is undefined (sanitized/truncated input).
-  //
-  // A rail ASK marked as requiring approval makes the effect UNCACHEABLE in
-  // either direction, not just when it vetoes an allow: its classifier verdict
-  // must not be persisted and reused without the same rail context.
-  // (subsumes the narrower railVetoedClassifierAllow case: that is an allow
-  // under railRequiresApproval, so this guard already covers it.)
-  if (
-    classifierDecision &&
-    classifierDecision.status !== PermissionClassifierStatus.Skipped &&
-    !isUncacheableAllow(input, classifierDecision) &&
-    !merge.railRequiresApproval &&
-    input.effectHash &&
-    input.decisionMemory
-  ) {
-    await input.decisionMemory
-      .putClassifierVerdict({
-        appId: input.request.appId ?? 'default',
-        agentFolder: input.request.sourceAgentFolder,
-        effectHash: input.effectHash,
-        decision: classifierDecision.decision,
-        reason: classifierDecision.reason,
-        risk_level: classifierDecision.risk_level,
-        risk_category: classifierDecision.risk_category,
-        effectSchemaVersion: EFFECT_SCHEMA_VERSION,
-        railVersion: RAIL_CATALOG_VERSION,
-        provenance: 'classifier',
-        nowIso: new Date().toISOString(),
-      })
-      // ponytail: a cache-write failure must never block the live decision.
-      .catch(() => undefined);
-  }
-}
-
-function isUncacheableAllow(
-  input: PermissionIpcDecisionTailInput,
-  classifierDecision: PermissionClassifierPromptConsultResult,
-): boolean {
-  if (
-    (input.context.analysis.lane !== PermissionLane.InteractiveAuto &&
-      !input.hostJobId) ||
-    classifierDecision.decision !== 'allow'
-  ) {
-    return false;
-  }
-  return (
-    input.request.toolName === 'FileWrite' ||
-    input.request.toolName === 'FileEdit' ||
-    gantryNativeCanonicalToolName(input.request.toolName) !== null
-  );
-}
-
 async function resolveIpcPermissionPromptOrTerminal(
   input: PermissionIpcDecisionTailInput,
   classifier: IpcClassifierConsultResult,
   merge: IpcRailMergeResult,
 ): Promise<PermissionApprovalDecision> {
   const classifierDecision = classifier.decision;
+  await sendJudgeOfflineNoticeForRequest(
+    classifierDecision,
+    input.deps.sendMessage,
+    input.request,
+  );
   // Deterministic rails are authoritative: once they require approval, the
   // fallible classifier can downgrade only the two typed interactive-auto
   // read signals whose provenance is preserved on the decision.

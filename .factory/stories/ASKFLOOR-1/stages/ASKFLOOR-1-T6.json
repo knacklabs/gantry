@@ -1,0 +1,39 @@
+{
+  "id": "ASKFLOOR-1-T6",
+  "title": "Judge outage, invariance suite, tap budget",
+  "status": "done",
+  "started_at": "2026-09-10T02:31:33+00:00",
+  "base_sha": "401a88934b5a706b4abfcdb88bbe115ecd59902b",
+  "dirty_at_start": {
+    ".factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T6.json": {
+      "digest": "b6b15091e804ae7c1848eab08b459955383f2a53c3e72f6c98cae07ebd7159dd",
+      "git": "1 .M N... 100644 100644 100644 da59088081b09f05d0805187e1b7dbeec1998b83 da59088081b09f05d0805187e1b7dbeec1998b83 .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T6.json\u0000\u0000100644 da59088081b09f05d0805187e1b7dbeec1998b83 0\t.factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T6.json\u0000\u0000H .factory/stories/ASKFLOOR-1/grills/tasks/ASKFLOOR-1-T6.json\u0000"
+    }
+  },
+  "task_sha256": "4233d364a116f6a64a5967f97b36ca7020097d5533577ea827dd617e7863f70c",
+  "local_review_stamp": {
+    "stage_id": "ASKFLOOR-1-T6",
+    "task_sha256": "4233d364a116f6a64a5967f97b36ca7020097d5533577ea827dd617e7863f70c",
+    "brief_sha256": "1f9f19d48ac87a9b431f8c37ff4c895e77484eac25743e71570ce0603fca818e",
+    "base_sha": "401a88934b5a706b4abfcdb88bbe115ecd59902b",
+    "product_tree_digest": "4e42f78d37e82ff7fb7ca8e7c00473d1e817bba1d1c1f3af9fedd631c9b5c2c4",
+    "recorded_at": "2026-09-10T05:33:44+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  },
+  "completed_at": "2026-09-10T05:49:54+00:00",
+  "measured": {
+    "strays": [],
+    "files": 13,
+    "lines": 1959,
+    "budget": {
+      "files": 15,
+      "lines": 1400
+    },
+    "test_id_misses": []
+  }
+}
