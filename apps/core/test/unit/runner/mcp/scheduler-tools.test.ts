@@ -897,6 +897,42 @@ describe('scheduler MCP tools', () => {
     );
   });
 
+  it('returns the job prompt verbatim so an update can round-trip it', async () => {
+    const { schedulerJobSummary, schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+    const prompt = `\n  ${[
+      'KNACKLABS FDE LEAD MAINTENANCE',
+      '',
+      `GOAL ${'find companies that just raised. '.repeat(30)}`,
+      '',
+      'RULE never overwrite an existing row.',
+    ].join('\n')}\n\n`;
+    const job = {
+      id: 'job-1',
+      name: 'Lead maintenance',
+      schedule_type: 'recurring',
+      status: 'active',
+      visibility: {
+        target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+        recentRunErrors: [],
+        fullPrompt: prompt,
+        promptPreview: 'KNACKLABS FDE LEAD MAINTENANCE GOAL find companies…',
+      },
+    };
+    const summary = schedulerJobSummary(job);
+    expect(prompt.length).toBeGreaterThan(600);
+    expect(summary).toContain(`Prompt: ${prompt}`);
+    expect(summary).not.toContain('…');
+    // The prompt is the tail, so its newlines cannot be read as further fields,
+    // and leading/trailing whitespace survives for a byte-exact write-back.
+    expect(summary.endsWith(prompt)).toBe(true);
+    expect(prompt.startsWith('\n  ')).toBe(true);
+    expect(prompt.endsWith('\n\n')).toBe(true);
+    // The list view still compacts to a single line.
+    const listed = schedulerJobsSummary([job]);
+    expect(listed).not.toContain('RULE never overwrite an existing row.');
+  });
+
   it('renders notification targets with shortcut and routing values', async () => {
     const { schedulerNotificationTargetsSummary } =
       await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');

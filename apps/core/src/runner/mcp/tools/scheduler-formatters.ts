@@ -115,7 +115,6 @@ export function schedulerJobSummary(job: unknown): string {
     `Next action: ${nextActionLabelText}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
     `Recovery: ${recoverySummary(recovery)}`,
-    ...(prompt ? [`Prompt: ${prompt}`] : []),
     `Notification routes: ${notificationRoutes.length}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
@@ -127,6 +126,8 @@ export function schedulerJobSummary(job: unknown): string {
     })}`,
     ...(toolAccessMissing ? ['Tool access: missing canonical toolAccess'] : []),
     `Recent run errors: ${recentErrors}`,
+    // Last, so a multi-line prompt cannot be mistaken for the fields above.
+    ...(prompt ? [`Prompt: ${prompt}`] : []),
   ].join('\n');
 }
 
@@ -134,10 +135,15 @@ function promptSummary(
   record: Record<string, any>,
   visibility: Record<string, any>,
 ): string | undefined {
-  return compactText(
-    visibility.fullPrompt ?? record.prompt ?? visibility.promptPreview,
-    600,
-  );
+  // The detail view is what an agent reads before scheduler_update_job, which
+  // replaces the prompt wholesale: it must round-trip verbatim, newlines and
+  // all. Only the list view compacts (see schedulerJobsSummary).
+  const raw =
+    visibility.fullPrompt ?? record.prompt ?? visibility.promptPreview;
+  if (typeof raw !== 'string') return undefined;
+  const text = redactSensitiveText(raw);
+  // Emit untrimmed: boundary whitespace is part of what a write-back replaces.
+  return text.trim() ? text : undefined;
 }
 
 function preferredOwnerLabel(input: {

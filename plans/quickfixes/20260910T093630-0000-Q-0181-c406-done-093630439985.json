@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0181-c406",
+  "profile": "quickfix",
+  "reason": "GitHub #447: scheduler_get_job collapses newlines and truncates the job prompt at 600 characters, so an agent reading a job before scheduler_update_job (which replaces the prompt wholesale) silently drops everything past the cut. The full prompt already reaches the formatter as visibility.fullPrompt. Emit it verbatim and redacted as the final section of the detail view, keeping the compacted preview for the list view.",
+  "started_at": "2026-09-10T09:29:17+00:00",
+  "completed_at": "2026-09-10T09:36:30+00:00",
+  "files": []
+}
