@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-10T18:27:50+00:00", "story": "GRANTED-1", "detail": "S-0102-77b5: You are right and my previous resolution was still wrong; thank you for re-raising rather than accepting it. The dispatcher is local-CLI only, by its own registered description (runner/mcp/tools/capab"}

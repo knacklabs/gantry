@@ -21,7 +21,7 @@
         "The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation",
         "A deterministic replay builds materialization through the production path and makes the dispatcher call first, with a negative control proving the descriptor causes it",
         "The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged",
-        "No descriptor contains an executable path, hash or credential, asserted against a binding carrying all three"
+        "No descriptor contains an executable path or hash, asserted against a binding carrying both; reviewed argument operands render verbatim by owner ruling"
       ],
       "depends_on": [],
       "user_facing": false,
@@ -78,7 +78,7 @@
         },
         {
           "id": "GRANTED-1-C11",
-          "statement": "No descriptor contains an executable path, hash or credential, asserted against a binding carrying all three",
+          "statement": "No descriptor contains an executable path or hash, asserted against a binding carrying both; reviewed argument operands render verbatim by owner ruling",
           "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         }
       ],
@@ -140,11 +140,6 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "a secret-shaped operand is redacted in the rendered catalog, the error text and the audit record",
-          "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
-          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
-        },
-        {
           "id": "the resolved engine from the worker path selects the Anthropic tool name",
           "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
@@ -200,16 +195,16 @@
         "That the engine passed to prompt compilation is the resolved model's engine at each call site, not a runtime flag that only distinguishes worker from inline",
         "That the overflow diagnostic is published where the spawn aborts, since the existing startup publisher is never reached",
         "That the shedding order is total over every removable section, so the compact grant list cannot be crowded out",
-        "That redaction of a secret-shaped operand covers the rendered catalog, the error text and the audit record",
-        "That enforcement is untouched: the 0120 and 0130 proofs stay green"
+        "That enforcement is untouched: the 0120 and 0130 proofs stay green",
+        "That reviewed argument operands render verbatim by owner ruling, while the executable path and hash never appear"
       ],
       "review_budget": {
         "max_changed_files": 16,
         "max_changed_lines": 1400,
-        "reason": "Nine source files and seven test files. The task grill widened scope twice: the engine identity is resolved per call site so both prompt-compile callers pass it, and the overflow diagnostic must publish at the abort point because the existing startup publisher runs far later, just before the runner process starts."
+        "reason": "Nine source files and seven test files. Scope widened once for the two spawn seams; the redaction sinks were removed again by owner ruling that approved templates are trusted and reviewed argument shapes render verbatim everywhere."
       }
     }
   ],
   "project": "",
-  "commit": "9667b1c3a1f002e5d805572b802a8c13d471ba35"
+  "commit": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4"
 }

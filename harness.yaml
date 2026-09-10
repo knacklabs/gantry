@@ -16,16 +16,16 @@ precedence:
 
 modes:
   lite:
-    model: "gpt-5.6-terra"
-    reasoning: "high"
+    model: "gpt-5.6-luna"
+    reasoning: "max"
     bound: 5
   # The harness's cold reader for `forge grill` (its gate test pins this exact
   # model). The per-task contract grills this project runs go out through the
-  # codex companion on gpt-5.6-sol at xhigh — owner policy 2026-09-05, one
+  # codex companion at medium — owner policy 2026-09-10 retires terra and xhigh, one
   # grill per round, no parallel second model.
   grill:
-    model: "gpt-5.6-terra"
-    reasoning: "xhigh"
+    model: "gpt-5.6-sol"
+    reasoning: "high"
     bound: 0
 
 phases:
@@ -73,7 +73,7 @@ phases:
   planning:
     owner: "claude-code:plan-mode"
     alternate: "codex:planner-high"
-    exploration: "/codex:rescue --model gpt-5.6-terra --effort high (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
+    exploration: "/codex:rescue --model gpt-5.6-sol --effort medium (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
     contract: "factory/prompts/planner.md"
     plan_artifact: "plans/active/<issue>-<slug>.md via forge.py plan save"
     decisions: "docs/decisions/ records BEFORE decomposition is recorded"
@@ -88,7 +88,7 @@ phases:
       the contract is identical: same sections (incl. Decisions), same
       forge.py plan save step, same gates. When planning in Claude, delegate
       ALL codebase exploration to Codex read-only runs
-      (/codex:rescue --model gpt-5.6-terra --effort high — read-only by
+      (/codex:rescue --model gpt-5.6-sol --effort medium — read-only by
       default; raw codex exec is hook-blocked, no exceptions).
       Approval is the saved plan file, not a flag.
   decomposition:
@@ -102,11 +102,14 @@ phases:
     notes: "Per-task task graph; records the user_facing flag the ship gate reads."
   implementation:
     owner: "codex:/codex:rescue"
-    model: "gpt-5.6-terra"
-    # Floor, not a ceiling; this project runs its implementers at xhigh. Raise
-    # a single run with `./forge delegate <id> --effort high` when a pin lower
-    # than that is ever chosen for migrations, cross-domain or security work.
-    reasoning: "xhigh"
+    # Owner policy 2026-09-11: implementers run gpt-5.6-sol at medium.
+    # PATCHED IN PLACE by owner ruling; harness.yaml is vendored from
+    # symphony-forge, so a re-vendor reverts this unless made upstream too.
+    model: "gpt-5.6-sol"
+    # Floor, not a ceiling. Raise a single run with
+    # `./forge delegate <id> --effort medium` for migrations, cross-domain or
+    # security work.
+    reasoning: "medium"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
       # the recorder refuses a user-facing testing artifact unless skills_used

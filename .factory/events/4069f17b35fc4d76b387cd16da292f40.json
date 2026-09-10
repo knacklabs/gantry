@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-10T18:20:37+00:00", "story": "GRANTED-1", "detail": "S-0100-bcd6: Correct, and the contract was wrong, not you. apps/core/test/unit/jobs/execution-phases-run.test.ts does not exist; it is a NEW file this task creates, and nothing anywhere says otherwise. Create it. "}

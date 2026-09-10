@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-10T18:24:53+00:00", "story": "GRANTED-1", "detail": "S-0101-4303: Good question, and the contract was over-cautious. Ruling, grounded in the code: an adapter binding stores adapterRef, and the seeded form is 'builtin:<toolName>' (adapters/storage/postgres/seeds.ts:1"}

@@ -1,5 +1,22 @@
 {
   "id": "GRANTED-1-T1",
   "title": "The scheduled run is told which capabilities it holds",
-  "status": "pending"
+  "status": "active",
+  "started_at": "2026-09-10T18:01:52+00:00",
+  "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
+  "dirty_at_start": {
+    ".factory/grill-brief-task-GRANTED-1-T1.md": {
+      "digest": "83bd4937a38b0fb5df0e70f21ac7825030d7c8ee3f2ad92cda2388f64fa7a73b",
+      "git": "1 .M N... 100644 100644 100644 c4dd6dc661d12906dce551791af5dbedc6535391 c4dd6dc661d12906dce551791af5dbedc6535391 .factory/grill-brief-task-GRANTED-1-T1.md\u0000\u0000100644 c4dd6dc661d12906dce551791af5dbedc6535391 0\t.factory/grill-brief-task-GRANTED-1-T1.md\u0000\u0000H .factory/grill-brief-task-GRANTED-1-T1.md\u0000"
+    },
+    ".factory/stories/GRANTED-1/grill-rounds/94ba140d-4da0-40dc-bb43-747b174669d9.json": {
+      "digest": "636e1e34bc915c2a30bbc8d9db1fa72908d2d4bb70a0395a1a06c486d254a153",
+      "git": "? .factory/stories/GRANTED-1/grill-rounds/94ba140d-4da0-40dc-bb43-747b174669d9.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json": {
+      "digest": "e5839d4c5188e6f36d9970a9e2939c1c89171842620476d912e3dadb43d64383",
+      "git": "1 .M N... 100644 100644 100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 b606c3fde9ae7f34b9c597ffec4db3943de468c0 .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 0\t.factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000H .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000"
+    }
+  },
+  "task_sha256": "96ef1a85384e8b46410865259706b2e0f0145c9707a101b56f2719bcf878210c"
 }

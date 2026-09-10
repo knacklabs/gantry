@@ -350,3 +350,8 @@ After it lands and deploys, as evidence: five serial runs of
 requiring at least one successful capability invocation and zero `tool.activity`
 rows with phase `failure` of any tool before it, with the per-run event query and
 the startup diagnostic retained redacted.
+
+## Implementation Assumptions
+
+<!-- Made during implementation, NOT part of the approved plan. Dev: review these before merge; promote any that matter to docs/decisions/. -->
+- 2026-09-10: Reviewed argument operands render verbatim in the capability catalog and every other sink. The owner was shown twice that template validation blocks shell syntax and environment assignments but not a literal credential such as an API-key flag value, and ruled that approved templates are trusted. A template containing a credential would therefore place it in the agent prompt. Blocking literal credentials at capability-definition validation remains available as later hardening.

@@ -429,6 +429,30 @@ These questions were put to the human and answered. Two obligations:
   A: Preserve via PATCH (Recommended)
 - Q: Should first setup prevent saving or constructing a request until a multi-method provider’s authentication method is explicitly selected?
   A: Require selection (Recommended)
+- Q: Before the plan goes to the board, what happens to the held pull request 500?
+  A: Land it now as a stopgap (Recommended)
+- Q: If an agent's granted capabilities will not fit the prompt section, what should it see?
+  A: Names always, details degrade (Recommended)
+- Q: Six reads in, the two halves are behaving like different-sized problems. Split them?
+  A: Split the spec (Recommended)
+- Q: An argument shape can contain a fixed operand like a config path. What should the agent be shown?
+  A: Never show argument shapes
+- Q: A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?
+  A: Show the reviewed shape as-is
+- Q: Before this hands off to the plan, the live five-run check on the real job: gate or evidence?
+  A: Evidence, not a gate (Recommended)
+- Q: The two runtimes name tools differently. Should the catalog serve both, or just the one the job runs on?
+  A: Render a neutral name and let each lane translate
+- Q: If even the bare name-and-id list of an agent's grants will not fit the prompt, what should the run do?
+  A: Fail the run before it starts (Recommended)
+- Q: The story is one task of about thirteen files. Keep it whole or split it?
+  A: Keep it as one task (Recommended)
+- Q: The harness wants a task count from you and suggests starting at four. You said one. Which stands?
+  A: One task, as you said (Recommended)
+- Q: New information on the argument shapes: a reviewed template can contain a literal credential, and validation does not block it. Which way?
+  A: Redact only when rendering
+- Q: A capability can have several implementation bindings. How should the catalog show that?
+  A: Show all of them (Recommended)
 
 ## The artifact under interrogation (task plan GRANTED-1-T1)
 
@@ -484,30 +508,49 @@ job path reuses it unchanged. No new resolver API.
    reference and capability id, its own reference being opaque.
    `resolveReadyActions` (`agent-prompt-capability-catalog.ts:137`) populates it
    and stops dropping `stableRef`.
-3. **Render-time redaction.** Reviewed shapes render as reviewed, per the owner's
-   ruling, EXCEPT that a secret-shaped operand is redacted as the catalog renders.
+3. **Render-time redaction, in three places.** Reviewed shapes render as reviewed,
+   per the owner's ruling, EXCEPT that a secret-shaped operand is redacted as the
+   catalog renders, and equally in the mismatch error text and the audit record,
+   so no sink carries it.
    Template validation (`shared/semantic-capabilities.ts:557`) blocks shell syntax
    and environment assignments but not a literal credential such as an API-key
    flag value, and `localCliArgPatterns` (`:541`) serializes verbatim. The owner
    chose redaction at render over blocking at definition time.
-4. **Lane mapping at the compiler seam.** The catalog stores a lane-neutral
-   reference; `runtime/agent-spawn-prompt.ts:80` already receives `AgentInput`,
-   which carries `runtime` (`runtime/agent-spawn-types.ts:84`), so the mapping
-   lives there and passes the resolved name to the profile service. The DeepAgents
-   lane has no entry and a test asserts that, so its behaviour is unchanged and
-   the gap cannot drift silently.
-5. **Shedding and the two budgets.** `prompt-profile-service.ts:54` gains a named
-   default budget and a ceiling derived as at least the compact name-and-id list.
-   The renderer sheds in order: non-granted entries, then descriptions, then
-   descriptors. Compilation truncates at the section budget (`:532`) and again at
-   the total prompt budget (`:756`), so the capability section is exempted from
-   the second cut below its compact representation.
-6. **Hard overflow fails closed, through a typed path.** The existing callback
-   (`agent-spawn-prompt.ts:58`) only logs counts, and a compile error is caught
-   and turned into an empty prompt (`:120`), after which spawning continues. That
-   cannot satisfy "before any provider call", so overflow raises a typed
-   pre-spawn failure that the catch does not swallow, carrying a redacted
-   `capability_catalog_overflow` diagnostic with granted and renderable counts.
+4. **Lane mapping takes the resolved engine, not a runtime flag.**
+   `AgentRuntime` is only `worker | inline` (`shared/agent-runtime.ts:9`), a
+   different axis from the execution engine, so it cannot select a tool name. The
+   engine is already resolved from the model at BOTH prompt-compile call sites:
+   `runtime/agent-spawn.ts:179` (`resolvedModel.value.agentEngine`) before the
+   compile at `:219`, and `runtime/agent-spawn-host.ts:161` before the compile at
+   `:179`. Both pass that engine into `compileSpawnSystemPrompt`, which resolves
+   the lane-neutral reference through a small mapping. The `deepagents` engine
+   (`shared/agent-engine.ts:10`) has no entry, so it renders no tool name and its
+   guidance is unchanged; a test on each path asserts this, so the gap cannot
+   drift silently.
+5. **Shedding is a total order, and the compact list is defined.** The compact
+   representation is one line per grant carrying display name and stable id, and
+   nothing else. `prompt-profile-service.ts:54` gains a named default budget and a
+   ceiling derived as at least that compact list. The renderer
+   (`agent-prompt-capability-guidance.ts:41`) today always includes requestable
+   actions and fixed discovery text in every fit calculation and only sheds ready
+   descriptions, skills and sources (`:88`), so "non-granted entries" was too
+   loose. The shedding order becomes total and explicit: requestable actions,
+   then discovery text, then connected-source summaries, then installed skills,
+   then ready descriptions, then invocation descriptors, and only the compact list
+   remains. Compilation truncates at the section budget
+   (`prompt-profile-service.ts:532`) and again at the total prompt budget
+   (`:756`), so the capability section is exempted from the second cut below its
+   compact representation.
+6. **Hard overflow aborts the spawn and publishes at the abort point.** The
+   existing callback (`agent-spawn-prompt.ts:58`) only logs counts, and a compile
+   error is caught and turned into an empty prompt (`:120`), after which spawning
+   continues. Overflow therefore raises a typed failure the catch does not
+   swallow. The existing startup publisher
+   (`agent-spawn.ts:721 publishRunnerHostStartupDiagnosticFromSpawn`) runs far
+   later, immediately before the runner process executes, so it is never reached
+   on this path: both spawn paths publish the redacted
+   `capability_catalog_overflow` event themselves, with granted and renderable
+   counts, at the point they abort.
 7. **Deletion and wording.** The 97ded3746 block leaves `runner/mcp/context.ts`;
    the dispatcher description in `runner/mcp/tools/capability-run.ts` points at
    the catalog. Its input schema, risk classification and host enforcement are
@@ -516,7 +559,8 @@ job path reuses it unchanged. No new resolver API.
 ## Non-goals
 
 No change to enforcement, the argv template or the classifier. No migration or
-schema change. The DeepAgents catalog is GRANTED-2. Document editing is DOCEDIT-1.
+schema change. The runtime flag distinguishing worker from inline is not touched;
+it is the wrong axis for engine selection. The DeepAgents catalog is GRANTED-2. Document editing is DOCEDIT-1.
 Blocking literal credentials at capability-definition validation was considered
 and the owner chose render-time redaction instead.
 
@@ -530,9 +574,9 @@ flowchart TD
   D --> E[resolve capability catalog]
   E --> F[project every binding as an invocation<br/>redacting secret-shaped operands]
   F --> G{compact name and id list fits total budget?}
-  G -- no --> H[typed pre-spawn failure<br/>capability_catalog_overflow diagnostic]
-  G -- yes --> I[shed: non-granted, then descriptions, then descriptors]
-  I --> J[map neutral reference to the lane's tool name]
+  G -- no --> H[abort spawn and publish<br/>capability_catalog_overflow at that point]
+  G -- yes --> I[shed in order: requestables, discovery, sources,<br/>skills, descriptions, descriptors]
+  I --> J[resolved model engine selects the lane tool name]
   J --> K[spawn input carries capabilityCatalog]
   K --> L[prompt compiled, section exempt from the second cut]
   L --> M[agent's first tool action is the dispatcher call]
@@ -555,7 +599,7 @@ flowchart TD
 
 ## Verify
 
-`npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application
+`npx vitest run --config vitest.unit.config.ts apps/core/test/unit/application
 apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner`,
 then `npm run typecheck`, `npm run lint`, `npm run format:check`,
 `npm run check:architecture`, and `python3 factory/scripts/verify.py` with

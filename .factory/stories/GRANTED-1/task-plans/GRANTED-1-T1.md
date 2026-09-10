@@ -37,23 +37,40 @@ job path reuses it unchanged. No new resolver API.
 1. **Job path builds and passes the catalog.** Call the existing resolver with
    the person-filtered set and set `capabilityCatalog` on the spawn input at
    `:287`.
-2. **`CatalogEntry` gains `invocations`, plural.** A semantic capability owns an
-   array of implementation bindings (`shared/semantic-capabilities.ts:53`) while
-   the catalog projects one entry per capability, so a singular field would hide a
-   valid route. Every binding renders, in a deterministic order, as a closed union
-   over the four usable kinds (`shared/semantic-capabilities.ts:25`; legacy
-   `mcp_tool` is rejected at validation and never reaches the catalog):
-   `local_cli` carries a lane-neutral dispatcher reference, the capability id and
-   the reviewed argument patterns; `mcp_pattern` a neutral proxy reference and the
-   connected server name; `tool_rule` the tool name, which is how skill actions
-   appear, being a tool rule distinguished by source; `adapter` the neutral
-   reference and capability id, its own reference being opaque.
-   `resolveReadyActions` (`agent-prompt-capability-catalog.ts:137`) populates it
-   and stops dropping `stableRef`.
-3. **Render-time redaction, in three places.** Reviewed shapes render as reviewed,
-   per the owner's ruling, EXCEPT that a secret-shaped operand is redacted as the
-   catalog renders, and equally in the mismatch error text and the audit record,
-   so no sink carries it.
+2. **`CatalogEntry` gains `invocations`, plural, one shape per calling
+   mechanism.** A capability owns an array of bindings
+   (`shared/semantic-capabilities.ts:53`) while the catalog projects one entry
+   per capability, so a singular field would hide a valid route. Every binding
+   renders, in a deterministic order, over the four usable kinds
+   (`:25`; legacy `mcp_tool` is rejected at validation). Each kind is called a
+   DIFFERENT way, so there is no single neutral dispatcher reference: the
+   dispatcher runs local CLI capabilities only, by its own registered
+   description (`runner/mcp/tools/capability-run.ts:14`).
+
+   - `local_cli` — the lane-mapped dispatcher name, the capability id, and the
+     reviewed argument patterns.
+   - `mcp_pattern` — the lane-mapped MCP proxy tool, the connected server name
+     and the tool-name pattern.
+   - `tool_rule` — the tool name, called directly. Skill actions appear here,
+     being a tool rule distinguished by source, under 0129's semantics.
+   - `adapter` with a `builtin:` reference — the tool name after that prefix,
+     called directly. The raw reference is never rendered.
+   - `adapter` of any other shape — informational: display name and stable id
+     only, no tool reference and no invented shape.
+
+   The lane mapping therefore applies only to the two dispatcher-style kinds.
+   `resolveReadyActions` (`agent-prompt-capability-catalog.ts:137`) populates
+   this and stops dropping `stableRef`.
+
+3. **Reviewed shapes render verbatim, everywhere.** The owner ruled that approved
+   templates are trusted and no redaction of argument operands is performed, in
+   the catalog or anywhere else. The exposure was stated and accepted: template
+   validation (`shared/semantic-capabilities.ts:557`) blocks shell syntax and
+   environment assignments but not a literal credential such as an API-key flag
+   value, and `localCliArgPatterns` (`:541`) serializes verbatim, so a template
+   containing one would place it in the prompt. The mismatch denial already emits
+   those patterns today, so this changes no existing exposure. What a descriptor
+   never carries is the executable path or its hash.
    Template validation (`shared/semantic-capabilities.ts:557`) blocks shell syntax
    and environment assignments but not a literal credential such as an API-key
    flag value, and `localCliArgPatterns` (`:541`) serializes verbatim. The owner
@@ -103,8 +120,9 @@ job path reuses it unchanged. No new resolver API.
 No change to enforcement, the argv template or the classifier. No migration or
 schema change. The runtime flag distinguishing worker from inline is not touched;
 it is the wrong axis for engine selection. The DeepAgents catalog is GRANTED-2. Document editing is DOCEDIT-1.
-Blocking literal credentials at capability-definition validation was considered
-and the owner chose render-time redaction instead.
+Redaction of argument operands is out of scope by owner ruling: approved
+templates are trusted. Blocking literal credentials at capability-definition
+validation remains available as later hardening.
 
 ## Workflow
 
@@ -114,7 +132,7 @@ flowchart TD
   B --> C[resolveTurnToolPolicyFromSnapshot with personId]
   C --> D[person-filtered semantic capabilities]
   D --> E[resolve capability catalog]
-  E --> F[project every binding as an invocation<br/>redacting secret-shaped operands]
+  E --> F[project every binding as an invocation<br/>reviewed shapes verbatim]
   F --> G{compact name and id list fits total budget?}
   G -- no --> H[abort spawn and publish<br/>capability_catalog_overflow at that point]
   G -- yes --> I[shed in order: requestables, discovery, sources,<br/>skills, descriptions, descriptors]
@@ -133,9 +151,7 @@ flowchart TD
    `failure` precedes the first successful capability invocation.
 3. Compare against a chat turn for the same agent: the same entries render, since
    both lanes share the builder and renderer.
-4. Define a capability whose template carries a secret-shaped operand and confirm
-   the rendered catalog shows it redacted while the stored template is unchanged.
-5. Grant the agent enough capabilities that the compact list cannot fit, and
+4. Grant the agent enough capabilities that the compact list cannot fit, and
    confirm the run fails at startup with the overflow diagnostic rather than
    starting and silently omitting one.
 
