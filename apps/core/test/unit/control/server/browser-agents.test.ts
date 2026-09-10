@@ -123,3 +123,25 @@ it('validates the selected model before creating an inline custom role', () => {
     ),
   ).toBeLessThan(source.indexOf('const role = await roleService.create({'));
 });
+
+it('creates the onboarding graph in one database transaction', () => {
+  const transaction = source.indexOf(
+    'await storage.service.db.transaction(async (tx) => {',
+  );
+  expect(transaction).toBeGreaterThan(-1);
+  expect(
+    source.indexOf('tx.insert(customRolesPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    source.indexOf('tx.insert(agentsPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    source.indexOf('tx.insert(usersPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    source.indexOf('tx.insert(agentConfigVersionsPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    source.indexOf('tx.insert(onboardingSetupsPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+});

@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
-import { onboardingSetupsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
+import {
+  agentConfigVersionsPostgres,
+  agentsPostgres,
+  customRolesPostgres,
+  onboardingSetupsPostgres,
+  usersPostgres,
+} from '../../../adapters/storage/postgres/schema/schema.js';
+import { stableId } from '../../../adapters/storage/postgres/repositories/person-identity-mappers.postgres.js';
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -12,6 +19,7 @@ import type {
   AgentConfigVersion,
   AgentConfigVersionId,
   AgentId,
+  CustomRole,
   CustomRoleId,
 } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
@@ -413,6 +421,7 @@ export async function handleBrowserAgentRoutes(
         await validateModelAlias(ctx, appId, agent.id, modelAlias);
       let roleId =
         typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
+      let onboardingRole: CustomRole | undefined;
       if ('customRole' in body) {
         const customRole = body.customRole;
         if (
@@ -429,12 +438,24 @@ export async function handleBrowserAgentRoutes(
             ),
             true
           );
-        const role = await roleService.create({
-          appId,
-          name: customRole.name,
-          prompt: customRole.prompt,
-        });
-        roleId = role.id;
+        if (body.onboarding === true) {
+          onboardingRole = {
+            id: `custom-role:${randomUUID()}` as CustomRoleId,
+            appId,
+            name: customRole.name.trim(),
+            prompt: customRole.prompt.trim(),
+            createdAt: now,
+            updatedAt: now,
+          };
+          roleId = onboardingRole.id;
+        } else {
+          const role = await roleService.create({
+            appId,
+            name: customRole.name,
+            prompt: customRole.prompt,
+          });
+          roleId = role.id;
+        }
       }
       const config: AgentConfigVersion = {
         id: configId,
@@ -443,7 +464,13 @@ export async function handleBrowserAgentRoutes(
         version: 1,
         promptProfileRef: 'browser-agent-role-snapshot',
         agentNameSnapshot: agent.name,
-        roleSnapshot: await roleSnapshotFor(storage, appId, roleId),
+        roleSnapshot: onboardingRole
+          ? {
+              displayName: onboardingRole.name,
+              prompt: onboardingRole.prompt,
+              sourceRoleId: onboardingRole.id,
+            }
+          : await roleSnapshotFor(storage, appId, roleId),
         modelAliasSnapshot: modelAlias ?? undefined,
         // The control graph establishes this default profile for an app before
         // agents are available to configure.
@@ -453,13 +480,55 @@ export async function handleBrowserAgentRoutes(
         permissionPolicyIds: [],
         createdAt: now,
       };
-      await storage.repositories.agents.saveAgent(agent);
-      await storage.repositories.agentConfigs.saveConfigVersion(config);
       if (body.onboarding === true) {
-        await storage.service.db
-          .insert(onboardingSetupsPostgres)
-          .values({ agentId: agent.id, appId, createdAt: now, updatedAt: now })
-          .onConflictDoNothing();
+        await storage.service.db.transaction(async (tx) => {
+          if (onboardingRole) {
+            await tx.insert(customRolesPostgres).values({
+              ...onboardingRole,
+              sourceRoleId: null,
+            });
+          }
+          await tx.insert(agentsPostgres).values(agent);
+          await tx.insert(usersPostgres).values({
+            id: stableId('person', [appId, 'service', agent.id]),
+            appId,
+            agentId: agent.id,
+            kind: 'service',
+            displayName: agent.name,
+            status: agent.status,
+            createdAt: now,
+            updatedAt: now,
+          });
+          await tx.insert(agentConfigVersionsPostgres).values({
+            id: config.id,
+            appId,
+            agentId: agent.id,
+            version: config.version,
+            promptProfileRef: config.promptProfileRef,
+            agentNameSnapshot: config.agentNameSnapshot ?? null,
+            roleDisplayName: config.roleSnapshot?.displayName ?? null,
+            rolePrompt: config.roleSnapshot?.prompt ?? null,
+            sourceRoleId: config.roleSnapshot?.sourceRoleId ?? null,
+            modelAliasSnapshot: config.modelAliasSnapshot ?? null,
+            llmProfileId: config.llmProfileId,
+            toolIdsJson: JSON.stringify(config.toolIds),
+            skillIdsJson: JSON.stringify(config.skillIds),
+            permissionPolicyIdsJson: JSON.stringify(config.permissionPolicyIds),
+            sandboxProfileId: config.sandboxProfileId ?? null,
+            workspaceSnapshotId: config.workspaceSnapshotId ?? null,
+            runtimeLimitsJson: JSON.stringify(config.runtimeLimits ?? {}),
+            createdAt: now,
+          });
+          await tx.insert(onboardingSetupsPostgres).values({
+            agentId: agent.id,
+            appId,
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+      } else {
+        await storage.repositories.agents.saveAgent(agent);
+        await storage.repositories.agentConfigs.saveConfigVersion(config);
       }
       if (modelAlias !== undefined) {
         await ctx.agentSettings.writeAgentModelSetting({
