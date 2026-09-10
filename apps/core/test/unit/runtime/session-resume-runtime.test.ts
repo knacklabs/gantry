@@ -30,6 +30,7 @@ function createCompactionPathRunner(input: {
   getContextMessagesSince?: ReturnType<typeof vi.fn>;
   markProviderSessionDeltaReplay?: ReturnType<typeof vi.fn>;
   expireProviderSession?: ReturnType<typeof vi.fn>;
+  retireProviderSession?: ReturnType<typeof vi.fn>;
 }) {
   const runAgent = vi.fn(
     async (
@@ -79,6 +80,10 @@ function createCompactionPathRunner(input: {
         getContextMessagesSince: input.getContextMessagesSince,
         markProviderSessionDeltaReplay: input.markProviderSessionDeltaReplay,
         expireProviderSession: input.expireProviderSession,
+        // Required on the port since T1 (retirement is never optional); the
+        // fake resolves to "no row transitioned" unless a test injects one.
+        retireProviderSession:
+          input.retireProviderSession ?? vi.fn(async () => undefined),
       }) as never,
   });
   return { runner, runAgent, executionProviderId };
