@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0179-6e1d",
+  "profile": "quickfix",
+  "reason": "IDENT-2 migration lost its approver-to-person backfill in the consolidation; the person_required CHECK fails on the live database and the runtime cannot start. Restore the two backfill updates and the resolve guard before the constraints.",
+  "started_at": "2026-09-10T06:46:59+00:00",
+  "completed_at": "2026-09-10T07:17:20+00:00",
+  "files": []
+}
