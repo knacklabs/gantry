@@ -1,0 +1,17 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Gantry is DOWN (startup crash loop). Cause: my npx-shim hardening (merged in #465, deployed) makes settings validation reject your two stored grants \u2014 RunCommand(npx remotion *) and RunCommand(npx remotion render *) \u2014 and startup hard-fails on invalid settings. The permission classifier blocked every recovery path I tried (settings edit, build rollback, even opening a quickfix window). How do you want service restored?",
+      "options": [
+        "Remove the 2 npx grants (Recommended)",
+        "Roll back the build",
+        "Ship warn-and-skip fix first",
+        "I'll fix it myself"
+      ],
+      "chosen": "Remove the 2 npx grants (Recommended)"
+    }
+  ],
+  "at": "2026-09-01T07:01:33.554024+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

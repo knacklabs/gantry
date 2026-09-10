@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "If even the bare name-and-id list of an agent's grants will not fit the prompt, what should the run do?",
+      "options": [
+        "Fail the run before it starts (Recommended)",
+        "Truncate and record it",
+        "Let the prompt grow past the budget"
+      ],
+      "chosen": "Fail the run before it starts (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T16:11:05.900669+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

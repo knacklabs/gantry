@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Six reads in, the two halves are behaving like different-sized problems. Split them?",
+      "options": [
+        "Split the spec (Recommended)",
+        "Keep one spec and push through",
+        "Cut the document half entirely"
+      ],
+      "chosen": "Split the spec (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T13:24:22.593866+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

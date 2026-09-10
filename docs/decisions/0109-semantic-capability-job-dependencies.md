@@ -39,3 +39,16 @@ matching capability IDs and pauses only jobs with no reviewed mapping.
   duplicate-of-capability writes are refused.
 - Ships LAST in the program (SCHED-5), after the correctness blockers,
   job repair, revision fencing, and observability land.
+
+## Amendment (2026-09-10, GRANTED-1 plan gate)
+
+The ordering consequence above is retired. It sequenced work inside the SCHED-5
+program, which did not run, and the catalog guidance it describes was never
+built: a scheduled run still receives no capability catalog at all. The ordering
+was a program preference, not a technical dependency — rendering an agent's
+granted capabilities adds no write path, so it does not need revision fencing
+(0108) to exist first. Under GRANTED-1 the catalog guidance ships FIRST, because
+it is the fix for scheduled runs that currently guess their way to a capability,
+and revision fencing follows as the prerequisite for editing job prompts.
+Everything else in this record stands.
+

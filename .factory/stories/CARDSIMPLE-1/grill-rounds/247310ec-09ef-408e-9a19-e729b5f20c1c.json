@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Decision 0109 says scheduled capability guidance ships after revision fencing. Our plan ships discovery first. Which gives?",
+      "options": [
+        "Amend 0109's ordering (Recommended)",
+        "Honour 0109 and reorder",
+        "Ship discovery as a separate fix"
+      ],
+      "chosen": "Amend 0109's ordering (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T11:52:10.037292+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

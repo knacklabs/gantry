@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "New information on the argument shapes: a reviewed template can contain a literal credential, and validation does not block it. Which way?",
+      "options": [
+        "Block literal credentials at review (Recommended)",
+        "Redact only when rendering",
+        "Accept the risk, render everything"
+      ],
+      "chosen": "Redact only when rendering"
+    },
+    {
+      "question": "A capability can have several implementation bindings. How should the catalog show that?",
+      "options": [
+        "Show all of them (Recommended)",
+        "Show one, chosen by rule"
+      ],
+      "chosen": "Show all of them (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T17:09:40.202442+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

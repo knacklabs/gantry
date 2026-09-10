@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The story is one task of about thirteen files. Keep it whole or split it?",
+      "options": [
+        "Keep it as one task (Recommended)",
+        "Split plumbing from rendering"
+      ],
+      "chosen": "Keep it as one task (Recommended)"
+    },
+    {
+      "question": "Two follow-ups came out of this work. Queue them on the roadmap now?",
+      "options": [
+        "The document edit spec (Recommended)",
+        "The second runtime's catalog (Recommended)",
+        "Neither, leave them out"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-10T16:13:24.183175+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

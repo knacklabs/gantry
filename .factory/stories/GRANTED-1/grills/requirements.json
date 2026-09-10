@@ -1,9 +1,9 @@
 {
   "generated_by": "griller",
-  "gate": "spec",
+  "gate": "requirements",
   "verdict": "pass",
   "issue": "GRANTED-1",
-  "summary": "Requirements re-read on the stable tree returned a single finding, the hard-overflow edge where even names and ids will not fit. The owner ruled fail closed and both spec and plan carry it.",
+  "summary": "Requirements re-read on the stable tree returned one finding, the hard-overflow edge, settled fail closed by the owner. The owner also confirmed the story stays a single task and queued both follow-ups on the roadmap.",
   "gaps": [
     "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee."
   ],
@@ -12,20 +12,18 @@
     "Owner ruled fail closed: the spec and plan now state that when the compact list cannot fit, the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts, and acceptance criterion 4b asserts it."
   ],
   "open_items": [
-    "Extending the catalog to the DeepAgents lane remains follow-up, with its absence asserted so the gap is explicit.",
-    "The document edit contract and decisions 0108 and 0114 remain in the superseded draft awaiting their own spec."
+    "Owner queued the document edit spec on the roadmap as follow-up; it currently exists only as a superseded draft.",
+    "Owner queued the second runtime's catalog on the roadmap as follow-up; this story asserts its absence so the gap cannot drift silently."
   ],
   "questions_asked": 1,
-  "input_sha256": "c771a919d286892dec872f57ceeeb2380094911b92693c86d2790ea3e2ecfeb8",
   "rounds": [
     {
-      "question": "If even the bare name-and-id list of an agent's grants will not fit the prompt, what should the run do?",
+      "question": "The story is one task of about thirteen files. Keep it whole or split it?",
       "options": [
-        "Fail the run before it starts (Recommended)",
-        "Truncate and record it",
-        "Let the prompt grow past the budget"
+        "Keep it as one task (Recommended)",
+        "Split plumbing from rendering"
       ],
-      "chosen": "Fail the run before it starts (Recommended)",
+      "chosen": "Keep it as one task (Recommended)",
       "frontier_empty": true
     }
   ],
@@ -40,6 +38,7 @@
       "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
     }
   ],
-  "recorded_at": "2026-09-10T16:11:56+00:00",
+  "input_sha256": "3135246afa020ae433a36d31592275d203a6d207ae5b682ed67a8e3be0858ce6",
+  "recorded_at": "2026-09-10T16:13:36+00:00",
   "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
 }
