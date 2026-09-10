@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0180-33de",
+  "profile": "quickfix",
+  "reason": "Granted CLI capabilities never tell the model their argv shape up front: the capability context lists ids only and capability_run's description names a reviewed pattern without stating it, so every scheduled run pays failed probing calls before the first successful sheets read. Render each granted capability's reviewed args pattern in the capability context from the same helper the mismatch denial uses, and point the tool description at it.",
+  "started_at": "2026-09-10T08:27:27+00:00",
+  "completed_at": "2026-09-10T08:54:23+00:00",
+  "files": []
+}
