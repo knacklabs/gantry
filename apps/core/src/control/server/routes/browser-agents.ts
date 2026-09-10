@@ -397,8 +397,31 @@ export async function handleBrowserAgentRoutes(
         );
       const now = nowIso();
       await assertAvailableAgentName(storage, appId, body.name);
-      const roleId =
+      let roleId =
         typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
+      if ('customRole' in body) {
+        const customRole = body.customRole;
+        if (
+          !object(customRole) ||
+          !validName(customRole.name) ||
+          !validName(customRole.prompt)
+        )
+          return (
+            sendError(
+              res,
+              400,
+              'INVALID_REQUEST',
+              'Custom role name and prompt are required.',
+            ),
+            true
+          );
+        const role = await roleService.create({
+          appId,
+          name: customRole.name,
+          prompt: customRole.prompt,
+        });
+        roleId = role.id;
+      }
       const modelAlias = requestedModelAlias(body);
       const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
       const agent: Agent = {

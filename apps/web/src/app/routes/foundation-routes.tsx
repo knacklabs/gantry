@@ -19,6 +19,15 @@ const profileRoute = createRoute({
   component: PreferencesRoute,
 });
 
+const onboardingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'onboarding',
+  component: lazyRouteComponent(
+    () => import('../../features/onboarding/onboarding-route'),
+    'OnboardingRoute',
+  ),
+});
+
 const componentLabRoute = import.meta.env.DEV
   ? createRoute({
       getParentRoute: () => rootRoute,
@@ -41,7 +50,7 @@ const interactionLabRoute = import.meta.env.DEV
     })
   : undefined;
 
-export const foundationRoutes = [homeRoute, profileRoute];
+export const foundationRoutes = [homeRoute, profileRoute, onboardingRoute];
 export const developmentRoutes = [
   componentLabRoute,
   interactionLabRoute,
