@@ -108,6 +108,12 @@ export function OnboardingRoute() {
     setStep(status.data.resume.step);
   }, [agentId, started, status.data]);
 
+  useEffect(() => {
+    if (!status.isPending && status.data && !status.data.firstRun && !status.data.resume) {
+      void navigate({ to: '/overview', replace: true });
+    }
+  }, [navigate, status.data, status.isPending]);
+
   function saveDraft(next: { name?: string; title?: string; responsibilities?: string }) {
     if (next.name !== undefined) localStorage.setItem('gantry.onboarding.name', next.name);
     if (next.title !== undefined) localStorage.setItem('gantry.onboarding.title', next.title);
