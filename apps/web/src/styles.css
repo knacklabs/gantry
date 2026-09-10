@@ -47,6 +47,7 @@
   --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
   --shadow-popover: 0 16px 40px -16px rgb(27 26 24 / 30%);
   --shadow-drawer: 12px 0 28px rgb(27 26 24 / 16%);
+  --shadow-lift: 0 8px 18px -10px rgb(27 26 24 / 42%);
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
@@ -217,6 +218,16 @@
   }
   to {
     transform: translateX(320%);
+  }
+}
+@keyframes onboarding-mark-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.72) rotate(-8deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -517,6 +528,20 @@
   color: var(--text-secondary);
   padding: 0 11px;
   font-size: 11.5px;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+.onboarding-chips button:hover,
+.onboarding-pills button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-strong);
+  transform: translateY(-1px);
+}
+.onboarding-chips button:active,
+.onboarding-pills button:active {
+  transform: translateY(1px);
 }
 .onboarding-pills button.is-selected {
   border: 2px solid var(--ink);
@@ -542,10 +567,16 @@
   padding: 0 18px;
   font-size: 13px;
   font-weight: 500;
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 .onboarding-primary:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: var(--shadow-lift);
+}
+.onboarding-primary:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
 }
 .onboarding-primary:disabled {
   opacity: 0.5;
@@ -693,6 +724,7 @@
   grid-template-columns: repeat(3, 13px);
   grid-template-rows: repeat(3, 13px);
   gap: 3px;
+  animation: onboarding-mark-reveal 0.52s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .gantry-mark-hero i:nth-child(3),
 .gantry-mark-hero i:nth-child(5),
@@ -764,6 +796,16 @@
   padding: 0 24px;
   font-size: 15px;
   font-weight: 500;
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+.onboarding-splash button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -12px rgb(0 0 0 / 75%);
+}
+.onboarding-splash button:active {
+  transform: translateY(1px) scale(0.98);
 }
 .onboarding-splash small {
   color: #807c75;
