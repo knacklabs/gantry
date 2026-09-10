@@ -39,9 +39,10 @@ export async function handleBrowserOnboardingRoutes(
   const agents = await storage.repositories.agents.listAgents(
     session.appId as AppId,
   );
-  const accounts = await storage.repositories.providerAccounts.listProviderAccounts(
-    session.appId as AppId,
-  );
+  const accounts =
+    await storage.repositories.providerAccounts.listProviderAccounts(
+      session.appId as AppId,
+    );
   const resumable = agents
     .map((agent) => ({
       id: agent.id,
