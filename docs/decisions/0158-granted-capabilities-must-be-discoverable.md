@@ -2,7 +2,7 @@
 status: accepted
 confirmed_by: "Ravi"
 date: 2026-09-10
-stories: []
+stories: [GRANTED-1]
 ---
 
 # A granted capability must be discoverable before its call shape is relaxed

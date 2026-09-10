@@ -2587,8 +2587,30 @@
       "completed_at": "2026-09-03T16:05:20+00:00",
       "history": ".factory/stories/WEB-PROVIDERS-2/",
       "outcome": "WEB-PROVIDERS-2 is ready for review: registry-driven credential setup now handles explicit multi-method selection, safe sparse reactivation, multiline Vertex JSON, and honest local configuration checks."
+    },
+    {
+      "key": "GRANTED-1",
+      "title": "Agents can use what they are granted",
+      "story": "As someone who grants an agent a capability or a document, I want the agent to see what it holds and change it in place, so that a scheduled job stops guessing its way to a sheet and an edit stops destroying the text around it.",
+      "acceptance_criteria": [
+        "A scheduled run receives a capability catalog built from its access snapshot, carried on its spawn input",
+        "Every granted capability renders with its stable id and a complete invocation descriptor, and is never elided by overflow",
+        "Enforcement is unchanged: template mismatch still refused, no classifier-derived allow reaches the capability wrapper",
+        "Jobs carry the definition revision of decision 0108 and the persisted owner of decision 0114, migrations included",
+        "A document can be read as a line slice and edited by exact span, failing loudly and unchanged on absent or ambiguous text",
+        "A write carrying a stale revision is refused by one conditional statement, and a concurrent whole-document update is fenced by the same revision",
+        "Protected spans are never counted, reported, or distinguishable from absent text, and only the document store holds text verbatim",
+        "The document write tools are absent from scheduled tool surfaces and their handlers call the provenance guard"
+      ],
+      "order": 120,
+      "status": "active",
+      "epic": "capability-search",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/agents-can-use-what-they-are-granted.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-08T17:58:52+00:00"
+  "updated_at": "2026-09-10T11:54:11+00:00"
 }

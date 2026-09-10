@@ -2,98 +2,104 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "Four cold reads on the spec. Round 1 (9 findings) corrected attended-only job editing per 0106, a stale truncation premise, the compare-and-swap token, and falsifiable acceptance. Round 2 (10 findings) surfaced the contradiction between the proposed capability direction and accepted 0120 and 0130, which was escalated to the owner and ratified: the argv template stays the enforcement boundary and discovery is the defect, recorded as accepted decision 0158. This round's 7 findings are all resolved in the amended spec and in an amendment to 0153.",
+  "issue": "GRANTED-1",
+  "summary": "Sixth cold read of the spec, run at the requirements gate. Nine gaps: eight resolved in the amended spec, the ninth an owner choice on catalog overflow, settled as names always with details degrading past a ceiling.",
   "gaps": [
-    "The active decision corpus is contradictory: 0153 still excludes the autonomous classifier while 0157 enables it, and the spec only noted it.",
-    "definition_revision is not reusable yet: 0108 requires a migration the jobs schema does not have, so document CAS cannot assume it.",
-    "Capability discovery is specified as an outcome, not a mechanism; the initial catalog omits the capability's stable id and its invocation shape.",
-    "AC2 cannot falsify the claimed behaviour, and AC5 can pass vacuously when no successful invocation occurs.",
-    "document_ref authority is undefined at the load-bearing boundary and risks copying the legacy conversation-derived check.",
-    "The scheduled-mutation protection is incomplete: only forged provenance was tested, not absence of the edit tools from scheduled surfaces.",
-    "The secret rule is a validity oracle: a distinct redacted-overlap refusal differs from not-found, and redaction can collapse a multiline secret and break line coordinates."
+    "The promised complete invocation descriptor cannot be derived for every binding kind: MCP-pattern bindings carry only server and tool patterns and adapters only an opaque reference, neither with an argument schema.",
+    "'Every grant always renders' has no feasible bound against a fixed 1,500-character guidance section and a deterministic truncating renderer.",
+    "The criterion removing the per-capability runtime block while preserving the dispatcher unchanged is self-contradictory, because the dispatcher description points at that block.",
+    "The document-tool authority model is incomplete and internally conflicting: the scheduled read surface of decision 0106 is an explicit list that does not include the view tool, while the write-authority criterion would make a read-only scheduled viewer unusable.",
+    "Interactive write approval is unspecified: joining the scheduler mutation set only removes tools from autonomous surfaces and does not make attended writes ask, which decision 0107 requires.",
+    "Canonical ownership does not resolve the shared-group case, and no document reference grammar or discovery path is defined, so a group editor has no way to address the prompt without the forbidden authority source.",
+    "The revision fence does not specify the existing whole-document update protocol, its returned revision, or its conflict result, so no retry contract exists for an attended updater.",
+    "The document command contract is incomplete: omitted, invalid and empty-document semantics for ranges, insertion points on an empty document, and returned revisions on mutation are all unstated.",
+    "'Rate-limited' and 'deterministic replay' are not falsifiable: no limit, window, key, durability choice or response, and no harness or fixture that proves the descriptor caused the call."
   ],
   "contradictions": [
-    "The proposed relaxation of the reviewed argv template contradicted accepted 0120, which makes argv validation the credential and account boundary, and accepted 0130, which forbids any classifier-derived or cached allow reaching the capability wrapper."
+    "The spec both removed the per-capability runtime block and preserved the dispatcher contract unchanged, while that dispatcher's description directs the model to the removed block."
   ],
   "resolutions": [
-    "Amended docs/decisions/0153-learned-decisions-project-into-job-grants.md with a 2026-09-10 amendment retiring the classifier-exclusion clauses and keeping the projection; spec now cites 0043 and 0157.",
-    "Spec now declares completing decision 0108 as owned scope, citing the missing column at schema/jobs.ts:20, and adds acceptance criterion 6 plus a race test against a concurrent whole-document update in criterion 11.",
-    "Spec now names the model-visible catalog at agent-prompt-capability-guidance.ts:241 as the seam, requires the stable capability id and invocation shape in the initial materialization, corrects the 97ded3746 characterisation to the runtime capability context, and removes only the superseded per-capability block while keeping the generic dispatcher contract.",
-    "Acceptance criterion 1 asserts the exact rendered descriptor over the real materialization path; criterion 2 requires a named deterministic replay with no live model call; criterion 5 requires at least one successful capability invocation per run.",
-    "Spec now binds document_ref to the canonical owner of decision 0114 and the acting person of decision 0118, fails closed when either is unresolvable, and explicitly does not reuse job-management-access.ts:9; acceptance criterion 15 proves it.",
-    "Spec now requires both halves of decision 0106: the edit tools are absent from scheduled tool surfaces while document_view remains a read, and acceptance criterion 14 tests both absence and forged-provenance rejection.",
-    "Spec now requires the protected-span refusal to be byte-identical to the not-found response with rate-limited repeats, coordinate-preserving redaction, and ingress-time redaction before any permission or audit persistence; acceptance criteria 12 and 13 prove them.",
-    "Escalated to the owner and ratified: the argv template remains the enforcement boundary, 0120 and 0130 stand unamended, discovery is the defect. Recorded as decision 0158 (accepted, confirmed_by Ravi), which also records relaxation as future direction gated on a replacement boundary that must supersede 0120 and 0130 explicitly."
+    "Spec now defines a closed descriptor union per binding kind and states that kinds without an argument schema carry the reachable tool identity and say so, rather than an invented shape.",
+    "Owner ruled the ceiling behaviour: the section grows from the granted set up to a stated ceiling, non-granted material is dropped first, then descriptions, then entries compact; past the ceiling every granted id still renders without its descriptor and an overflow diagnostic is recorded. No grant is reduced to a count or omitted.",
+    "Spec now updates the dispatcher description text to point at the catalog, while pinning its input schema, risk classification and host enforcement unchanged by test.",
+    "Spec now separates read and write authority: reading needs the job read authority a caller already has and the view tool joins decision 0106's explicit scheduled read surface, which this story extends by naming it there; only writes require write authority.",
+    "Spec now classifies the write tools high-risk so they ask in normal auto mode per decision 0107, rather than inheriting a default classification.",
+    "Spec now defines the reference grammar as an opaque job-scoped key discovered from the job read, never itself a source of authority, and authorizes a shared-group job for an acting person the host records as a member of that group.",
+    "Spec now gives the whole-document update the same optional expected revision: stale is refused with the actual revision so the caller re-reads and retries, omitted behaves as today, and every successful write returns its revision.",
+    "Spec now states omitted, out-of-bounds and inverted range behaviour, empty-document reads, line-zero prepend as the only valid insertion into an empty document, an error past the last line, and a returned revision on every mutation; criteria 7 and 7b prove them.",
+    "Spec now sets the limiter at ten failures per document and caller per minute, process-local and bounding probing within a run, with a distinct error and criterion 12c; and the replay criterion now names the harness and fixture and adds a negative control proving the descriptor causes the call."
   ],
   "open_items": [
-    "Non-blocking: making reviewed argv templates easier to extend is follow-up work and does not require touching the enforcement gate (0158 consequences).",
-    "Non-blocking: binding a second document store to the same contract is deferred; version one binds the scheduled-job prompt only."
+    "Non-blocking: a capability lookup tool would remove the ceiling entirely and is deferred as out of scope for this story."
   ],
-  "questions_asked": 4,
-  "input_sha256": "186c7d3618b11ca7359d0047831c39c6a5de50c77decc8bd94b6bf3d831d0d41",
-  "inspected_refs": [
-    "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
-    "docs/decisions/0108-job-definition-revision-fencing.md",
-    "docs/decisions/0114-canonical-job-owner.md",
-    "docs/decisions/0118-identity-scoped-approval-and-grants.md",
-    "docs/decisions/0120-local-cli-structured-invocation.md",
-    "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
-    "docs/decisions/0153-learned-decisions-project-into-job-grants.md",
-    "docs/decisions/0157-jobs-use-the-chat-permission-ladder.md",
-    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
-    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
-    "apps/core/src/application/jobs/job-management-access.ts",
-    "apps/core/src/adapters/storage/postgres/schema/jobs.ts",
-    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts",
-    "apps/core/src/runner/mcp/context.ts",
-    "apps/core/src/runner/mcp/tools/capability-run.ts",
-    "apps/core/src/runner/mcp/tools/scheduler-formatters.ts",
-    "apps/core/src/shared/sensitive-material.ts",
-    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-search-decision.ts",
-    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts"
-  ],
-  "citations": [
-    {
-      "finding": "The active decision corpus is contradictory: 0153 still excludes the autonomous classifier while 0157 enables it, and the spec only noted it.",
-      "ref": "docs/decisions/0153-learned-decisions-project-into-job-grants.md"
-    },
-    {
-      "finding": "definition_revision is not reusable yet: 0108 requires a migration the jobs schema does not have, so document CAS cannot assume it.",
-      "ref": "apps/core/src/adapters/storage/postgres/schema/jobs.ts"
-    },
-    {
-      "finding": "Capability discovery is specified as an outcome, not a mechanism; the initial catalog omits the capability's stable id and its invocation shape.",
-      "ref": "apps/core/src/application/agents/agent-prompt-capability-guidance.ts"
-    },
-    {
-      "finding": "AC2 cannot falsify the claimed behaviour, and AC5 can pass vacuously when no successful invocation occurs.",
-      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
-    },
-    {
-      "finding": "document_ref authority is undefined at the load-bearing boundary and risks copying the legacy conversation-derived check.",
-      "ref": "apps/core/src/application/jobs/job-management-access.ts"
-    },
-    {
-      "finding": "The scheduled-mutation protection is incomplete: only forged provenance was tested, not absence of the edit tools from scheduled surfaces.",
-      "ref": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md"
-    },
-    {
-      "finding": "The secret rule is a validity oracle: a distinct redacted-overlap refusal differs from not-found, and redaction can collapse a multiline secret and break line coordinates.",
-      "ref": "apps/core/src/shared/sensitive-material.ts"
-    }
-  ],
+  "questions_asked": 1,
   "rounds": [
     {
-      "question": "Before the spec hands off to planning, is there any remaining gap you want closed?",
+      "question": "If an agent's granted capabilities will not fit the prompt section, what should it see?",
       "options": [
-        "No gap, hand off (Recommended)",
-        "Bring back the second document surface",
-        "Widen back to the live job as a gate"
+        "Names always, details degrade (Recommended)",
+        "Full details, no ceiling",
+        "Add a lookup tool"
       ],
-      "chosen": "No gap, hand off (Recommended)",
+      "chosen": "Names always, details degrade (Recommended)",
       "frontier_empty": true
     }
   ],
-  "recorded_at": "2026-09-10T11:01:55+00:00",
-  "commit": "018f9e0fc96caa97a01fe2d3ada003fef43f3d33"
+  "inspected_refs": [
+    "docs/specs/agents-can-use-what-they-are-granted.md",
+    "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
+    "docs/decisions/0107-typed-permission-decision-provenance.md",
+    "docs/decisions/0108-job-definition-revision-fencing.md",
+    "docs/decisions/0114-canonical-job-owner.md",
+    "docs/decisions/0118-identity-scoped-approval-and-grants.md",
+    "apps/core/src/shared/semantic-capabilities.ts",
+    "apps/core/src/shared/admin-mcp-tools.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
+    "apps/core/src/application/jobs/job-management-types.ts",
+    "apps/core/src/jobs/ipc-scheduler-access.ts",
+    "apps/core/src/runner/mcp/tools/capability-run.ts",
+    "apps/core/src/runner/mcp/tools/capabilities.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The promised complete invocation descriptor cannot be derived for every binding kind: MCP-pattern bindings carry only server and tool patterns and adapters only an opaque reference, neither with an argument schema.",
+      "ref": "apps/core/src/shared/semantic-capabilities.ts"
+    },
+    {
+      "finding": "'Every grant always renders' has no feasible bound against a fixed 1,500-character guidance section and a deterministic truncating renderer.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    },
+    {
+      "finding": "The criterion removing the per-capability runtime block while preserving the dispatcher unchanged is self-contradictory, because the dispatcher description points at that block.",
+      "ref": "apps/core/src/runner/mcp/tools/capability-run.ts"
+    },
+    {
+      "finding": "The document-tool authority model is incomplete and internally conflicting: the scheduled read surface of decision 0106 is an explicit list that does not include the view tool, while the write-authority criterion would make a read-only scheduled viewer unusable.",
+      "ref": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md"
+    },
+    {
+      "finding": "Interactive write approval is unspecified: joining the scheduler mutation set only removes tools from autonomous surfaces and does not make attended writes ask, which decision 0107 requires.",
+      "ref": "docs/decisions/0107-typed-permission-decision-provenance.md"
+    },
+    {
+      "finding": "Canonical ownership does not resolve the shared-group case, and no document reference grammar or discovery path is defined, so a group editor has no way to address the prompt without the forbidden authority source.",
+      "ref": "docs/decisions/0114-canonical-job-owner.md"
+    },
+    {
+      "finding": "The revision fence does not specify the existing whole-document update protocol, its returned revision, or its conflict result, so no retry contract exists for an attended updater.",
+      "ref": "apps/core/src/application/jobs/job-management-types.ts"
+    },
+    {
+      "finding": "The document command contract is incomplete: omitted, invalid and empty-document semantics for ranges, insertion points on an empty document, and returned revisions on mutation are all unstated.",
+      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
+    },
+    {
+      "finding": "'Rate-limited' and 'deterministic replay' are not falsifiable: no limit, window, key, durability choice or response, and no harness or fixture that proves the descriptor caused the call.",
+      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
+    }
+  ],
+  "input_sha256": "a07e6c91fd999ea6b8945d23aaab6a1f09f1bfcb4c75a51cfee5962130b819c6",
+  "recorded_at": "2026-09-10T13:12:40+00:00",
+  "commit": "29b66040eebcfe7a09d83f9435453a71902e414c"
 }
