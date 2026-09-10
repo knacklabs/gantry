@@ -60,23 +60,28 @@ export async function handleBrowserOnboardingRoutes(
   }
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
-  const agents = await storage.repositories.agents.listAgents(
-    appId,
-  );
+  const agents = await storage.repositories.agents.listAgents(appId);
   const accounts =
-    await storage.repositories.providerAccounts.listProviderAccounts(
-    appId,
-    );
+    await storage.repositories.providerAccounts.listProviderAccounts(appId);
   const resumeCandidates = await Promise.all(
     agents.map(async (agent) => ({
       id: agent.id,
       name: agent.name,
       hasWorkspace: accounts.some((account) => account.agentId === agent.id),
-      hasAssignment: (await storage.repositories.providerAccounts.listConversationInstalls(appId, agent.id)).length > 0,
+      hasAssignment:
+        (
+          await storage.repositories.providerAccounts.listConversationInstalls(
+            appId,
+            agent.id,
+          )
+        ).length > 0,
     })),
   );
   const resumable = resumeCandidates
-    .map((agent) => ({ ...agent, step: agent.hasAssignment ? 4 : agent.hasWorkspace ? 3 : 2 }))
+    .map((agent) => ({
+      ...agent,
+      step: agent.hasAssignment ? 4 : agent.hasWorkspace ? 3 : 2,
+    }))
     .filter((agent) => agent.step < 4);
   sendJson(res, 200, {
     firstRun: agents.length === 0,
