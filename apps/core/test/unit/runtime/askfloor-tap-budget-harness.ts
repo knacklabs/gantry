@@ -27,6 +27,7 @@ import type {
 import type { PermissionDecisionSource } from '@core/domain/types.js';
 import type { RailProvenance } from '@core/domain/permission-lane.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
+import type { PermissionClassifierFailureCode } from '@core/runtime/permission-classifier.js';
 import type { PermissionMode } from '@core/shared/permission-mode.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
@@ -41,6 +42,7 @@ import { permissionDecisionResult } from '../channels/permission-approval-result
 export interface TapBudgetFixture {
   permissionMode: PermissionMode;
   hostJobId?: string;
+  targetJid?: string;
   workspaceRoot: string;
   command?: string;
   toolName?: string;
@@ -49,6 +51,7 @@ export interface TapBudgetFixture {
   trustedRoots: string[];
   classifierVerdict: {
     status?: PermissionClassifierStatus;
+    failureCode?: PermissionClassifierFailureCode;
     risk_level: 'low' | 'medium' | 'high' | 'critical';
     risk_category?:
       | 'destructive'
@@ -81,11 +84,13 @@ export async function replayPermissionRequest(
   decidedBy: PermissionApprovalDecision['decidedBy'];
   source: PermissionDecisionSource;
   railProvenance: RailProvenance | null;
+  decisionReason?: string;
   sendMessage: NonNullable<TapBudgetFixture['sendMessage']>;
   publishRuntimeEvent: NonNullable<TapBudgetFixture['publishRuntimeEvent']>;
 }> {
   fs.mkdirSync(fixture.workspaceRoot, { recursive: true });
   let taps = 0;
+  let decisionReason: string | undefined;
   const sendMessage = fixture.sendMessage ?? (async () => undefined);
   const publishRuntimeEvent =
     fixture.publishRuntimeEvent === false
@@ -94,6 +99,7 @@ export async function replayPermissionRequest(
   const responseKeyId = fixture.hostJobId
     ? `tap-budget-${fixture.hostJobId}`
     : undefined;
+  const targetJid = fixture.targetJid ?? 'tap-budget:conversation';
   if (responseKeyId) {
     registerWorkerPermissionRunRestriction({
       sourceAgentFolder: 'main_agent',
@@ -110,8 +116,10 @@ export async function replayPermissionRequest(
       request: {
         requestId: `tap-budget-${fixture.command ?? fixture.toolName}`,
         ...(responseKeyId
-          ? { responseKeyId, targetJid: 'tap-budget:conversation' }
-          : {}),
+          ? { responseKeyId, targetJid }
+          : fixture.targetJid
+            ? { targetJid }
+            : {}),
         sourceAgentFolder: 'main_agent',
         toolName: fixture.toolName ?? 'RunCommand',
         toolInput: fixture.toolInput ?? { command: fixture.command },
@@ -124,7 +132,7 @@ export async function replayPermissionRequest(
         conversationRoutes: () =>
           responseKeyId
             ? ({
-                'tap-budget:conversation': {
+                [targetJid]: {
                   name: 'tap budget',
                   folder: 'main_agent',
                   trigger: '@gantry',
@@ -133,8 +141,9 @@ export async function replayPermissionRequest(
                 },
               } as never)
             : {},
-        requestPermissionApproval: async () => {
+        requestPermissionApproval: async (request) => {
           taps += 1;
+          decisionReason = request.decisionReason;
           return permissionDecisionResult({
             approved: false,
             mode: 'cancel',
@@ -188,6 +197,7 @@ export async function replayPermissionRequest(
       publishRuntimeEvent: {
         value: publishRuntimeEvent ?? (async () => undefined),
       },
+      decisionReason: { value: decisionReason },
     },
   );
 }
@@ -336,17 +346,20 @@ async function replayExactMemorySequence(
   return { taps, claimedCodes, applications, decisions, rows };
 }
 
-export async function replayRememberedExactAllow(): Promise<{
+export async function replayRememberedExactAllow(
+  options?: Parameters<typeof replayExactMemorySequence>[2],
+): Promise<{
   taps: number[];
   claimedCodes: PermissionRememberCode[];
   applications: PermissionApprovalDecision['mode'][];
   activeRows: number;
 }> {
   const command = `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`;
-  const replay = await replayExactMemorySequence('s2', [
-    { command, rememberCode: 'remember_allow_exact' },
-    { command },
-  ]);
+  const replay = await replayExactMemorySequence(
+    's2',
+    [{ command, rememberCode: 'remember_allow_exact' }, { command }],
+    options,
+  );
   if (replay.decisions.some((decision) => !decision.approved)) {
     throw new Error('S2 permission was not allowed');
   }
@@ -373,7 +386,13 @@ export function replayDestructiveExactMemory(
   );
 }
 
-export async function replayRememberedJobProjection(): Promise<{
+export async function replayRememberedJobProjection(
+  options: {
+    classifierConsult?: () => Promise<
+      TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
+    >;
+  } = {},
+): Promise<{
   chatTaps: number;
   jobTaps: number[];
   revoked: 'applied' | 'already_revoked' | 'not_found';
@@ -427,11 +446,13 @@ export async function replayRememberedJobProjection(): Promise<{
               source: 'user',
             });
           },
-          classifierConsult: async () => ({
-            risk_level: 'high',
-            reason: 'Ask the person.',
-            latencyMs: 1,
-          }),
+          classifierConsult:
+            options.classifierConsult ??
+            (async () => ({
+              risk_level: 'high',
+              reason: 'Ask the person.',
+              latencyMs: 1,
+            })),
           publishRuntimeEvent: async () => undefined,
           getPermissionDecisionMemoryRepository: () => memory,
           opsRepository: {

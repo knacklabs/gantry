@@ -417,9 +417,11 @@ export function createInlineCoreTools(
             if (
               classifierDecision?.decision === 'allow' &&
               !request.decisionOptions?.length
-            )
+            ) {
+              observeJudgeAvailabilityForRequest(classifierDecision, request);
               // prettier-ignore
               return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
+            }
           }
           if (classifierDecision && isJudgeUnavailable(classifierDecision)) {
             request.decisionReason = judgeOutageReason(classifierDecision);

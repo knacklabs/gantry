@@ -1342,7 +1342,8 @@ describe('inline core tool bootstrap', () => {
       status: answered
         ? PermissionClassifierStatus.Answered
         : PermissionClassifierStatus.Unavailable,
-      risk_level: 'high' as const,
+      risk_level: answered ? ('low' as const) : ('high' as const),
+      ...(answered ? { risk_category: 'benign' as const } : {}),
       reason: answered ? 'Answered.' : 'Offline.',
       latencyMs: 1,
       ...(answered ? {} : { failureCode: 'query_error' as const }),

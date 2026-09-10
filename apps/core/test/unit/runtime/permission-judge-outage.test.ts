@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import {
   judgeOutageLatch,
-  sendJudgeOfflineNotice,
+  sendJudgeOfflineNoticeForRequest,
   unavailablePromptConsultResult,
 } from '@core/runtime/permission-judge-outage.js';
 
@@ -22,15 +22,18 @@ describe('permission judge outage runtime glue', () => {
     });
 
     const sendMessage = vi.fn(async () => undefined);
-    const input = {
-      sendMessage,
+    const request = {
       appId: 'app-one',
       providerAccountId: 'account-one',
       targetJid: 'tg:one',
       threadId: 'thread-one',
     };
-    await sendJudgeOfflineNotice(input);
-    await sendJudgeOfflineNotice(input);
+    const unavailable = unavailablePromptConsultResult(
+      'wiring_missing',
+      Date.now(),
+    );
+    await sendJudgeOfflineNoticeForRequest(unavailable, sendMessage, request);
+    await sendJudgeOfflineNoticeForRequest(unavailable, sendMessage, request);
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:one',
@@ -38,17 +41,28 @@ describe('permission judge outage runtime glue', () => {
       { threadId: 'thread-one', providerAccountId: 'account-one' },
     );
 
-    await sendJudgeOfflineNotice({ ...input, targetJid: undefined });
+    await sendJudgeOfflineNoticeForRequest(unavailable, sendMessage, {
+      ...request,
+      targetJid: undefined,
+    });
     expect(sendMessage).toHaveBeenCalledOnce();
+
+    await expect(
+      sendJudgeOfflineNoticeForRequest(unavailable, undefined, {
+        ...request,
+        targetJid: 'tg:missing-sender',
+      }),
+    ).resolves.toBeUndefined();
 
     judgeOutageLatch.clearAll();
     await expect(
-      sendJudgeOfflineNotice({
-        ...input,
-        sendMessage: vi.fn(async () => {
+      sendJudgeOfflineNoticeForRequest(
+        unavailable,
+        vi.fn(async () => {
           throw new Error('offline delivery');
         }),
-      }),
+        request,
+      ),
     ).resolves.toBeUndefined();
   });
 });

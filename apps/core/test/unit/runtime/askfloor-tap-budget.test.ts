@@ -321,7 +321,8 @@ describe('ASKFLOOR tap budget', () => {
     });
     const uncovered = await replayPermissionRequest({
       permissionMode: 'auto',
-      toolName: 'mcp__crm__update_record',
+      targetJid: 'tap-budget:offline',
+      toolName: 'mcp__crm__lookup',
       toolInput: { id: 'offline' },
       workspaceRoot: TAP_BUDGET_WORKSPACE_ROOT,
       trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
@@ -336,16 +337,43 @@ describe('ASKFLOOR tap budget', () => {
     expect(readOnly).toMatchObject({ taps: 0 });
     expect(uncovered).toMatchObject({ taps: 1, decidedBy: 'owner' });
     expect(offlineConsult).toHaveBeenCalledOnce();
-    expect(sendMessage).not.toHaveBeenCalled();
-    const remembered = await replayDestructiveExactMemory({
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const remembered = await replayRememberedExactAllow({
       classifierConsult: offlineConsult,
       sendMessage,
     });
 
-    expect(remembered.taps).toEqual([1, 0, 1, 0]);
-    expect(remembered.decisions[1]).toMatchObject({
-      source: 'human_decision',
+    expect(remembered).toEqual({
+      taps: [1, 0],
+      claimedCodes: ['remember_allow_exact'],
+      applications: ['allow_once'],
+      activeRows: 1,
     });
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+
+    const job = await replayPermissionRequest({
+      permissionMode: 'auto',
+      hostJobId: 'job-offline',
+      targetJid: 'tap-budget:offline-job',
+      toolName: 'mcp__crm__lookup',
+      toolInput: { id: 'offline-job' },
+      workspaceRoot: TAP_BUDGET_WORKSPACE_ROOT,
+      trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+      classifierVerdict: {
+        status: PermissionClassifierStatus.Unavailable,
+        risk_level: 'high',
+        reason: 'Judge offline.',
+        failureCode: 'query_error',
+      },
+      classifierConsult: offlineConsult,
+      sendMessage,
+    });
+    expect(job).toMatchObject({
+      taps: 1,
+      decidedBy: 'owner',
+      decisionReason: 'Asking because my safety judge is offline.',
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(3);
   });
 
   it('aggregates the tap budget across S1 to S6 TB1 to TB4 and the mirror fixtures and reports the total per lane', async () => {
@@ -361,38 +389,48 @@ describe('ASKFLOOR tap budget', () => {
       trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
       classifierVerdict: LOW_CLASSIFIER_VERDICT,
     });
-    const attachment = await replayPermissionRequest({
-      ...fixture('auto'),
+    const add = (
+      lane: keyof typeof totals,
+      result: Awaited<ReturnType<typeof replayPermissionRequest>>,
+    ) => {
+      totals[lane] += result.taps;
+    };
+    const attachment = {
       toolName: 'mcp__gantry__attachment_open',
       toolInput: { attachment_ids: ['attachment-1'] },
       attachmentOpenIds: { wellFormed: true, count: 1 },
-    });
-    const read = await replayPermissionRequest({
-      ...fixture('auto'),
-      command: 'git status 2>/dev/null',
-    });
-    const strict = await replayPermissionRequest({
-      ...fixture('auto_strict'),
-      toolName: 'mcp__gantry__browser_act',
-      toolInput: { action: 'click', payload: {} },
-    });
-    const ask = await replayPermissionRequest({
-      ...fixture('ask'),
-      toolName: 'mcp__gantry__file',
-      toolInput: { action: 'read', path: 'notes/a.md' },
-    });
-    const autonomous = await replayPermissionRequest({
-      ...fixture('auto'),
-      hostJobId: 'job-aggregation',
-      toolName: 'mcp__gantry__file',
-      toolInput: { action: 'write', path: 'notes/a.md', content: 'ok' },
-    });
+    };
+    for (const lane of [
+      ['interactiveAuto', fixture('auto')],
+      ['strict', fixture('auto_strict')],
+      ['ask', fixture('ask')],
+      ['autonomous', { ...fixture('auto'), hostJobId: 'job-s1' }],
+    ] as const) {
+      add(
+        lane[0],
+        await replayPermissionRequest({ ...lane[1], ...attachment }),
+      );
+    }
+    add(
+      'interactiveAuto',
+      await replayPermissionRequest({
+        ...fixture('auto'),
+        command: 'git status 2>/dev/null',
+      }),
+    );
+    add(
+      'interactiveAuto',
+      await replayPermissionRequest({
+        ...fixture('auto'),
+        command: "find . -name '*.ts'",
+      }),
+    );
     const s2 = await replayRememberedExactAllow();
     const s4 = await replayDestructiveExactMemory();
     const s5 = await replayRememberedJobProjection();
     const s6 = await replayPermissionRequest({
       ...fixture('auto'),
-      toolName: 'mcp__crm__update_record',
+      toolName: 'mcp__crm__lookup',
       toolInput: { id: 'offline' },
       classifierVerdict: {
         status: PermissionClassifierStatus.Unavailable,
@@ -400,19 +438,77 @@ describe('ASKFLOOR tap budget', () => {
         reason: 'Judge offline.',
       },
     });
-    totals.interactiveAuto =
-      attachment.taps + read.taps + s2.taps[0] + s4.taps[0] + s6.taps;
-    totals.strict = strict.taps;
-    totals.ask = ask.taps;
-    totals.autonomous =
-      autonomous.taps + s5.jobTaps.reduce((sum, taps) => sum + taps, 0);
+    totals.interactiveAuto +=
+      s2.taps.reduce((sum, taps) => sum + taps, 0) +
+      s4.taps.reduce((sum, taps) => sum + taps, 0) +
+      s5.chatTaps +
+      s6.taps;
+    totals.autonomous += s5.jobTaps.reduce((sum, taps) => sum + taps, 0);
+
+    const tableFixtures = [
+      {
+        toolName: 'mcp__gantry__browser_act',
+        toolInput: { action: 'click', payload: {} },
+      },
+      {
+        toolName: 'mcp__gantry__file',
+        toolInput: { action: 'read', path: 'notes/a.md' },
+      },
+      {
+        toolName: 'mcp__gantry__file',
+        toolInput: { action: 'write', path: 'notes/a.md', content: 'ok' },
+      },
+      {
+        toolName: 'FileWrite',
+        toolInput: { path: 'notes/a.md', content: 'ok' },
+      },
+    ];
+    const mirrors = [
+      {
+        toolName: 'mcp__gantry__file',
+        toolInput: { action: 'write', path: 'settings.yaml', content: 'no' },
+      },
+      {
+        toolName: 'FileWrite',
+        toolInput: {
+          path: path.resolve(TAP_BUDGET_WORKSPACE_ROOT, '../outside.md'),
+          content: 'no',
+        },
+      },
+      {
+        toolName: 'mcp__gantry__scheduler_delete_job',
+        toolInput: { jobId: 'job-1' },
+      },
+      {
+        toolName: 'mcp__gantry__browser_act',
+        toolInput: {
+          action: 'file_attach',
+          source: { type: 'path', path: 'x' },
+        },
+      },
+    ];
+    for (const request of [...tableFixtures, ...mirrors]) {
+      add(
+        'interactiveAuto',
+        await replayPermissionRequest({ ...fixture('auto'), ...request }),
+      );
+    }
+    for (const [lane, settings] of [
+      ['strict', fixture('auto_strict')],
+      ['ask', fixture('ask')],
+      ['autonomous', { ...fixture('auto'), hostJobId: 'job-tb' }],
+    ] as const) {
+      for (const request of tableFixtures) {
+        add(lane, await replayPermissionRequest({ ...settings, ...request }));
+      }
+    }
 
     console.info('ASKFLOOR tap totals', totals);
     expect(totals).toEqual({
-      interactiveAuto: 3,
-      strict: 1,
-      ask: 1,
-      autonomous: 2,
+      interactiveAuto: 9,
+      strict: 4,
+      ask: 4,
+      autonomous: 3,
     });
   });
 });

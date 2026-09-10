@@ -63,7 +63,13 @@ function keyForRequest(request: JudgeOutageRequest) {
 
 export async function sendJudgeOfflineNoticeForRequest(
   result: PermissionClassifierPromptConsultResult | undefined,
-  sendMessage: Parameters<typeof sendJudgeOfflineNotice>[0]['sendMessage'],
+  sendMessage:
+    | ((
+        jid: string,
+        text: string,
+        options?: MessageSendOptions,
+      ) => Promise<unknown>)
+    | undefined,
   request: JudgeOutageRequest,
 ): Promise<void> {
   if (!result) return;
@@ -71,7 +77,13 @@ export async function sendJudgeOfflineNoticeForRequest(
     result.status,
     keyForRequest(request),
   );
-  if (!isJudgeUnavailable(result) || !noticeDue || !request.targetJid) return;
+  if (
+    !isJudgeUnavailable(result) ||
+    !noticeDue ||
+    !request.targetJid ||
+    !sendMessage
+  )
+    return;
   await sendMessage(request.targetJid, JUDGE_OFFLINE_NOTICE, {
     threadId: request.threadId,
     providerAccountId: request.providerAccountId,
@@ -125,30 +137,6 @@ export async function writePermissionClassifierVerdictCache(input: {
       railVersion: RAIL_CATALOG_VERSION,
       provenance: 'classifier',
       nowIso: new Date().toISOString(),
-    })
-    .catch(() => undefined);
-}
-
-export async function sendJudgeOfflineNotice(input: {
-  sendMessage: (
-    jid: string,
-    text: string,
-    options?: MessageSendOptions,
-  ) => Promise<unknown>;
-  appId: string;
-  providerAccountId?: string;
-  targetJid?: string;
-  threadId?: string;
-}): Promise<void> {
-  const { noticeDue } = judgeOutageLatch.observe(
-    PermissionClassifierStatus.Unavailable,
-    input,
-  );
-  if (!noticeDue || !input.targetJid) return;
-  await input
-    .sendMessage(input.targetJid, JUDGE_OFFLINE_NOTICE, {
-      threadId: input.threadId,
-      providerAccountId: input.providerAccountId,
     })
     .catch(() => undefined);
 }
