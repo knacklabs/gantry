@@ -1898,6 +1898,29 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
   });
 
+  it('registers durable first-agent verification storage', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    expect(journal.entries.some((entry) => entry.tag === '20260910103303_odd_nova')).toBe(true);
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260910103303_odd_nova.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "onboarding_verifications"');
+    expect(migration).toContain('"expires_at" timestamp with time zone NOT NULL');
+    expect(migration).toContain('"inbound_message_id" text');
+    expect(migration).toContain('"outbound_message_id" text');
+  });
+
   it('keeps durable conversation history coverage migration and schema in sync', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
