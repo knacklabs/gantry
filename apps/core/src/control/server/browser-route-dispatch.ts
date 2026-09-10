@@ -25,6 +25,10 @@ import {
   isBrowserNavigationSummaryPath,
 } from './routes/browser-navigation-summary.js';
 import {
+  handleBrowserOnboardingRoutes,
+  isBrowserOnboardingPath,
+} from './routes/browser-onboarding.js';
+import {
   handleBrowserPeopleRoutes,
   isBrowserPeoplePath,
 } from './routes/browser-people.js';
@@ -42,6 +46,7 @@ type BrowserSettings = Parameters<typeof handleBrowserAgentRoutes>[5] &
   Parameters<typeof handleBrowserMcpServerRoutes>[4] &
   Parameters<typeof handleBrowserModelProviderRoutes>[3] &
   Parameters<typeof handleBrowserNavigationSummary>[4] &
+  Parameters<typeof handleBrowserOnboardingRoutes>[3] &
   Parameters<typeof handleBrowserPeopleRoutes>[3] &
   Parameters<typeof handleBrowserRuntimeStatus>[4] &
   Parameters<typeof handleBrowserSkillRoutes>[4];
@@ -52,6 +57,7 @@ function isBrowserControlPath(pathname: string): boolean {
     pathname.startsWith('/ui/api/auth/') ||
     isBrowserRuntimeStatusPath(pathname) ||
     isBrowserNavigationSummaryPath(pathname) ||
+    isBrowserOnboardingPath(pathname) ||
     isBrowserAgentsPath(pathname) ||
     isBrowserChannelAccountsPath(pathname) ||
     isBrowserPeoplePath(pathname) ||
@@ -82,6 +88,16 @@ export async function handleBrowserControlRoutes(input: {
     }
   }
   const settings = input.getSettings();
+  if (
+    isBrowserOnboardingPath(input.pathname) &&
+    (await handleBrowserOnboardingRoutes(
+      input.req,
+      input.res,
+      input.pathname,
+      settings,
+    ))
+  )
+    return true;
   if (
     isBrowserRuntimeStatusPath(input.pathname) &&
     (await handleBrowserRuntimeStatus(
