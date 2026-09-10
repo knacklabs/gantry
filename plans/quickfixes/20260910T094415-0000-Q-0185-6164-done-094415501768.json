@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0185-6164",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "security P1 on merged-tree review: lint:changed must pass the changed-file list after an option terminator so a filename cannot inject ESLint options; companion workers frozen, host-side one-line fix per Ravi",
+  "started_at": "2026-09-10T09:43:55+00:00",
+  "completed_at": "2026-09-10T09:44:15+00:00",
+  "files": [
+    "package.json"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
