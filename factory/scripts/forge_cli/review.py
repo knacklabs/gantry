@@ -44,7 +44,8 @@ HARNESS_PREFIXES = (".factory/", "plans/", "docs/decisions/")
 # The recorder's contract_verdicts shape: {contract_id, verdict, evidence}.
 VERDICT_LINE = re.compile(
     r"^\s*VERDICT\s+(?P<id>[A-Za-z0-9._:-]+)\s*:\s*"
-    r"(?P<verdict>implemented|partial|missing)\b\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
+    r"(?P<verdict>implemented|partial|missing|not_in_chunk)\b"
+    r"\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
     re.IGNORECASE | re.MULTILINE,
 )
 DEFAULT_SKILL = Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview"
@@ -98,9 +99,16 @@ QUALITY_VERDICT_FORMAT = """\
 CONTRACT VERDICTS (mandatory, machine-parsed). In overall_explanation, emit ONE
 line per plan contract listed under "Plan contracts" below, exactly in this form:
 
-VERDICT <contract-id>: implemented|partial|missing — <file:line evidence>
+VERDICT <contract-id>: implemented|partial|missing|not_in_chunk — <file:line evidence>
 
 Every listed contract must get a line. Do not rename contract ids.
+
+Use `partial` ONLY for a contract you can SEE and judge incomplete. When the
+diff you were given simply does not contain what the contract names — a
+chunked review shows you one part of the change — say `not_in_chunk`.
+`partial` asserts a defect and BLOCKS the task; `not_in_chunk` says only that
+another pass must judge it, and is ignored once one does. Reporting `partial`
+because the code lives elsewhere blocks a task that is in fact complete.
 """
 
 
@@ -273,18 +281,34 @@ _VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
     """One verdict per contract across every text; when a contract is verdicted
     more than once (a chunked review emits one VERDICT line per pass) the WORST
-    verdict wins — missing over partial over implemented — so a pass that saw
-    a defect is never outvoted by a pass that only saw the files exist."""
-    verdicts: dict[str, tuple[str, str]] = {}
+    REAL verdict wins — missing over partial over implemented — so a pass that
+    saw a defect is never outvoted by a pass that only saw the files exist.
+
+    `not_in_chunk` is not a verdict about the code, only about what one pass
+    could see, so it never outvotes a real one: a contract another pass
+    verdicted `implemented` with file:line evidence stays implemented. Without
+    that split, worst-wins turned "this is not in my chunk" into a blocking
+    partial, and every task whose diff is large enough to chunk shipped a
+    review artifact that check_task_proof then refused — unpassable by
+    construction. When EVERY pass says `not_in_chunk` the contract really is
+    unverified, so it falls back to `partial` and still fails closed."""
+    real: dict[str, tuple[str, str]] = {}
+    unseen: dict[str, tuple[str, str]] = {}
     for text in texts:
         for match in VERDICT_LINE.finditer(text or ""):
             cid = match.group("id").strip()
-            found = (match.group("verdict").lower(),
-                     (match.group("evidence") or "").strip() or "reviewer verdict")
-            current = verdicts.get(cid)
-            if current is None or (_VERDICT_SEVERITY[found[0]]
+            verdict = match.group("verdict").lower()
+            evidence = ((match.group("evidence") or "").strip()
+                        or "reviewer verdict")
+            if verdict == "not_in_chunk":
+                unseen.setdefault(cid, ("partial", evidence))
+                continue
+            current = real.get(cid)
+            if current is None or (_VERDICT_SEVERITY[verdict]
                                    > _VERDICT_SEVERITY[current[0]]):
-                verdicts[cid] = found
+                real[cid] = (verdict, evidence)
+    verdicts = dict(unseen)
+    verdicts.update(real)
     return verdicts
 
 
