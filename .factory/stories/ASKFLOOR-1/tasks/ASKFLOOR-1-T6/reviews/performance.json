@@ -1,22 +1,23 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T6",
-  "score": 9,
-  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..334d6fd, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The runtime introduces process-wide outage state with no production bound or cleanup for inactive conversations. In addition, the required invariance proof substitutes generic IPC/CRM requests for several named execution paths, leaving meaningful regressions undetected.",
-  "blocking_findings": [],
-  "non_blocking_findings": [
+  "score": 6,
+  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..2e474fb, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The runtime behavior shown is largely consistent with the outage contract, but the diff retains a demonstrably unused synthetic-result helper despite the blocking no-leftovers gate, and the required projection invariance proof does not verify the decision tuples it claims to protect.",
+  "blocking_findings": [
     {
-      "category": "bug",
-      "area": "apps/core/src/application/permissions",
-      "summary": "Outage latch retains inactive conversation keys indefinitely (apps/core/src/application/permissions/permission-judge-outage-latch.ts:27): Every first unavailable result permanently inserts a string into the process-wide `openKeys` set, and the only production removal occurs when the same key later receives an `Answered` result."
-    },
+      "category": "maintainability",
+      "area": "apps/core/src/runtime",
+      "summary": "[P1] Remove the unused synthetic outage-result export (apps/core/src/runtime/permission-judge-outage.ts:25): `unavailablePromptConsultResult` has no production caller; only its new unit test invokes it, while the actual `wiring_missing` path constructs the result through `failedResult` in `permission-classifier.ts`."
+    }
+  ],
+  "non_blocking_findings": [
     {
       "category": "test_gap",
       "area": "apps/core/test/unit/runtime",
-      "summary": "Invariance suite does not exercise several lanes it claims to cover (apps/core/test/unit/runtime/askfloor-invariance.test.ts:82): The matrix replaces any fixture without an explicit tool with `mcp__crm__lookup`, so the row labeled scheduler/admin/destructive/family-rail passes `rm -rf build` only as an unused extra property and actually evaluates a CRM lookup."
+      "summary": "[P2] Assert decision tuples in the projection invariance matrix (apps/core/test/unit/runtime/askfloor-invariance.test.ts:314): The projection portion of the required invariance test compares only tap counts and revocation status."
     }
   ],
-  "recommendation": "approve-with-caveats",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
     "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
@@ -36,10 +37,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "15d8c56ec7a455b124cacd7688336adf8324ce198809a315a6c45f6a1d78fd71",
-  "brief_sha256": "e16900c6cb36d19ba368f6cab06d6e4e346b25828204e941ba76c04817e8b751",
-  "branch_diff_digest": "60a7aae6c1e34cce6f1407284b0e89161797df8cbe1e4a8b38e82d6601abde40",
+  "review_run_id": "295dfe5582893165b7fac5519758dcf73098d32ff86d324b2db58dfb46ea3fda",
+  "brief_sha256": "741b742c686e11d57f5a016edfa24085dd641477be8b354bff9fa056390b2d52",
+  "branch_diff_digest": "9ddac5d249439ad89d43bfe4addc16f4adab8c43f7f419a14e7193b8e561faee",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T04:05:07+00:00",
-  "commit": "334d6fd219da5686a3be9aebfae5513976d3a8e4"
+  "recorded_at": "2026-09-10T05:03:13+00:00",
+  "commit": "2e474fb38abc19f4b5744c34286d31d10ac87e2d"
 }

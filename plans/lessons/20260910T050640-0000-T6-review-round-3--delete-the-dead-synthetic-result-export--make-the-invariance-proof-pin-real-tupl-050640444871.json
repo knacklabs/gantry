@@ -1,0 +1,14 @@
+{
+  "topic": "T6 review round 3: delete the dead synthetic-result export; make the invariance proof pin real tuples",
+  "lesson": "Production code is final (AC1-AC4, AC6 implemented); exactly two changes remain. (1) runtime/permission-judge-outage.ts: delete the now-unused unavailablePromptConsultResult export (the helper builds wiring_missing through failedResult) and its cases in permission-judge-outage.test.ts; grep for zero remaining references. (2) askfloor-invariance.test.ts must PROVE AC5, not restate it: (a) the compared tuple is the COMPLETE authorization outcome \u2014 approved/mode (allow, ask, deny), the decision reason (the offline reason line where AF-AC5/0157 say it applies, the unchanged reason elsewhere), decidedBy, source, rail provenance, and taps; (b) the answering-judge column is PINNED as literal expected tuples copied from the owning suites (askfloor-tap-budget.test.ts, ipc-permission-classifier-decision.test.ts, inline-agent-loop-tools.test.ts), never computed by running the current code \u2014 a regression that moves both columns together must fail; (c) every row drives the real path: the family-rail row runs the real command through the real rails and asserts FAMILY_RULE_RAIL_HIT_REASON (no injected reviewed-rule decision, no hand-written tail); the wiring_missing column is produced by OMITTING the publisher/config from the real consult input, not by a stub returning Unavailable; the projection quartet asserts the decision tuple per row, not just tap counts and revocation; (d) add the missing admin-mutation row. Harness additions stay test-only and small; titles remain the required leaf ids verbatim. Nothing else changes.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T6/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/runtime/permission-judge-outage.ts",
+    "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/permission-judge-outage.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T05:06:40+00:00"
+}
