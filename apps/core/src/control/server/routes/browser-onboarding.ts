@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
+import { DEFAULT_AGENT_ID } from '../../../adapters/storage/postgres/seeds.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
@@ -61,10 +62,11 @@ export async function handleBrowserOnboardingRoutes(
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
   const agents = await storage.repositories.agents.listAgents(appId);
+  const onboardingAgents = agents.filter((agent) => agent.id !== DEFAULT_AGENT_ID);
   const accounts =
     await storage.repositories.providerAccounts.listProviderAccounts(appId);
   const resumeCandidates = await Promise.all(
-    agents.map(async (agent) => {
+    onboardingAgents.map(async (agent) => {
       const account = accounts.find((item) => item.agentId === agent.id);
       const [verification] = await storage.service.db
         .select({
@@ -99,7 +101,7 @@ export async function handleBrowserOnboardingRoutes(
     step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
   }));
   sendJson(res, 200, {
-    firstRun: agents.length === 0,
+    firstRun: onboardingAgents.length === 0,
     resume: resumable[0] ?? null,
   });
   return true;
