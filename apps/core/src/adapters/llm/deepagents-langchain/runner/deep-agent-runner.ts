@@ -439,7 +439,18 @@ export async function runDeepAgentTurn(input: {
       }
       throw error;
     }
-    if (terminalPermissionDenial) throw terminalPermissionDenial;
+    // A graph that answers the denial abort by ending its iterator normally
+    // reaches here instead of the catch above. The turn still failed on the
+    // denial, and the usage the normaliser finished computing must still ride
+    // the terminal error (T1-AC2) rather than be replaced by an empty payload.
+    if (terminalPermissionDenial) {
+      throw new DeepAgentPartialUsage(
+        terminalPermissionDenial,
+        normalized.terminalUsage,
+        normalized.terminalContextUsage,
+        normalized.usageEventId,
+      );
+    }
     logElapsed('Stream normalized');
     const text = normalized.text;
     const startupRuntimeEvents = [
