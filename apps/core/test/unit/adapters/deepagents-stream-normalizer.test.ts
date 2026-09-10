@@ -1084,3 +1084,28 @@ describe('deepAgentUsageEventIdForTurn', () => {
     );
   });
 });
+
+describe('partial usage on consumer failures', () => {
+  it('a failure while normalising an already-yielded event still carries the accumulated usage', async () => {
+    const failure = new Error('emit sink closed');
+    const rejection = await normalizeDeepAgentStream({
+      events: asStream([
+        streamEvent('Hello ', { input: 120, output: 8 }),
+        streamEvent('world'),
+      ]),
+      newSessionId: 'session-consumer',
+      usageEventId: 'session-consumer:run:nonce:1',
+      modelId: 'gpt-5.5',
+      modelProfile: { maxInputTokens: 400_000 },
+      emit: () => {
+        throw failure;
+      },
+    }).catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(DeepAgentPartialUsage);
+    const partial = rejection as DeepAgentPartialUsage;
+    expect(partial.cause).toBe(failure);
+    expect(partial.usageEventId).toBe('session-consumer:run:nonce:1');
+    expect(partial.usage).toMatchObject({ inputTokens: 120, outputTokens: 8 });
+  });
+});

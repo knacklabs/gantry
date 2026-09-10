@@ -27,9 +27,11 @@ import {
   unprojectedAccessActivityDetail,
   unprojectedAccessIdentityFromToolResult,
 } from '../../../../shared/unprojected-access.js';
+import { isAbortError } from './live-control.js';
 import {
   DeepAgentPartialUsage,
   deepAgentUsageEventIdForTurn,
+  isDeepAgentPartialUsage,
   partialUsageEvents,
 } from './stream-normalizer-partial-usage.js';
 
@@ -145,13 +147,49 @@ export async function normalizeDeepAgentStream(
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
   };
+  const usageEventId =
+    input.usageEventId ?? deepAgentUsageEventIdForTurn(input.newSessionId, 1);
+  const wrapPartialUsage = (error: unknown) =>
+    new DeepAgentPartialUsage(
+      error,
+      normalizedUsage(
+        usage,
+        input.modelId,
+        input.cacheProvider,
+        input.provider,
+        input.modelRoute,
+      ),
+      contextUsageSnapshot(usage, input.modelId, input.modelProfile),
+      usageEventId,
+    );
+  // Every failure of the turn — the source iterator OR the normalisation of
+  // an event it already yielded — carries the usage accumulated so far (T1-AC2).
+  try {
+    return await consumeDeepAgentStream(
+      input,
+      usage,
+      usageEventId,
+      wrapPartialUsage,
+    );
+  } catch (error) {
+    // Aborts pass through unwrapped, as in the source-iterator path.
+    throw isDeepAgentPartialUsage(error) || isAbortError(error)
+      ? error
+      : wrapPartialUsage(error);
+  }
+}
+
+async function consumeDeepAgentStream(
+  input: StreamNormalizerInput,
+  usage: UsageAccumulator,
+  usageEventId: string,
+  wrapPartialUsage: (error: unknown) => DeepAgentPartialUsage,
+): Promise<NormalizedTurnResult> {
   let accumulatedText = '';
   let sawPartialText = false;
   let sawFirstEvent = false;
   let sawFirstVisibleText = false;
   let toolSequence = 0;
-  const usageEventId =
-    input.usageEventId ?? deepAgentUsageEventIdForTurn(input.newSessionId, 1);
   const pendingTools = new Map<
     string,
     Array<{ invocationId: string; tracerRunId?: string; seq: number }>
@@ -162,19 +200,7 @@ export async function normalizeDeepAgentStream(
 
   for await (const event of partialUsageEvents(
     input.events,
-    (error) =>
-      new DeepAgentPartialUsage(
-        error,
-        normalizedUsage(
-          usage,
-          input.modelId,
-          input.cacheProvider,
-          input.provider,
-          input.modelRoute,
-        ),
-        contextUsageSnapshot(usage, input.modelId, input.modelProfile),
-        usageEventId,
-      ),
+    wrapPartialUsage,
   )) {
     if (!sawFirstEvent) {
       sawFirstEvent = true;
