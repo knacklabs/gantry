@@ -88,18 +88,20 @@
         "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
         "apps/core/src/application/agents/prompt-profile-service.ts",
         "apps/core/src/runtime/agent-spawn-prompt.ts",
-        "apps/core/src/runtime/agent-spawn-types.ts",
+        "apps/core/src/runtime/agent-spawn.ts",
+        "apps/core/src/runtime/agent-spawn-host.ts",
         "apps/core/src/runner/mcp/context.ts",
         "apps/core/src/runner/mcp/tools/capability-run.ts",
         "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
         "apps/core/test/unit/runtime/prompt-profile.test.ts",
         "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
+        "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
         "apps/core/test/unit/jobs/execution-phases-run.test.ts",
         "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
         "apps/core/test/unit/runner/capability-catalog-replay.test.ts"
       ],
       "verify_commands": [
-        "npx vitest run --config vitest.unit.config.ts apps/core/test/unit/agents apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner",
+        "npx vitest run --config vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner",
         "npm run typecheck",
         "npm run lint",
         "npm run format:check",
@@ -138,33 +140,43 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "a secret-shaped operand in a reviewed template is redacted when the catalog renders",
+          "id": "a secret-shaped operand is redacted in the rendered catalog, the error text and the audit record",
           "path": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "the neutral reference resolves to the Anthropic tool name at compile time",
+          "id": "the resolved engine from the worker path selects the Anthropic tool name",
           "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "the DeepAgents lane has no mapping entry",
+          "id": "the resolved engine from the inline host path selects the Anthropic tool name",
+          "path": "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "a deepagents engine renders no tool name and leaves guidance unchanged",
           "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "shedding drops non-granted material before any grant",
+          "id": "shedding removes requestables, then discovery, then source summaries, then descriptions, then descriptors",
           "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "the never-hide guarantee survives the total prompt budget",
+          "id": "the compact grant list survives the total prompt budget",
           "path": "apps/core/test/unit/runtime/prompt-profile.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
-          "id": "hard overflow fails the spawn before any provider call with a redacted overflow diagnostic",
+          "id": "hard overflow aborts the spawn and publishes capability_catalog_overflow before any provider call",
           "path": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "hard overflow aborts the inline host spawn and publishes the same diagnostic",
+          "path": "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
         },
         {
@@ -185,18 +197,19 @@
       ],
       "reviewer_focus": [
         "Which capability set feeds the catalog: the person-filtered inheritedToolPolicy.semanticCapabilities, never the unfiltered snapshot set",
-        "That render-time redaction actually covers a literal credential in a reviewed template, since validation does not block one",
-        "That the overflow failure happens before any provider or tool call and is not swallowed by the existing prompt-compile catch",
-        "That every binding of a multi-binding capability renders, in a deterministic order",
+        "That the engine passed to prompt compilation is the resolved model's engine at each call site, not a runtime flag that only distinguishes worker from inline",
+        "That the overflow diagnostic is published where the spawn aborts, since the existing startup publisher is never reached",
+        "That the shedding order is total over every removable section, so the compact grant list cannot be crowded out",
+        "That redaction of a secret-shaped operand covers the rendered catalog, the error text and the audit record",
         "That enforcement is untouched: the 0120 and 0130 proofs stay green"
       ],
       "review_budget": {
-        "max_changed_files": 14,
-        "max_changed_lines": 1100,
-        "reason": "Eight source files and six test files. Source adds the catalog build on the job path, a plural invocation projection with render-time redaction, the shedding and overflow rules, a typed pre-spawn overflow failure, the lane mapping at the compiler seam, one deletion and one description edit."
+        "max_changed_files": 16,
+        "max_changed_lines": 1400,
+        "reason": "Nine source files and seven test files. The task grill widened scope twice: the engine identity is resolved per call site so both prompt-compile callers pass it, and the overflow diagnostic must publish at the abort point because the existing startup publisher runs far later, just before the runner process starts."
       }
     }
   ],
   "project": "",
-  "commit": "74850b2ff08e31a12a1a7236764c86ced96ac5c0"
+  "commit": "9667b1c3a1f002e5d805572b802a8c13d471ba35"
 }
