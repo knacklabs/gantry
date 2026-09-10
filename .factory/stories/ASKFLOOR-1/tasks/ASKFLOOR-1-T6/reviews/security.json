@@ -2,13 +2,13 @@
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T6",
   "score": 9,
-  "summary": "security lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..2e474fb, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The production changes appear consistent with the outage-notification contract, but the mandatory permission-invariance proof is not effective: it can pass when both answering and unavailable paths regress together and it substitutes simulated paths for several security-sensitive cases.",
+  "summary": "security lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..3f7415e, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The sequential latch behavior is correct, but the notice sender does not preserve the required ordering when multiple permission requests for one conversation are processed concurrently. A later card can be delivered before the sole outage notice.",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
-      "category": "test_gap",
-      "area": "apps/core/test/unit/runtime",
-      "summary": "Invariance test derives its expected authorization tuple from the code under test (apps/core/test/unit/runtime/askfloor-invariance.test.ts:297): The security-critical invariance check compares each unavailable result with an answering result produced by the same current implementation."
+      "category": "bug",
+      "area": "apps/core/src/runtime",
+      "summary": "Concurrent outage cards can overtake the first offline notice (apps/core/src/runtime/permission-judge-outage.ts:59): The latch is opened synchronously before the notice send completes."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -31,10 +31,10 @@
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "295dfe5582893165b7fac5519758dcf73098d32ff86d324b2db58dfb46ea3fda",
-  "brief_sha256": "741b742c686e11d57f5a016edfa24085dd641477be8b354bff9fa056390b2d52",
-  "branch_diff_digest": "9ddac5d249439ad89d43bfe4addc16f4adab8c43f7f419a14e7193b8e561faee",
+  "review_run_id": "d2ad5d64b35eaf3c9d3c45d8d65d83c14009adf54c8b9d3e80a168c474d9db74",
+  "brief_sha256": "6731f8e6b0465dcae326bc785beb19be5d27e2c67207a607a2861edecb0eab94",
+  "branch_diff_digest": "98bd90339a9a06fe64674d9ba641fecd89c84f1e5fe046e18d64f4ea7b94aa55",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T05:03:13+00:00",
-  "commit": "2e474fb38abc19f4b5744c34286d31d10ac87e2d"
+  "recorded_at": "2026-09-10T05:33:44+00:00",
+  "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963"
 }

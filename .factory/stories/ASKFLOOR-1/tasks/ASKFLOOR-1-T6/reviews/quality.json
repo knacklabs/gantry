@@ -1,22 +1,11 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T6",
-  "score": 7,
-  "summary": "quality lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..2e474fb, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The outage latch and both runtime paths appear implemented, but the mandatory invariance proof is materially incomplete and can miss authorization regressions.\nVERDICT ASKFLOOR-1-T6-AC1: implemented \u2014 apps/core/src/application/permissions/permission-judge-outage-latch.ts:15 evidence\nVERDICT ASKFLOOR-1-T6-AC2: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:496 evidence\nVERDICT ASKFLOOR-1-T6-AC3: implemented \u2014 apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:412 evidence\nVERDICT ASKFLOOR-1-T6-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:301 evidence\nVERDICT ASKFLOOR-1-T6-AC5: partial \u2014 apps/core/test/unit/runtime/askfloor-invariance.test.ts:51 evidence\nVERDICT ASKFLOOR-1-T6-AC6: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:377 evidence",
-  "blocking_findings": [
-    {
-      "category": "test_gap",
-      "area": "apps/core/test/unit/runtime",
-      "summary": "[P1] Test the complete authorization tuple in the invariance matrix (apps/core/test/unit/runtime/askfloor-invariance.test.ts:51): The purported invariance tuple records only taps, decider, source, and rail provenance."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria",
-      "summary": "ASKFLOOR-1-T6-AC5: INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 and 0157 say: interactive auto asks with the reason line; a job lane reaches its card with the reason line; everything else identical). Test titles are the required leaf ids verbatim."
-    }
-  ],
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..3f7415e, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T6-AC1: implemented \u2014 apps/core/src/application/permissions/permission-judge-outage-latch.ts:14\nVERDICT ASKFLOOR-1-T6-AC2: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:369\nVERDICT ASKFLOOR-1-T6-AC3: implemented \u2014 apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:375\nVERDICT ASKFLOOR-1-T6-AC4: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:299\nVERDICT ASKFLOOR-1-T6-AC5: implemented \u2014 apps/core/test/unit/runtime/askfloor-invariance.test.ts:286\nVERDICT ASKFLOOR-1-T6-AC6: implemented \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:382\nThe diff implements the outage latch, locally gated wiring_missing behavior, notice ordering, offline reason propagation, cache exclusion, inline and IPC handling, tap-budget aggregation, and the required invariance coverage. The recorded verification evidence reports formatting, architecture, type checking, and tests passing. No wrapper, shim, alias, compatibility naming, channel-layer import, or other blocking leftover is visible in the bundle.",
+  "blocking_findings": [],
   "non_blocking_findings": [],
-  "recommendation": "request-changes",
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
     "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
@@ -39,32 +28,32 @@
     {
       "contract_id": "ASKFLOOR-1-T6-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/application/permissions/permission-judge-outage-latch.ts:15 evidence"
+      "evidence": "apps/core/src/application/permissions/permission-judge-outage-latch.ts:14"
     },
     {
       "contract_id": "ASKFLOOR-1-T6-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:496 evidence"
+      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:369"
     },
     {
       "contract_id": "ASKFLOOR-1-T6-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:412 evidence"
+      "evidence": "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:375"
     },
     {
       "contract_id": "ASKFLOOR-1-T6-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:301 evidence"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:299"
     },
     {
       "contract_id": "ASKFLOOR-1-T6-AC5",
-      "verdict": "partial",
-      "evidence": "apps/core/test/unit/runtime/askfloor-invariance.test.ts:51 evidence"
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/askfloor-invariance.test.ts:286"
     },
     {
       "contract_id": "ASKFLOOR-1-T6-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:377 evidence"
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:382"
     },
     {
       "contract_id": "ASKFLOOR-1-T1-AC1",
@@ -343,10 +332,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "295dfe5582893165b7fac5519758dcf73098d32ff86d324b2db58dfb46ea3fda",
-  "brief_sha256": "741b742c686e11d57f5a016edfa24085dd641477be8b354bff9fa056390b2d52",
-  "branch_diff_digest": "9ddac5d249439ad89d43bfe4addc16f4adab8c43f7f419a14e7193b8e561faee",
+  "review_run_id": "d2ad5d64b35eaf3c9d3c45d8d65d83c14009adf54c8b9d3e80a168c474d9db74",
+  "brief_sha256": "6731f8e6b0465dcae326bc785beb19be5d27e2c67207a607a2861edecb0eab94",
+  "branch_diff_digest": "98bd90339a9a06fe64674d9ba641fecd89c84f1e5fe046e18d64f4ea7b94aa55",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T05:03:12+00:00",
-  "commit": "2e474fb38abc19f4b5744c34286d31d10ac87e2d"
+  "recorded_at": "2026-09-10T05:33:43+00:00",
+  "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963"
 }

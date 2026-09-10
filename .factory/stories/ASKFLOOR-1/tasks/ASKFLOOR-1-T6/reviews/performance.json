@@ -1,23 +1,11 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T6",
-  "score": 6,
-  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..2e474fb, Codex via the autoreview skill at --max-priority P2): 1 blocking, 1 non-blocking. The runtime behavior shown is largely consistent with the outage contract, but the diff retains a demonstrably unused synthetic-result helper despite the blocking no-leftovers gate, and the required projection invariance proof does not verify the decision tuples it claims to protect.",
-  "blocking_findings": [
-    {
-      "category": "maintainability",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Remove the unused synthetic outage-result export (apps/core/src/runtime/permission-judge-outage.ts:25): `unavailablePromptConsultResult` has no production caller; only its new unit test invokes it, while the actual `wiring_missing` path constructs the result through `failedResult` in `permission-classifier.ts`."
-    }
-  ],
-  "non_blocking_findings": [
-    {
-      "category": "test_gap",
-      "area": "apps/core/test/unit/runtime",
-      "summary": "[P2] Assert decision tuples in the projection invariance matrix (apps/core/test/unit/runtime/askfloor-invariance.test.ts:314): The projection portion of the required invariance test compares only tap counts and revocation status."
-    }
-  ],
-  "recommendation": "request-changes",
+  "score": 10,
+  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..3f7415e, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. No actionable P0-P2 defect is demonstrated by the diff. The outage latch uses constant-time keyed operations, unavailable results are excluded from verdict caching, locally settled requests still avoid the model path, and notice delivery does not add retry or fanout behavior. The diff also contains no compatibility wrapper, shim, alias, or channel-layer import.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
     "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
@@ -37,10 +25,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "295dfe5582893165b7fac5519758dcf73098d32ff86d324b2db58dfb46ea3fda",
-  "brief_sha256": "741b742c686e11d57f5a016edfa24085dd641477be8b354bff9fa056390b2d52",
-  "branch_diff_digest": "9ddac5d249439ad89d43bfe4addc16f4adab8c43f7f419a14e7193b8e561faee",
+  "review_run_id": "d2ad5d64b35eaf3c9d3c45d8d65d83c14009adf54c8b9d3e80a168c474d9db74",
+  "brief_sha256": "6731f8e6b0465dcae326bc785beb19be5d27e2c67207a607a2861edecb0eab94",
+  "branch_diff_digest": "98bd90339a9a06fe64674d9ba641fecd89c84f1e5fe046e18d64f4ea7b94aa55",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T05:03:13+00:00",
-  "commit": "2e474fb38abc19f4b5744c34286d31d10ac87e2d"
+  "recorded_at": "2026-09-10T05:33:43+00:00",
+  "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963"
 }
