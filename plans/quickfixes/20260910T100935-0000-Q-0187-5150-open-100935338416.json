@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0187-5150",
+  "profile": "degraded",
+  "reason": "quality P1: a tool-permission denial that surfaces as a bare AbortError loses the accumulated usage because aborts pass through the normaliser unwrapped; wrap aborts too and unwrap cause at the abort consumers; companion workers frozen, host-side per Ravi",
+  "started_at": "2026-09-10T10:09:35+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
