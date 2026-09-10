@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   index,
   pgTable,
@@ -53,6 +54,11 @@ export const onboardingVerificationsPostgres = pgTable(
     activeChallenge: uniqueIndex(
       'onboarding_verifications_active_challenge_unique',
     ).on(table.appId, table.challenge),
+    activeConversation: uniqueIndex(
+      'onboarding_verifications_active_conversation_unique',
+    )
+      .on(table.appId, table.conversationId)
+      .where(sql`${table.status} IN ('pending', 'inbound_received')`),
     conversationStatus: index(
       'idx_onboarding_verifications_conversation_status',
     ).on(table.conversationId, table.status),

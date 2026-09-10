@@ -73,6 +73,19 @@ maybeDescribe('onboarding verification persistence', () => {
       createdAt: '2026-09-10T00:00:00.000Z',
       updatedAt: '2026-09-10T00:00:00.000Z',
     });
+    await expect(
+      runtime.service.db.insert(onboardingVerificationsPostgres).values({
+        id: 'onboarding-verification:concurrent',
+        appId,
+        agentId,
+        conversationId,
+        challenge: '@atlas are you there? · GY-9X9X9',
+        status: 'pending',
+        expiresAt: '2026-09-10T00:10:00.000Z',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        updatedAt: '2026-09-10T00:00:00.000Z',
+      }),
+    ).rejects.toThrow();
 
     const inboundId = 'message:onboarding:inbound' as MessageId;
     await runtime.repositories.messages.saveMessage({

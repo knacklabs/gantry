@@ -220,6 +220,43 @@ async function createVerification(
   }
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
+  await storage.service.db
+    .update(onboardingVerificationsPostgres)
+    .set({ status: 'expired', updatedAt: now.toISOString() })
+    .where(
+      and(
+        eq(onboardingVerificationsPostgres.appId, appId),
+        eq(onboardingVerificationsPostgres.conversationId, conversationId),
+        inArray(onboardingVerificationsPostgres.status, [
+          'pending',
+          'inbound_received',
+        ]),
+        lt(onboardingVerificationsPostgres.expiresAt, now.toISOString()),
+      ),
+    );
+  const [activeVerification] = await storage.service.db
+    .select({ id: onboardingVerificationsPostgres.id })
+    .from(onboardingVerificationsPostgres)
+    .where(
+      and(
+        eq(onboardingVerificationsPostgres.appId, appId),
+        eq(onboardingVerificationsPostgres.conversationId, conversationId),
+        inArray(onboardingVerificationsPostgres.status, [
+          'pending',
+          'inbound_received',
+        ]),
+      ),
+    )
+    .limit(1);
+  if (activeVerification) {
+    sendError(
+      res,
+      409,
+      'CONFLICT',
+      'An active verification already exists for this conversation.',
+    );
+    return true;
+  }
   const id = `onboarding-verification:${randomUUID()}`;
   await storage.service.db.insert(onboardingVerificationsPostgres).values({
     id,
