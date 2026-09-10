@@ -7,6 +7,15 @@ saved: 2026-09-10T12:38:10+00:00
 
 # Agents can use what they are granted
 
+> **SUPERSEDED IN PART (2026-09-10).** Everything about capability discovery in
+> this document is superseded by `docs/specs/granted-capability-is-visible.md`,
+> which is confirmed and owns that work under story GRANTED-1. This document is
+> retained only as the draft source for the DOCUMENT edit contract — slice reads,
+> exact-span replacement, revision fencing via decision 0108, the persisted job
+> owner via decision 0114, and the redaction boundary — which has not yet been
+> split out into its own confirmed spec. Do not implement the capability sections
+> here; they contain divergent scope and an incorrect binding-kind list.
+
 ## Why
 
 Granting an agent access is not the same as making that access usable. Two
