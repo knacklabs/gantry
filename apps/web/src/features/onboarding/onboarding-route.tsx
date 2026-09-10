@@ -87,7 +87,7 @@ export function OnboardingRoute() {
     () => (models.data?.models ?? []).filter((item) => !effectiveProviderId || item.providerId === effectiveProviderId),
     [models.data?.models, effectiveProviderId],
   );
-  const code = challenge;
+  const code = challenge.match(/GY-[A-Z0-9]{5}/)?.[0] ?? challenge;
   const handle = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent';
 
   useEffect(() => {
@@ -95,7 +95,7 @@ export function OnboardingRoute() {
     setAgentId(status.data.resume.id);
     setAccountId(status.data.resume.accountId ?? '');
     setVerificationId(status.data.resume.verificationId ?? '');
-    setChallenge(status.data.resume.challenge ?? challenge);
+    setChallenge(status.data.resume.challenge?.match(/GY-[A-Z0-9]{5}/)?.[0] ?? challenge);
     setName((current) => current || status.data.resume!.name);
     setStep(status.data.resume.step);
   }, [agentId, started, status.data]);
