@@ -117,7 +117,9 @@ it('requires Administrator, Origin, CSRF, and reauthentication for mutations', (
 });
 
 it('validates the selected model before creating an inline custom role', () => {
-  expect(source.indexOf('await validateModelAlias(ctx, appId, agent.id, modelAlias)')).toBeLessThan(
-    source.indexOf('const role = await roleService.create({'),
-  );
+  expect(
+    source.indexOf(
+      'await validateModelAlias(ctx, appId, agent.id, modelAlias)',
+    ),
+  ).toBeLessThan(source.indexOf('const role = await roleService.create({'));
 });

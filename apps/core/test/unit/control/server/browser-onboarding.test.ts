@@ -8,7 +8,10 @@ const repoRoot = path.resolve(
   new URL('../../../../../..', import.meta.url).pathname,
 );
 const source = fs.readFileSync(
-  path.join(repoRoot, 'apps/core/src/control/server/routes/browser-onboarding.ts'),
+  path.join(
+    repoRoot,
+    'apps/core/src/control/server/routes/browser-onboarding.ts',
+  ),
   'utf8',
 );
 
@@ -44,7 +47,9 @@ describe('browser onboarding route', () => {
   it('uses durable setup records and omits completed verification from resume', () => {
     expect(source).toContain('onboardingSetupsPostgres');
     expect(source).toContain('const setupAgentIds = new Set(');
-    expect(source).toContain('if (verification?.status === \'completed\') return null;');
+    expect(source).toContain(
+      "if (verification?.status === 'completed') return null;",
+    );
     expect(source).toContain("verification?.status === 'pending'");
   });
 

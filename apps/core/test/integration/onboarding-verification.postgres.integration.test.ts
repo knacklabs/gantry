@@ -19,7 +19,8 @@ import {
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 const appId = DEFAULT_APP_ID;
 const agentId = DEFAULT_AGENT_ID;
-const providerAccountId = 'provider-account:onboarding:slack' as ProviderAccountId;
+const providerAccountId =
+  'provider-account:onboarding:slack' as ProviderAccountId;
 const conversationId = 'conversation:onboarding:slack:C123' as ConversationId;
 const challenge = '@atlas are you there? · GY-4K7P';
 

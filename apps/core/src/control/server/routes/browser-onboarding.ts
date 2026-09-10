@@ -79,7 +79,9 @@ export async function handleBrowserOnboardingRoutes(
       ),
     );
   const agents = await storage.repositories.agents.listAgents(appId);
-  const onboardingAgents = agents.filter((agent) => agent.id !== DEFAULT_AGENT_ID);
+  const onboardingAgents = agents.filter(
+    (agent) => agent.id !== DEFAULT_AGENT_ID,
+  );
   const accounts =
     await storage.repositories.providerAccounts.listProviderAccounts(appId);
   const setups = await storage.service.db
@@ -91,42 +93,42 @@ export async function handleBrowserOnboardingRoutes(
     onboardingAgents
       .filter((agent) => setupAgentIds.has(agent.id))
       .map(async (agent) => {
-      const account = accounts.find((item) => item.agentId === agent.id);
-      const [verification] = await storage.service.db
-        .select({
-          id: onboardingVerificationsPostgres.id,
-          challenge: onboardingVerificationsPostgres.challenge,
-          status: onboardingVerificationsPostgres.status,
-        })
-        .from(onboardingVerificationsPostgres)
-        .where(
-          and(
-            eq(onboardingVerificationsPostgres.appId, appId),
-            eq(onboardingVerificationsPostgres.agentId, agent.id),
-          ),
-        )
-        .orderBy(desc(onboardingVerificationsPostgres.createdAt))
-        .limit(1);
-      if (verification?.status === 'completed') return null;
-      const activeVerification =
-        verification?.status === 'pending' ||
-        verification?.status === 'inbound_received';
-      return {
-        id: agent.id,
-        name: agent.name,
-        accountId: account?.id ?? null,
-        verificationId: activeVerification ? verification.id : null,
-        challenge: activeVerification ? verification.challenge : null,
-        hasWorkspace: Boolean(account),
-      };
+        const account = accounts.find((item) => item.agentId === agent.id);
+        const [verification] = await storage.service.db
+          .select({
+            id: onboardingVerificationsPostgres.id,
+            challenge: onboardingVerificationsPostgres.challenge,
+            status: onboardingVerificationsPostgres.status,
+          })
+          .from(onboardingVerificationsPostgres)
+          .where(
+            and(
+              eq(onboardingVerificationsPostgres.appId, appId),
+              eq(onboardingVerificationsPostgres.agentId, agent.id),
+            ),
+          )
+          .orderBy(desc(onboardingVerificationsPostgres.createdAt))
+          .limit(1);
+        if (verification?.status === 'completed') return null;
+        const activeVerification =
+          verification?.status === 'pending' ||
+          verification?.status === 'inbound_received';
+        return {
+          id: agent.id,
+          name: agent.name,
+          accountId: account?.id ?? null,
+          verificationId: activeVerification ? verification.id : null,
+          challenge: activeVerification ? verification.challenge : null,
+          hasWorkspace: Boolean(account),
+        };
       }),
   );
-  const resumable = resumeCandidates.flatMap((agent) =>
-    agent ? [agent] : [],
-  ).map((agent) => ({
-    ...agent,
-    step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
-  }));
+  const resumable = resumeCandidates
+    .flatMap((agent) => (agent ? [agent] : []))
+    .map((agent) => ({
+      ...agent,
+      step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
+    }));
   sendJson(res, 200, {
     firstRun: onboardingAgents.length === 0,
     resume: resumable[0] ?? null,
