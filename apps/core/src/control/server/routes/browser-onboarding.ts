@@ -67,7 +67,10 @@ export async function handleBrowserOnboardingRoutes(
     agents.map(async (agent) => {
       const account = accounts.find((item) => item.agentId === agent.id);
       const [verification] = await storage.service.db
-        .select({ id: onboardingVerificationsPostgres.id })
+        .select({
+          id: onboardingVerificationsPostgres.id,
+          challenge: onboardingVerificationsPostgres.challenge,
+        })
         .from(onboardingVerificationsPostgres)
         .where(
           and(
@@ -86,15 +89,15 @@ export async function handleBrowserOnboardingRoutes(
         name: agent.name,
         accountId: account?.id ?? null,
         verificationId: verification?.id ?? null,
+        challenge: verification?.challenge ?? null,
         hasWorkspace: Boolean(account),
       };
     }),
   );
-  const resumable = resumeCandidates
-    .map((agent) => ({
-      ...agent,
-      step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
-    }));
+  const resumable = resumeCandidates.map((agent) => ({
+    ...agent,
+    step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
+  }));
   sendJson(res, 200, {
     firstRun: agents.length === 0,
     resume: resumable[0] ?? null,
