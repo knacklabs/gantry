@@ -33,4 +33,11 @@ describe('browser onboarding route', () => {
     );
     expect(source).toContain('firstRun: onboardingAgents.length === 0');
   });
+
+  it('requires a real conversation installation before issuing a challenge', () => {
+    expect(source).toContain('isAgentEnabledInConversation({');
+    expect(source).toContain(
+      'Install this employee in the selected conversation before verifying it.',
+    );
+  });
 });

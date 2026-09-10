@@ -220,6 +220,21 @@ async function createVerification(
     );
     return true;
   }
+  const installed =
+    await storage.repositories.providerAccounts.isAgentEnabledInConversation({
+      appId,
+      agentId: agent.id,
+      conversationId: conversation.id,
+    });
+  if (!installed) {
+    sendError(
+      res,
+      409,
+      'CONFLICT',
+      'Install this employee in the selected conversation before verifying it.',
+    );
+    return true;
+  }
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 10 * 60_000).toISOString();
   await storage.service.db
