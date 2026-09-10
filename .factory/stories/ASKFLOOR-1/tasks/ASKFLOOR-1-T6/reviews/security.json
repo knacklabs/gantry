@@ -1,0 +1,45 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "ASKFLOOR-1-T6",
+  "score": 9,
+  "summary": "security lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..d681c84, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The outage behavior is mostly fail-closed, but the inline allow fast path fails to clear a previously opened outage latch, suppressing a later required recovery-cycle notice. The principal invariance test also lacks an independent oracle and does not exercise several contractually required lane variants.",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "[P2] Clear the outage latch before returning an answered allow (apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:422): When the inline classifier returns an `Answered` allow and the request has no explicit decision options, this return runs before `observeJudgeAvailabilityForRequest`."
+    },
+    {
+      "category": "test_gap",
+      "area": "apps/core/test/unit/runtime",
+      "summary": "[P2] Assert permission invariance against fixed expected tuples (apps/core/test/unit/runtime/askfloor-invariance.test.ts:86): The invariance test compares each unavailable result only with a result produced by the patched implementation itself."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
+  "reviewed_scope": [
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/runtime/permission-judge-outage.ts",
+    "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-classifier.test.ts",
+    "apps/core/test/unit/runtime/permission-judge-outage.test.ts"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "aspect": "security",
+  "review_run_id": "7d34292314e860d422344a61f099f66e99ae9e1418a9b94162fb050f0e8ca309",
+  "brief_sha256": "547ed1d3f047d348712bf94c3f29f0be3dfaecce35f63c346597ae2e95fc633b",
+  "branch_diff_digest": "76e7cbfbdfb3a8f196699a60efa3cf996055b3bcb7965657b99a327df8204652",
+  "residual_risks": [],
+  "recorded_at": "2026-09-10T03:27:59+00:00",
+  "commit": "d681c84c7cf8e7719e78754cae86100104c5b212"
+}

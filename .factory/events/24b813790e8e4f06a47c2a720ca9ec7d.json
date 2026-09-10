@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-10T02:33:44+00:00", "story": "ASKFLOOR-1", "detail": "ccc is uninitialized; its required init/index writes are outside the T6 write scope."}

@@ -1,0 +1,382 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "ASKFLOOR-1-T6",
+  "score": 0,
+  "summary": "quality lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..d681c84, Codex via the autoreview skill at --max-priority P2): 4 blocking, 0 non-blocking. The outage plumbing is largely present, but the inline recovery path leaves the latch open after an answered allow, and three mandatory acceptance suites do not exercise the cases their contracts require.\nVERDICT ASKFLOOR-1-T6-AC1: implemented \u2014 apps/core/src/application/permissions/permission-judge-outage-latch.ts:14 evidence\nVERDICT ASKFLOOR-1-T6-AC2: implemented \u2014 apps/core/src/runtime/ipc-permission-classifier-decision.ts:504 evidence\nVERDICT ASKFLOOR-1-T6-AC3: partial \u2014 apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:422 evidence\nVERDICT ASKFLOOR-1-T6-AC4: partial \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:324 evidence\nVERDICT ASKFLOOR-1-T6-AC5: partial \u2014 apps/core/test/unit/runtime/askfloor-invariance.test.ts:32 evidence\nVERDICT ASKFLOOR-1-T6-AC6: partial \u2014 apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:356 evidence",
+  "blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/app/bootstrap",
+      "summary": "[P1] Clear the inline outage latch before returning an answered allow (apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:422): The successful-allow return occurs before `observeJudgeAvailabilityForRequest`."
+    },
+    {
+      "category": "test_gap",
+      "area": "apps/core/test/unit/runtime",
+      "summary": "[P1] Complete S6 with the required uncovered-read and scheduled-job cases (apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:324): The purported uncovered-read case invokes `mcp__crm__update_record`, so it does not prove that an uncovered read asks at most once while the judge is offline."
+    },
+    {
+      "category": "test_gap",
+      "area": "apps/core/test/unit/runtime",
+      "summary": "[P1] Implement the full invariance matrix instead of label-only stand-ins (apps/core/test/unit/runtime/askfloor-invariance.test.ts:32): This suite does not exercise the required AF-AC6 matrix: the supposed projection quartet is one ordinary host-job request with no projected memory records, the supposed inline-scheduled case calls the IPC replay harness, and scheduler/admin/destructive/family-rail cases are collapsed into one command."
+    },
+    {
+      "category": "test_gap",
+      "area": "apps/core/test/unit/runtime",
+      "summary": "[P1] Run all TB fixtures and mirrors in the aggregation test (apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:356): The aggregation case claims to execute TB1\u2013TB4 and their mirrors, but it constructs only isolated browser/file examples in different lanes and never runs the complete four interactive-auto fixtures or the protected-write, outside-workspace-write, scheduler-delete, and raw-path-attach mirrors."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T6-AC3: INLINE PATH. Same contract inside the `beforePrompt` callback of the inline consult (`deps.sendMessage(run.chatJid, NOTICE, { threadId: run.threadId })`), reason line on the inline ask, the inline guard (`:372`) yields `wiring_missing` only for an eligible lane, and the scheduled-job return at `:410` is preceded by the notice with the offline reason on the cancel decision. Tests: `inline-agent-loop-tools.test.ts` \u2014 the same cases plus the scheduled-job notice + reason."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T6-AC4: NO TAP STORM, MEMORY STILL WRITES. With the judge offline: a deterministic read-only request inside a trusted root costs 0 taps and no notice (the read-only gate short-circuits before the LLM path); an uncovered read asks at most once per request; [Allow] with remember still writes the row and the identical repeat costs 0 taps offline (S4's shape, `source: 'human_decision'`); scheduled jobs keep deterministic denial + card recovery. Tests: S6 in `askfloor-tap-budget.test.ts` through the harness knobs of ruling 7."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T6-AC5: INVARIANCE. NEW `askfloor-invariance.test.ts` proves every lane in AF-AC6 (ask, auto_strict, trusted-host autonomous incl. the projection quartet, YOLO backstop, unmapped-forced-ask, scheduler/admin/destructive, family rail hit, inline-scheduled, attachment_open birthright) yields exactly today's tuple under an answering judge AND under an `Unavailable` judge for each of the six codes + `wiring_missing` (the offline column differs only where AF-AC5 and 0157 say: interactive auto asks with the reason line; a job lane reaches its card with the reason line; everything else identical). Test titles are the required leaf ids verbatim."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": ".factory/stories/ASKFLOOR-1/task-plans/ASKFLOOR-1-T6.md#acceptance-criteria",
+      "summary": "ASKFLOOR-1-T6-AC6: AGGREGATION + GATES. The AF-AC8 aggregation run executes S1\u2013S6 + TB1\u2013TB4 + mirrors in one `it` and reports the tap total per lane (no earlier-owned test edited). Existing unit and Postgres suites pass; tsc and check:architecture green; ceilings: `ipc-permission-classifier-decision.ts` \u2264 700, `inline-agent-loop-tools.ts` \u2264 750, `permission-classifier.ts` \u2264 700, `ipc-interaction-processing.ts` \u2264 865 (untouched), 700 elsewhere; no wrapper, shim, alias or compatibility naming."
+    }
+  ],
+  "non_blocking_findings": [],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+    "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-classifier.ts",
+    "apps/core/src/runtime/permission-judge-outage.ts",
+    "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+    "apps/core/test/unit/runtime/permission-classifier.test.ts",
+    "apps/core/test/unit/runtime/permission-judge-outage.test.ts"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/permission-judge-outage-latch.ts:14 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/ipc-permission-classifier-decision.ts:504 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC3",
+      "verdict": "partial",
+      "evidence": "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:422 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC4",
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:324 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC5",
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runtime/askfloor-invariance.test.ts:32 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T6-AC6",
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:356 evidence"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC7",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC7",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC8",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC7",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5b at its own per-task seal (stage done); unchanged by this task's diff"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "7d34292314e860d422344a61f099f66e99ae9e1418a9b94162fb050f0e8ca309",
+  "brief_sha256": "547ed1d3f047d348712bf94c3f29f0be3dfaecce35f63c346597ae2e95fc633b",
+  "branch_diff_digest": "76e7cbfbdfb3a8f196699a60efa3cf996055b3bcb7965657b99a327df8204652",
+  "residual_risks": [],
+  "recorded_at": "2026-09-10T03:27:59+00:00",
+  "commit": "d681c84c7cf8e7719e78754cae86100104c5b212"
+}
