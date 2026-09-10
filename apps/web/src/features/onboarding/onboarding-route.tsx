@@ -11,6 +11,7 @@ import {
   discoverChannelConversations,
   installAgentConversation,
   replaceConversationApprovers,
+  verifyConversationApprovers,
 } from '../channel-accounts/channel-account-queries';
 import type { ChannelConversation, ChannelProvider } from '../channel-accounts/channel-account-queries';
 import { navigationSummaryQuery } from '../navigation/navigation-summary-query';
@@ -132,6 +133,10 @@ export function OnboardingRoute() {
     if (!agentId || !accountId || !conversationId || !approver.trim()) return;
     setBusy(true); setError(null);
     try {
+      const verification = await verifyConversationApprovers(conversationId, [approver.trim()]);
+      if (verification.verification.invalidUserIds.length > 0) {
+        throw new Error('Choose a verified member from this conversation.');
+      }
       await installAgentConversation({ agentId, conversationId, providerAccountId: accountId, memoryScope: 'conversation' });
       await replaceConversationApprovers(conversationId, [approver.trim()]);
       setChallenge(code); setStep(4);

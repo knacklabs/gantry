@@ -250,7 +250,14 @@
 .onboarding-splash p strong { color:#f0eeea; }
 .onboarding-splash button { display:inline-flex; align-items:center; gap:11px; height:48px; border:1px solid #f0eeea; border-radius:999px; background:#f0eeea; color:#131211; padding:0 24px; font-size:15px; font-weight:500; }
 .onboarding-splash small { color:#807c75; font-family:var(--font-mono); }
-@media (max-width: 767px) { .onboarding-page { display:none; } .onboarding-page::after { content:'Tablet or desktop required'; } }
+@media (max-width: 767px) {
+  .onboarding-header { height:64px; }
+  .onboarding-grid { display:block; min-height:calc(100dvh - 64px); }
+  .onboarding-rail { display:none; }
+  .onboarding-main { min-height:calc(100dvh - 64px); padding:20px 16px; }
+  .onboarding-content { align-content:start; margin-top:12px; }
+  .onboarding-actions { align-items:flex-start; flex-direction:column; }
+}
 
 .web-drawer {
   width: min(100vw, clamp(40rem, 40vw, 45rem)) !important;
