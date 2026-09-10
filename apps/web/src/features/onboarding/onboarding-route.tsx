@@ -28,7 +28,7 @@ const STEPS = [
 
 const DUTIES = ['Answer questions', 'Summarise threads', 'Search internal docs'];
 
-type OnboardingStatus = { firstRun: boolean; resume: { id: string; name: string; hasWorkspace: boolean } | null };
+type OnboardingStatus = { firstRun: boolean; resume: { id: string; name: string; hasWorkspace: boolean; step: 2 | 3 } | null };
 const onboardingStatusQuery = queryOptions({
   queryKey: ['onboarding-status'],
   queryFn: async (): Promise<OnboardingStatus> => {
@@ -94,7 +94,7 @@ export function OnboardingRoute() {
     if (!started || !status.data?.resume || agentId) return;
     setAgentId(status.data.resume.id);
     setName((current) => current || status.data.resume!.name);
-    setStep(2);
+    setStep(status.data.resume.step);
   }, [agentId, started, status.data]);
 
   function saveDraft(next: { name?: string; title?: string; responsibilities?: string }) {

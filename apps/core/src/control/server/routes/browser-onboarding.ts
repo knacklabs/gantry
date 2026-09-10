@@ -59,20 +59,25 @@ export async function handleBrowserOnboardingRoutes(
     return true;
   }
   const storage = getRuntimeStorage();
+  const appId = session.appId as AppId;
   const agents = await storage.repositories.agents.listAgents(
-    session.appId as AppId,
+    appId,
   );
   const accounts =
     await storage.repositories.providerAccounts.listProviderAccounts(
-      session.appId as AppId,
+    appId,
     );
-  const resumable = agents
-    .map((agent) => ({
+  const resumeCandidates = await Promise.all(
+    agents.map(async (agent) => ({
       id: agent.id,
       name: agent.name,
       hasWorkspace: accounts.some((account) => account.agentId === agent.id),
-    }))
-    .filter((agent) => !agent.hasWorkspace);
+      hasAssignment: (await storage.repositories.providerAccounts.listConversationInstalls(appId, agent.id)).length > 0,
+    })),
+  );
+  const resumable = resumeCandidates
+    .map((agent) => ({ ...agent, step: agent.hasAssignment ? 4 : agent.hasWorkspace ? 3 : 2 }))
+    .filter((agent) => agent.step < 4);
   sendJson(res, 200, {
     firstRun: agents.length === 0,
     resume: resumable[0] ?? null,
