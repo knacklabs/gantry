@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T16:19:07+00:00", "story": "ASKFLOOR-1", "detail": "S-0093-f35e: Ruling: the layer rules win. PermissionMemoryListMessageView stays a DOMAIN-owned type (the round-3 task grill ruled 'domain-owned view type'; domain must not import application). AC2's 'owner' clause"}

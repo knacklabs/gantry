@@ -1,0 +1,11 @@
+{
+  "topic": "T5b Postgres fix detail: pass railVersion to listHumanDecisions",
+  "lesson": "Exact cause of the round-trip failure: T5b added a required railVersion input to repository.listHumanDecisions (eq(table.railVersion, input.railVersion)); the round-trip test calls it with only appId/agentFolder/actingPersonId while its records carry railVersion 4, so the query returns []. Fix the test call by passing railVersion: 4 (and any other listHumanDecisions call in that suite that omits it); do not loosen the repository filter. The FK failure in the audit test is separate: seed apps 'app-one' and 'app-two' before inserting permission_decisions rows.",
+  "source": "b43dbb6a8",
+  "applies_to": [
+    "apps/core/test/integration/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T14:44:41+00:00"
+}

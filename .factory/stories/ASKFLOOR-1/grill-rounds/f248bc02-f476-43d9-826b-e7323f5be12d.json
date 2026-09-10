@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "In the /permissions list, a remembered decision can show which jobs actually used it. If a job that used it has since been deleted, what should the row show?",
+      "options": [
+        "Omit the deleted job (Recommended)",
+        "Say 'used by a deleted job'"
+      ],
+      "chosen": "Omit the deleted job (Recommended)"
+    },
+    {
+      "question": "When more than two jobs used a remembered decision, the row shows two names then '+N jobs'. Which two?",
+      "options": [
+        "Two most recent uses (Recommended)",
+        "Two oldest uses"
+      ],
+      "chosen": "Two most recent uses (Recommended)"
+    },
+    {
+      "question": "Dates in the list ('2 Sep'): use the runtime's configured timezone with a day-and-month format?",
+      "options": [
+        "Configured timezone, day + month (Recommended)",
+        "Full date with time"
+      ],
+      "chosen": "Configured timezone, day + month (Recommended)"
+    },
+    {
+      "question": "Tapping Forget removes the row from the list message in place where the provider allows editing. May T5b touch the four provider action handlers to do that?",
+      "options": [
+        "Yes, edit in place (Recommended)",
+        "Reply only"
+      ],
+      "chosen": "Yes, edit in place (Recommended)"
+    }
+  ],
+  "at": "2026-09-08T17:48:13.635270+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

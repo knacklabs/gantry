@@ -216,6 +216,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
     appId: string;
     agentFolder: string;
     actingPersonId: string;
+    railVersion: number;
     includeRevoked?: boolean;
   }): Promise<PermissionDecisionMemoryRow[]> {
     const rows = await this.db
@@ -227,6 +228,7 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
           eq(table.agentFolder, input.agentFolder),
           eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
           eq(table.actingPersonId, input.actingPersonId),
+          eq(table.railVersion, input.railVersion),
           input.includeRevoked ? undefined : isNull(table.revokedAt),
         ),
       )

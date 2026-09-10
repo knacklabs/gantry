@@ -10,6 +10,7 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
+  type SessionCommand,
 } from './session-command-parse.js';
 export {
   extractSessionCommand,
@@ -41,6 +42,9 @@ import {
   type MemoryStatusSnapshot,
 } from './session-command-format.js';
 import { formatSessionCommandsHelp } from './session-command-help.js';
+// prettier-ignore
+import { permissionMemoryCommandResponse, type UsedByJobReader } from '../application/permissions/permission-memory-listing.js';
+import type { HumanDecisionMemoryService } from '../application/permissions/human-decision-memory-service.js';
 import {
   defaultModelStatusSelection,
   type ModelStatusSelectionUpdate,
@@ -68,10 +72,8 @@ interface DreamQueueResult {
   reason?: 'queued' | 'deduped' | 'full' | 'invalid';
 }
 
-type CompactionProviderSession = {
-  providerSessionId: string;
-  externalSessionId: string;
-};
+// prettier-ignore
+type CompactionProviderSession = { providerSessionId: string; externalSessionId: string };
 
 export type SessionArchiveOutcome = {
   memory: 'ok' | 'degraded' | 'skipped';
@@ -130,6 +132,8 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   getGroupPermissionModeOverride: () => PermissionMode | undefined;
   getDefaultPermissionMode: () => PermissionMode;
+  // prettier-ignore
+  remembered?: { appId: string; agentFolder: string; agentId: string; conversationKind: 'dm' | 'group'; resolvePersonId: () => Promise<string | undefined>; service: HumanDecisionMemoryService; usedBy: UsedByJobReader; timezone: string };
   setGroupPermissionModeOverride: (
     value: PermissionMode | undefined,
   ) => Promise<void> | void;
@@ -540,7 +544,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'status') {
     deps.advanceCursor(cmdMsg);
     const modelStatusText = formatModelStatus(deps.getModelStatus?.(), {
@@ -567,7 +570,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_show') {
     const message = groupThinkingOverride
       ? `Current thinking: ${describeThinking(groupThinkingOverride)} (group override).`
@@ -576,11 +578,25 @@ export async function handleSessionCommand(opts: {
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
-
-  if (command.kind === 'permissions_show') {
+  if (
+    command.kind === 'permissions_show' ||
+    command.kind === 'permissions_all' ||
+    command.kind === 'permissions_forget'
+  ) {
     deps.advanceCursor(cmdMsg);
+    const response = deps.remembered
+      ? await permissionMemoryCommandResponse({
+          command,
+          modeLine: `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+          ...deps.remembered,
+        })
+      : undefined;
     await deps.sendMessage(
-      `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+      response?.text ??
+        `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+      ...(response?.actionAffordances
+        ? [{ actionAffordances: response.actionAffordances }]
+        : []),
     );
     return { handled: true, success: true };
   }
@@ -597,7 +613,6 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(resolved.message);
       return { handled: true, success: true };
     }
-
     try {
       await deps.setGroupModelOverride(resolved.alias);
       deps.updateModelStatusSelection?.({
@@ -615,7 +630,6 @@ export async function handleSessionCommand(opts: {
       );
       return { handled: true, success: false };
     }
-
     deps.advanceCursor(cmdMsg);
     const family = getModelFamily(resolved.alias);
     const selectionLabel = family
@@ -625,7 +639,6 @@ export async function handleSessionCommand(opts: {
     await deps.sendMessage(`Using ${selectionLabel} for this session.`);
     return { handled: true, success: true };
   }
-
   if (command.kind === 'model_default') {
     try {
       await deps.setGroupModelOverride(undefined);
@@ -642,7 +655,6 @@ export async function handleSessionCommand(opts: {
       );
       return { handled: true, success: false };
     }
-
     deps.advanceCursor(cmdMsg);
     if (defaultModel) {
       const defaultEntry = findModelByRunnerModel(defaultModel);
@@ -656,7 +668,6 @@ export async function handleSessionCommand(opts: {
     }
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_set') {
     try {
       await deps.setGroupThinkingOverride(command.value);
@@ -675,7 +686,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
   if (command.kind === 'thinking_default') {
     try {
       await deps.setGroupThinkingOverride(undefined);

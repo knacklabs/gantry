@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T13:23:32+00:00", "story": "ASKFLOOR-1", "detail": "ASKFLOOR-1-T5b: renaming app/bootstrap/runtime-group-processor-deps.ts to group-processor-deps.ts leaves it classified as runtime because architecture-map.json maps all apps/core/src/app to runtime; t"}

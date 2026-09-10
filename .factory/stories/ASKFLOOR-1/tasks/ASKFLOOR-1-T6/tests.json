@@ -1,0 +1,84 @@
+{
+  "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "13/13 required leaves pass on the committed tree 3f7415ec9 (per-leaf JUnit reports in the scratchpad); full unit suite green; Postgres integration suites green through stage done.",
+    "blocking_findings": [],
+    "commands_run": [
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/application/permission-judge-outage-latch.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/askfloor-invariance.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/askfloor-tap-budget.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/permission-classifier.test.ts -t <leaf>",
+      "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/permission-judge-outage.test.ts -t <leaf>",
+      "npx vitest run -c vitest.unit.config.ts",
+      "GANTRY_TEST_DATABASE_URL=... npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+      "npx tsc --noEmit",
+      "npm run check:architecture"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/unit/application/permission-judge-outage-latch.test.ts",
+      "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+      "apps/core/test/unit/runtime/askfloor-invariance.test.ts",
+      "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+      "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+      "apps/core/test/unit/runtime/ipc-permission-classifier-decision.test.ts",
+      "apps/core/test/unit/runtime/permission-classifier.test.ts",
+      "apps/core/test/unit/runtime/permission-judge-outage.test.ts"
+    ],
+    "pass_fail_summary": "leaves 13/13; unit green; postgres green; tsc 0; architecture passed; stage done verify passed",
+    "remaining_gaps": [],
+    "reviewed_scope": [
+      "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
+      "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
+      "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+      "apps/core/src/runtime/permission-classifier.ts",
+      "apps/core/src/runtime/permission-judge-outage.ts"
+    ],
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "task_id": "ASKFLOOR-1-T6",
+    "recorded_at": "2026-09-10T05:38:20+00:00",
+    "commit": "3f7415ec92ae5aeb1a6f337ccf95c02885305963"
+  },
+  "updated_at": "2026-09-10T05:38:20+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "pass",
+    "score": 9,
+    "task_id": "ASKFLOOR-1-T6",
+    "skills_used": [
+      "emil-design-eng",
+      "frontend-design"
+    ],
+    "summary": "Functional check of the judge-outage surface through the tap-budget harness (S6) and the IPC/inline suites on the committed T6 tree: with the judge unavailable a DM gets exactly one plain notice sentence before the first offline card, the card reason says why, a second offline request cards without a new notice, an answered verdict resets the episode so the next outage notifies again, trusted-root reads stay silent, an uncovered read asks at most once, Allow with remember still writes the row and the repeat runs with zero cards, and a scheduled job's conversation gets the same single notice before its card. No live provider was available to the checker; the harness drives the same consult paths the providers reach.",
+    "scenarios": [
+      "DM, judge unavailable (llm_unconfigured): one notice 'My safety judge is offline, so I'll check with you more than usual until it's back.' then the card with reason 'Asking because my safety judge is offline.'; second request \u2192 card only",
+      "Tap Allow with remember; identical request \u2192 no card; /permissions lists the row",
+      "A read inside the workspace \u2192 no notice, no card",
+      "Judge restored and answers \u2192 next outage notifies once more",
+      "Group route: same sequence, one notice per group conversation",
+      "Scheduled job with an unavailable judge \u2192 one notice to the job conversation, then the job's card with the offline reason",
+      "Ask mode and unmapped lanes \u2192 no consult, no notice, unchanged"
+    ],
+    "blocking_findings": [],
+    "non_blocking_findings": [],
+    "residual_risks": [
+      "Live tap-through on a real provider deferred to the post-merge runtime redeploy (Ravi's go-ahead required for a restart)."
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "manual_validation_steps": [],
+    "reviewed_scope": [],
+    "recorded_at": "2026-09-10T03:17:40+00:00",
+    "commit": "d681c84c7cf8e7719e78754cae86100104c5b212"
+  }
+}

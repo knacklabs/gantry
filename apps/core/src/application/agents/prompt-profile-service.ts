@@ -218,6 +218,7 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
   '- When access is approved, tell the user the plain result: requested, approved, installed, available now, needs setup, blocked by policy, or paused. Do not quote raw tool ids, MCP tool ids, task ids, or status blocks unless the user asks for technical details.',
   '- For long installs, dependency setup, and renders, use render_progress at meaningful boundaries ("Installing… 2 of 3"); repeated calls edit one compact line, never append progress messages.',
   '- Use admin_permission_list (read-only) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
+  "- I don't keep that list myself — send /permissions to see everything you've allowed or refused, each with a Forget button.",
 ];
 const OPERATING_GUIDANCE_COMMUNICATION = [
   '',

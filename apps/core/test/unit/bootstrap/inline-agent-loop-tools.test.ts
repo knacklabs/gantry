@@ -32,6 +32,8 @@ import {
   HumanDecisionOutcome,
   type PermissionDecisionMemoryRepository,
 } from '@core/domain/ports/permission-decision-memory.js';
+import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
+import { judgeOutageLatch } from '@core/runtime/permission-judge-outage.js';
 import type {
   AsyncTaskBacklogAdmissionInput,
   AsyncTaskClaimInput,
@@ -924,6 +926,7 @@ describe('inline core tool bootstrap', () => {
     const runRememberScenario = async (options: {
       scheduled?: boolean;
       failWrite?: boolean;
+      personLabel?: string;
     }) => {
       const { repository } = inMemoryPermissionDurability();
       configurePendingInteractionDurability({
@@ -983,6 +986,7 @@ describe('inline core tool bootstrap', () => {
       const input = laneInput();
       input.input.permissionMode = 'auto';
       input.input.memoryUserId = 'person-one';
+      input.input.memoryUserLabel = options.personLabel;
       if (options.scheduled) {
         input.input.isScheduledJob = true;
         input.input.jobId = 'job-one';
@@ -1000,13 +1004,15 @@ describe('inline core tool bootstrap', () => {
       return { result, putHumanDecision, warn };
     };
 
-    const eligible = await runRememberScenario({});
+    const eligible = await runRememberScenario({
+      personLabel: 'Host Approver',
+    });
     expect(eligible.result).toEqual({ allowed: true });
     expect(eligible.putHumanDecision).toHaveBeenCalledOnce();
     expect(eligible.putHumanDecision).toHaveBeenCalledWith(
       expect.objectContaining({
         actingPersonId: 'person-one',
-        actingPersonLabel: undefined,
+        actingPersonLabel: 'Host Approver',
       }),
     );
 
@@ -1321,6 +1327,80 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
+  it('sends one offline notice from beforePrompt before the first offline card sets the offline reason line skips the notice on repeat re-notifies after an answered result swallows a send failure and yields wiring_missing when publishRuntimeEvent is absent', async () => {
+    judgeOutageLatch.clearAll();
+    const timeline: string[] = [];
+    let answered = false;
+    sendMessage.mockImplementation(async () => {
+      timeline.push('notice');
+    });
+    requestPermissionApproval.mockImplementation(async (request) => {
+      timeline.push(`card:${request.decisionReason}`);
+      return permissionDecisionResult({ approved: true, mode: 'allow_once' });
+    });
+    const classifierConsult = vi.fn(async () => ({
+      status: answered
+        ? PermissionClassifierStatus.Answered
+        : PermissionClassifierStatus.Unavailable,
+      risk_level: answered ? ('low' as const) : ('high' as const),
+      ...(answered ? { risk_category: 'benign' as const } : {}),
+      reason: answered ? 'Answered.' : 'Offline.',
+      latencyMs: 1,
+      ...(answered ? {} : { failureCode: 'query_error' as const }),
+    }));
+    wire({ classifierConsult });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'one' });
+    await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'two' });
+    expect(timeline).toEqual([
+      'notice',
+      'card:Asking because my safety judge is offline.',
+      'card:Asking because my safety judge is offline.',
+    ]);
+
+    answered = true;
+    await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'three' });
+    answered = false;
+    await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'four' });
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+
+    judgeOutageLatch.clearAll();
+    sendMessage.mockImplementationOnce(async () => {
+      throw new Error('notice delivery failed');
+    });
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'five' }),
+    ).resolves.toEqual({ allowed: true });
+
+    const missingConsult = vi.fn();
+    wire({ publishRuntimeEvent: undefined, classifierConsult: missingConsult });
+    const wiringMissingInput = laneInput();
+    wiringMissingInput.input.permissionMode = 'auto';
+    await expect(
+      createInlineCoreTools(
+        wiringMissingInput,
+        support((() => ({
+          status: 'prompt',
+          reason: 'Approval required.',
+        })) as never),
+      ).authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'wiring' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(missingConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval.mock.calls.at(-1)?.[0]).toMatchObject({
+      decisionReason: 'Asking because my safety judge is offline.',
+    });
+    judgeOutageLatch.clearAll();
+  });
+
   it('routes sanitized inline input to human approval without classifier consultation', async () => {
     const classifierConsult = vi.fn();
     wire({
@@ -1485,6 +1565,42 @@ describe('inline core tool bootstrap', () => {
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(input.emitOutput).not.toHaveBeenCalled();
+  });
+
+  it('sends the offline notice before the scheduled terminal decision with the offline reason', async () => {
+    judgeOutageLatch.clearAll();
+    const timeline: string[] = [];
+    sendMessage.mockImplementation(async () => {
+      timeline.push('notice');
+    });
+    wire({
+      classifierConsult: vi.fn(async () => ({
+        status: PermissionClassifierStatus.Unavailable,
+        risk_level: 'high' as const,
+        reason: 'Offline.',
+        latencyMs: 1,
+        failureCode: 'query_error' as const,
+      })),
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    input.input.isScheduledJob = true;
+    input.input.jobId = 'job-offline';
+
+    await expect(
+      createInlineCoreTools(
+        input,
+        support((() => ({
+          status: 'prompt',
+          reason: 'Approval required.',
+        })) as never),
+      ).authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'offline' }),
+    ).resolves.toEqual({
+      allowed: false,
+      reason: 'Asking because my safety judge is offline.',
+    });
+    expect(timeline).toEqual(['notice']);
+    judgeOutageLatch.clearAll();
   });
 
   it.each([

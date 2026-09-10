@@ -1,0 +1,16 @@
+{
+  "topic": "T5b review round 5: P1 app-scoped caller + AC5 by-ids job read + AC2 shared noun helper",
+  "lesson": "Exactly these changes, nothing else. (P1, blocking) app/bootstrap/runtime-services.ts ~line 601: the Forget handler's resolvePerson must canonicalise the caller in the CONVERSATION's app \u2014 derive the app id with appIdFromConversationJid(action.conversationJid) (the same value the handler later uses for the memory lookup) and pass it to resolveCanonicalMemoryPersonId instead of the process-wide runtime app id; pin with a runtime-services test where the conversation's app differs from the process app. (AC5) runtime-services.ts ~626 and app/bootstrap/group-processor-deps.ts ~87 bind a job reader that ignores the id set and lists ALL jobs; bind a by-ids read (add listJobsByIds(appId, ids) to the ops job repository port + Postgres adapter if none exists, or batch the existing getJobById) so only the referenced ids are read; pin it. (AC2) application/permissions/permission-memory-listing.ts ~155 duplicates the category-noun table; delete it and call the existing shared category-noun helper the card copy uses; add the one-job and two-job used-by cases to the listing suite beside the 3+ case. Run runtime-services, listing, forget-handler suites; tsc; check:architecture; ceilings after prettier (runtime-services \u2264 1186). You cannot reach Postgres; the orchestrator runs that lane.",
+  "source": ".factory/stories/ASKFLOOR-1/tasks/ASKFLOOR-1-T5b/reviews/security.json",
+  "applies_to": [
+    "apps/core/src/app/bootstrap/**",
+    "apps/core/src/application/permissions/**",
+    "apps/core/src/domain/**",
+    "apps/core/src/adapters/storage/postgres/**",
+    "apps/core/test/unit/**",
+    "apps/core/test/integration/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T16:48:28+00:00"
+}

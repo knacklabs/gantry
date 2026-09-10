@@ -1,0 +1,353 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "ASKFLOOR-1-T5b",
+  "score": 10,
+  "summary": "quality lens over ASKFLOOR-1-T5b (55 product path(s), 70b5520..43f7e5c, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT ASKFLOOR-1-T5b-AC1: implemented \u2014 apps/core/src/session/session-command-parse.ts:30 accepts all and validated, lower-cased forget prefixes while preserving existing forms.\nVERDICT ASKFLOOR-1-T5b-AC2: implemented \u2014 apps/core/src/application/permissions/permission-memory-listing.ts:76 owns listing behavior, copy, formatting, route keys, affordances, pagination, and used-by rendering.\nVERDICT ASKFLOOR-1-T5b-AC3: implemented \u2014 apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:25 resolves the route and person, lists before revocation, fails closed, and re-lists after an applied revocation.\nVERDICT ASKFLOOR-1-T5b-AC4: implemented \u2014 apps/core/src/channels/telegram/callback-handlers.ts:489, apps/core/src/channels/slack/channel-message-action-handler.ts:110, and apps/core/src/channels/teams/message-actions.ts:292 implement receipt-plus-edit handling; Discord remains receipt-only.\nVERDICT ASKFLOOR-1-T5b-AC5: implemented \u2014 apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1877 provides the grouped latest-use read, while apps/core/src/application/permissions/permission-memory-listing.ts:25 deduplicates referenced jobs and hydrates them in one bounded batch.\nVERDICT ASKFLOOR-1-T5b-AC6: implemented \u2014 apps/core/src/runtime/group-processing.ts:156 derives the sender-matched label, and apps/core/src/runtime/ipc-interaction-processing.ts:211 carries the host-owned label into permission learning.\nVERDICT ASKFLOOR-1-T5b-AC7: implemented \u2014 apps/core/src/application/agents/prompt-profile-service.ts:218 adds the guidance and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120 supplies S5; the recorded verification evidence reports formatting, architecture, typecheck, and test gates green.\nNO LEFTOVERS: the selected diff contains no compatibility wrapper, shim, retained alias, re-export, dead branch, or compatibility naming.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/permission-decision-memory-repository.postgres.ts",
+    "apps/core/src/app/bootstrap/channel-message-action-router.ts",
+    "apps/core/src/app/bootstrap/channel-wiring-types.ts",
+    "apps/core/src/app/bootstrap/channel-wiring.ts",
+    "apps/core/src/app/bootstrap/group-processor-deps.ts",
+    "apps/core/src/app/bootstrap/inline-permission-memory.ts",
+    "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts",
+    "apps/core/src/app/bootstrap/runtime-app.ts",
+    "apps/core/src/app/bootstrap/runtime-scheduler-start.ts",
+    "apps/core/src/app/bootstrap/runtime-services.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/application/permissions/human-decision-memory-service.ts",
+    "apps/core/src/application/permissions/permission-memory-listing.ts",
+    "apps/core/src/channels/discord/components.ts",
+    "apps/core/src/channels/slack/channel-message-action-handler.ts",
+    "apps/core/src/channels/slack/message-action-affordances.ts",
+    "apps/core/src/channels/teams/cards.ts",
+    "apps/core/src/channels/teams/message-actions.ts",
+    "apps/core/src/channels/telegram/callback-handlers.ts",
+    "apps/core/src/channels/telegram/message-action-affordances.ts",
+    "apps/core/src/domain/message-actions.ts",
+    "apps/core/src/domain/ports/permission-decision-memory.ts",
+    "apps/core/src/domain/ports/repositories.ts",
+    "apps/core/src/runtime/agent-spawn-permission-run-restriction.ts",
+    "apps/core/src/runtime/agent-spawn-types.ts",
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/src/runtime/group-processing-session-command-handlers.ts",
+    "apps/core/src/runtime/group-processing-types.ts",
+    "apps/core/src/runtime/group-processing.ts",
+    "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/permission-remember-settlement.ts",
+    "apps/core/src/session/session-command-parse.ts",
+    "apps/core/src/session/session-commands.ts",
+    "apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts",
+    "apps/core/test/unit/application/human-decision-memory-service.test.ts",
+    "apps/core/test/unit/application/permission-memory-listing.test.ts",
+    "apps/core/test/unit/bootstrap/channel-message-action-router.test.ts",
+    "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+    "apps/core/test/unit/bootstrap/permission-memory-forget-handler.test.ts",
+    "apps/core/test/unit/bootstrap/runtime-app.test.ts",
+    "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+    "apps/core/test/unit/channels/discord/discord.test.ts",
+    "apps/core/test/unit/channels/slack.test.ts",
+    "apps/core/test/unit/channels/teams/teams.test.ts",
+    "apps/core/test/unit/channels/telegram.test.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget-harness.ts",
+    "apps/core/test/unit/runtime/askfloor-tap-budget.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
+    "apps/core/test/unit/runtime/ipc-interaction-handler.test.ts",
+    "apps/core/test/unit/runtime/permission-decision-coordinator.test.ts",
+    "apps/core/test/unit/runtime/prompt-profile.test.ts",
+    "apps/core/test/unit/session/session-commands.test.ts",
+    "scripts/architecture-exceptions.json"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "contract_verdicts": [
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/session/session-command-parse.ts:30 accepts all and validated, lower-cased forget prefixes while preserving existing forms."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC2",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/permissions/permission-memory-listing.ts:76 owns listing behavior, copy, formatting, route keys, affordances, pagination, and used-by rendering."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC3",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/app/bootstrap/permission-memory-forget-handler.ts:25 resolves the route and person, lists before revocation, fails closed, and re-lists after an applied revocation."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC4",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/channels/telegram/callback-handlers.ts:489, apps/core/src/channels/slack/channel-message-action-handler.ts:110, and apps/core/src/channels/teams/message-actions.ts:292 implement receipt-plus-edit handling; Discord remains receipt-only."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC5",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:1877 provides the grouped latest-use read, while apps/core/src/application/permissions/permission-memory-listing.ts:25 deduplicates referenced jobs and hydrates them in one bounded batch."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC6",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/group-processing.ts:156 derives the sender-matched label, and apps/core/src/runtime/ipc-interaction-processing.ts:211 carries the host-owned label into permission learning."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5b-AC7",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/agents/prompt-profile-service.ts:218 adds the guidance and apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:120 supplies S5; the recorded verification evidence reports formatting, architecture, typecheck, and test gates green."
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T1-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T1 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T2b-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T2b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3b-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3b at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T3c-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T3c at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T4-AC7",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T4 at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC1",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC2",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC3",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC4",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC5",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC6",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC7",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    },
+    {
+      "contract_id": "ASKFLOOR-1-T5a-AC8",
+      "verdict": "implemented",
+      "evidence": "shipped under ASKFLOOR-1-T5a at its own per-task seal (stage done); unchanged by this task's diff"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "e3a1baf0c4e8f84f85e8ad2ea01758f497d42c6361588083f69854f2f4382b4b",
+  "brief_sha256": "a715c0b4910693a567b0420c13d42de7f6822ca93f682639d9efe60751ba3dad",
+  "branch_diff_digest": "78a5c9444433e31c9ff4caf1a747b5ed58254c6abbba7fddaf7ec553b5c04ba2",
+  "residual_risks": [],
+  "recorded_at": "2026-09-09T17:50:59+00:00",
+  "commit": "43f7e5c47db2a7d2fab412a37967eccf15013926"
+}

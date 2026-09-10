@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-10T02:34:57+00:00", "story": "ASKFLOOR-1", "detail": "S-0098-0136: Resolved by the orchestrator: the ccc index (/.cocoindex_code/, git-ignored) is being initialised and built host-side in this worktree; it is not part of the task scope and you must not run ccc init y"}

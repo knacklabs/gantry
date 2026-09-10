@@ -36,6 +36,12 @@ import {
   type PermissionClassifierRuntimeConfig,
 } from '../../runtime/permission-classifier.js';
 import {
+  isJudgeUnavailable,
+  judgeOutageReason,
+  observeJudgeAvailabilityForRequest,
+  sendJudgeOfflineNoticeForRequest,
+} from '../../runtime/permission-judge-outage.js';
+import {
   loadAgentAccessSnapshot,
   resolveTurnSemanticCapabilitiesFromSnapshot,
   resolveTurnSelectedMcpServerIdsFromSnapshot,
@@ -369,7 +375,10 @@ export function createInlineCoreTools(
             toolInput,
             CLASSIFIER_MAX,
           );
-          if (deps.publishRuntimeEvent) {
+          const classifierEligible =
+            run.permissionMode === 'auto' ||
+            run.permissionMode === 'auto_strict';
+          if (classifierEligible) {
             classifierDecision = await consultPermissionClassifierBeforePrompt({
               permissionMode: run.permissionMode,
               requestFamily: 'tool',
@@ -403,20 +412,35 @@ export function createInlineCoreTools(
             if (
               classifierDecision?.decision === 'allow' &&
               !request.decisionOptions?.length
-            )
+            ) {
+              observeJudgeAvailabilityForRequest(classifierDecision, request);
               // prettier-ignore
               return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
+            }
+          }
+          if (classifierDecision && isJudgeUnavailable(classifierDecision)) {
+            request.decisionReason = judgeOutageReason(classifierDecision);
+          } else {
+            observeJudgeAvailabilityForRequest(classifierDecision, request);
           }
           if (
             !request.decisionOptions?.length &&
             run.permissionMode !== 'ask' &&
             run.isScheduledJob === true
           ) {
+            await sendJudgeOfflineNoticeForRequest(
+              classifierDecision,
+              deps.sendMessage,
+              request,
+            );
             return {
               ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
-              reason: classifierDecision
-                ? `Classifier requested human approval: ${classifierDecision.reason}`
-                : 'This tool is not eligible for unattended auto-permission.',
+              reason:
+                classifierDecision && isJudgeUnavailable(classifierDecision)
+                  ? judgeOutageReason(classifierDecision)
+                  : classifierDecision
+                    ? `Classifier requested human approval: ${classifierDecision.reason}`
+                    : 'This tool is not eligible for unattended auto-permission.',
             };
           }
           const effectiveSuggestions = classifierDecision?.denylistHit
@@ -447,6 +471,11 @@ export function createInlineCoreTools(
             // prettier-ignore
             rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps, canonicalRoot: permissionTailContext?.canonicalRoot }),
             beforePrompt: async () => {
+              await sendJudgeOfflineNoticeForRequest(
+                classifierDecision,
+                deps.sendMessage,
+                request,
+              );
               laneInput.jobActivity.beginPermissionRequest(
                 request.requestId,
                 request.toolName,

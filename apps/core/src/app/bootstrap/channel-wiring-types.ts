@@ -1,6 +1,7 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMemoryForgetMessageAction,
   OnMemoryReviewMessageAction,
   OnObserverFeedbackMessageAction,
   OnBrainDreamReviewMessageAction,
@@ -241,6 +242,9 @@ export interface ChannelWiring {
   ) => void;
   setMemoryReviewMessageActionHandler: (
     handler: OnMemoryReviewMessageAction | undefined,
+  ) => void;
+  setMemoryForgetMessageActionHandler: (
+    handler: OnMemoryForgetMessageAction | undefined,
   ) => void;
   setObserverFeedbackMessageActionHandler: (
     handler: OnObserverFeedbackMessageAction | undefined,

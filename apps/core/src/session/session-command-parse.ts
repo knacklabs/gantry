@@ -23,12 +23,24 @@ export type SessionCommand =
   | { kind: 'thinking_set'; raw: string; value: ThinkingOverride }
   | { kind: 'thinking_default'; raw: '/thinking default' }
   | { kind: 'permissions_show'; raw: '/permissions' }
+  | { kind: 'permissions_all'; raw: '/permissions all' }
+  | { kind: 'permissions_forget'; raw: string; prefix: string }
   | { kind: 'permissions_set'; raw: string; value: PermissionMode }
   | { kind: 'permissions_default'; raw: '/permissions default' };
 
 function parsePermissionsCommand(text: string): SessionCommand | null {
   if (text === '/permissions')
     return { kind: 'permissions_show', raw: '/permissions' };
+  if (text === '/permissions all')
+    return { kind: 'permissions_all', raw: '/permissions all' };
+  const forget = text.match(/^\/permissions\s+forget\s+([^\s]+)$/i)?.[1];
+  if (forget && forget.length >= 4) {
+    return {
+      kind: 'permissions_forget',
+      raw: `/permissions forget ${forget}`,
+      prefix: forget.toLowerCase(),
+    };
+  }
   const value = text.match(
     /^\/permissions\s+(ask|auto|auto_strict|default)$/,
   )?.[1];

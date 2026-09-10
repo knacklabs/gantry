@@ -161,6 +161,22 @@ describe('permission classifier verdict client', () => {
     );
   });
 
+  it('stamps status unavailable for the wiring_missing failure code', async () => {
+    const classifierConsult = vi.fn();
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        ...basePromptInput,
+        classifierConfig: undefined,
+        publishRuntimeEvent: undefined,
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({
+      status: PermissionClassifierStatus.Unavailable,
+      failureCode: 'wiring_missing',
+    });
+    expect(classifierConsult).not.toHaveBeenCalled();
+  });
+
   it('stamps status skipped for aborted, input_truncated and every non-LLM branch', async () => {
     query.mockRejectedValue(
       Object.assign(new Error('cancelled'), { name: 'AbortError' }),
@@ -197,6 +213,20 @@ describe('permission classifier verdict client', () => {
         }),
       ).resolves.toMatchObject({ status: PermissionClassifierStatus.Skipped });
     }
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        ...basePromptInput,
+        canonicalToolName: 'mcp__gantry__file',
+        toolInput: { action: 'read', path: 'notes/a.md' },
+        lane: PermissionLane.InteractiveAuto,
+        classifierConfig: undefined,
+        publishRuntimeEvent: undefined,
+        classifierConsult,
+      }),
+    ).resolves.toMatchObject({
+      status: PermissionClassifierStatus.Skipped,
+      decision: 'allow',
+    });
     expect(classifierConsult).not.toHaveBeenCalled();
   });
 

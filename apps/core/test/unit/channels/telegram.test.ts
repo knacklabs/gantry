@@ -5719,6 +5719,7 @@ describe('TelegramChannel', () => {
             kind: 'memory_forget',
             label: 'Forget a1b2c3',
             recordId: '30000000-0000-4000-8000-000000000001',
+            agentRouteKey: 'agent-route',
           },
         ],
       });
@@ -5744,6 +5745,7 @@ describe('TelegramChannel', () => {
         threadId: '42',
         userId: '111',
         recordId: '30000000-0000-4000-8000-000000000001',
+        agentRouteKey: 'agent-route',
       });
       // The tap is acknowledged before the host hook runs; the receipt is a
       // message in the same thread, not the callback answer.
@@ -5756,6 +5758,89 @@ describe('TelegramChannel', () => {
       expect(receipt?.[0]).toBe('100200300');
       expect(receipt?.[1]).toBe('Forgot.');
       expect(receipt?.[2]).toMatchObject({ message_thread_id: 42 });
+    });
+
+    it('replaces the list message with the re-listed view under the source-message lock and sends the confirmation reply on Telegram', async () => {
+      const onMessageAction = vi.fn(async () => ({
+        state: 'applied' as const,
+        receipt: 'Forgot.',
+        permissionMemoryListView: {
+          text: 'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
+          affordances: [],
+        },
+      }));
+      const channel = new TelegramChannel(
+        'test-token',
+        createTestOpts({ onMessageAction } as any),
+      );
+      await channel.connect();
+      await channel.sendMessage('tg:100200300', 'Permissions', {
+        actionAffordances: [
+          {
+            kind: 'memory_forget',
+            label: 'Forget a1b2c3',
+            recordId: '30000000-0000-4000-8000-000000000001',
+            agentRouteKey: 'agent-route',
+          },
+        ],
+      });
+      const callbackData =
+        currentBot().api.sendMessage.mock.calls.at(-1)?.[2]?.reply_markup
+          .inline_keyboard[0][0].callback_data;
+
+      const callbackCtx = {
+        callbackQuery: {
+          data: callbackData,
+          message: { chat: { id: 100200300 }, message_thread_id: 42 },
+        },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        api: currentBot().api,
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+        editMessageText: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(callbackCtx as any);
+
+      expect(callbackCtx.editMessageText).toHaveBeenCalledWith(
+        'Current permission mode: auto (agent/default).\nAllow · read-only reads · anywhere · 2 Sep · Ada',
+        { reply_markup: undefined },
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2),
+      ).toEqual(['100200300', 'Forgot.']);
+
+      onMessageAction
+        .mockResolvedValueOnce({ state: 'applied', receipt: 'Forgot once.' })
+        .mockResolvedValueOnce({
+          state: 'stale',
+          receipt: 'Already forgotten.',
+        });
+      await Promise.all([
+        triggerCallbackQuery(callbackCtx as any),
+        triggerCallbackQuery(callbackCtx as any),
+      ]);
+      expect(currentBot().api.sendMessage.mock.calls.slice(-2)).toEqual([
+        expect.arrayContaining(['100200300', 'Forgot once.']),
+        expect.arrayContaining(['100200300', 'Already forgotten.']),
+      ]);
+
+      onMessageAction.mockResolvedValueOnce({
+        state: 'applied',
+        receipt: 'Forgot despite edit failure.',
+        permissionMemoryListView: {
+          text: 'Current permission mode: auto (agent/default).',
+          affordances: [],
+        },
+      });
+      callbackCtx.editMessageText.mockRejectedValueOnce(
+        new Error('edit failed'),
+      );
+      await expect(triggerCallbackQuery(callbackCtx as any)).rejects.toThrow(
+        'edit failed',
+      );
+      expect(
+        currentBot().api.sendMessage.mock.calls.at(-1)?.slice(0, 2),
+      ).toEqual(['100200300', 'Forgot despite edit failure.']);
     });
 
     it('CAPFIX-1-2 card keeps ability copy plain and the technical delta expandable', async () => {

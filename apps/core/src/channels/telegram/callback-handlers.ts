@@ -14,6 +14,7 @@ import {
   TELEGRAM_BRAIN_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_BRAIN_REVIEW_DECISION_BY_CODE,
   parseTelegramMemoryForgetCallback,
+  telegramActionReplyMarkup,
   TELEGRAM_REVIEW_CALLBACK_PATTERN,
   TELEGRAM_REVIEW_DECISION_BY_CODE,
 } from './message-action-affordances.js';
@@ -488,32 +489,46 @@ async function handleTelegramJobPermissionCallback(
   });
   await ctx.answer('Decision received.');
 }
-
 async function handleTelegramMemoryForgetCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
 ): Promise<void> {
-  const recordId = parseTelegramMemoryForgetCallback(ctx.data);
-  if (!recordId || !ctx.conversationJid || !ctx.userId)
+  const action = parseTelegramMemoryForgetCallback(ctx.data);
+  if (!action || !ctx.conversationJid || !ctx.userId)
     return void (await ctx.answer('Not available yet.', true));
   await ctx.answer(); // acknowledge before the host hook's identity/db work
-  const outcome = await channel.opts.onMessageAction?.({
-    kind: 'memory_forget',
-    conversationJid: ctx.conversationJid,
-    ...(ctx.providerAccountId
-      ? { providerAccountId: ctx.providerAccountId }
-      : {}),
-    threadId: ctx.threadId,
-    userId: ctx.userId,
-    recordId,
-  });
-  await ctx.raw.api.sendMessage(
-    ctx.chatId,
-    outcome?.receipt ?? 'Not available yet.',
-    ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
+  await withObserverDigestEditLock(
+    `tg:${ctx.chatId}:${ctx.messageId ?? ''}`,
+    async () => {
+      const result = await channel.opts.onMessageAction?.({
+        kind: 'memory_forget',
+        conversationJid: ctx.conversationJid!,
+        ...(ctx.providerAccountId
+          ? { providerAccountId: ctx.providerAccountId }
+          : {}),
+        threadId: ctx.threadId,
+        userId: ctx.userId!,
+        ...action,
+      });
+      await ctx.raw.api.sendMessage(
+        ctx.chatId,
+        result?.receipt ?? 'Not available yet.',
+        ctx.threadId ? { message_thread_id: Number(ctx.threadId) } : {},
+      );
+      if (result?.permissionMemoryListView) {
+        await ctx.raw.editMessageText(result.permissionMemoryListView.text, {
+          reply_markup: telegramActionReplyMarkup(
+            result.permissionMemoryListView.affordances.map((affordance) => ({
+              kind: 'memory_forget' as const,
+              ...affordance,
+            })),
+          ),
+        });
+      }
+      return result;
+    },
   );
 }
-
 async function handleTelegramMemoryReviewCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -583,7 +598,6 @@ async function handleTelegramMemoryReviewCallback(
       );
   }
 }
-
 async function handleTelegramBrainReviewCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -647,7 +661,6 @@ async function handleTelegramBrainReviewCallback(
       );
   }
 }
-
 async function handleTelegramObserverCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -721,7 +734,6 @@ async function handleTelegramObserverCallback(
     },
   );
 }
-
 async function handleTelegramPermissionCallback(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
@@ -782,21 +794,13 @@ async function handleTelegramPermissionCallback(
   }
   await ctx.answer(permissionSettlementReceipt(mode, pending));
 }
-
 async function authorizePendingTelegramPermission(
   channel: TelegramCallbackChannel,
   ctx: TelegramCallbackContext,
   pending: PendingPermission,
 ): Promise<string | null> {
   const callbackChatId = telegramPermissionCallbackChatId(ctx);
-  if (!callbackChatId) {
-    await ctx.answer(
-      'This approval request belongs to a different chat.',
-      true,
-    );
-    return null;
-  }
-  if (callbackChatId !== pending.chatId) {
+  if (!callbackChatId || callbackChatId !== pending.chatId) {
     await ctx.answer(
       'This approval request belongs to a different chat.',
       true,
@@ -819,7 +823,6 @@ async function authorizePendingTelegramPermission(
   await rejectUnauthorizedTelegramPermission(ctx, pending, userId);
   return null;
 }
-
 function telegramPermissionCallbackChatId(
   ctx: TelegramCallbackContext,
 ): string {
@@ -829,7 +832,6 @@ function telegramPermissionCallbackChatId(
     ''
   );
 }
-
 function telegramPermissionCallbackUserId(
   ctx: TelegramCallbackContext,
 ): string {
@@ -839,14 +841,12 @@ function telegramPermissionCallbackUserId(
     ''
   );
 }
-
 function telegramPermissionApprovalChatId(pending: PendingPermission): string {
   return (pending.approvalContextJid || `tg:${pending.chatId}`).replace(
     /^tg:/,
     '',
   );
 }
-
 async function rejectUnauthorizedTelegramPermission(
   ctx: TelegramCallbackContext,
   pending: PendingPermission,

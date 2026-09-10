@@ -298,7 +298,10 @@ describe('PromptProfileService', () => {
     }
   });
 
-  it('keeps the raw operating guidance blocks within the section budget (truncation guard)', () => {
+  it('includes the permissions guidance line in the operating guidance block within the truncation guard', () => {
+    expect(OPERATING_GUIDANCE_BLOCK).toContain(
+      "- I don't keep that list myself — send /permissions to see everything you've allowed or refused, each with a Forget button.",
+    );
     expect(OPERATING_GUIDANCE_BLOCK.length).toBeLessThanOrEqual(
       DEFAULT_PROMPT_SECTION_BUDGETS.OPERATING_GUIDANCE,
     );
