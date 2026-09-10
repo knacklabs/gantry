@@ -1,33 +1,22 @@
 {
   "generated_by": "autoreview",
   "task_id": "ASKFLOOR-1-T6",
-  "score": 5,
-  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..d681c84, Codex via the autoreview skill at --max-priority P2): 1 blocking, 3 non-blocking. The inline implementation fails to reset the process-wide outage latch after a successful automatic allow, so later outages in that conversation may not notify. The change also introduces a prohibited dead duplicate sender API, and the new invariance and aggregation tests do not exercise or observe several explicitly required performance and outage behaviors.",
-  "blocking_findings": [
-    {
-      "category": "maintainability",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Remove the unused duplicate outage-notice entry point (apps/core/src/runtime/permission-judge-outage.ts:133): `sendJudgeOfflineNotice` is a newly exported second implementation of the notice sender, but both production call sites in this change use `sendJudgeOfflineNoticeForRequest`; its only caller in the bundle is the new glue test."
-    }
-  ],
+  "score": 9,
+  "summary": "performance lens over ASKFLOOR-1-T6 (13 product path(s), 401a889..334d6fd, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. The runtime introduces process-wide outage state with no production bound or cleanup for inactive conversations. In addition, the required invariance proof substitutes generic IPC/CRM requests for several named execution paths, leaving meaningful regressions undetected.",
+  "blocking_findings": [],
   "non_blocking_findings": [
     {
       "category": "bug",
-      "area": "apps/core/src/app/bootstrap",
-      "summary": "[P2] Clear the inline outage latch before returning an answered allow (apps/core/src/app/bootstrap/inline-agent-loop-tools.ts:422): The inline path returns immediately for an automatic classifier allow before reaching `observeJudgeAvailabilityForRequest`."
+      "area": "apps/core/src/application/permissions",
+      "summary": "Outage latch retains inactive conversation keys indefinitely (apps/core/src/application/permissions/permission-judge-outage-latch.ts:27): Every first unavailable result permanently inserts a string into the process-wide `openKeys` set, and the only production removal occurs when the same key later receives an `Answered` result."
     },
     {
       "category": "test_gap",
       "area": "apps/core/test/unit/runtime",
-      "summary": "[P2] Make the invariance test observe the required offline behavior (apps/core/test/unit/runtime/askfloor-invariance.test.ts:30): This test uses only the IPC replay result (`taps`, decider, source, and rail provenance) and compares unavailable runs directly with answered runs."
-    },
-    {
-      "category": "test_gap",
-      "area": "apps/core/test/unit/runtime",
-      "summary": "[P2] Include all required scenarios in the aggregation run (apps/core/test/unit/runtime/askfloor-tap-budget.test.ts:351): Despite its title, this aggregation samples a few scenarios and does not execute TB1\u2013TB4 plus their mirror fixtures in every required lane; for example there is no native `FileWrite` TB4 replay and none of the protected-write, outside-workspace, scheduler-delete, or raw-path-attach mirrors are aggregated."
+      "summary": "Invariance suite does not exercise several lanes it claims to cover (apps/core/test/unit/runtime/askfloor-invariance.test.ts:82): The matrix replaces any fixture without an explicit tool with `mcp__crm__lookup`, so the row labeled scheduler/admin/destructive/family-rail passes `rm -rf build` only as an unused extra property and actually evaluates a CRM lookup."
     }
   ],
-  "recommendation": "request-changes",
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts",
     "apps/core/src/application/permissions/permission-judge-outage-latch.ts",
@@ -47,10 +36,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "7d34292314e860d422344a61f099f66e99ae9e1418a9b94162fb050f0e8ca309",
-  "brief_sha256": "547ed1d3f047d348712bf94c3f29f0be3dfaecce35f63c346597ae2e95fc633b",
-  "branch_diff_digest": "76e7cbfbdfb3a8f196699a60efa3cf996055b3bcb7965657b99a327df8204652",
+  "review_run_id": "15d8c56ec7a455b124cacd7688336adf8324ce198809a315a6c45f6a1d78fd71",
+  "brief_sha256": "e16900c6cb36d19ba368f6cab06d6e4e346b25828204e941ba76c04817e8b751",
+  "branch_diff_digest": "60a7aae6c1e34cce6f1407284b0e89161797df8cbe1e4a8b38e82d6601abde40",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T03:27:59+00:00",
-  "commit": "d681c84c7cf8e7719e78754cae86100104c5b212"
+  "recorded_at": "2026-09-10T04:05:07+00:00",
+  "commit": "334d6fd219da5686a3be9aebfae5513976d3a8e4"
 }
