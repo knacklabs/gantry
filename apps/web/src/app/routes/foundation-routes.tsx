@@ -21,7 +21,12 @@ function HomeRoute() {
     },
   });
   if (status.isPending) return null;
-  return <Navigate replace to={status.data?.firstRun ? '/onboarding' : '/overview'} />;
+  return (
+    <Navigate
+      replace
+      to={status.data?.firstRun ? '/onboarding' : '/overview'}
+    />
+  );
 }
 
 const homeRoute = createRoute({

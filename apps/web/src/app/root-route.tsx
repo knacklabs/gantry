@@ -71,7 +71,9 @@ function RootLayout() {
     select: (state) => state.location.pathname,
   });
   const { session } = rootRoute.useRouteContext();
-  return isPublicAuthPath(pathname) || pathname === '/onboarding' || !session ? (
+  return isPublicAuthPath(pathname) ||
+    pathname === '/onboarding' ||
+    !session ? (
     <Outlet />
   ) : (
     <ProtectedAppShell session={session} />

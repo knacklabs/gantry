@@ -37,7 +37,9 @@ export function OverviewRoute() {
         credentials: 'same-origin',
       });
       if (!response.ok) return { resume: null };
-      return response.json() as Promise<{ resume: { name: string; step: number } | null }>;
+      return response.json() as Promise<{
+        resume: { name: string; step: number } | null;
+      }>;
     },
   });
   const healthyChecks = diagnostics.filter(
