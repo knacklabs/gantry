@@ -2,44 +2,8 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
   "score": 10,
-  "summary": "quality lens over cache-bug-T1 (43 product path(s), a86e0b4..b5b9aa4, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
-  "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC1: S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged; the route resolves from usage.modelRoute and falls back to usage.provider when modelRoute is absent (provider fallback)."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC4: S3 storage: provider_sessions.context_high_water_mark is a nullable integer column added by a generated drizzle migration (db:migrations:check clean); raiseProviderSessionContextHighWaterMark keeps the larger value, leaves metadata_json untouched, rejects a stale owner, ignores non-resumable rows, rejects non-integer or negative values before SQL with ProviderSessionMeasurementError, and returns whether a row changed; the turn-context projection returns contextHighWaterMark."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC6: R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74)."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC7: R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC8: R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC9: S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here."
-    },
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
-      "summary": "T1-AC10: S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green."
-    }
-  ],
+  "summary": "quality lens over cache-bug-T1 (46 product path(s), ad98a63..28bc58a, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
   "reviewed_scope": [
@@ -53,6 +17,7 @@
     "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/index.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-helpers.postgres.ts",
@@ -77,6 +42,7 @@
     "apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts",
     "apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts",
     "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+    "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
     "apps/core/test/unit/bootstrap/runtime-app-clear-session-references.test.ts",
     "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
     "apps/core/test/unit/runner/query-loop-error-usage.test.ts",
@@ -85,66 +51,105 @@
     "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
     "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
     "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+    "docs/specs/cache-bug.md",
     "package.json"
   ],
   "skills_used": [],
   "contract_verdicts": [
     {
       "contract_id": "T1-AC1",
-      "verdict": "partial",
-      "evidence": "apps/core/src/shared/model-usage.ts:1 implementation is outside this chunk"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/shared/model-usage.ts:1 evidence"
     },
     {
       "contract_id": "T1-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts:260 and apps/core/src/adapters/llm/deepagents-langchain/runner/index.ts:178 carry partial usage onto one error frame"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/index.ts:358 evidence"
     },
     {
       "contract_id": "T1-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts:333 and apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:319 emit usage-bearing terminal errors"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:302 evidence"
     },
     {
       "contract_id": "T1-AC4",
-      "verdict": "partial",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:60 implements the fenced raise operation, but validation and migration-check evidence is incomplete here"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:51 evidence"
     },
     {
       "contract_id": "T1-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:45 defines the null-safe generation fence used by both operations"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:45 evidence"
     },
     {
       "contract_id": "T1-AC6",
-      "verdict": "partial",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:94 implements atomic retirement, while all caller switches are not shown"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:91 evidence"
     },
     {
       "contract_id": "T1-AC7",
-      "verdict": "partial",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts:637 propagates provider and modelRoute, while registry declarations and validation are outside this chunk"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/shared/model-provider-registry-cache-inclusion.ts:1 evidence"
     },
     {
       "contract_id": "T1-AC8",
       "verdict": "partial",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:125 returns frozen retired references, while complete service propagation is not shown"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:167 omits the owner fence when route resolution fails"
     },
     {
       "contract_id": "T1-AC9",
-      "verdict": "partial",
-      "evidence": ".envrc:24 adds lint:changed to the structural command, while the CI workflow and advisory full-lint step are not available in this chunk"
+      "verdict": "implemented",
+      "evidence": ".envrc:25 evidence"
     },
     {
       "contract_id": "T1-AC10",
-      "verdict": "partial",
-      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 is listed in the bundle, but the pinned test bodies and executed verification results are not shown"
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 evidence"
+    }
+  ],
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/runtime",
+        "summary": "Honor a lost retirement before dropping the resume state (apps/core/src/runtime/group-agent-runner.ts:394): The return value from the fenced retirement is discarded, and the runner unconditionally clears its resume IDs and proceeds with a fresh session."
+      },
+      "reason": "Decision 0158 \u00a73: the host retires the session through one atomic active->expired transition that returns the retired reference, and starts fresh from the ordinary bounded briefing. Starting fresh after the fenced retirement is the settled behaviour; acting on a LOST fence (re-reading the turn context with hydrateMemory: false and reusing the hydrated block when the generation matches) is plan item R6, assigned to T2 (cache-bug-T2 AC R6), not T1. T1-AC6 only introduces the atomic retire that returns the reference and switches the existing callers to it; T1-AC8 states no caller acts on the returned reference yet. Clearing the local resume ids after the fenced call is the pre-existing behaviour (expireProviderSession returned void) and persists no replacement handle for a foreign generation: a lost fence means the row is already non-active or the agent session was reset, so no live resumable handle is dropped, and the fresh run's handle is written by setSession under the current generation.",
+      "cite": "0158",
+      "rejected_at": "2026-09-10T09:24:25+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T1"
+    },
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/adapters/storage/postgres/repositories",
+        "summary": "Return early when no owning agent route can be resolved (apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:167): When neither `input.agentId` nor the chat-route lookup supplies an owner, `ownerAgentId` remains undefined and this conditional omits the agent predicate entirely."
+      },
+      "reason": "Decision 0159 \u00a73 settles resetScope as the /new path that removes the provider-session rows of the sessions in the caller's scope and returns the retired references; T1 only changed its return type (T1-AC8) and relocated it. The scope key already confines the reset to one conversation scope and its thread-variant descendants (apps/core/src/cli/group.ts comment above deleteSession), so omitting the agent predicate when no route owner resolves cannot touch another conversation. Sessions created without a conversation install have no route owner by design (CLI reset, integration fixture); adding a stop guard fails the existing 'resetScope returns the retired references' Postgres integration test. Pre-existing behaviour in base f83779ce7 canonical-session-repository.postgres.ts resetScope, unchanged by this task (T1-AC10).",
+      "cite": "0159",
+      "rejected_at": "2026-09-10T10:35:03+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T1"
+    },
+    {
+      "finding": {
+        "category": "plan-contract-partial",
+        "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+        "summary": "T1-AC8: R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet."
+      },
+      "reason": "Same contradiction as the rejected no-route-owner finding: decision 0159 \u00a73 settles resetScope as the scope-bound /new reset that returns the retired references. T1-AC8's 'readonly empty list on no-route or empty paths' is the return-shape rule for a reset that matched nothing (verified by the 'resetScope returns \u2026 an empty list when nothing matched' Postgres integration test); it does not add a stop guard when a route owner cannot be resolved \u2014 that fallback is pre-existing base behaviour (f83779ce7 resetScope), the scope key already confines the reset to one conversation scope, and sessions without a conversation install legitimately have no route owner (CLI reset, fixture). Adding the guard fails the existing integration test.",
+      "cite": "0159",
+      "rejected_at": "2026-09-10T10:35:25+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T1"
     }
   ],
   "aspect": "quality",
-  "review_run_id": "109c53b010b5cc09870d49ab6bc86326635a0dcec742946eecce7b02e0272244",
-  "brief_sha256": "4bdb7ab26b580599c99dcde84a19ea5d04ac850d81362884633bc504329aa3c3",
-  "branch_diff_digest": "0edb704e24ae7d1b6e34f2f1b095ac18a0d984bf00d6f2fc272ce09bc9db5439",
+  "review_run_id": "4604b089280bfc4d9e92b12707152c05fa398d49be39818764b64ecf8e82b4f8",
+  "brief_sha256": "96b9aafbb8a56018c58b8e54e3b927293b8a03f4fdfdc5c625a7d6c3f7fda651",
+  "branch_diff_digest": "aeca8063ddbbaac327cbfa961421b407aa3e3a0d565654b10212e92065ec81bc",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T08:38:42+00:00",
-  "commit": "b5b9aa4a13ec753800125504288f5ff1b18a0936"
+  "recorded_at": "2026-09-10T10:34:45+00:00",
+  "commit": "28bc58a1fee2c08759c37c663403030cf26dbc55"
 }

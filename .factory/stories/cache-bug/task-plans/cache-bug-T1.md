@@ -83,11 +83,17 @@ R3, R4 return type, projection, S11 lint, S10 pinned tests).
    `normalizeDeepAgentStream`; `normalizedUsage` sets `provider` and
    `modelRoute`. On a thrown turn the normaliser attaches a typed
    `DeepAgentPartialUsage` value (accumulated usage + `usageEventId` + route)
-   to a `DeepAgentTurnFailure` wrapper; `deep-agent-runner.ts` propagates it
-   and `runner/index.ts` writes `usage` on the `status: 'error'` frame.
+   as the thrown value itself — there is no separate wrapper type;
+   `deep-agent-runner.ts` propagates it and `runner/index.ts` writes `usage`
+   on the `status: 'error'` frame. A close-driven abort is the exception and
+   must keep its identity: `partialUsageEvents` rethrows an `AbortError`
+   unwrapped and `normalizeDeepAgentStream` attaches the partial usage to it
+   as a non-enumerable property, so `runner/index.ts` still sees the abort and
+   exits cleanly with no error frame. The Node-24 boundary `_close` test is a
+   required test of this task.
 4. **Claude partial usage.** In the `result` branch of
    `query-loop-phases-messages.ts`, normalise the message usage and throw a
-   typed `QueryFailure` (a value-carrying error class in `runner/types.ts`)
+   typed `QueryFailure` (a value-carrying error class in `runner/query-failure.exception.ts`)
    holding `{ message, usage, usageEventId }` instead of a bare `Error`; the
    throw propagates through `runQuery` untouched, and the `catch` in
    `runner/index.ts` unwraps it and writes `usage` on the single
@@ -146,7 +152,7 @@ typed column.
 | CLI/ops | Changed | `npm run lint:changed` in verify and CI (full lint advisory) |
 | UI | N-A | none |
 | Docs | Unchanged by design | T2 owns docs/memory and architecture alignment |
-| Tests | Changed | nine required tests plus pinned tests untouched |
+| Tests | Changed | 27 required tests plus pinned tests untouched |
 
 ## Task Decomposition
 
@@ -184,8 +190,13 @@ host against a throwaway pgvector database.
    message. Observe the reply arrives exactly as before (no policy change) and
    `SELECT context_high_water_mark FROM provider_sessions` is still `NULL`
    for that session, because raising is T2's job.
-4. Force a DeepAgents turn to fail (for example an invalid model credential).
-   Observe the runner's error frame in the logs carries a `usage` object with
-   the accumulated counts and the resolved route.
+4. Force a DeepAgents turn to fail AFTER at least one usage event has been
+   accumulated — for example point the route at a local gateway that streams
+   one usage-bearing chunk and then closes the connection mid-turn. An invalid
+   credential is not a valid proof here: it fails before any usage exists, so
+   an empty payload would look like a pass. Observe the runner's error frame
+   in the logs carries a `usage` object with the accumulated counts and the
+   resolved route.
 5. Run `python3 factory/scripts/verify.py`. Observe it now executes
-   `npm run lint` and passes.
+   `npm run lint:changed` (the blocking gate; full `npm run lint` stays
+   advisory) and passes.

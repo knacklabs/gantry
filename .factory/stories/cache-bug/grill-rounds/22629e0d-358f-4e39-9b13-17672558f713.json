@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "`task pr-ready` refuses to open the PR while the two harness hotfixes (review.py proof path, pre_tool_use.py worktree root) sit in the branch, because they drift the vendored gate surface. How should I handle them for the T1 PR?",
+      "options": [
+        "Revert them in this branch (Recommended)",
+        "Keep them, bypass the gate",
+        "Re-vendor from an upstream fix first"
+      ],
+      "chosen": "Revert them in this branch (Recommended)"
+    },
+    {
+      "question": "Fixing the required-test ids amended T1's contract, so the harness wants a fresh task grill (running now) and a re-approval before the stage can close. May I record the re-approval as Ravi once the grill passes with no open frontier?",
+      "options": [
+        "Yes, approve as Ravi when clean (Recommended)",
+        "Show me the grill result first"
+      ],
+      "chosen": "Yes, approve as Ravi when clean (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T10:52:44.211445+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

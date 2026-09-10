@@ -2,7 +2,7 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
   "score": 10,
-  "summary": "performance lens over cache-bug-T1 (43 product path(s), a86e0b4..b5b9aa4, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "performance lens over cache-bug-T1 (46 product path(s), ad98a63..28bc58a, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -17,6 +17,7 @@
     "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/index.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts",
     "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-helpers.postgres.ts",
@@ -41,6 +42,7 @@
     "apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts",
     "apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts",
     "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+    "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
     "apps/core/test/unit/bootstrap/runtime-app-clear-session-references.test.ts",
     "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
     "apps/core/test/unit/runner/query-loop-error-usage.test.ts",
@@ -49,14 +51,41 @@
     "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
     "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
     "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+    "docs/specs/cache-bug.md",
     "package.json"
   ],
   "skills_used": [],
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/runtime",
+        "summary": "[P1] Handle a lost retirement transition before discarding the resumed session (apps/core/src/runtime/group-agent-runner.ts:394): `retireProviderSession` returns `undefined` when its generation fence or active-row predicate loses, but this call ignores that result and unconditionally clears the local provider-session IDs."
+      },
+      "reason": "Decision 0158 \u00a73: the host retires the session through one atomic active->expired transition that returns the retired reference, and starts fresh from the ordinary bounded briefing. Starting fresh after the fenced retirement is the settled behaviour; acting on a LOST fence (re-reading the turn context with hydrateMemory: false and reusing the hydrated block when the generation matches) is plan item R6, assigned to T2 (cache-bug-T2 AC R6), not T1. T1-AC6 only introduces the atomic retire that returns the reference and switches the existing callers to it; T1-AC8 states no caller acts on the returned reference yet. Clearing the local resume ids after the fenced call is the pre-existing behaviour (expireProviderSession returned void) and persists no replacement handle for a foreign generation: a lost fence means the row is already non-active or the agent session was reset, so no live resumable handle is dropped, and the fresh run's handle is written by setSession under the current generation.",
+      "cite": "0158",
+      "rejected_at": "2026-09-10T09:24:25+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T1"
+    },
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "summary": "Accumulate usage across model invocations instead of taking a global maximum (apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts:31): `normalizeDeepAgentStream` consumes an entire DeepAgents graph turn, which can contain multiple model invocations, such as a call requesting a tool followed by a call consuming its result."
+      },
+      "reason": "Decision 0158 \u00a72 defines the observed context value as modelVisibleInputTokens derived from the normalised usage (input alone for inclusive routes): a CONTEXT measure, for which the largest single model invocation's cumulative input is the correct figure \u2014 summing input across the invocations of one graph turn would count the same conversation prefix once per invocation and overstate the context. Summed accounting is the billing concern, and the story plan's Scope / Non-goals names 'the DeepAgents largest-not-summed billing defect' as an explicit non-goal (spec cache-bug non-goals, same wording); the accumulator is pre-existing code that T1 only moved to stream-normalizer-usage.ts.",
+      "cite": "0158",
+      "rejected_at": "2026-09-10T10:09:35+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T1"
+    }
+  ],
   "aspect": "performance",
-  "review_run_id": "109c53b010b5cc09870d49ab6bc86326635a0dcec742946eecce7b02e0272244",
-  "brief_sha256": "4bdb7ab26b580599c99dcde84a19ea5d04ac850d81362884633bc504329aa3c3",
-  "branch_diff_digest": "0edb704e24ae7d1b6e34f2f1b095ac18a0d984bf00d6f2fc272ce09bc9db5439",
+  "review_run_id": "4604b089280bfc4d9e92b12707152c05fa398d49be39818764b64ecf8e82b4f8",
+  "brief_sha256": "96b9aafbb8a56018c58b8e54e3b927293b8a03f4fdfdc5c625a7d6c3f7fda651",
+  "branch_diff_digest": "aeca8063ddbbaac327cbfa961421b407aa3e3a0d565654b10212e92065ec81bc",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T08:38:42+00:00",
-  "commit": "b5b9aa4a13ec753800125504288f5ff1b18a0936"
+  "recorded_at": "2026-09-10T10:34:45+00:00",
+  "commit": "28bc58a1fee2c08759c37c663403030cf26dbc55"
 }

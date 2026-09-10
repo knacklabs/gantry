@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The re-grill found the approved story plan still says all four callers switch to retireProviderSession (decision 0159 \u00a74 keeps compaction-delta on expireProviderSession) and still prescribes blocking full `npm run lint` (settled ruling is `lint:changed` blocking, full lint advisory). The task contracts are already correct \u2014 only the plan prose is stale. Editing the plan breaks its approval digest, so it needs a fresh plan cold-read grill plus your re-approval on the board. When should that happen?",
+      "options": [
+        "After T1 merges, before T2 starts (Recommended)",
+        "Now, before T1's PR",
+        "Leave it; record a deferral"
+      ],
+      "chosen": "After T1 merges, before T2 starts (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T11:10:10.254490+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}
