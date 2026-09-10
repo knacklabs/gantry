@@ -60,6 +60,7 @@ export function OnboardingRoute() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [challenge, setChallenge] = useState(() => `GY-${Math.random().toString(36).slice(2, 7).toUpperCase()}`);
+  const [verificationId, setVerificationId] = useState('');
 
   const providers = useQuery(modelProviderQuery);
   const models = useQuery(agentModelsQuery);
@@ -139,7 +140,14 @@ export function OnboardingRoute() {
       }
       await installAgentConversation({ agentId, conversationId, providerAccountId: accountId, memoryScope: 'conversation' });
       await replaceConversationApprovers(conversationId, [approver.trim()]);
-      setChallenge(code); setStep(4);
+      const response = await browserFetch('/ui/api/onboarding/verifications', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
+        body: JSON.stringify({ agentId, conversationId, challenge: code }),
+      });
+      if (!response.ok) throw new Error('The test message could not be prepared.');
+      const body = await response.json() as { verification: { id: string; challenge: string } };
+      setVerificationId(body.verification.id); setChallenge(body.verification.challenge); setStep(4);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Work assignment could not be saved.'); }
     finally { setBusy(false); }
   }
@@ -153,7 +161,7 @@ export function OnboardingRoute() {
         {step === 1 && <EmployeeStep identity={identity} setIdentity={setIdentity} name={name} title={title} responsibilities={responsibilities} onName={(value: string) => { setName(value); saveDraft({ name: value }); }} onTitle={(value: string) => { setTitle(value); saveDraft({ title: value }); }} onResponsibilities={(value: string) => { setResponsibilities(value); saveDraft({ responsibilities: value }); }} provider={selectedProvider} providers={providers.data ?? []} providerId={providerId || selectedProvider?.providerId || ''} setProviderId={setProviderId} model={model} setModel={setModel} models={availableModels} values={providerValues} setValues={setProviderValues} onSave={createEmployee} busy={busy} />}
         {step === 2 && <WorkspaceStep channel={selectedChannel} channels={channelProviders.data?.providers ?? []} channelId={channelId || selectedChannel?.id || ''} setChannelId={setChannelId} values={channelValues} setValues={setChannelValues} onConnect={connectWorkspace} busy={busy} />}
         {step === 3 && <AssignStep conversations={conversations.data?.conversations ?? []} conversationId={conversationId} setConversationId={setConversationId} approver={approver} setApprover={setApprover} onSave={assignWork} busy={busy} />}
-        {step === 4 && <HelloStep handle={handle} code={code} />}
+        {step === 4 && <HelloStep handle={handle} code={code} verificationId={verificationId} />}
         {error ? <p className="onboarding-error" role="alert">{error}</p> : null}
       </section><footer className="onboarding-actions"><div><button onClick={() => step > 1 && setStep(step - 1)} className="onboarding-secondary">Back</button><button onClick={skip} className="onboarding-skip">Skip for now</button></div>{step === 4 ? <button onClick={skip} className="onboarding-primary">Open the console <ChevronRight size={15} /></button> : null}</footer></main>
     </div></div>;
@@ -169,6 +177,6 @@ type WorkspaceStepProps = { channel?: ChannelProvider; channels: ChannelProvider
 function WorkspaceStep(props: WorkspaceStepProps) { const { channel, channels, channelId, setChannelId, values, setValues, onConnect, busy } = props; return <><Heading title="Give your agent a place to work" body="Install Gantry where your team already talks." /><div className="onboarding-pills">{channels.map((item) => <button key={item.id} className={channelId === item.id ? 'is-selected' : ''} onClick={() => setChannelId(item.id)}>{item.displayName}</button>)}</div><article className="onboarding-card"><h3>1. Connect {channel?.displayName ?? 'workspace'}</h3><p>Use the provider’s configured credentials. Gantry stores them write-only and discovers conversations after connection.</p>{channel?.status !== 'available' ? <p className="onboarding-error">This provider is {channel?.status === 'setup_only' ? 'setup only' : 'not available'} in this runtime.</p> : channel?.credentialKeys.map((key) => <Field key={key} label={key}><input type="password" value={values[key] ?? ''} onChange={(e) => setValues({ ...values, [key]: e.target.value })} /></Field>)}<button className="onboarding-primary" onClick={onConnect} disabled={busy || channel?.status !== 'available'}>{busy ? 'Connecting…' : 'Connect workspace'} <ChevronRight size={15} /></button></article></>; }
 type AssignStepProps = { conversations: ChannelConversation[]; conversationId: string; setConversationId: Dispatch<SetStateAction<string>>; approver: string; setApprover: Dispatch<SetStateAction<string>>; onSave: () => void; busy: boolean };
 function AssignStep({ conversations, conversationId, setConversationId, approver, setApprover, onSave, busy }: AssignStepProps) { return <><Heading title="Put your agent to work" body="Give it one place to start and choose who approves riskier actions." /><article className="onboarding-card"><Field label="Give it one place to start"><select value={conversationId} onChange={(e) => setConversationId(e.target.value)}><option value="">Select a discovered conversation</option>{conversations.map((item) => <option key={item.id} value={item.id}>{item.title ?? item.id}</option>)}</select></Field><Field label="Who approves its riskier actions?"><input value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="Verified member ID" /></Field><small className="onboarding-help">Anything it cannot do alone waits for the selected approver.</small><button className="onboarding-primary" onClick={onSave} disabled={busy || !conversationId || !approver}>{busy ? 'Saving…' : 'Continue'} <ChevronRight size={15} /></button></article></>; }
-function HelloStep({ handle, code }: { handle: string; code: string }) { const text = `@${handle} are you there? · ${code}`; return <><Heading title={`Ping ${handle}`} body="Open the selected workspace and mention it. Gantry waits here until the message lands." /><article className="onboarding-card onboarding-hello"><div className="onboarding-ping"><code>{text}</code><button onClick={() => navigator.clipboard?.writeText(text)}><Copy size={13} /> Copy</button></div><GantryMark hero /><span className="onboarding-sweep"><i /></span><p>Waiting for your message and the agent’s reply…</p><small className="onboarding-help">This one-time code expires after 10 minutes. Success is only shown after the actual inbound message and correlated reply.</small></article></>; }
+function HelloStep({ handle, code, verificationId }: { handle: string; code: string; verificationId: string }) { const text = `@${handle} are you there? · ${code}`; return <><Heading title={`Ping ${handle}`} body="Open the selected workspace and mention it. Gantry waits here until the message lands." /><article className="onboarding-card onboarding-hello"><div className="onboarding-ping"><code>{text}</code><button onClick={() => navigator.clipboard?.writeText(text)}><Copy size={13} /> Copy</button></div><GantryMark hero /><span className="onboarding-sweep"><i /></span><p>Waiting for your message and the agent’s reply…</p><small className="onboarding-help">Verification {verificationId ? 'is armed for 10 minutes.' : 'is being prepared.'} Success is only shown after the actual inbound message and correlated reply.</small></article></>; }
 function Heading({ title, body }: { title: string; body: string }) { return <header className="onboarding-heading"><h1>{title}</h1><p>{body}</p></header>; }
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="onboarding-field"><span>{label}</span>{children}</label>; }
