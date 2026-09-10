@@ -1,5 +1,5 @@
 {
-  "harness_commit": "7bab4934134b7986ff858f62277b7d2f0e6817cf",
+  "harness_commit": "7a462bc2bd770a4df0ba47f40d515916438b8ac7",
   "files": {
     "factory/scripts/check_agents_hygiene.py": "63b5db9b788ebc55d3542af506566ab8d45ba7c7f588a6f93e78d3811d0003c4",
     "factory/scripts/check_board_complete.py": "75022051af7cc2928039641ba2ef1a5f31e45e6b5c1651e15c2213cca6c6a7a0",
@@ -42,7 +42,7 @@
     "factory/scripts/forge_cli/quickfix.py": "dd8ef80baa7378edafcb9897e537b7173746b3577b5871edbaec726c59aa97c1",
     "factory/scripts/forge_cli/readiness.py": "7b18cacce293cce2e760c1c5ebdb8331d4ff5ca354f58e9a01a435a71b94882d",
     "factory/scripts/forge_cli/repo_kind.py": "427043c49817f650c77eb20dbc368914822e31e028a9bd1c5042ff64cd475c97",
-    "factory/scripts/forge_cli/review.py": "f6a890fd10de61a26570bb945582eb34c1276ed826a27803fd36f189a009b8b0",
+    "factory/scripts/forge_cli/review.py": "2c6fe97c25188f2998fe2c6936fb7e790aafab7c75b07a4363e826523a1ee0c8",
     "factory/scripts/forge_cli/review_brief.py": "c1a8c10fb037ed8b947057c2f9adbf98cef93729769cafc60a5ebf53e02a49d4",
     "factory/scripts/forge_cli/roadmap.py": "a8e659d83c0e24e64f76b16075836a7cd73114f379e8478664028366deed1e4d",
     "factory/scripts/forge_cli/sanitise.py": "f8fe1115caf6ed19a63d400ca8e9688e5b267e6f284f280969edace274300d91",
@@ -50,7 +50,7 @@
     "factory/scripts/forge_cli/scratchpad.py": "6b5b57ba5c9a558d5fdfe8d48c835490eaaf48ef29097d05ce4c18da3a03f510",
     "factory/scripts/forge_cli/signal.py": "ccceccc88fabfa95cbfcd8bad195ee6e27ffbd4d1481833b3c8e53535eb31eea",
     "factory/scripts/forge_cli/specs.py": "bd66ffdca2ee89a14e17e86acb24f5a8ec2aa3a86cb3ce2b3b9d06e9821e34c0",
-    "factory/scripts/forge_cli/stages.py": "147e050df095d4169f0b6005a23ce26d7c2d417e2975fa8760412567cad68994",
+    "factory/scripts/forge_cli/stages.py": "2d1848704c313a5459ea2905d5b833d77ed738d62bf725c4615fb13dab2a7914",
     "factory/scripts/forge_cli/story.py": "380bce0bdbc55c2be79dafaf14b25626ead0b42b60d40f02cc2ab3e41cf791eb",
     "factory/scripts/forge_cli/tasks.py": "50eec2deea838e17955f87db4c6d1cbfdcb65d8eaf239511ff06fa5767b4f1a2",
     "factory/scripts/forge_cli/team.py": "499ca14519cb96529f2371e03ec213e1341c8e1bbe8d98555937c76a2131a471",
@@ -60,7 +60,7 @@
     "factory/scripts/post_tool_use.py": "0fa908cbbaa0e8a79ee74c541a13b2fb3df1270b9b089456c5d61201b3f7fba2",
     "factory/scripts/pr_ready.py": "740d835c06df3de330471f108862e98f07f1ab577cb3157a201452c99d6d420e",
     "factory/scripts/pre_compact.py": "ad65f7caae8510711e334d0254a42fbb0df1a314fb1ea635b088f000862a8486",
-    "factory/scripts/pre_tool_use.py": "fdccdb021e4b2cc58ea87a23fa217e0a200328531a76b573c96c2a36b73cb050",
+    "factory/scripts/pre_tool_use.py": "384d6f584eb1eff3709147b4745e19de67a2db85566e260dd7e840dcfce81749",
     "factory/scripts/record_decomposition_from_json.py": "7f2c9707f360b41a15d6a6645631f5835682c5f03680a36fc4598d116224d97d",
     "factory/scripts/record_grill_from_json.py": "e37f2fbd8faf57a99a3f2f8aed8f3efa5b27274eeb67e3159ec436f9ed1b49a2",
     "factory/scripts/record_review_from_json.py": "90fa00cf2efdaea5fb53ca67468114194afd9f8d26d51033164e9e3eb7054789",

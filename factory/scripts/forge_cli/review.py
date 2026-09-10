@@ -44,8 +44,7 @@ HARNESS_PREFIXES = (".factory/", "plans/", "docs/decisions/")
 # The recorder's contract_verdicts shape: {contract_id, verdict, evidence}.
 VERDICT_LINE = re.compile(
     r"^\s*VERDICT\s+(?P<id>[A-Za-z0-9._:-]+)\s*:\s*"
-    r"(?P<verdict>implemented|partial|missing|not_in_chunk)\b"
-    r"\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
+    r"(?P<verdict>implemented|partial|missing)\b\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
     re.IGNORECASE | re.MULTILINE,
 )
 DEFAULT_SKILL = Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview"
@@ -97,23 +96,12 @@ Use category `security` for these findings.
 
 QUALITY_VERDICT_FORMAT = """\
 CONTRACT VERDICTS (mandatory, machine-parsed). In overall_explanation, emit ONE
-line for each plan contract listed below THAT THIS DIFF LETS YOU JUDGE:
+line per plan contract listed under "Plan contracts" below, exactly in this form:
 
 VERDICT <contract-id>: implemented|partial|missing — <file:line evidence>
 
-Verdict only what you can see. A chunked review hands each pass PART of the
-change; when a contract's code is not in the slice you were given, OMIT its
-line entirely. Do not guess it, and do not report `partial` to mean "this was
-not in my slice" — another pass reviews the rest, and a contract that no pass
-verdicts is failed closed by the harness, so nothing is lost by omitting it.
-
-`partial` and `missing` ASSERT A DEFECT and block the task. Use them only for
-a contract you can see and judge incomplete or absent. Where the contract
-names behaviour a diff cannot show — a test passing, a command succeeding —
-verdict what the diff does establish (the test or step is present and
-correct); the harness verifies execution separately.
-
-Do not rename contract ids."""
+Every listed contract must get a line. Do not rename contract ids.
+"""
 
 
 def resolve_skill(explicit: str | None) -> Path:
@@ -281,66 +269,22 @@ def _recommendation(blocking: int, non_blocking: int) -> str:
 
 _VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
 
-# A pass that cannot see a contract is SUPPOSED to say `not_in_chunk`, but the
-# engine reliably ignores that instruction and reports `partial` with evidence
-# that says so in prose ("... is not present in chunk 1", "outside this
-# chunk", "cannot be verified from this chunk"). Reading the prose is the only
-# thing that actually works, so both forms are honoured. This only ever
-# DOWNGRADES a partial when another pass gave a real verdict; when no pass did,
-# the contract stays partial and still fails closed.
-# Two independent signals, both required: the evidence talks about the review
-# CHUNK, and it says the thing is ABSENT. Matching exact phrasings failed —
-# across runs the engine wrote "not present in chunk 1", "not shown in
-# chunk 1", "outside this chunk" and "cannot be verified from this chunk", so
-# each fix caught some and missed the rest. A verdict that describes a real
-# defect describes the CODE; one that mentions the chunk is talking about what
-# the pass could see.
-_CHUNK_REF = re.compile(r"\bchunk\b|\bdiff slice\b", re.IGNORECASE)
-_ABSENCE = re.compile(
-    r"\b(?:not|outside|beyond|cannot|can ?not|could ?n[o']t|unable|absent"
-    r"|missing|elsewhere|omitted|excluded)\b",
-    re.IGNORECASE,
-)
-
-
-def _chunk_blind(evidence: str) -> bool:
-    """True when a `partial` is reporting review scope, not a code defect."""
-    return bool(_CHUNK_REF.search(evidence) and _ABSENCE.search(evidence))
-
 
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
     """One verdict per contract across every text; when a contract is verdicted
     more than once (a chunked review emits one VERDICT line per pass) the WORST
-    REAL verdict wins — missing over partial over implemented — so a pass that
-    saw a defect is never outvoted by a pass that only saw the files exist.
-
-    `not_in_chunk` is not a verdict about the code, only about what one pass
-    could see, so it never outvotes a real one: a contract another pass
-    verdicted `implemented` with file:line evidence stays implemented. Without
-    that split, worst-wins turned "this is not in my chunk" into a blocking
-    partial, and every task whose diff is large enough to chunk shipped a
-    review artifact that check_task_proof then refused — unpassable by
-    construction. When EVERY pass says `not_in_chunk` the contract really is
-    unverified, so it falls back to `partial` and still fails closed."""
-    real: dict[str, tuple[str, str]] = {}
-    unseen: dict[str, tuple[str, str]] = {}
+    verdict wins — missing over partial over implemented — so a pass that saw
+    a defect is never outvoted by a pass that only saw the files exist."""
+    verdicts: dict[str, tuple[str, str]] = {}
     for text in texts:
         for match in VERDICT_LINE.finditer(text or ""):
             cid = match.group("id").strip()
-            verdict = match.group("verdict").lower()
-            evidence = ((match.group("evidence") or "").strip()
-                        or "reviewer verdict")
-            if verdict == "not_in_chunk" or (
-                verdict == "partial" and _chunk_blind(evidence)
-            ):
-                unseen.setdefault(cid, ("partial", evidence))
-                continue
-            current = real.get(cid)
-            if current is None or (_VERDICT_SEVERITY[verdict]
+            found = (match.group("verdict").lower(),
+                     (match.group("evidence") or "").strip() or "reviewer verdict")
+            current = verdicts.get(cid)
+            if current is None or (_VERDICT_SEVERITY[found[0]]
                                    > _VERDICT_SEVERITY[current[0]]):
-                real[cid] = (verdict, evidence)
-    verdicts = dict(unseen)
-    verdicts.update(real)
+                verdicts[cid] = found
     return verdicts
 
 
@@ -823,10 +767,7 @@ def cmd_review(args: argparse.Namespace) -> None:
     if not isinstance(story, str) or not story:
         fail("review requires an active story")
     for artifact in ("verify.json", "tests.json"):
-        # Hotfix (vendored): verify.py and record_test write task-scoped proof
-        # (proof_path -> tasks/<id>/) once `task start` stamps task_id into the
-        # worktree pointer; read the same path here. Upstream: symphony-forge.
-        if not proof_path(base, story, artifact, task_id=args.id).is_file():
+        if not evidence_path(base, story, artifact).is_file():
             fail(f"{artifact} is not recorded for {story}; review runs after "
                  "`python3 factory/scripts/verify.py` and "
                  "`record_test_from_json.py --kind automated`")
