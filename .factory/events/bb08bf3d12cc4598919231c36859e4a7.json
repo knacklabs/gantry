@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-09T11:27:55+00:00", "story": "cache-bug", "detail": "S11 requires a lint-debt deferral, but the existing deferral is in plans/deferrals.md outside cache-bug-T1's explicit write scope."}

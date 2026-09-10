@@ -13,6 +13,11 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
+import {
+  abortPartialUsage,
+  DeepAgentPartialUsage,
+  deepAgentUsageEventIdForTurn,
+} from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
 import { createGantryFacadeTools } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
 import { wrapThirdPartyMcpToolsWithGate } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { runnableToolInvocationId } from '@core/adapters/llm/deepagents-langchain/runner/tool-invocation-id.js';
@@ -1000,5 +1005,112 @@ describe('normalizeDeepAgentStream', () => {
     expect(frames).toHaveLength(0);
     expect(result.terminalResult).toBeNull();
     expect(result.terminalUsage.outputTokens).toBe(3);
+  });
+
+  it('an errored turn carries one cumulative partial-usage payload with the resolved route', async () => {
+    const failure = new Error('gateway failed');
+    const events = {
+      async *[Symbol.asyncIterator](): AsyncIterableIterator<LangGraphStreamEvent> {
+        yield streamEvent('partial', { input: 900, output: 8 });
+        yield streamEvent('', { input: 1000, output: 12 });
+        throw failure;
+      },
+    };
+
+    const result = normalizeDeepAgentStream({
+      events,
+      newSessionId: 'session-error',
+      usageEventId: 'session-error:run:4',
+      modelId: 'gpt-5.5',
+      provider: 'openai',
+      modelRoute: 'openai',
+      modelProfile: { maxInputTokens: 400_000 },
+      cacheProvider: 'openai',
+      emit: () => undefined,
+    });
+
+    await expect(result).rejects.toBeInstanceOf(DeepAgentPartialUsage);
+    await expect(result).rejects.toMatchObject({
+      cause: failure,
+      usageEventId: 'session-error:run:4',
+      usage: {
+        model: 'gpt-5.5',
+        provider: 'openai',
+        modelRoute: 'openai',
+        inputTokens: 1000,
+        outputTokens: 12,
+      },
+      contextUsage: { totalTokens: 1012, maxTokens: 400_000 },
+    });
+  });
+
+  it('passes a close-driven abort through unwrapped, with its partial usage attached', async () => {
+    const abortError = Object.assign(new Error('Aborted by signal'), {
+      name: 'AbortError',
+    });
+    const events = {
+      async *[Symbol.asyncIterator](): AsyncIterableIterator<LangGraphStreamEvent> {
+        yield streamEvent('', { input: 90, output: 3 });
+        throw abortError;
+      },
+    };
+
+    const error = await normalizeDeepAgentStream({
+      events,
+      newSessionId: 'session-abort',
+      modelProfile: { maxInputTokens: 400_000 },
+      emit: () => undefined,
+    }).catch((error: unknown) => error);
+
+    expect(error).toBe(abortError);
+    expect(error).not.toBeInstanceOf(DeepAgentPartialUsage);
+    expect(abortPartialUsage(error)?.usage).toMatchObject({
+      inputTokens: 90,
+      outputTokens: 3,
+    });
+  });
+});
+
+describe('deepAgentUsageEventIdForTurn', () => {
+  it('is unique across runner processes for the same resumed session and turn', () => {
+    const first = deepAgentUsageEventIdForTurn('session-a', 1, 'nonce-run-1');
+    const second = deepAgentUsageEventIdForTurn('session-a', 1, 'nonce-run-2');
+    expect(first).not.toBe(second);
+    expect(first).toBe('session-a:run:nonce-run-1:1');
+    expect(second).toBe('session-a:run:nonce-run-2:1');
+  });
+
+  it('keeps turns ordered within one process and the nonce-less form for the normalizer fallback', () => {
+    expect(deepAgentUsageEventIdForTurn('session-a', 2, 'nonce-run-1')).toBe(
+      'session-a:run:nonce-run-1:2',
+    );
+    expect(deepAgentUsageEventIdForTurn('session-a', 3)).toBe(
+      'session-a:run:3',
+    );
+  });
+});
+
+describe('partial usage on consumer failures', () => {
+  it('a failure while normalising an already-yielded event still carries the accumulated usage', async () => {
+    const failure = new Error('emit sink closed');
+    const rejection = await normalizeDeepAgentStream({
+      events: asStream([
+        streamEvent('Hello ', { input: 120, output: 8 }),
+        streamEvent('world'),
+      ]),
+      newSessionId: 'session-consumer',
+      usageEventId: 'session-consumer:run:nonce:1',
+      modelId: 'gpt-5.5',
+      modelProfile: { maxInputTokens: 400_000 },
+      emit: () => {
+        throw failure;
+      },
+    }).catch((error: unknown) => error);
+
+    expect(rejection).toBeInstanceOf(DeepAgentPartialUsage);
+    const partial = rejection as DeepAgentPartialUsage;
+    expect(partial.cause).toBe(failure);
+    expect(partial.usageEventId).toBe('session-consumer:run:nonce:1');
+    expect(partial.usage).toMatchObject({ inputTokens: 120, outputTokens: 8 });
   });
 });

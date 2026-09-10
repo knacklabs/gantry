@@ -1,5 +1,6 @@
 import type { NewMessage } from '../../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
+import type { RetiredProviderSessionReference } from '../../domain/sessions/provider-session-measurement.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
 import {
   encodeGroupMessageCursor,
@@ -30,7 +31,7 @@ export async function handleActiveNewSessionCommand(input: {
       chatJid: string,
       threadId?: string | null,
       metadata?: { memoryUserId?: string; providerAccountId?: string | null },
-    ): Promise<void>;
+    ): Promise<readonly RetiredProviderSessionReference[]>;
     setAgentCursor(queueKey: string, cursor: string): void;
     saveState(): Promise<void>;
   };

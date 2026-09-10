@@ -1,0 +1,114 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "issue": "cache-bug",
+  "task_id": "cache-bug-T1",
+  "summary": "Third task-gate cold read of cache-bug-T1, run after the decomposition was re-recorded with leaf-only required-test ids. Six findings, all repository-answerable: five folded into one amendment of the task contract and task plan, and the sixth (the approved story plan's stale prose) ledgered as D-0082 with a human-chosen trigger after Ravi weighed the plan re-ceremony cost. Frontier closed.",
+  "gaps": [
+    "The task plan named an undefined DeepAgentTurnFailure wrapper, placed QueryFailure in runner/types.ts rather than its real module, and stated no rule preserving close-driven AbortError identity, so a literal implementation could turn a graceful stop into an error frame.",
+    "The previously recorded task grill is bound to e7a09d791 and to a contract that has since changed twice; it must not authorise a handover.",
+    "Write scope granted the broad prefixes apps/core/src/app, apps/core/test/unit and apps/core/test/integration, permitting changes unrelated to the named files.",
+    "The manual error proof used an invalid model credential, which fails before any usage is accumulated and so cannot demonstrate a usage-bearing error frame."
+  ],
+  "contradictions": [
+    "The approved story plan says all four callers switch to retireProviderSession and prescribes blocking full npm run lint, contradicting decision 0159 \u00a74 and the settled lint:changed ruling that the task contract already carries.",
+    "Contract text was internally inconsistent: the manual check and the decomposition objective claimed verify.py runs full npm run lint, and Surface Impact said nine required tests against a contract naming 25."
+  ],
+  "resolutions": [
+    "D-0082 ledgered (plans/deferrals.md): the plan body is approval-digest bound, so correcting it forces a fresh plan cold read plus a human re-approval and re-stales the decomposition binding. Ravi chose on 2026-09-10 to pay that ceremony after cache-bug-T1 merges and before cache-bug-T2 starts, so T2's implementer never reads the stale prose. Decision 0159 \u00a74 and the task contract govern in the meantime.",
+    "Task plan step 3 rewritten: DeepAgentPartialUsage is the thrown value itself, no wrapper type; the abort exception is stated explicitly (partialUsageEvents rethrows the AbortError, normalizeDeepAgentStream attaches the usage as a non-enumerable property, runner/index.ts exits cleanly with no error frame). QueryFailure's owner corrected to runner/query-failure.exception.ts. AC2 amended to carry the abort-identity rule, and two required tests added: the unit abort seam and the Node-24 boundary _close test, both probed green against the recorded gate command before recording.",
+    "Superseded: this record is the fresh cold read against HEAD 28bc58a1 and the twice-amended contract; the stale record is replaced in place.",
+    "The decomposition objective and task plan step 5 now say lint:changed is the blocking gate with full npm run lint advisory; Surface Impact corrected to 27 required tests.",
+    "Write scope narrowed: the three prefixes are replaced by the two runtime-app files, the thirteen unit test files and the one integration test file this task actually touches (39 entries, every one of them in the diff or a declared new file).",
+    "Manual step 4 rewritten to force the failure after at least one usage event has been accumulated (a local gateway that streams a usage-bearing chunk then closes mid-turn), and to state explicitly why an invalid credential is not a valid proof."
+  ],
+  "open_items": [],
+  "questions_asked": 2,
+  "new_abstractions": [],
+  "current_flow": "A turn resumes its persisted provider session and the runner appends a fresh briefing, so context grows without bound across restarts. T1 adds only measurement and retirement plumbing: modelVisibleInputTokens derives model-visible input from the route's two cache-inclusion booleans; errored turns carry one cumulative partial-usage payload (QueryFailure for Claude, DeepAgentPartialUsage for DeepAgents, with close-driven aborts keeping their identity and carrying the usage as an attached property); provider_sessions.context_high_water_mark stores the mark; raise and retireProviderSession are fenced on id, owner, status and the null-safe reset_at generation; resetScope returns the references it removed. Nothing reads the mark and nothing releases a reference yet \u2014 the ceiling is T2 and the release is T3.",
+  "inspected_refs": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts:50",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-failure.exception.ts",
+    "apps/core/src/shared/model-usage.ts:55",
+    "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts:1233",
+    "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts:1047",
+    ".factory/stories/cache-bug/decomposition.json",
+    ".factory/stories/cache-bug/task-plans/cache-bug-T1.md",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md",
+    "docs/decisions/0159-adapter-session-release-port.md",
+    "docs/decisions/0158-provider-session-context-ceiling.md",
+    "plans/deferrals.md",
+    "package.json"
+  ],
+  "criteria_map": {
+    "S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged; the route resolves from usage.modelRoute and falls back to usage.provider when modelRoute is absent (provider fallback).": "modelVisibleInputTokens in shared/model-usage.ts resolves the route from usage.modelRoute with the usage.provider fallback at model-usage.ts:55 and switches on the two booleans; the three arithmetic cases plus the fallback are required tests 1-3 and 24 in model-visible-input-tokens.test.ts.",
+    "S2/R2 partial usage, spawned runners: an errored Claude worker run and an errored DeepAgents worker run each write one cumulative partial-usage payload with the turn's usageEventId on their single error frame; Claude carries it as a typed QueryFailure thrown from the result branch and written by runner/index.ts; DeepAgents carries it as a typed DeepAgentPartialUsage value passed stream-normalizer \u2192 deep-agent-runner \u2192 index. A close-driven abort keeps its own identity: the partial usage rides on the abort instead of replacing it, so a graceful stop is never turned into an error frame, proven at the unit seam and by the Node-24 runner boundary _close test.": "Read at the seam: DeepAgentPartialUsage in stream-normalizer-partial-usage.ts is the only carrier and is thrown directly (no wrapper type exists); partialUsageEvents rethrows an AbortError unwrapped and normalizeDeepAgentStream attaches the usage via a non-enumerable Symbol, so runner/index.ts:294 still recognises the abort. QueryFailure is in runner/query-failure.exception.ts. Proven by required tests 14, 15, 18, 26 and the Node-24 boundary _close test 27, probed green before recording.",
+    "S2/R2 partial usage, inline lanes: an errored Claude inline-lane turn and an errored DeepAgents inline-lane turn each emit one terminal error output carrying the accumulated usage with the turn's usageEventId.": "Both inline lanes emit one terminal error output carrying accumulated usage; required tests 16 and 19.",
+    "S3 storage: provider_sessions.context_high_water_mark is a nullable integer column added by a generated drizzle migration (db:migrations:check clean); raiseProviderSessionContextHighWaterMark keeps the larger value, leaves metadata_json untouched, rejects a stale owner, ignores non-resumable rows, rejects non-integer or negative values before SQL with ProviderSessionMeasurementError, and returns whether a row changed; the turn-context projection returns contextHighWaterMark.": "Column, generated migration and snapshot are in the diff; raise/reject semantics are required tests 6, 7 and 11.",
+    "R1 fences: raise and retireProviderSession compare agent_sessions.reset_at with IS NOT DISTINCT FROM the caller's generation; a null/null generation succeeds and null versus non-null is rejected on both operations.": "Both operations compare agent_sessions.reset_at with IS NOT DISTINCT FROM; the null/null and null-vs-non-null cases are required test 8.",
+    "R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74).": "retireProviderSession is one fenced active\u2192expired UPDATE with RETURNING; the three switched callers and the unchanged compaction-delta path are required tests 9, 12 and 13, matching decision 0159 \u00a74 (the story plan still says four callers \u2014 ledgered as D-0082).",
+    "R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute.": "Both booleans are declared per executable route and the validator rejects a route missing either; required tests 4 and 5.",
+    "R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet.": "resetScope returns an immutable list selected FOR UPDATE before delete and returned after commit; propagation through the facade and clearSessionForChatJid is required tests 10 and 25; no caller releases yet.",
+    "S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here.": "lint:changed exists in package.json:76 with the -- terminator, runs inside FACTORY_STRUCTURAL_CMD and as the blocking CI step, full lint stays advisory; the 82 pre-existing errors are the ledgered deferral (recorded as D-0080 in this task's sealed records, renumbered to D-0081 after an id collision on main).",
+    "S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green.": "The four pinned tests are required tests 20-23 and untouched by the diff; verify.py green on Node 24."
+  },
+  "citations": [
+    {
+      "finding": "The approved story plan says all four callers switch to retireProviderSession and prescribes blocking full npm run lint, contradicting decision 0159 \u00a74 and the settled lint:changed ruling that the task contract already carries.",
+      "source": "docs/decisions/0159-adapter-session-release-port.md \u00a74 against plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:285"
+    },
+    {
+      "finding": "The task plan named an undefined DeepAgentTurnFailure wrapper, placed QueryFailure in runner/types.ts rather than its real module, and stated no rule preserving close-driven AbortError identity, so a literal implementation could turn a graceful stop into an error frame.",
+      "source": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts:50 and apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-failure.exception.ts"
+    },
+    {
+      "finding": "The previously recorded task grill is bound to e7a09d791 and to a contract that has since changed twice; it must not authorise a handover.",
+      "source": ".factory/stories/cache-bug/grills/tasks/cache-bug-T1.json (bound to e7a09d791) against git HEAD 28bc58a1"
+    },
+    {
+      "finding": "Contract text was internally inconsistent: the manual check and the decomposition objective claimed verify.py runs full npm run lint, and Surface Impact said nine required tests against a contract naming 25.",
+      "source": ".factory/stories/cache-bug/task-plans/cache-bug-T1.md:149,187 against .factory/stories/cache-bug/decomposition.json required_tests"
+    },
+    {
+      "finding": "Write scope granted the broad prefixes apps/core/src/app, apps/core/test/unit and apps/core/test/integration, permitting changes unrelated to the named files.",
+      "source": ".factory/stories/cache-bug/decomposition.json write_scope"
+    },
+    {
+      "finding": "The manual error proof used an invalid model credential, which fails before any usage is accumulated and so cannot demonstrate a usage-bearing error frame.",
+      "source": ".factory/stories/cache-bug/task-plans/cache-bug-T1.md:187"
+    }
+  ],
+  "rounds": [
+    {
+      "question": "The re-grill found the approved story plan still says all four callers switch to retireProviderSession (decision 0159 \u00a74 keeps compaction-delta on expireProviderSession) and still prescribes blocking full `npm run lint` (settled ruling is `lint:changed` blocking, full lint advisory). The task contracts are already correct \u2014 only the plan prose is stale. Editing the plan breaks its approval digest, so it needs a fresh plan cold-read grill plus your re-approval on the board. When should that happen?",
+      "options": [
+        "After T1 merges, before T2 starts (Recommended)",
+        "Now, before T1's PR",
+        "Leave it; record a deferral"
+      ],
+      "chosen": "After T1 merges, before T2 starts (Recommended)"
+    },
+    {
+      "question": "Closing round for the re-grilled T1 task gate. All six findings are folded into one amendment: the carrier contract now names DeepAgentPartialUsage as the only shape and states the abort-identity rule (AC2 amended, plus two new required tests \u2014 the unit abort seam and the Node-24 boundary _close test, both probed green); QueryFailure's owner corrected to runner/query-failure.exception.ts; the objective and task plan now say lint:changed blocking / full lint advisory; the required-test count corrected to 27; write scope narrowed from the three broad prefixes to the 15 files this task actually touches; the manual error proof replaced with a controlled failure after a usage event; the stale grill record is superseded by this one; and the story-plan contradiction is ledgered as D-0082 to be fixed in the re-ceremony you scheduled between T1's merge and T2's start. Any remaining gap before I record the gate, approve T1 as Ravi, and run the review?",
+      "options": [
+        "No remaining gap, record and approve (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, record and approve (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "2333363a7342ab949658de2a9f22049e08604984f60dbc993018da9c69222445",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "aeaff83f60d5b8973bc8e3522e3a6410319929ce916ade9317bbd364233f3e24",
+  "recorded_at": "2026-09-10T11:16:23+00:00",
+  "commit": "28bc58a1fee2c08759c37c663403030cf26dbc55",
+  "approved_task_plan_sha256": "aeaff83f60d5b8973bc8e3522e3a6410319929ce916ade9317bbd364233f3e24",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-10T11:16:31+00:00"
+}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T12:40:33+00:00", "story": "cache-bug", "detail": "S-0099-7165: Confirmed: lint:changed inside FACTORY_STRUCTURAL_CMD and the blocking CI step, with full npm run lint as an advisory continue-on-error CI step and the 82-error debt recorded as deferral D-0080, IS th"}

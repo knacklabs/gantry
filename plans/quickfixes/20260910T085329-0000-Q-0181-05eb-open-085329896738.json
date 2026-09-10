@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0181-05eb",
+  "profile": "degraded",
+  "reason": "review P1: resetProviderSessionScope must stop (empty list) when chatJid is given but no route owner resolves (T1-AC8 no-route path); companion workers frozen, host-side fix",
+  "started_at": "2026-09-10T08:53:29+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

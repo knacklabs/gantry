@@ -1,0 +1,17 @@
+{
+  "event": "done",
+  "id": "Q-0184-f1b9",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "review round on merged tree: T1-AC2 gaps (normaliser consumer errors and tool-permission denials must keep the accumulated partial usage) and the inline-lane provider/modelRoute conflation (AC7); companion workers frozen, host-side fix per Ravi",
+  "started_at": "2026-09-10T09:25:12+00:00",
+  "completed_at": "2026-09-10T09:30:00+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+    "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

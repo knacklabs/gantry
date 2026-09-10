@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0177-018b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "companion outage: five consecutive Codex workers froze after their first commands on a clean runtime with memory free (jobs mtu9dh6m, mtubti62, mtudatsm, mtv0itpb, mtv4tobu, 2026-09-09/10); finishing cache-bug-T1's two review fixes host-side per Ravi (chat, 2026-09-10)",
+  "started_at": "2026-09-10T06:46:53+00:00",
+  "completed_at": "2026-09-10T07:24:52+00:00",
+  "files": [],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

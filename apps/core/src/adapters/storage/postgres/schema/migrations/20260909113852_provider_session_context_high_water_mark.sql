@@ -1,0 +1,1 @@
+ALTER TABLE "provider_sessions" ADD COLUMN "context_high_water_mark" integer;

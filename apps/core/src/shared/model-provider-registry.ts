@@ -9,6 +9,11 @@ import {
   type AgentEngine,
 } from './agent-engine.js';
 import { OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS } from './model-provider-registry-openai-compatible.js';
+import {
+  type ModelProviderCacheUsageFields,
+  type ModelProviderPromptCacheMode,
+  validateModelProviderDefinitions,
+} from './model-provider-registry-cache-inclusion.js';
 export type ModelCredentialPayload = Record<string, string>;
 
 export interface ModelCredentialFieldDefinition {
@@ -76,25 +81,15 @@ export interface ModelGatewayDefinition {
   sdkProjection: ModelGatewaySdkProjectionDefinition;
 }
 
-export type ModelProviderPromptCacheMode =
-  | 'none'
-  | 'anthropic_cache_control'
-  | 'openai_automatic_prefix'
-  | 'openrouter_automatic_prefix';
-
 export type ModelProviderResponseCacheMode =
   | 'none'
   | 'openrouter_response_cache';
 
-export interface ModelProviderCacheUsageFields {
-  readTokens?: string;
-  writeTokens?: string;
-  responseHeaders?: readonly string[];
-}
-
 export interface ModelProviderPromptCacheSupport {
   mode: ModelProviderPromptCacheMode;
   automatic: boolean;
+  cacheReadsIncludedInInput: boolean;
+  cacheWritesIncludedInInput: boolean;
   promptCacheKey?: boolean;
   requestControl: 'none' | 'cache_control_blocks' | 'provider_automatic_prefix';
   ttlOptions: readonly string[];
@@ -220,6 +215,8 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       prompt: {
         mode: 'anthropic_cache_control',
         automatic: false,
+        cacheReadsIncludedInInput: false,
+        cacheWritesIncludedInInput: false,
         requestControl: 'cache_control_blocks',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
@@ -308,6 +305,8 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         // breakpoints), read/written off prompt_tokens_details.*.
         mode: 'openrouter_automatic_prefix',
         automatic: true,
+        cacheReadsIncludedInInput: true,
+        cacheWritesIncludedInInput: true,
         requestControl: 'provider_automatic_prefix',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
@@ -396,6 +395,8 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       prompt: {
         mode: 'openai_automatic_prefix',
         automatic: true,
+        cacheReadsIncludedInInput: true,
+        cacheWritesIncludedInInput: true,
         requestControl: 'provider_automatic_prefix',
         ttlOptions: [],
         minimumTokenThresholds: [{ modelFamily: 'openai', tokens: 1024 }],
@@ -423,7 +424,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
   // OpenAI-compatible DeepAgents providers live in a sibling module; spread here so the registry stays the source of truth.
   ...OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS,
 ] as const satisfies readonly ModelProviderDefinition[];
-
+validateModelProviderDefinitions(MODEL_PROVIDER_DEFINITIONS);
 const PROVIDER_BY_ID = indexProviderDefinitionsById(MODEL_PROVIDER_DEFINITIONS);
 const PROVIDER_BY_GATEWAY_PATH = indexProviderDefinitionsByGatewayPath(
   MODEL_PROVIDER_DEFINITIONS,
@@ -442,7 +443,6 @@ export type ModelRouteProviderId = Extract<
   (typeof MODEL_PROVIDER_DEFINITIONS)[number],
   { modelRoute: true }
 >['id'];
-
 export function listModelProviderDefinitions(): readonly ModelProviderDefinition[] {
   return MODEL_PROVIDER_DEFINITIONS;
 }

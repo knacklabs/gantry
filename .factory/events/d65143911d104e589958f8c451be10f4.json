@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-09T14:47:48+00:00", "story": "cache-bug", "detail": "Provider-session integration lane skipped because GANTRY_TEST_DATABASE_URL is unset; no test database setup was supplied."}

@@ -1,0 +1,345 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "project": "",
+  "story": "cache-bug",
+  "epic": "post-cutover",
+  "plan_file": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md",
+  "user_facing": false,
+  "doc_roots": [
+    "docs/specs/cache-bug.md",
+    "docs/decisions/0158-provider-session-context-ceiling.md",
+    "docs/decisions/0159-adapter-session-release-port.md",
+    "docs/decisions/0017-jsonb-runtime-payload-boundary.md",
+    "docs/decisions/0025-settings-authority.md",
+    "docs/decisions/0078-lat-3a-single-memory-hydration-per-turn.md",
+    "docs/decisions/0089-thread-turns-read-channel-context.md",
+    "docs/architecture/session-resume.md",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md"
+  ],
+  "epics": [
+    {
+      "id": "cache-bug",
+      "title": "Retire oversized provider sessions across runner restarts",
+      "objective": "Bound turn cost and checkpoint growth by retiring a persistent provider session on its next resume once its observed context crosses a global cap, and reclaim DeepAgents checkpoint state through a provider-neutral release port.",
+      "source_refs": [
+        "docs/specs/cache-bug.md",
+        "docs/decisions/0158-provider-session-context-ceiling.md",
+        "docs/decisions/0159-adapter-session-release-port.md"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "cache-bug-T1",
+      "title": "Measurement, storage, and the quality gate",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Give every persistent provider session a typed context high-water mark and the fenced repository operations that raise and retire it, teach both adapters to report model-visible input (including on error frames) with explicit per-route cache semantics, make resetScope return the references it removes, and put the diff-scoped npm run lint:changed under verify and CI as the blocking gate, with full npm run lint advisory. After this task the host can measure and retire, but no policy fires yet.",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged; the route resolves from usage.modelRoute and falls back to usage.provider when modelRoute is absent (provider fallback).",
+        "S2/R2 partial usage, spawned runners: an errored Claude worker run and an errored DeepAgents worker run each write one cumulative partial-usage payload with the turn's usageEventId on their single error frame; Claude carries it as a typed QueryFailure thrown from the result branch and written by runner/index.ts; DeepAgents carries it as a typed DeepAgentPartialUsage value passed stream-normalizer \u2192 deep-agent-runner \u2192 index. A close-driven abort keeps its own identity: the partial usage rides on the abort instead of replacing it, so a graceful stop is never turned into an error frame, proven at the unit seam and by the Node-24 runner boundary _close test.",
+        "S2/R2 partial usage, inline lanes: an errored Claude inline-lane turn and an errored DeepAgents inline-lane turn each emit one terminal error output carrying the accumulated usage with the turn's usageEventId.",
+        "S3 storage: provider_sessions.context_high_water_mark is a nullable integer column added by a generated drizzle migration (db:migrations:check clean); raiseProviderSessionContextHighWaterMark keeps the larger value, leaves metadata_json untouched, rejects a stale owner, ignores non-resumable rows, rejects non-integer or negative values before SQL with ProviderSessionMeasurementError, and returns whether a row changed; the turn-context projection returns contextHighWaterMark.",
+        "R1 fences: raise and retireProviderSession compare agent_sessions.reset_at with IS NOT DISTINCT FROM the caller's generation; a null/null generation succeeds and null versus non-null is rejected on both operations.",
+        "R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74).",
+        "R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute.",
+        "R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet.",
+        "S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here.",
+        "S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green."
+      ],
+      "write_scope": [
+        "apps/core/src/shared/model-usage.ts",
+        "apps/core/src/shared/model-provider-registry.ts",
+        "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
+        "apps/core/src/shared/model-catalog.ts",
+        "apps/core/src/adapters/llm/deepagents-langchain/runner",
+        "apps/core/src/adapters/llm/deepagents-langchain/inline-lane",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane",
+        "apps/core/src/adapters/storage/postgres/schema/sessions.ts",
+        "apps/core/src/adapters/storage/postgres/schema/migrations",
+        "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-helpers.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
+        "apps/core/src/domain/repositories/ops-repo.ts",
+        "apps/core/src/domain/sessions/provider-session-measurement.ts",
+        "apps/core/src/runtime/group-agent-runner.ts",
+        "apps/core/src/app/bootstrap/runtime-app.ts",
+        "apps/core/src/app/bootstrap/runtime-services-active-new.ts",
+        "apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts",
+        "apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts",
+        "apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts",
+        "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+        "apps/core/test/unit/adapters/deepagents-terminal-denial-turn.test.ts",
+        "apps/core/test/unit/bootstrap/runtime-app-clear-session-references.test.ts",
+        "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+        "apps/core/test/unit/runner/query-loop-error-usage.test.ts",
+        "apps/core/test/unit/runtime/group-processing.test.ts",
+        "apps/core/test/unit/runtime/session-resume-runtime.test.ts",
+        "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
+        "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
+        "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+        "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+        ".envrc",
+        ".github/workflows/ci.yml",
+        "package.json",
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
+        "apps/core/src/shared/model-provider-registry-cache-inclusion.ts",
+        "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts"
+      ],
+      "verify_commands": [
+        "npm run db:migrations:check",
+        "npm run typecheck",
+        "npm run lint:changed",
+        "python3 factory/scripts/verify.py"
+      ],
+      "required_tests": [
+        {
+          "id": "sums input, cache read and cache write for an additive Anthropic route",
+          "path": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "uses input alone for an inclusive OpenAI-compatible route with nonzero cache writes",
+          "path": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "uses the additive form for a mixed or unresolved route",
+          "path": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "every executable route declares both cache-inclusion booleans",
+          "path": "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "a route missing a cache-inclusion boolean fails validation",
+          "path": "apps/core/test/unit/shared/model-provider-registry-cache-inclusion.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "raise keeps the larger value and leaves metadata_json untouched",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "raise rejects a stale owner and ignores non-resumable rows",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "raise and retire fence null-safely on the agent session generation",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "retire returns the retired reference only for a won active transition",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "resetScope returns the retired references after commit and an empty list when nothing matched",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "rejects non-integer and negative values before SQL",
+          "path": "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "fingerprint change and missing-session retry retire through retireProviderSession",
+          "path": "apps/core/test/unit/runtime/group-processing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "compaction-delta degradation still uses expireProviderSession",
+          "path": "apps/core/test/unit/runtime/group-processing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "an errored turn carries one cumulative partial-usage payload with the resolved route",
+          "path": "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "writes the partial usage on the single error frame",
+          "path": "apps/core/test/unit/adapters/deepagents-runner-error-frame.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "an errored turn emits one terminal error output carrying accumulated usage",
+          "path": "apps/core/test/unit/adapters/deepagents-inline-lane-error-usage.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "a failed result throws a QueryFailure carrying the accumulated usage",
+          "path": "apps/core/test/unit/runner/query-loop-error-usage.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "writes the QueryFailure usage on the single error frame",
+          "path": "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "an errored turn emits one terminal error output carrying accumulated usage",
+          "path": "apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "passes hydrated memory context with provider session resume id",
+          "path": "apps/core/test/unit/runtime/group-processing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "resumes and persists SDK sessions for live channel turns",
+          "path": "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "passes hermetic Gantry capabilities and settings into the Claude SDK",
+          "path": "apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "injects the trust-scoped memory block exactly once as a model-visible user message",
+          "path": "apps/core/test/unit/adapters/deepagents-memory-context.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "resolves the route from provider when modelRoute is absent",
+          "path": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "clearSessionForChatJid returns the retired provider-session references",
+          "path": "apps/core/test/unit/bootstrap/runtime-app-clear-session-references.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "passes a close-driven abort through unwrapped, with its partial usage attached",
+          "path": "apps/core/test/unit/adapters/deepagents-stream-normalizer.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "aborts an in-flight run on a _close sentinel and exits cleanly with NO completed marker",
+          "path": "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "reviewer_focus": "Load-bearing constitution references: pnp-coding-standards-modular-monolith.md (domain error types, no bare Error; typed constants over string literals; mappers separate from data access) and 03-modular-monolith-structure.md (adapter-owned provider knowledge stays in adapters; domain/repositories owns the port). Task-specific seam: the two new repository operations are single SQL statements whose predicates are the whole safety story \u2014 the null-safe reset_at fence must appear in BOTH raise and retire, and retire must be the only path that flips active\u2192expired and must RETURN the row it flipped; the compaction-delta degradation path is deliberately left on the old expire helper (ready row) and must not be 'cleaned up' into retire. Concerns that must not share a file: measurement value validation and its domain error (domain/sessions), the SQL (repository helpers), the derivation (shared/model-usage), the registry booleans and their validator (provider registry). Partial-usage carriers are typed value objects: DeepAgents threads DeepAgentPartialUsage through three runner files; Claude throws a typed QueryFailure that runner/index.ts unwraps into exactly one error frame \u2014 never two frames, never ad-hoc fields on Error. Inline lanes mirror the same shape in their own modules. resetScope's return is readonly and never undefined. The migration is generated by drizzle-kit and committed as emitted. Deferred to T2 with TODO(T2): reading the mark for policy and raising it after runs \u2014 T1 only exposes the operations and the projection; deferred to T3: consuming the retired references.",
+      "plan_contracts": [
+        {
+          "id": "T1-AC1",
+          "statement": "S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged; the route resolves from usage.modelRoute and falls back to usage.provider when modelRoute is absent (provider fallback).",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC2",
+          "statement": "S2/R2 partial usage, spawned runners: an errored Claude worker run and an errored DeepAgents worker run each write one cumulative partial-usage payload with the turn's usageEventId on their single error frame; Claude carries it as a typed QueryFailure thrown from the result branch and written by runner/index.ts; DeepAgents carries it as a typed DeepAgentPartialUsage value passed stream-normalizer \u2192 deep-agent-runner \u2192 index. A close-driven abort keeps its own identity: the partial usage rides on the abort instead of replacing it, so a graceful stop is never turned into an error frame, proven at the unit seam and by the Node-24 runner boundary _close test.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC3",
+          "statement": "S2/R2 partial usage, inline lanes: an errored Claude inline-lane turn and an errored DeepAgents inline-lane turn each emit one terminal error output carrying the accumulated usage with the turn's usageEventId.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC4",
+          "statement": "S3 storage: provider_sessions.context_high_water_mark is a nullable integer column added by a generated drizzle migration (db:migrations:check clean); raiseProviderSessionContextHighWaterMark keeps the larger value, leaves metadata_json untouched, rejects a stale owner, ignores non-resumable rows, rejects non-integer or negative values before SQL with ProviderSessionMeasurementError, and returns whether a row changed; the turn-context projection returns contextHighWaterMark.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC5",
+          "statement": "R1 fences: raise and retireProviderSession compare agent_sessions.reset_at with IS NOT DISTINCT FROM the caller's generation; a null/null generation succeeds and null versus non-null is rejected on both operations.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC6",
+          "statement": "R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74).",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC7",
+          "statement": "R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC8",
+          "statement": "R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before delete and returned after commit, and a readonly empty list on no-route or empty paths; canonical-session-ops-service, canonical-ops-repo.postgres.ts and clearSessionForChatJid propagate it; no caller releases yet.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC9",
+          "statement": "S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        },
+        {
+          "id": "T1-AC10",
+          "statement": "S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+        }
+      ],
+      "review_budget": {
+        "max_changed_files": 60,
+        "max_changed_lines": 22500,
+        "reason": "Measured 21,437 lines of which 19,202 are the drizzle-kit generated migration snapshot (meta/20260909113852_snapshot.json), committed as emitted per the contract and required by db:migrations:check; the human-reviewable delta is ~2,250 lines: ~840 source across registry, normalisers, repository helpers and runners, and ~1,410 test lines for the 23 required leaves. Raised by the orchestrator per WORKFLOW 'review budget ceiling: raise it with a recorded reason and continue' (2026-09-09)."
+      }
+    },
+    {
+      "id": "cache-bug-T2",
+      "title": "Host policy, cap setting, events, and docs",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Make the ceiling fire: read the global cap from a revisioned setting, retire an over-cap session at preflight through the T1 operations with a non-hydrating lost-race re-read, raise the mark after every measured run, publish the two retirement events directly and best-effort, and record the operator procedures, the executed observability recipe, and the architecture alignment. T2 also owns the retirement release queue and its single post-reply drain call in group-agent-runner.ts and registers BOTH new event types (session.provider.retired, session.provider.cleanup_failed) so T3 never edits the runner or the event registry.",
+      "dependencies": [
+        "cache-bug-T1"
+      ],
+      "acceptance_criteria": [
+        "S4: a usage-bearing errored run raises the mark; a run with no measurement does not call the raise operation.",
+        "S5: an over-cap active session is not passed as the resume id; retirement returns the reference; the run proceeds fresh; the replacement handle is persisted; the reply is delivered; a crossing run is retired on the following resume; a maintenance_compact row is not retired; a ready row is promoted first; a lost transition persists no replacement.",
+        "R6: the lost-race re-read uses hydrateMemory: false and reuses the hydrated block when the agent session id and null-normalised generation match.",
+        "S6: an under-cap or unmarked session resumes with the memory block and the snapshot; the four pinned tests stay green and untouched.",
+        "S7: limits.provider_session_max_input_tokens parses beside provider entries, defaults to 150,000, rejects values outside 20,000\u2013900,000 with a path-level error, round-trips through the revision document and export, is applied from a new revision, and a worker below reader version 16 holds its prior revision and alerts.",
+        "S9/R5: session.provider.retired and session.provider.cleanup_failed are registered event types with typed payloads, published directly by the host with appId, actor, sessionId (and runId for missing-session), best-effort so publication failure never suppresses the reply, with publish, query and projection tests.",
+        "S12/R7: docs/memory/provider-session-ceiling-operations.md holds the pre-deploy reset with its stop condition, the orphan scan, and the observability SQL, which a Postgres test executes; runtime-components.md and canonical-domain-model.md no longer say fresh runs restore memory only.",
+        "S10/S11: scheduled-job tests untouched and green; verify.py green.",
+        "Parallel seam: group-agent-runner.ts carries a typed release queue (retired references collected from ceiling, fingerprint and missing-session retirement) drained exactly once after the turn's final reply through a host function releaseRetiredProviderSessions(refs) that T2 stubs as a no-op with TODO(T3); both event types are registered and typed in T2; T3 does not touch group-agent-runner.ts or runtime-event-types.ts."
+      ]
+    },
+    {
+      "id": "cache-bug-T3",
+      "title": "Adapter release port and post-reply coordinator",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Reclaim DeepAgents checkpoint state for retired sessions: add releaseSession to the adapter contract, implement it in the DeepAgents adapter with deleteThread, and add the host coordinator that runs after the reply for ceiling, fingerprint, missing-session and both /new paths, sanitising errors and publishing cleanup_failed. Runs in parallel with T2 (graph amendment approved by Ravi in chat, 2026-09-09): T3 implements releaseRetiredProviderSessions in a new runtime module plus the adapter port and both /new handlers, consuming T1's retired-reference type; it never edits group-agent-runner.ts or runtime-event-types.ts, which T2 owns.",
+      "dependencies": [
+        "cache-bug-T1"
+      ],
+      "acceptance_criteria": [
+        "S8: for ceiling, missing-session, fingerprint and /new, the retired thread's rows leave checkpoints, checkpoint_blobs and checkpoint_writes; checkpoint_migrations and other threads' rows remain; a second call is a no-op; a simulated deletion failure leaves the session expired, the reply delivered and session.provider.cleanup_failed recorded; a lost retirement transition performs no cleanup.",
+        "R4 (wiring): both /new handlers (session-commands.ts idle path and runtime-services-active-new.ts active path) send their reply, then release each returned reference.",
+        "R5 (sanitiser): the cleanup_failed error contains no external session id, thread id or connection string.",
+        "Release never runs before the turn's final reply path has unblocked; the coordinator resolves the adapter by executionProviderId and the Claude adapter is a no-op.",
+        "S10/S11: scheduled-job tests untouched and green; verify.py green.",
+        "Parallel seam: T3's write scope is disjoint from T2's \u2014 adapter contract, DeepAgents adapter and checkpoint setup, the new provider-session-release.ts coordinator exporting releaseRetiredProviderSessions(refs), session-commands.ts and runtime-services-active-new.ts /new handlers, and tests; the cleanup_failed publication uses the event type T2 registers and integrates at merge."
+      ]
+    }
+  ],
+  "build_waves": [
+    [
+      "cache-bug-T1"
+    ],
+    [
+      "cache-bug-T2",
+      "cache-bug-T3"
+    ]
+  ],
+  "plan_sha256": "279a4a3c4f2b67fcc466e23dbdf1a239743aadcf56308a81f1f454aa26f35ee9",
+  "commit": "28bc58a1fee2c08759c37c663403030cf26dbc55"
+}

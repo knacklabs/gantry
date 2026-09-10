@@ -1,86 +1,143 @@
 {
   "generated_by": "griller",
   "gate": "spec",
-  "issue": "ASKFLOOR-1",
+  "issue": "cache-bug",
   "verdict": "pass",
-  "questions_asked": 3,
+  "summary": "Spec gate for cache-bug: five cold reads (four under the pre-pull loop rule, the fifth as the single read under the one-read rule), ten ledgered human questions across four AskUserQuestion rounds; every gap has a human decision or a repository-cited resolution folded into the amended docs/specs/cache-bug.md; frontier closed by the human.",
+  "questions_asked": 10,
   "gaps": [
-    "B1 (blocker, contract-gap): the routing seam was not pinned \u2014 permission-classifier.ts only exposes eligibility and the named runtime directory is absent, so the refusal\u2192ask branch was unspecified.",
-    "B2 (blocker, decision-conflict): AC3 made Allow-once reusable and promised scheduled-job benefit, conflicting with permission-decision-expiry.ts (immediate expiry), decisions 0040/0043 (once is never reusable) and 0121 (jobId-bearing decisions are pure functions of declared grants).",
-    "B3 (blocker, contract-gap): the mcp__gantry__file binding was unimplementable \u2014 it promised a literal capability id but named none, said list|read while excluding broad lists, artifactId reads and attachments (the motivating case).",
-    "G4 (gap, correctness): /dev/null was still admitted as a trusted-path candidate despite the stderr-redirect exception, and find needed adversarial argument tests.",
-    "G5 (gap, contract-gap): AC5 fail-closed and AC6 invariance were not scoped to interactive auto; a scheduled lane has no human listener and must keep deterministic denial plus card recovery.",
-    "Owner rulings 2026-09-04: destructive actions remember an exact Allow too; trust growth offers a broader option after three exact Allows per high-risk tool"
+    "Spec dropped the channel/thread snapshot on resume, contradicting decision 0089",
+    "Expiring a DeepAgents session left its raw LangGraph checkpoint rows, so Postgres kept growing",
+    "Threshold proposed as an environment variable, contradicting decision 0025 settings authority",
+    "Ceiling metric ambiguous: per-run inputTokens plus cache reads double-counted on OpenAI-compatible providers and totalBillableInputTokens subtracts cache reads so a 270k cached prompt records near zero",
+    "Shipped rollout/cleanup command and lazy retirement contradicted decisions 0003 and 0112",
+    "Per-request model-visible measurement not implementable from current adapter output; model-capacity clause unknowable because no model identity is stored on the session",
+    "High-water mark placed in metadata_json, contradicting decision 0017 typed resume-governing state; write not race-safe",
+    "expireProviderSession returns void so cleanup could not be gated on a won transition; reset_at not in the fence; maintenance_compact rows retireable",
+    "Host-owned DeepAgents-specific cleanup violated provider-neutral core rule; /new returned no references for cleanup",
+    "Settings shape named a non-existent limits.providers sibling; strict parser would break old fleet workers without a reader-version bump",
+    "Retirement events claimed pre-run timing for missing-session which is only discovered after a run row exists; 16-hex hash not a safe join key",
+    "Pre-deploy reset said truncate checkpoint tables, which would remove checkpoint_migrations and replay package migrations",
+    "Active roadmap card carries intake-time acceptance criteria that contradict the spec and cannot be edited"
   ],
   "contradictions": [
-    "Fable UX lane: the spec kept 'attachment reads' fail-closed while the owner's complaint was specifically about reading an attachment they sent; and AC3 promised jobs stop re-asking while \u00a71/0121 forbade the autonomous lane from consulting memory (resolved by rulings 1 and 2)."
+    "0089 per-turn snapshot guarantee vs dropping the snapshot on resume",
+    "0025 revisioned settings authority vs environment-variable threshold",
+    "0003/0112 no runtime migration vs shipped rollout command and lazy retirement",
+    "0017 typed columns for governing state vs JSONB high-water mark",
+    "BRIEF provider-neutral core vs host branching on DeepAgents checkpoint tables",
+    "Roadmap card intake criteria vs grilled spec acceptance criteria"
   ],
   "resolutions": [
-    "R1 (owner): ALL attachments already in the conversation are readable with zero taps; bound to mcp__gantry__attachment_open (opaque ids, origin validated server-side at jobs/ipc-attachment-open-handler.ts:42-84) as birthright in interactive auto; mcp__gantry__file (actions list|read|write|promote_scratch) becomes argument-aware at gantry-tool-risk.ts:46-49 \u2014 resolves B3 and the first Fable contradiction.",
-    "R2 (owner): scheduled jobs DO consult learned decisions, projected as DECLARED GRANTS (deterministic lookup, updatedPermissions \u2192 autonomousAllowedToolRules; never the classifier) \u2014 decision 0153 drafted, amending 0121's 'never consults human-decision memory' clause; resolves B2's job half and the second Fable contradiction; AC5/AC6 scoped to interactive auto && !hostVerifiedJobId (hostJobId = permissionRunRestriction(...).jobId, ipc-permission-classifier-decision.ts:67-74) \u2014 resolves G5.",
-    "R3 (owner): tap semantics \u2014 [Allow] remembered (default, bold), [Just this once] NOT learned (today's allow_once path, 0040/0043 preserved), [No]; the human-decision store is a NEW record kind consulted before the classifier (writer today rejects human allow_once, permission-decision-memory-repository.postgres.ts:17-34) \u2014 resolves B2's allow_once half.",
-    "R4 (owner, dimension design delegated): generic scope \u2014 this exact action / this kind of action / this place \u2014 with a broadest-safe default (reads \u2192 kind anywhere; writes/destructive \u2192 exact), one 'Remembered: \u2026' line and one narrower alternative; the scope store REUSES resolveTrustedRootStage (permission-decision-coordinator.ts:219-294), no second store; button labels change centrally (channels/permission-interaction.ts:74-88).",
-    "R5 (seam map, resolves B1): the classifier IS consulted; the force-ask is the classifier-allow VETO by a rail ASK signal (ipc-permission-classifier-decision.ts:307-308, 369-401). Change: carry railSignal from the rail callback (:111-119) and relax only that veto for interactive auto on out_of_trusted_root / read-only meta-executor signals; shared rails (domain/permission-deterministic-rails.ts:161-228) untouched.",
-    "R6 (owner + G4): workspace file writes judged by PATH; 2>/dev/null never a path candidate (permission-trusted-paths.ts pathCandidates ~:60); find read-only unless -delete/-exec/-execdir/-ok (bash-command-parser.ts:35,563,581) with adversarial tests; judge outage = one notice per conversation + deterministic reads still allow; /permissions view with Forget this; AC8 tap-budget fixtures replaying the 2026-09-02 log shapes.",
-    "GAP default-allow posture: spec Behaviour bullets + AC1/AC2/AC4 + 'Unchanged on purpose' amended; decision 0155 created (proposed); story plan \u00a72/T2b amended; Codex sol@xhigh spec re-grill r5 (plans/exploration/askfloor-1-spec-grill-r5.md) \u2014 folded into spec AC3/AC8-S4, decision 0154 and the story plan without a further Codex round (owner asked to stop looping; both are additive learning rules inside the already-grilled memory design, no rails/lane change)"
+    "Gap 1 \u2014 Human (round 1): keep 0089 and 0078; ceiling only; spec Behaviour 7 and Non-goals",
+    "Gap 2 \u2014 Human (round 1): reclaim DeepAgents checkpoint rows on retirement; spec Behaviour 6",
+    "Gap 3 \u2014 Human (round 1): threshold is a global revisioned runtime setting per 0025; spec Behaviour 4",
+    "Gap 4 \u2014 Human (round 3) + repo (model-usage.ts, provider registry usageFields): per-run usage corrected per provider cache semantics via registry booleans; spec Behaviour 1",
+    "Gap 5 \u2014 Human (round 3): manual pre-deploy reset by the deployment owner, no command, no lazy retirement; spec Behaviour 7 and Non-goals",
+    "Gap 6 \u2014 Human (round 3): minimal scope; per-request seam and model-capacity clause parked; spec Non-goals",
+    "Gap 7 \u2014 Repo (0017): typed nullable integer column provider_sessions.context_high_water_mark with fenced GREATEST update; spec Behaviour 2",
+    "Gap 8 \u2014 Repo (helpers statuses, current expiry): atomic active->expired transition returning the retired reference, fenced on id/owner/status/reset_at; promote ready first; never retire maintenance_compact; spec Behaviour 3 and 5",
+    "Gap 9 \u2014 Repo (BRIEF, PostgresSaver.deleteThread): adapter releaseSession port with runtimeStorage; /new hands references to cleanup after commit; spec Behaviour 5 and 6",
+    "Gap 10 \u2014 Repo (limits parser, settings-revision-listener): limits.provider_session_max_input_tokens flat global scalar; CURRENT_SETTINGS_READER_VERSION bump with min_reader_version; spec Behaviour 4",
+    "Gap 11 \u2014 Repo (group-agent-runner run creation, missing retry): preflight events with sessionId for ceiling/fingerprint, post-attempt with runId for missing; full SHA-256 hash with SQL join expression; spec Behaviour 8",
+    "Gap 12 \u2014 Repo (checkpoint schema): reset deletes only selected interactive sessions' rows from the three checkpoint tables, preserving checkpoint_migrations; spec Behaviour 7",
+    "Gap 13 \u2014 Human (round 5): the confirmed spec is linked to the card as its authority; intake criteria superseded; spec Why",
+    "Contradiction 1 \u2014 resolved in favour of 0089: snapshot stays on every turn; spec Behaviour 7",
+    "Contradiction 2 \u2014 resolved in favour of 0025: revisioned setting, no env var; spec Behaviour 4",
+    "Contradiction 3 \u2014 resolved in favour of 0003/0112: no command, no lazy retirement, manual owner reset with stop condition; spec Behaviour 7",
+    "Contradiction 4 \u2014 resolved in favour of 0017: typed column; spec Behaviour 2",
+    "Contradiction 5 \u2014 resolved in favour of the BRIEF: adapter cleanup port, core never names a checkpoint table; spec Behaviour 6",
+    "Contradiction 6 \u2014 Human (round 5): linked confirmed spec is the card's authority; spec Why"
   ],
-  "citations": [
-    {
-      "finding": "B1 (blocker, contract-gap): the routing seam was not pinned \u2014 permission-classifier.ts only exposes eligibility and the named runtime directory is absent, so the refusal\u2192ask branch was unspecified.",
-      "source": "apps/core/src/application/permissions/permission-classifier.ts:11; apps/core/src/application/permissions/gantry-tool-risk.ts:98; plans/exploration/askfloor-1-runtime-evidence-2026-09-02.md:23"
-    },
-    {
-      "finding": "B2 (blocker, decision-conflict): AC3 made Allow-once reusable and promised scheduled-job benefit, conflicting with permission-decision-expiry.ts (immediate expiry), decisions 0040/0043 (once is never reusable) and 0121 (jobId-bearing decisions are pure functions of declared grants).",
-      "source": "docs/specs/askfloor-1-judge-actually-judges.md (AC3, \u00a71); apps/core/src/application/permissions/permission-decision-expiry.ts:3; docs/decisions/0040-permission-execution-two-axis-model.md:41; docs/decisions/0043-classifier-risk-only-engine-authz.md:28; docs/decisions/0121-autodet-no-classifier-autonomous.md:24"
-    },
-    {
-      "finding": "B3 (blocker, contract-gap): the mcp__gantry__file binding was unimplementable \u2014 it promised a literal capability id but named none, said list|read while excluding broad lists, artifactId reads and attachments (the motivating case).",
-      "source": "docs/specs/askfloor-1-judge-actually-judges.md (\u00a72 bindings); apps/core/src/runner/mcp/tools/file.ts:12-62; apps/core/src/runner/mcp/tools/attachment.ts:38-52"
-    },
-    {
-      "finding": "G4 (gap, correctness): /dev/null was still admitted as a trusted-path candidate despite the stderr-redirect exception, and find needed adversarial argument tests.",
-      "source": "apps/core/src/shared/permission-trusted-paths.ts:60; apps/core/src/shared/bash-command-parser.ts:35,563,581"
-    },
-    {
-      "finding": "G5 (gap, contract-gap): AC5 fail-closed and AC6 invariance were not scoped to interactive auto; a scheduled lane has no human listener and must keep deterministic denial plus card recovery.",
-      "source": "docs/decisions/0121-autodet-no-classifier-autonomous.md:24; docs/decisions/0124-bounded-durable-card-delivery.md:24; apps/core/src/app/ipc-permission-classifier-decision.ts:67-74,248-252"
-    },
-    {
-      "file": "plans/exploration/askfloor-1-spec-grill-r5.md",
-      "finding": "Owner rulings 2026-09-04: destructive actions remember an exact Allow too; trust growth offers a broader option after three exact Allows per high-risk tool"
-    }
+  "open_items": [
+    "Non-blocking: DeepAgents usage normaliser keeps largest-not-summed per-call usage (billing accuracy defect) \u2014 recorded as a deferral, out of scope",
+    "Non-blocking: delta channel/thread snapshot on resume parked; revisit if retirement alone leaves turns too expensive"
   ],
   "rounds": [
     {
-      "question": "Destructive actions (delete, overwrite, force-push style shapes) currently never remember an Allow \u2014 you are asked every time; only a No is remembered. Change that?",
+      "question": "Grill finding 1: decision 0089 pins that every provider turn sees the 30-message channel block plus the thread window. The spec drops that snapshot on resumed sessions. Which way?",
       "options": [
-        "Remember exact Allow too (Recommended)",
-        "Keep asking every time"
+        "Keep 0089, ceiling only (Recommended)",
+        "Supersede 0089 with a delta snapshot",
+        "Supersede 0089, no snapshot on resume"
       ],
-      "chosen": "Remember exact Allow too (Recommended)",
-      "frontier_empty": false
+      "chosen": "Keep 0089, ceiling only (Recommended)"
     },
     {
-      "question": "Trust over time: after you have allowed the same high-risk tool several times (say three exact Allows for `scheduler.create_job`), should the card start offering a broader remember option for that tool ('Allow all scheduler job creations'), or should high-risk actions always stay exact-only?",
+      "question": "Grill finding 2: expiring a DeepAgents session starts a fresh thread but leaves the old raw LangGraph checkpoint rows, so Postgres still grows. Reclaim or narrow?",
       "options": [
-        "Offer broader after 3 exact Allows (Recommended)",
-        "High-risk stays exact-only"
+        "Reclaim on expiry (Recommended)",
+        "Narrow the promise, defer reclamation"
       ],
-      "chosen": "Offer broader after 3 exact Allows (Recommended)",
-      "frontier_empty": false
+      "chosen": "Reclaim on expiry (Recommended)"
     },
     {
-      "question": "Confirming the spec wording for the destructive ruling: `rm -rf build` asks once; Allow remembers that exact command and target; the identical command never asks again; `rm -rf dist` asks. Is that the behaviour you want?",
+      "question": "Findings 3 to 5 have clear defaults. Confirm all three: threshold is one validated global runtime setting per decision 0025 (not an env var), default 150,000; expiry keys on the max single model-call inputTokens (no cache-read double count); durable memory stays freshly injected on every run and the rule is renamed to no duplicate channel/thread snapshot.",
       "options": [
-        "Yes, exactly that (Recommended)",
-        "No, adjust"
+        "Confirm all three (Recommended)",
+        "Change something"
       ],
-      "chosen": "Yes, exactly that (Recommended)",
+      "chosen": "Confirm all three (Recommended)"
+    },
+    {
+      "question": "Round 2 finding: the one-off rollout invalidation command is a migration/cleanup command, which accepted decision 0003 (early stage, no back-compat) explicitly rejects. How do we handle existing oversized sessions?",
+      "options": [
+        "Drop the command, rely on unmeasured-means-no-resume (Recommended)",
+        "Keep the command, record a 0003 exception"
+      ],
+      "chosen": "Drop the command, rely on unmeasured-means-no-resume (Recommended)"
+    },
+    {
+      "question": "Round 2 finding: Claude's normalised inputTokens excludes cache read/write tokens and is aggregated per run, so it cannot supply the largest single model-call context. What should the ceiling measure?",
+      "options": [
+        "New per-request model-visible input maximum (Recommended)",
+        "Aggregate per-run billable input"
+      ],
+      "chosen": "New per-request model-visible input maximum (Recommended)"
+    },
+    {
+      "question": "Confirm the five defaults: scope is every persistent interactive provider session on any channel, jobs excluded; a session without a valid versioned measurement is not resumable, and measurements persist even from failed turns; effective cap is the lower of the global setting (valid range 20,000 to 900,000, applies on next resume) and the runtime-known safe model capacity, unknown capacity does not resume; DeepAgents checkpoint reclamation runs in one shared expiry operation for every expiry reason, never blocks a reply, leaves the session expired if cleanup fails and emits retry evidence; the observability query is operator-only, joins runtime_events to agent_runs to provider_sessions, and shows hashed identifiers by default.",
+      "options": [
+        "Confirm all five (Recommended)",
+        "Change something"
+      ],
+      "chosen": "Confirm all five (Recommended)"
+    },
+    {
+      "question": "Round 3 shows the per-request measurement is not implementable from current adapter output (DeepAgents emits one terminal usage snapshot whose input already includes cache reads; Claude aggregates per run), and the model-capacity clause is unknowable because no model identity is stored on the session. Do you want the minimal scope or the full design?",
+      "options": [
+        "Minimal: existing per-run usage as the ceiling (Recommended)",
+        "Full: new per-request seam, fenced cleanup, retry owner"
+      ],
+      "chosen": "Minimal: existing per-run usage as the ceiling (Recommended)"
+    },
+    {
+      "question": "Finding 2: retiring legacy sessions lazily on their next turn is a runtime migration, which decisions 0003 and 0112 reject. How are pre-existing sessions handled?",
+      "options": [
+        "Manual pre-deploy reset by the owner (Recommended)",
+        "Record an exception decision for lazy retirement"
+      ],
+      "chosen": "Manual pre-deploy reset by the owner (Recommended)"
+    },
+    {
+      "question": "The active cache-bug roadmap card still carries intake-time criteria (drop the snapshot on resume, null Slack handles, update pinned tests) that contradict the grilled spec, and the harness refuses to edit an active card's criteria. How should the two contracts be reconciled?",
+      "options": [
+        "Link the spec as the card's authority (Recommended)",
+        "Retire this card and add a fresh one"
+      ],
+      "chosen": "Link the spec as the card's authority (Recommended)"
+    },
+    {
+      "question": "Closing question for the spec gate: the other seven findings (typed high-water column per 0017, provider-resolved usage components with partial usage on errors, fenced transition order including reset_at, adapter cleanup port with /new returning references after commit, flat limits scalar with a reader-version bump, event timing with full SHA-256 correlation, and a reset that preserves checkpoint_migrations) are being folded in from what the repository says. Any remaining gap before I amend once and record?",
+      "options": [
+        "No remaining gap, amend and record (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, amend and record (Recommended)",
       "frontier_empty": true
     }
   ],
-  "summary": "SPEC GATE \u2014 the amended spec (attachments, jobs-as-grants, tap semantics, generic scope) interrogated against code and decisions. PASS \u2014 requirements grill of the amended ASKFLOOR-1 spec: Codex sol@xhigh cold-read (3 blockers, 2 gaps) + Fable 5.1 UX lane (9 polish items, 3 contradictions) + terra@high seam map; all resolved by six ledgered owner rulings and the seam map, folded into the spec source (\u00a71-\u00a73, AC3/AC4/AC5, new AC8) and decision 0153 (amends 0121). RE-GRILLED 2026-09-03 (round 5) after the owner's default-allow ruling: AC1/AC2/AC4 now describe one small typed risk table (default LOW; closed high-risk rows: non-own-destination send_message, destructive/protected writes, scheduler + admin mutations; ambiguous -> classifier), decision 0155.",
-  "input_sha256": "05134e6dc9c5a60b84ac4fd641938dc79dc50db38251414197dc5fb23b62505b",
-  "recorded_at": "2026-09-04T02:39:27+00:00",
-  "commit": "21925c45385ec86358f8ecb4e91ddff027eab5a7"
+  "input_sha256": "a78f6aa9abd6294fb3f50e1214d9ac49cbd81c77612252a6ff0f7e2c7ee5dd94",
+  "recorded_at": "2026-09-09T08:47:51+00:00",
+  "commit": "148589a11cf437661399dd68d38a74891be3ee50"
 }

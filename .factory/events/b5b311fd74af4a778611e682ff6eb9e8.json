@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T13:31:23+00:00", "story": "cache-bug", "detail": "S-0100-9537: Already ruled (S-0092/S-0095/S-0099) and now ledgered as a lesson on .envrc, .github/workflows/** and package.json: lint:changed is the approved fulfilment of AC9; full lint advisory; debt = D-0080. D"}

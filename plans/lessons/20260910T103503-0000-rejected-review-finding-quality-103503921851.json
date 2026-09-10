@@ -1,0 +1,11 @@
+{
+  "topic": "rejected-review-finding-quality",
+  "lesson": "Not a defect (0159): Decision 0159 \u00a73 settles resetScope as the /new path that removes the provider-session rows of the sessions in the caller's scope and returns the retired references; T1 only changed its return type (T1-AC8) and relocated it. The scope key already confines the reset to one conversation scope and its thread-variant descendants (apps/core/src/cli/group.ts comment above deleteSession), so omitting the agent predicate when no route owner resolves cannot touch another conversation. Sessions created without a conversation install have no route owner by design (CLI reset, integration fixture); adding a stop guard fails the existing 'resetScope returns the retired references' Postgres integration test. Pre-existing behaviour in base f83779ce7 canonical-session-repository.postgres.ts resetScope, unchanged by this task (T1-AC10). \u2014 raised as \"Return early when no owning agent route can be resolved (apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres\"",
+  "source": "review reject cache-bug-T1 quality at 2026-09-10T10:35:03+00:00",
+  "applies_to": [
+    "apps/core/src/adapters/storage/postgres/repositories/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T10:35:03+00:00"
+}

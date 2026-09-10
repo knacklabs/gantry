@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Reverting the hotfixes changed the product tree digest, so pr_ready now refuses on a stale review stamp. Re-reviewing the reverted tree can't go clean either: without the stages.py fix the bundle hides `.github/` again and AC9 returns as a blocking P1 forever. So \"revert in this branch\" is a dead end, and keeping them is refused as vendor drift. The local symphony-forge checkout is at the exact vendored commit with no divergence, so re-vendoring would carry only our three fixes plus a refreshed VENDOR_MANIFEST. How should the gate fixes reach this PR?",
+      "options": [
+        "Re-vendor into this branch (Recommended)",
+        "Re-vendor on main first, then merge",
+        "Ship T1 without the CI step"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-10T12:21:42.627077+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

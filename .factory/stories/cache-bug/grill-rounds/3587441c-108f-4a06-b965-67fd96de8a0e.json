@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The pre-tool hook does not govern or claim file-tool writes into a sibling worktree (it resolves the repo root from the session cwd, not the target path). Because of that the degraded window closed with 0 files and stage done refuses. How do you want this handled?",
+      "options": [
+        "Hotfix the hook + re-apply the fixes under two windows (Recommended)",
+        "Hotfix the hook only; accept a stage-close exception for T1",
+        "Stop here; you take it to symphony-forge first"
+      ],
+      "chosen": "Hotfix the hook + re-apply the fixes under two windows (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T07:52:59.673072+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

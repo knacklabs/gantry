@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T13:31:03+00:00", "story": "cache-bug", "detail": "S11 requires full npm run lint inside the structural and CI gates, but it reports 82 errors outside this task's write scope; S10 simultaneously requires verify.py green, and recording the required def"}

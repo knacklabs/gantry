@@ -16,7 +16,15 @@ import {
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from './stream-normalizer.js';
-import type { NormalizedCacheProvider } from '../../../../shared/model-catalog.js';
+import {
+  abortPartialUsage,
+  DeepAgentPartialUsage,
+  isDeepAgentPartialUsage,
+} from './stream-normalizer-partial-usage.js';
+import type {
+  NormalizedCacheProvider,
+  NormalizedModelUsage,
+} from '../../../../shared/model-catalog.js';
 import {
   composeDeepAgentSystemPrompt,
   readMemoryContextBlock,
@@ -87,6 +95,7 @@ export interface DeepAgentTurnResult {
   terminalResult: string | null;
   terminalUsage: RunnerOutputFrame['usage'];
   terminalContextUsage: RunnerOutputFrame['contextUsage'];
+  usageEventId: string;
   startupRuntimeEvents?: RunnerOutputFrame['runtimeEvents'];
 }
 
@@ -98,6 +107,7 @@ export async function runDeepAgentTurn(input: {
   // to the model profile's `maxInputTokens` for window-aware compaction +
   // context-usage. Undefined for ids with a real library profile.
   maxInputTokens?: number;
+  usageEventId?: string;
   openRouterProviderRouting?: OpenRouterProviderPreferences;
   newSessionId: string;
   threadId?: string;
@@ -374,7 +384,10 @@ export async function runDeepAgentTurn(input: {
         normalizeDeepAgentStream({
           events,
           newSessionId: input.newSessionId,
+          usageEventId: input.usageEventId,
           modelId: resolved.modelId,
+          provider: input.provider as NormalizedModelUsage['provider'],
+          modelRoute: input.provider as NormalizedModelUsage['modelRoute'],
           modelProfile: { maxInputTokens: profile.maxInputTokens },
           cacheProvider: cacheProviderForEndpoint(resolved.endpointFamily),
           gantryOwnedToolNames: connected.gantryOwnedToolNames,
@@ -408,9 +421,36 @@ export async function runDeepAgentTurn(input: {
       // Abort implementations differ in whether they surface signal.reason or
       // a generic AbortError. Preserve the parseable denied-tool failure that
       // scheduler finalization routes into the setup pause.
-      throw terminalPermissionDenial ?? error;
+      if (terminalPermissionDenial) {
+        // The denial stays the terminal error, but it keeps the usage the
+        // normaliser accumulated before the stream was cut (T1-AC2) — carried
+        // as a wrapper, or attached to the bare AbortError the abort raised.
+        const partial = isDeepAgentPartialUsage(error)
+          ? error
+          : abortPartialUsage(error);
+        throw partial
+          ? new DeepAgentPartialUsage(
+              terminalPermissionDenial,
+              partial.usage,
+              partial.contextUsage,
+              partial.usageEventId,
+            )
+          : terminalPermissionDenial;
+      }
+      throw error;
     }
-    if (terminalPermissionDenial) throw terminalPermissionDenial;
+    // A graph that answers the denial abort by ending its iterator normally
+    // reaches here instead of the catch above. The turn still failed on the
+    // denial, and the usage the normaliser finished computing must still ride
+    // the terminal error (T1-AC2) rather than be replaced by an empty payload.
+    if (terminalPermissionDenial) {
+      throw new DeepAgentPartialUsage(
+        terminalPermissionDenial,
+        normalized.terminalUsage,
+        normalized.terminalContextUsage,
+        normalized.usageEventId,
+      );
+    }
     logElapsed('Stream normalized');
     const text = normalized.text;
     const startupRuntimeEvents = [
@@ -443,6 +483,7 @@ export async function runDeepAgentTurn(input: {
       terminalResult: normalized.terminalResult,
       terminalUsage: normalized.terminalUsage,
       terminalContextUsage: normalized.terminalContextUsage,
+      usageEventId: normalized.usageEventId,
       startupRuntimeEvents,
     };
   } finally {

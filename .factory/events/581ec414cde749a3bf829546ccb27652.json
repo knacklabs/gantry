@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T12:29:23+00:00", "story": "cache-bug", "detail": "cache-bug-T1 required registry, repository, and stream-normalizer changes exceed fixed architecture file budgets, and the mandated apps/core/test/unit/adapters/claude-inline-lane-error-usage.test.ts p"}

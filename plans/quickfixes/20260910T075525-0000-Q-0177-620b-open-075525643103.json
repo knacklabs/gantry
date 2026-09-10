@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0177-620b",
+  "profile": "degraded",
+  "reason": "companion outage (five frozen Codex workers, 2026-09-09/10): re-applying cache-bug-T1 review fix one (per-process nonce in DeepAgents usage event ids; inline lane keeps partial usage on recognised failures) host-side under a stage-bound window now that the hook governs worktree writes; per Ravi (chat, 2026-09-10)",
+  "started_at": "2026-09-10T07:55:25+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

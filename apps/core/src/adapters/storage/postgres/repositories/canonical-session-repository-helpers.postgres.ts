@@ -121,6 +121,7 @@ export function providerSessionContext(providerSession: {
   externalSessionId: string;
   metadataJson: unknown;
   status?: string;
+  contextHighWaterMark?: number | null;
 }): {
   providerSessionId?: string;
   externalSessionId?: string;
@@ -130,6 +131,7 @@ export function providerSessionContext(providerSession: {
   readyProviderSessionId?: string;
   readyExternalSessionId?: string;
   providerSessionAccessFingerprint?: string;
+  contextHighWaterMark?: number;
   compactionDeltaReplay?: {
     status: 'pending' | 'applied' | 'degraded';
     baseCursor?: string;
@@ -138,10 +140,15 @@ export function providerSessionContext(providerSession: {
 } {
   const metadata = parseJsonRecord(providerSession.metadataJson);
   const deltaReplay = compactionDeltaReplay(metadata);
+  const contextHighWaterMark =
+    typeof providerSession.contextHighWaterMark === 'number'
+      ? { contextHighWaterMark: providerSession.contextHighWaterMark }
+      : {};
   if (providerSession.status === 'maintenance_compact') {
     return {
       latestProviderSessionLocked: true,
       lockedProviderSessionId: providerSession.id,
+      ...contextHighWaterMark,
       ...(deltaReplay ? { compactionDeltaReplay: deltaReplay } : {}),
     };
   }
@@ -154,6 +161,7 @@ export function providerSessionContext(providerSession: {
       latestProviderSessionReady: true,
       readyProviderSessionId: providerSession.id,
       readyExternalSessionId: providerSession.externalSessionId,
+      ...contextHighWaterMark,
       ...(accessFingerprint
         ? { providerSessionAccessFingerprint: accessFingerprint }
         : {}),
@@ -164,6 +172,7 @@ export function providerSessionContext(providerSession: {
   return {
     providerSessionId: providerSession.id,
     externalSessionId: providerSession.externalSessionId,
+    ...contextHighWaterMark,
     ...(accessFingerprint
       ? { providerSessionAccessFingerprint: accessFingerprint }
       : {}),

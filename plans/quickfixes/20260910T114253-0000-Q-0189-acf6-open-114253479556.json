@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0189-acf6",
+  "profile": "degraded",
+  "reason": "Two P2 autoreview follow-ups on host-owned gate wiring: the lint:changed npm script expands $files unquoted (a contributor-controlled filename like [f]oo.ts globs to another path, silently bypassing the blocking gate AC9 promises), and the stale-owner integration test never supplies a mismatched owner so raise's agentSessionId/provider/externalSessionId predicates are unverified. Both are two-file, in-scope edits to build wiring and a test; a full Codex delegate round for a shell quoting fix and a test loop is disproportionate to the change.",
+  "started_at": "2026-09-10T11:42:53+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

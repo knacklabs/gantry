@@ -8,6 +8,7 @@ import type {
 } from './domain-types.js';
 import type { RuntimeEventType } from '../events/runtime-event-types.js';
 import type { ExecutionProviderId } from '../sessions/sessions.js';
+import type { RetiredProviderSessionReference } from '../sessions/provider-session-measurement.js';
 import type { RunLease } from '../ports/worker-coordination.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
 
@@ -391,6 +392,7 @@ export interface RuntimeAgentSessionRepository {
     readyProviderSessionId?: string;
     readyExternalSessionId?: string;
     providerSessionAccessFingerprint?: string;
+    contextHighWaterMark?: number;
     compactionDeltaReplay?: {
       status: 'pending' | 'applied' | 'degraded';
       baseCursor?: string;
@@ -443,6 +445,24 @@ export interface RuntimeAgentSessionRepository {
     provider: string;
     externalSessionId: string;
   }): Promise<void>;
+  raiseProviderSessionContextHighWaterMark?(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+    contextHighWaterMark: number;
+  }): Promise<boolean>;
+  // Required, never optional: an access-fingerprint change or a missing
+  // provider session MUST retire the row (0158 §3, T1-AC6). A repository that
+  // cannot retire must not be wired into a live runtime.
+  retireProviderSession(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+  }): Promise<RetiredProviderSessionReference | undefined>;
   createSessionAgentRun?(input: {
     agentSessionId: string;
     executionProviderId: ExecutionProviderId;
@@ -476,7 +496,7 @@ export interface RuntimeAgentSessionRepository {
       memoryUserId?: string;
       agentId?: string;
     },
-  ): Promise<void>;
+  ): Promise<readonly RetiredProviderSessionReference[]>;
   deleteSessionsByAgentFolder(agentFolder: string): Promise<void>;
 }
 

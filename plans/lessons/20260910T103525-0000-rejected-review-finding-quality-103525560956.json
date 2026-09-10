@@ -1,0 +1,11 @@
+{
+  "topic": "rejected-review-finding-quality",
+  "lesson": "Not a defect (0159): Same contradiction as the rejected no-route-owner finding: decision 0159 \u00a73 settles resetScope as the scope-bound /new reset that returns the retired references. T1-AC8's 'readonly empty list on no-route or empty paths' is the return-shape rule for a reset that matched nothing (verified by the 'resetScope returns \u2026 an empty list when nothing matched' Postgres integration test); it does not add a stop guard when a route owner cannot be resolved \u2014 that fallback is pre-existing base behaviour (f83779ce7 resetScope), the scope key already confines the reset to one conversation scope, and sessions without a conversation install legitimately have no route owner (CLI reset, fixture). Adding the guard fails the existing integration test. \u2014 raised as \"T1-AC8: R4 return type: resetScope returns an immutable list of retired { providerSessionId, externalSessionId, executionProviderId } selected FOR UPDATE before\"",
+  "source": "review reject cache-bug-T1 quality at 2026-09-10T10:35:25+00:00",
+  "applies_to": [
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T10:35:25+00:00"
+}

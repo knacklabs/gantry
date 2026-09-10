@@ -1,0 +1,11 @@
+{
+  "topic": "rejected-review-finding-performance",
+  "lesson": "Not a defect (0158): Decision 0158 \u00a72 defines the observed context value as modelVisibleInputTokens derived from the normalised usage (input alone for inclusive routes): a CONTEXT measure, for which the largest single model invocation's cumulative input is the correct figure \u2014 summing input across the invocations of one graph turn would count the same conversation prefix once per invocation and overstate the context. Summed accounting is the billing concern, and the story plan's Scope / Non-goals names 'the DeepAgents largest-not-summed billing defect' as an explicit non-goal (spec cache-bug non-goals, same wording); the accumulator is pre-existing code that T1 only moved to stream-normalizer-usage.ts. \u2014 raised as \"Accumulate usage across model invocations instead of taking a global maximum (apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts:\"",
+  "source": "review reject cache-bug-T1 performance at 2026-09-10T10:09:35+00:00",
+  "applies_to": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T10:09:35+00:00"
+}

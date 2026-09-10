@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T11:14:41+00:00", "story": "cache-bug", "detail": "cache-bug-T1 task plan technical approach says the compaction-delta degradation caller switches to retireProviderSession, but the delegated brief acceptance criteria and reviewer focus require it to r"}

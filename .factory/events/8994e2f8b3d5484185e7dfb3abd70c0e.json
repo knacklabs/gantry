@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T13:47:13+00:00", "story": "cache-bug", "detail": "S-0101-b64f: Pausing the worker: the orchestrator is amending AC9 in the T1 contract to name lint:changed explicitly (the literal 'npm run lint' text is the source of this repeated contradiction). The task grill a"}

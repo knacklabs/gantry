@@ -1,0 +1,11 @@
+{
+  "topic": "Postgres integration leaves run on the host, not in the Codex sandbox",
+  "lesson": "The Codex sandbox has no GANTRY_TEST_DATABASE_URL and no Postgres; DB-gated integration tests skip there by design. Do not raise a blocked signal for it: run everything credential-free, state in your report which DB-gated files you could not run, and the orchestrator runs them on the host against a throwaway pgvector Postgres before stage close (rulings S-0083 on ASKFLOOR-1 and S-0093 on cache-bug).",
+  "source": "S-0093-5c24",
+  "applies_to": [
+    "apps/core/test/integration/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T14:48:03+00:00"
+}

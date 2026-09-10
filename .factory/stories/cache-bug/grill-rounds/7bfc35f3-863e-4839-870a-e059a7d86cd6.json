@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The active cache-bug roadmap card still carries intake-time criteria (drop the snapshot on resume, null Slack handles, update pinned tests) that contradict the grilled spec, and the harness refuses to edit an active card's criteria. How should the two contracts be reconciled?",
+      "options": [
+        "Link the spec as the card's authority (Recommended)",
+        "Retire this card and add a fresh one"
+      ],
+      "chosen": "Link the spec as the card's authority (Recommended)"
+    },
+    {
+      "question": "Closing question for the spec gate: the other seven findings (typed high-water column per 0017, provider-resolved usage components with partial usage on errors, fenced transition order including reset_at, adapter cleanup port with /new returning references after commit, flat limits scalar with a reader-version bump, event timing with full SHA-256 correlation, and a reset that preserves checkpoint_migrations) are being folded in from what the repository says. Any remaining gap before I amend once and record?",
+      "options": [
+        "No remaining gap, amend and record (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, amend and record (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T08:43:48.994359+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

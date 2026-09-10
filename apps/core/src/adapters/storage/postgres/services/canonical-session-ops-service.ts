@@ -12,6 +12,7 @@ import type {
   AgentSession,
   ExecutionProviderId,
 } from '../../../../domain/sessions/sessions.js';
+import type { RetiredProviderSessionReference } from '../../../../domain/sessions/provider-session-measurement.js';
 import { providerIdForJid } from '../../../../channels/provider-registry.js';
 import { CanonicalJobOpsService } from './canonical-job-ops-service.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
@@ -183,6 +184,7 @@ export class CanonicalSessionOpsService {
     readyProviderSessionId?: string;
     readyExternalSessionId?: string;
     providerSessionAccessFingerprint?: string;
+    contextHighWaterMark?: number;
     compactionDeltaReplay?: {
       status: 'pending' | 'applied' | 'degraded';
       baseCursor?: string;
@@ -234,6 +236,27 @@ export class CanonicalSessionOpsService {
     await this.repository.expireProviderSession(input);
   }
 
+  async raiseProviderSessionContextHighWaterMark(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+    contextHighWaterMark: number;
+  }): Promise<boolean> {
+    return this.repository.raiseProviderSessionContextHighWaterMark(input);
+  }
+
+  async retireProviderSession(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: ExecutionProviderId;
+    externalSessionId: string;
+    expectedAgentSessionResetAt: string | null;
+  }): Promise<RetiredProviderSessionReference | undefined> {
+    return this.repository.retireProviderSession(input);
+  }
+
   async markProviderSessionMaintenance(input: {
     providerSessionId: string;
     agentSessionId: string;
@@ -276,8 +299,8 @@ export class CanonicalSessionOpsService {
       memoryUserId?: string;
       agentId?: string;
     } = {},
-  ): Promise<void> {
-    await this.repository.resetScope({
+  ): Promise<readonly RetiredProviderSessionReference[]> {
+    return this.repository.resetScope({
       appId: metadata.appId,
       scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
