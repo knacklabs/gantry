@@ -1,5 +1,5 @@
 {
-  "id": "941c3f94-9785-4146-934d-a342de4ddd12",
+  "id": "42228707-0074-42da-b3e4-99347bdeb7d2",
   "prevId": "d8b6e14d-89cc-4ba5-afa6-c207b98d2849",
   "version": "7",
   "dialect": "postgresql",
@@ -14518,6 +14518,88 @@
       },
       "isRLSEnabled": false
     },
+    "public.onboarding_setups": {
+      "name": "onboarding_setups",
+      "schema": "",
+      "columns": {
+        "agent_id": {
+          "name": "agent_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "app_id": {
+          "name": "app_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "idx_onboarding_setups_app": {
+          "name": "idx_onboarding_setups_app",
+          "columns": [
+            {
+              "expression": "app_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "onboarding_setups_agent_id_agents_id_fk": {
+          "name": "onboarding_setups_agent_id_agents_id_fk",
+          "tableFrom": "onboarding_setups",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "onboarding_setups_app_id_apps_id_fk": {
+          "name": "onboarding_setups_app_id_apps_id_fk",
+          "tableFrom": "onboarding_setups",
+          "tableTo": "apps",
+          "columnsFrom": [
+            "app_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.onboarding_verifications": {
       "name": "onboarding_verifications",
       "schema": "",
@@ -14616,6 +14698,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "onboarding_verifications_active_conversation_unique": {
+          "name": "onboarding_verifications_active_conversation_unique",
+          "columns": [
+            {
+              "expression": "app_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"onboarding_verifications\".\"status\" IN ('pending', 'inbound_received')",
           "concurrently": false,
           "method": "btree",
           "with": {}

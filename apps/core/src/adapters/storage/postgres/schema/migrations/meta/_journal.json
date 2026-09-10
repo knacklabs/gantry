@@ -1034,22 +1034,8 @@
     {
       "idx": 150,
       "version": "7",
-      "when": 1789036383472,
-      "tag": "20260910103303_odd_nova",
-      "breakpoints": true
-    },
-    {
-      "idx": 151,
-      "version": "7",
-      "when": 1789038616592,
-      "tag": "20260910111016_reflective_obadiah_stane",
-      "breakpoints": true
-    },
-    {
-      "idx": 152,
-      "version": "7",
-      "when": 1789039016985,
-      "tag": "20260910111656_many_sprite",
+      "when": 1789042236830,
+      "tag": "20260910121036_onboarding_v2",
       "breakpoints": true
     }
   ]

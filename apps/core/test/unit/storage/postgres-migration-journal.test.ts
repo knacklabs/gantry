@@ -1908,16 +1908,19 @@ describe('Postgres migration journal', () => {
       ),
     ) as { entries: Array<{ tag: string }> };
     expect(
-      journal.entries.some((entry) => entry.tag === '20260910103303_odd_nova'),
+      journal.entries.some(
+        (entry) => entry.tag === '20260910121036_onboarding_v2',
+      ),
     ).toBe(true);
 
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/20260910103303_odd_nova.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20260910121036_onboarding_v2.sql',
       ),
       'utf8',
     );
     expect(migration).toContain('CREATE TABLE "onboarding_verifications"');
+    expect(migration).toContain('CREATE TABLE "onboarding_setups"');
     expect(migration).toContain(
       '"expires_at" timestamp with time zone NOT NULL',
     );

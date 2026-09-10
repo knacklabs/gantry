@@ -1,3 +1,10 @@
+CREATE TABLE "onboarding_setups" (
+	"agent_id" text PRIMARY KEY NOT NULL,
+	"app_id" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "onboarding_verifications" (
 	"id" text PRIMARY KEY NOT NULL,
 	"app_id" text NOT NULL,
@@ -13,10 +20,14 @@ CREATE TABLE "onboarding_verifications" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_inbound_message_id_messages_id_fk" FOREIGN KEY ("inbound_message_id") REFERENCES "messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_outbound_message_id_messages_id_fk" FOREIGN KEY ("outbound_message_id") REFERENCES "messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "idx_onboarding_setups_app" ON "onboarding_setups" USING btree ("app_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "onboarding_verifications_active_challenge_unique" ON "onboarding_verifications" USING btree ("app_id","challenge");--> statement-breakpoint
+CREATE UNIQUE INDEX "onboarding_verifications_active_conversation_unique" ON "onboarding_verifications" USING btree ("app_id","conversation_id") WHERE "onboarding_verifications"."status" IN ('pending', 'inbound_received');--> statement-breakpoint
 CREATE INDEX "idx_onboarding_verifications_conversation_status" ON "onboarding_verifications" USING btree ("conversation_id","status");

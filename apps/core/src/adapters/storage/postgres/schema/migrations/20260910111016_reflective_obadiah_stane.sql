@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "onboarding_verifications_active_conversation_unique" ON "onboarding_verifications" USING btree ("app_id","conversation_id") WHERE "onboarding_verifications"."status" IN ('pending', 'inbound_received');
