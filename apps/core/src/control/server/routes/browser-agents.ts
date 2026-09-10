@@ -397,6 +397,19 @@ export async function handleBrowserAgentRoutes(
         );
       const now = nowIso();
       await assertAvailableAgentName(storage, appId, body.name);
+      const modelAlias = requestedModelAlias(body);
+      const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
+      const agent: Agent = {
+        id: `agent:${randomUUID()}` as AgentId,
+        appId,
+        name: body.name.trim(),
+        status: 'active',
+        currentConfigVersionId: configId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (modelAlias !== undefined)
+        await validateModelAlias(ctx, appId, agent.id, modelAlias);
       let roleId =
         typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
       if ('customRole' in body) {
@@ -422,19 +435,6 @@ export async function handleBrowserAgentRoutes(
         });
         roleId = role.id;
       }
-      const modelAlias = requestedModelAlias(body);
-      const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
-      const agent: Agent = {
-        id: `agent:${randomUUID()}` as AgentId,
-        appId,
-        name: body.name.trim(),
-        status: 'active',
-        currentConfigVersionId: configId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      if (modelAlias !== undefined)
-        await validateModelAlias(ctx, appId, agent.id, modelAlias);
       const config: AgentConfigVersion = {
         id: configId,
         appId,
