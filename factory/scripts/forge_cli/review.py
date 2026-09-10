@@ -767,7 +767,10 @@ def cmd_review(args: argparse.Namespace) -> None:
     if not isinstance(story, str) or not story:
         fail("review requires an active story")
     for artifact in ("verify.json", "tests.json"):
-        if not evidence_path(base, story, artifact).is_file():
+        # Hotfix (vendored): verify.py and record_test write task-scoped proof
+        # (proof_path -> tasks/<id>/) once `task start` stamps task_id into the
+        # worktree pointer; read the same path here. Upstream: symphony-forge.
+        if not proof_path(base, story, artifact, task_id=args.id).is_file():
             fail(f"{artifact} is not recorded for {story}; review runs after "
                  "`python3 factory/scripts/verify.py` and "
                  "`record_test_from_json.py --kind automated`")
