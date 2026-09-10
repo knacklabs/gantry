@@ -1,7 +1,7 @@
 {
   "id": "ASKFLOOR-1-T6",
   "title": "Judge outage, invariance suite, tap budget",
-  "status": "active",
+  "status": "done",
   "started_at": "2026-09-10T02:31:33+00:00",
   "base_sha": "401a88934b5a706b4abfcdb88bbe115ecd59902b",
   "dirty_at_start": {
@@ -24,5 +24,16 @@
       "performance",
       "security"
     ]
+  },
+  "completed_at": "2026-09-10T05:49:54+00:00",
+  "measured": {
+    "strays": [],
+    "files": 13,
+    "lines": 1959,
+    "budget": {
+      "files": 15,
+      "lines": 1400
+    },
+    "test_id_misses": []
   }
 }
