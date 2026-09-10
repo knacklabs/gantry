@@ -336,7 +336,7 @@ export function registerSchedulerTools(server: McpServer): void {
   );
   server.tool(
     'scheduler_get_job',
-    'Get one scheduler job by ID from the host scheduler.',
+    'Get one scheduler job by ID from the host scheduler. The Prompt section is last and holds the job prompt verbatim, so it can be read, edited and written back whole.',
     { job_id: z.string() },
     async (args) => {
       const response = await requestSchedulerData('scheduler_get_job', {
@@ -402,7 +402,7 @@ export function registerSchedulerTools(server: McpServer): void {
   );
   server.tool(
     'scheduler_update_job',
-    'Update mutable fields on a scheduler job.',
+    'Update mutable fields on a scheduler job. A prompt here replaces the stored prompt entirely, so send the full text from scheduler_get_job, not an excerpt.',
     {
       job_id: z.string(),
       name: z.string().optional(),
