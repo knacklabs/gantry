@@ -2595,7 +2595,7 @@
       "acceptance_criteria": [
         "A scheduled run's spawn input carries a capability catalog built from its access snapshot",
         "Every granted capability renders its display name, stable id and an invocation descriptor for its binding kind",
-        "All five binding kinds produce a descriptor, with opaque adapter references never rendered",
+        "All four usable binding kinds produce a descriptor, with opaque adapter references never rendered",
         "No grant is hidden by overflow: names and ids always render, details degrade past a named ceiling, and the overflow is recorded",
         "A deterministic replay makes the granted capability the first attempt, with a negative control proving the descriptor causes it",
         "The superseded runtime-context block is gone and the dispatcher points at the catalog with its schema and enforcement pinned",

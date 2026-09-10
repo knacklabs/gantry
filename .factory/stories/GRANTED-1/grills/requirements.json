@@ -24,7 +24,8 @@
     "The replay now builds its materialization through the production path and asserts the dispatcher is present in it before replaying, with a negative control; the live check verifies the job exists and counts every failed tool call before first success rather than two families."
   ],
   "open_items": [
-    "The document edit contract, decisions 0108 and 0114, and the redaction sink inventory remain in the superseded draft awaiting their own spec."
+    "The document edit contract, decisions 0108 and 0114, and the redaction sink inventory remain in the superseded draft awaiting their own spec.",
+    "Owner ruled: the live five-run check is retained evidence on the story, not a merge gate, because a live model run is not reproducible."
   ],
   "questions_asked": 2,
   "inspected_refs": [
@@ -71,21 +72,21 @@
       "ref": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts"
     }
   ],
-  "gate": "spec",
-  "input_sha256": "377bc4086aa35787d5b6ae4a98bf21eca2e874ee76713f5409f6e9c221fe8021",
-  "summary": "Requirements re-read of the split capability spec returned seven findings. Six are resolved in the amended spec, including a binding-kind error I had introduced by trusting a prior read; the seventh, whether reviewed argument shapes render verbatim, was an owner choice and is settled as rendered as reviewed.",
+  "gate": "requirements",
+  "summary": "Requirements re-read of the split capability spec returned seven findings, all resolved in the amended and re-confirmed spec. Two owner rounds settled the open choices: reviewed argument shapes render as reviewed, and the live five-run check is evidence on the story rather than a merge gate.",
   "rounds": [
     {
-      "question": "A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?",
+      "question": "Before this hands off to the plan, the live five-run check on the real job: gate or evidence?",
       "options": [
-        "Placeholder, fall back if unsafe (Recommended)",
-        "Never show argument shapes",
-        "Show the reviewed shape as-is"
+        "Evidence, not a gate (Recommended)",
+        "Make it a merge gate",
+        "Drop the live check"
       ],
-      "chosen": "Show the reviewed shape as-is",
+      "chosen": "Evidence, not a gate (Recommended)",
       "frontier_empty": true
     }
   ],
-  "recorded_at": "2026-09-10T13:44:41+00:00",
+  "input_sha256": "e4bdc98a64ac502c045469b689a1a3d75f5c9055e7471f441131857da09e1b05",
+  "recorded_at": "2026-09-10T13:45:12+00:00",
   "commit": "0f6e80fe9a56ad1eeaef9efaa57d39347fffdd49"
 }

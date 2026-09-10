@@ -1,8 +1,8 @@
 ---
 slug: granted-capability-is-visible
 title: A granted capability is visible to the agent that holds it
-status: draft
-saved: 2026-09-10T13:41:56+00:00
+status: confirmed
+saved: 2026-09-10T13:44:12+00:00
 ---
 
 # A granted capability is visible to the agent that holds it
@@ -65,27 +65,30 @@ descriptor names is asserted present in the provider's real tool projection
 for a scheduled run, including when tool search is active.
 
 **Every granted capability carries a usable descriptor.** For each grant the
-catalog carries its display name, its stable capability id, and the invocation
-descriptor its binding kind supports. The implementation-kind union has four
+catalog carries its display name, its stable capability id, the tool that reaches
+it, and the reviewed argument shape where its binding has one. The implementation-kind union has four
 usable members (`tool_rule`, `mcp_pattern`, `adapter`, `local_cli`); `mcp_tool`
 is retained only so legacy rows fail validation and never reaches the catalog.
 Skill actions are not a binding kind: a skill-action capability is a `tool_rule`
 binding distinguished by its source, and decision 0129's terminal-wildcard
 semantics govern its rule.
 
-- `local_cli` — the dispatcher tool name and the reviewed argument shape.
-- `mcp_pattern` — the MCP proxy tool the agent actually calls, together with the
-  connected server name and the tool-name pattern, since a pattern alone is not
-  something the model can invoke.
+- `local_cli` — the dispatcher tool name, the capability id, and the reviewed
+  argument patterns exactly as reviewed.
+- `mcp_pattern` — the MCP proxy tool the agent actually calls and the connected
+  server name, since a pattern alone is not something the model can invoke.
 - `tool_rule` — the tool name the rule authorizes, including skill actions.
 - `adapter` — the dispatcher tool name and the capability id, because the adapter
   reference is opaque and must never be rendered.
 
-**A descriptor is a shape, not a command.** Argument shapes render subcommands and
-wildcards only. Any operand that reads as a filesystem path, a URL, a host or a
-secret-shaped token is replaced by a placeholder, and where a shape cannot be
-rendered safely the descriptor falls back to the reachable tool identity alone and
-records why. No secret, path, hash or executable location ever appears.
+**The reviewed argument shape renders as reviewed.** The owner ruled this
+explicitly, having been shown the tradeoff: a reviewed template may contain a
+fixed operand such as a config path or an account identifier, and rendering it
+verbatim places that operand in the prompt. That is accepted, on the grounds that
+these operands are already visible on the approval card a human reviewed and are
+not credentials. The rendering carries no executable path, no hash and no
+credential: it is the argument remainder the reviewed template defines, the same
+text the mismatch denial already returns to the model.
 
 **No grant is ever hidden.** The capability guidance section has a default
 character budget and a ceiling, and the ceiling is never smaller than the compact
@@ -110,18 +113,16 @@ argv with no shell, size and NUL limits, and the sandboxed executor all stay as
    snapshot, proven by a hermetic test over the real job execution path asserting
    the field is populated where it is absent today.
 2. The rendered guidance for that run contains, for a granted capability, its
-   display name, stable id and invocation descriptor, asserted against the exact
-   rendered text.
+   display name, stable id, the tool that reaches it and its reviewed argument
+   shape, asserted against the exact rendered text.
 3. A descriptor is produced for each of the four usable binding kinds, asserted
    per kind: the adapter reference never appears in output, an MCP pattern renders
-   the proxy tool plus server name and pattern, and a skill-action capability
-   renders through its tool rule with decision 0129's terminal-wildcard semantics
-   intact. A legacy `mcp_tool` binding still fails validation and never reaches
-   the catalog.
-3b. Descriptor safety: a reviewed argument shape containing a path-like, host-like
-   or secret-shaped operand renders a placeholder in its position, and a shape
-   that cannot be rendered safely falls back to the tool identity alone with a
-   recorded reason. Asserted against a template carrying each operand class.
+   the proxy tool and server name, and a skill-action capability renders through
+   its tool rule with decision 0129's terminal-wildcard semantics intact. A legacy
+   `mcp_tool` binding still fails validation and never reaches the catalog.
+3b. A local-CLI descriptor renders the reviewed argument patterns verbatim,
+   asserted byte-for-byte against the same helper the mismatch denial uses, and
+   carries no executable path, hash or credential.
 4. With a granted set exceeding the default budget, non-granted material is shed
    first and every grant still renders with its descriptor. Past the ceiling every
    grant still renders display name and stable id, and the overflow diagnostic is

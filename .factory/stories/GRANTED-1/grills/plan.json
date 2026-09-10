@@ -3,130 +3,102 @@
   "gate": "plan",
   "verdict": "pass",
   "issue": "GRANTED-1",
-  "summary": "One cold read of the GRANTED-1 plan returned twelve blocking findings. Eleven are resolved in plan v2; the twelfth was an ordering contradiction with accepted decision 0109, escalated to the owner and resolved by amending that decision's ordering consequence.",
+  "summary": "Plan re-read after the split returned eight findings. Seven are resolved in plan v5, including a real security correction to which capability set the catalog is built from; the eighth, how the two runtimes name tools, was an owner choice and is settled as a neutral reference each lane translates.",
   "gaps": [
-    "The draft omits the required Decisions and Surface Impact sections, so it never reconciles active decisions or assigns runtime, data, MCP/API, security and test surfaces to the tasks.",
-    "T1 contradicts accepted decision 0109, whose consequence sequences scheduled capability guidance after revision fencing.",
-    "'Complete invocation descriptor across all four binding kinds' has no defined shape; adapter bindings carry only an opaque reference and the catalog has no descriptor field.",
-    "The overflow promise is impossible without a capacity decision: guidance is capped at 1,500 characters and today elides ready entries.",
-    "Removing the old runtime block while keeping the dispatcher unchanged leaves its description pointing at deleted context.",
-    "T1 does not plan the spec's decisive proof that the granted capability is the first attempt with no invented call before it.",
-    "T2 restates decision 0108 but does not design it: no enumerated writers, conditional statement, claim capture, conflict result or reconciler owner.",
-    "T3 does not carry 0114's migration contract: the discriminated owner, restamping through the ID-1 map, seeding new-job paths, failing closed and deleting legacy branches.",
-    "T4 has no authority and transport design: risk classification, registry, scheduled-surface absence, IPC handler and signed run provenance are unstated.",
-    "The document write path could bypass readiness and scheduler sync, or lose the expected-revision predicate if routed through the current update flow.",
-    "Verification is not falsifiable: no suites are named, and the migrations and security tools need isolated Postgres suites, migration-drift proof and redaction sink assertions.",
-    "T5's order contradicts itself, placed after T4 while also permitted any time after T1 despite depending on neither."
+    "The artifact could not pass plan save: no decisions_reviewed frontmatter and missing the required Problem, Scope / Non-goals and Acceptance Criteria sections, with Surface Impact omitting CLI/ops, UI and docs.",
+    "The roadmap criterion required descriptors for five binding kinds while the confirmed spec correctly names four usable kinds, leaving the story unsatisfiable.",
+    "The plan forbade any path in a descriptor while the spec permits a reviewed fixed operand to render verbatim, so either implementation strips approved shapes or the security claim is false.",
+    "user_facing true is wrong for a backend and prompt task, and saying no functional check is needed cannot override what that flag mandates.",
+    "'Build from the access snapshot' is too vague at a security boundary: the job has a person-filtered capability set and a broader snapshot-derived one, and the wrong choice advertises an ungranted capability as ready.",
+    "The plan hard-codes one runtime's tool name while the two lanes name tools differently, and the proof checked only one lane.",
+    "The overflow guarantee has no end-to-end owner: compilation truncates at both the section budget and the total prompt budget, and the existing callback cannot emit the required startup event.",
+    "The live check was weakened to two tool families while the spec requires zero pre-success failures of any tool."
   ],
   "contradictions": [
-    "The plan's discovery-first sequence contradicted accepted decision 0109, whose final consequence ships scheduled capability guidance last, after revision fencing."
+    "The plan forbade paths in descriptors while the confirmed spec permits a reviewed fixed operand to render verbatim."
   ],
   "resolutions": [
-    "Plan v2 adds a Decisions section naming the ten governing records and the two amendments landing with it, and a Surface Impact section assigning runtime, data, MCP/API, security and test surfaces to each task.",
-    "Owner ruled: amend 0109. Its ordering consequence is retired in docs/decisions/0109-semantic-capability-job-dependencies.md, on the ground that it sequenced the SCHED-5 program which did not run and that rendering grants adds no write path, so it does not depend on fencing.",
-    "Plan v2 defines a closed non-secret invocation union with one variant per supported binding kind, renders stableRef, and renders adapter bindings as the dispatcher tool plus capability id because adapterRef is opaque.",
-    "Plan v2 defines an ordered elision rule dropping non-granted material first, then truncating descriptions, then compacting granted entries, and raises the budget for that render rather than dropping a grant, recording the raise on the startup diagnostic.",
-    "Plan v2 updates the dispatcher description to point at the catalog while pinning its input schema, risk classification and host enforcement by test.",
-    "Plan v2 names a deterministic replay driving the runner adapter with a recorded transcript and a stubbed model selecting from the real materialization, asserting the first capability attempt and the absence of any preceding invented call.",
-    "Plan v2 designs T2: enumerated operator-meaningful writers, one application operation taking an optional expected revision, a single conditional repository statement incrementing in the same transaction and returning the actual revision on conflict, claim-time capture and fenced finalization through one reconciler.",
-    "Plan v2 designs T3 to the decision's contract: the discriminated user_session or host_system owner, restamping through the ID-1 map, seeding every new-job path, failing closed, and deleting the legacy reconstruction branches and tests.",
-    "Plan v2 registers the three tools with an explicit high-risk classification, adds them to the shared mutation classification the scheduled selector removes, and routes their IPC handlers through the provenance guard with signed run provenance.",
-    "Plan v2 requires document writes to use the same application operation T2 builds, never a direct conditional update, and states the empty-document, insert-at-zero, insert-past-end and range-beyond-end boundary cases.",
-    "Plan v2 names every suite by file per task, runs the Postgres suites for T2 to T4 in isolation, requires the migration drift check with generated migration and journal committed, and restates the live smoke predicates with retained diagnostics.",
-    "Plan v2 makes T5 independent of both migrations and orders it alongside T1, with T1 first because it fixes the failing job."
+    "Plan v5 adds the frontmatter with every active decision reviewed and all nine required sections, with Surface Impact covering runtime, data, MCP/API, CLI/ops, UI, docs, security and tests.",
+    "The roadmap criterion is corrected to four usable binding kinds, matching the confirmed spec.",
+    "Plan v5 prohibits executable paths, hashes and credentials specifically, and permits reviewed argument operands per the owner ruling; criterion 12 asserts all three against a binding carrying each.",
+    "Plan v5 sets user_facing false, since no screen, component or styling changes, and states that in Surface Impact.",
+    "Owner-independent correction: the plan now feeds the person-filtered inheritedToolPolicy.semanticCapabilities from execution-phases-run.ts:183, not the broader snapshot set, with criterion 2 asserting a capability active for the app but ungranted to the acting person never appears as ready.",
+    "Owner ruled: the catalog carries a neutral tool reference and each lane translates it. Criterion 5 asserts the Anthropic mapping against the real projection and asserts the DeepAgents entry absent, so the gap is explicit rather than silent.",
+    "Plan v5 exempts the capability section from total-budget truncation below its compact representation, asserts the guarantee end to end through prompt compilation rather than the renderer alone, and defines a startup event payload of counts and shedding stage with no capability content.",
+    "The live criterion is restored to zero pre-success failures of any tool, matching the spec."
   ],
   "open_items": [
-    "Non-blocking: if T4's file count approaches the cap, split the tools from the secret rules rather than growing the task.",
-    "Non-blocking: binding workspace files as a document store stays deferred; the facade is fixed in place.",
-    "Owner ruled: PR #500 lands now as a stopgap for the truncation; T4 replaces its full read with slice reads on top of it."
+    "Extending the catalog to the DeepAgents lane is follow-up work with its own proof; its absence from the mapping is asserted so the gap is explicit.",
+    "The document edit contract and decisions 0108 and 0114 remain in the superseded draft awaiting their own spec."
   ],
-  "questions_asked": 2,
+  "questions_asked": 1,
   "rounds": [
     {
-      "question": "Before the plan goes to the board, what happens to the held pull request 500?",
+      "question": "The two runtimes name tools differently. Should the catalog serve both, or just the one the job runs on?",
       "options": [
-        "Land it now as a stopgap (Recommended)",
-        "Fold it into task four",
-        "Land it with the write-back advice removed"
+        "Bound to the Anthropic lane (Recommended)",
+        "Serve both lanes now",
+        "Render a neutral name and let each lane translate"
       ],
-      "chosen": "Land it now as a stopgap (Recommended)",
+      "chosen": "Render a neutral name and let each lane translate",
       "frontier_empty": true
     }
   ],
   "inspected_refs": [
-    "docs/decisions/0108-job-definition-revision-fencing.md",
+    "docs/specs/granted-capability-is-visible.md",
     "docs/decisions/0109-semantic-capability-job-dependencies.md",
-    "docs/decisions/0114-canonical-job-owner.md",
-    "docs/decisions/0118-identity-scoped-approval-and-grants.md",
     "docs/decisions/0120-local-cli-structured-invocation.md",
+    "docs/decisions/0129-skill-action-capability-rules.md",
     "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
     "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
-    "docs/specs/agents-can-use-what-they-are-granted.md",
+    "docs/architecture/tool-awareness-plan.md",
+    "factory/prompts/planner.md",
+    "plans/roadmap.json",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/runtime/group-run-context.ts",
     "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
     "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
     "apps/core/src/application/agents/prompt-profile-service.ts",
-    "apps/core/src/application/jobs/job-management-access.ts",
-    "apps/core/src/application/jobs/job-management-update.ts",
-    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts",
-    "apps/core/src/jobs/execution-phases-run.ts",
-    "apps/core/src/jobs/ipc-scheduler-mutation-authority.ts",
-    "apps/core/src/runner/gantry-mcp-tool-surface.ts",
-    "apps/core/src/runner/mcp/tools/capability-run.ts",
-    "apps/core/src/runtime/agent-spawn-prompt.ts",
-    "apps/core/src/shared/admin-mcp-tools.ts",
-    "apps/core/src/shared/semantic-capabilities.ts"
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts",
+    "apps/core/src/runner/mcp/context.ts",
+    "apps/core/src/runner/mcp/tools/capability-run.ts"
   ],
   "citations": [
     {
-      "finding": "The draft omits the required Decisions and Surface Impact sections, so it never reconciles active decisions or assigns runtime, data, MCP/API, security and test surfaces to the tasks.",
+      "finding": "The artifact could not pass plan save: no decisions_reviewed frontmatter and missing the required Problem, Scope / Non-goals and Acceptance Criteria sections, with Surface Impact omitting CLI/ops, UI and docs.",
+      "ref": "factory/scripts/forge_cli/plans.py"
+    },
+    {
+      "finding": "The roadmap criterion required descriptors for five binding kinds while the confirmed spec correctly names four usable kinds, leaving the story unsatisfiable.",
       "ref": "plans/roadmap.json"
     },
     {
-      "finding": "T1 contradicts accepted decision 0109, whose consequence sequences scheduled capability guidance after revision fencing.",
-      "ref": "docs/decisions/0109-semantic-capability-job-dependencies.md"
+      "finding": "The plan forbade any path in a descriptor while the spec permits a reviewed fixed operand to render verbatim, so either implementation strips approved shapes or the security claim is false.",
+      "ref": "docs/specs/granted-capability-is-visible.md"
     },
     {
-      "finding": "'Complete invocation descriptor across all four binding kinds' has no defined shape; adapter bindings carry only an opaque reference and the catalog has no descriptor field.",
-      "ref": "apps/core/src/shared/semantic-capabilities.ts"
+      "finding": "user_facing true is wrong for a backend and prompt task, and saying no functional check is needed cannot override what that flag mandates.",
+      "ref": "factory/prompts/planner.md"
     },
     {
-      "finding": "The overflow promise is impossible without a capacity decision: guidance is capped at 1,500 characters and today elides ready entries.",
+      "finding": "'Build from the access snapshot' is too vague at a security boundary: the job has a person-filtered capability set and a broader snapshot-derived one, and the wrong choice advertises an ungranted capability as ready.",
+      "ref": "apps/core/src/jobs/execution-phases-run.ts"
+    },
+    {
+      "finding": "The plan hard-codes one runtime's tool name while the two lanes name tools differently, and the proof checked only one lane.",
+      "ref": "apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts"
+    },
+    {
+      "finding": "The overflow guarantee has no end-to-end owner: compilation truncates at both the section budget and the total prompt budget, and the existing callback cannot emit the required startup event.",
       "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
     },
     {
-      "finding": "Removing the old runtime block while keeping the dispatcher unchanged leaves its description pointing at deleted context.",
-      "ref": "apps/core/src/runner/mcp/tools/capability-run.ts"
-    },
-    {
-      "finding": "T1 does not plan the spec's decisive proof that the granted capability is the first attempt with no invented call before it.",
-      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
-    },
-    {
-      "finding": "T2 restates decision 0108 but does not design it: no enumerated writers, conditional statement, claim capture, conflict result or reconciler owner.",
-      "ref": "docs/decisions/0108-job-definition-revision-fencing.md"
-    },
-    {
-      "finding": "T3 does not carry 0114's migration contract: the discriminated owner, restamping through the ID-1 map, seeding new-job paths, failing closed and deleting legacy branches.",
-      "ref": "docs/decisions/0114-canonical-job-owner.md"
-    },
-    {
-      "finding": "T4 has no authority and transport design: risk classification, registry, scheduled-surface absence, IPC handler and signed run provenance are unstated.",
-      "ref": "apps/core/src/runner/gantry-mcp-tool-surface.ts"
-    },
-    {
-      "finding": "The document write path could bypass readiness and scheduler sync, or lose the expected-revision predicate if routed through the current update flow.",
-      "ref": "apps/core/src/application/jobs/job-management-update.ts"
-    },
-    {
-      "finding": "Verification is not falsifiable: no suites are named, and the migrations and security tools need isolated Postgres suites, migration-drift proof and redaction sink assertions.",
-      "ref": "docs/architecture/current-verification-commands.md"
-    },
-    {
-      "finding": "T5's order contradicts itself, placed after T4 while also permitted any time after T1 despite depending on neither.",
-      "ref": "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts"
+      "finding": "The live check was weakened to two tool families while the spec requires zero pre-success failures of any tool.",
+      "ref": "docs/specs/granted-capability-is-visible.md"
     }
   ],
-  "input_sha256": "9fc2a235489a7b9355c9ef3149b707b46562a8bf348c287c8d1f6b0b682ee657",
-  "recorded_at": "2026-09-10T12:27:08+00:00",
-  "commit": "29b66040eebcfe7a09d83f9435453a71902e414c"
+  "input_sha256": "457e92e2f899e66125cbfff139fb1003e6cdb28513439072462c840a6bc28658",
+  "recorded_at": "2026-09-10T14:06:44+00:00",
+  "commit": "0f6e80fe9a56ad1eeaef9efaa57d39347fffdd49"
 }

@@ -390,147 +390,160 @@ These questions were put to the human and answered. Two obligations:
   A: Keep separate (Recommended)
 - Q: The independent cold read found no contradictions. Is the current Skills UI spec ready to confirm?
   A: Confirm spec (Recommended)
-- Q: Requirements grill (cold-read finding 3) — the rails-before-rules ordering change: apply it ONLY to the new family rules, or to every reviewed rule? Either way the new decision record explicitly amends 0121/0144's approval-permanence wording for the rail-hit case.
-  A: Family matches only (Recommended)
-- Q: Requirements grill (cold-read finding 4) — late DENY (tap after the run died): what does the card do?
-  A: Denial receipt + keep Reconsider (Recommended)
-- Q: Spec re-confirm round: the CARDSIMPLE-1 spec was amended per the requirements cold-read — real action-shape×blocker-type matrix in AC1, rails scoped to family matches only (explicitly amending 0121/0144 for the rail-hit case), late Deny = denial receipt + Reconsider kept (no Run now), 0124 bounded delivery preserved with operator-initiated same-identity recovery, non-job cards excluded from scope. Confirm the amended spec so planning proceeds?
-  A: Confirmed — go (Recommended)
-- Q: Plan grill round 1 — all three cold-read passes folded (14 findings: typed family-match classification with rails forcing Allow-once; fingerprint-keyed lease-free card ingress + setup-origin delivery states; prompt-fold as migration; Pause deletion scoped to the affordance layer; live|late|stale matrix per needId+askingEpoch; deterministic receipt/Run-now identity; T3 now depends on T1 AND T2; the new decision amends 0040 + JOBPERM-2 too). One formal gate surfaced: decision 0134 (piped commands never durably granted for autonomous runs) is still marked PROPOSED though we've been treating it as binding. Accept 0134 now?
-  A: Accept 0134 — and go (Recommended)
-- Q: Plan grill convergence — round 2's three contradictions are fixed (family-only rails algorithm explicit, the two `once` cases, 0134 recorded accepted) and the round-3 terra cold-read returned CLEAN. Approve the CARDSIMPLE-1 plan (T1 family grants ∥ T2 canonical card → T3 late tap) so I record the grill, save the plan, and cut the decomposition?
-  A: Approve — go (Recommended)
-- Q: First-ask floor: repeats are covered by CARDSIMPLE-1's family rules, but the auto-mode classifier will still ask on FIRST use of anything not provably read-only (send_message, sheets writes, new tools). Tune that now?
-  A: Follow-up story after CARDSIMPLE-1 (Recommended)
-- Q: CARDSIMPLE-1 simplicity convergence — four sol@xhigh rounds cut 14 mechanisms and deferred 5 (T1: boolean flag + one coordinator seam + ONE narrow decision; T2: reuse 0124's delivery machinery and the existing raise seam, deletion-heavy, no new states/fields/ingresses; T3: one opId idempotency via the CARDFIX-1 pattern, zero-fanout first); final verdict SIMPLE ENOUGH with all behavior rulings intact (family grants, pipes-never-Allow, one surface, 0144, no auto-run). Approve the simplified plan so I re-gate and cut the slim decomposition?
-  A: Approve — go (Recommended)
-- Q: Parallel worktrees for CARDSIMPLE-1: the harness only parallelizes STORIES, not one story's tasks (intra-story = symphony-forge #145 stage B, deferred for its evidence-merge risk). How do you want the parallelism?
-  A: Split into two stories
-- Q: CARDSIMPLE-1-T1 task grill: round 1 (terra cold-read) found 5 issues — inline-lane suggestion overwrite, SDK-supplied-suggestion bypass, imprecise family predicate (script shapes must stay rejected while gh */aws * flip to admitted), additive-only isFamilyRule with mixed-compound semantics, and contract/scope alignment — all folded into the task plan; round 2 returned CLEAN. Go: record the grill, approve the task, start the stage and delegate to Codex sol@xhigh?
-  A: No further notes — go (Recommended)
-- Q: Single-session management of both worktrees is blocked by ONE hook: grill rounds/plan markers ledger only to this checkout (repo_root = session dir). How do we proceed?
-  A: Fix the harness upstream (Recommended)
-- Q: Gantry is DOWN (startup crash loop). Cause: my npx-shim hardening (merged in #465, deployed) makes settings validation reject your two stored grants — RunCommand(npx remotion *) and RunCommand(npx remotion render *) — and startup hard-fails on invalid settings. The permission classifier blocked every recovery path I tried (settings edit, build rollback, even opening a quickfix window). How do you want service restored?
-  A: Remove the 2 npx grants (Recommended)
 - Q: Should re-enabling a disabled provider preserve omitted stored fields through the existing sparse PATCH flow?
   A: Preserve via PATCH (Recommended)
 - Q: Should first setup prevent saving or constructing a request until a multi-method provider’s authentication method is explicitly selected?
   A: Require selection (Recommended)
-- Q: Before the spec hands off to planning, is there any remaining gap you want closed?
-  A: No gap, hand off (Recommended)
-- Q: The document half now requires completing two decisions that were never built. How should the story carry that?
-  A: Sequence inside one story (Recommended)
+- Q: Before the plan goes to the board, what happens to the held pull request 500?
+  A: Land it now as a stopgap (Recommended)
+- Q: If an agent's granted capabilities will not fit the prompt section, what should it see?
+  A: Names always, details degrade (Recommended)
+- Q: Six reads in, the two halves are behaving like different-sized problems. Split them?
+  A: Split the spec (Recommended)
+- Q: An argument shape can contain a fixed operand like a config path. What should the agent be shown?
+  A: Never show argument shapes
+- Q: A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?
+  A: Show the reviewed shape as-is
+- Q: Before this hands off to the plan, the live five-run check on the real job: gate or evidence?
+  A: Evidence, not a gate (Recommended)
 
 ## The artifact under interrogation (plan draft granted-1-plan.md)
 
-# GRANTED-1 — Agents can use what they are granted
+# GRANTED-1 — A granted capability is visible to the agent that holds it
 
 ## Context
 
-Two symptoms, one gap: what an agent was granted is not present in the form the
-agent works in. Spec: `docs/specs/agents-can-use-what-they-are-granted.md`
-(confirmed). Decision 0158 (accepted) settles the capability direction.
+Spec: `docs/specs/granted-capability-is-visible.md` (confirmed). Decision 0158
+(accepted) settles the direction: discovery is the defect, argv validation stays
+the enforcement boundary.
 
-A scheduled run never receives a capability catalog. It is built on the chat path
-(`runtime/group-agent-access-context.ts:44`, consumed at
+A scheduled run never receives a capability catalog. It is built only on the chat
+path (`runtime/group-agent-access-context.ts:44`, consumed at
 `runtime/group-agent-runner.ts:365`); the job path loads the access snapshot and
 the semantic capabilities and then omits `capabilityCatalog` from its spawn input
 (`jobs/execution-phases-run.ts:179` and `:287`), while prompt compilation renders
 only what that input carries (`runtime/agent-spawn-prompt.ts:87`). So the
-KnackLabs job guesses: an MCP server that does not exist, a tool that does not
-exist, then off-template arguments. Seven consecutive runs, every run.
+KnackLabs job guesses: an invented MCP server, an invented tool, then off-template
+arguments. Seven consecutive runs.
 
-Separately, a job prompt can only be written whole, with no revision fence and no
-slice read, and the one existing edit-by-substring primitive silently edits the
-first of N matches.
+The dispatcher was always reachable: `capability_run` is not in the set removed
+from autonomous surfaces (`shared/admin-mcp-tools.ts:96`, filtered at
+`runner/gantry-mcp-tool-surface.ts:152`), and the failing run's own fourth attempt
+succeeded through it. The missing element is knowledge, not exposure.
 
 ## Owner rulings
 
 - Do not remove capabilities. The reviewed argv template STAYS the enforcement
-  boundary; 0120 and 0130 stand unamended. Discovery is the defect (0158).
-- Relaxing the call shape is future direction, gated on a replacement boundary
-  that must supersede 0120 and 0130 explicitly. Out of scope here.
-- The document edit contract is surface-agnostic; version one binds one store.
-- Edits overlapping a redacted span are refused.
-- ONE story, SEQUENCED: discovery ships before the two migrations the editing
-  contract depends on.
+  boundary; 0120 and 0130 stand unamended (0158).
+- Catalog overflow: every grant always renders its name and id; details degrade
+  past a ceiling; the overflow is recorded.
+- Reviewed argument shapes render exactly as reviewed, the owner having been shown
+  the tradeoff twice; these operands already appear on the approval card a human
+  reviewed and are not credentials.
+- The live five-run check is retained evidence on the story, NOT a merge gate,
+  because a live model run is not reproducible.
+- The document edit contract is SPLIT into its own spec and is not in this story.
+- Decision 0109's ordering consequence is amended so this ships first.
 
-## Scope / Non-goals
+## Decisions
 
-In: the scheduled catalog gap, a complete invocation descriptor with an overflow
-rule, deleting the superseded runtime-context block, completing 0108 and 0114,
-the document view/replace/insert contract bound to the job prompt, and the
-first-match fix on the workspace facade.
+Governing: 0158 (discovery is the defect), 0120 (argv validation is the
+boundary), 0130 (dispatch only, no classifier-derived allow), 0109 (capability ids
+are the canonical job dependency; ordering amended), 0129 (skill action capability
+rules, terminal-wildcard semantics). No new decision.
 
-Out: relaxing argv validation; a second document store; binding workspace files
-as a document store; per-capability tool definitions; any change to what the
-classifier decides.
+## Surface impact
+
+- **Runtime / prompt:** the whole change. A scheduled run's spawn input carries a
+  catalog; the shared catalog entry gains a descriptor; the guidance renderer
+  changes its shedding rule. Both lanes read the same code, so chat benefits too.
+- **Data:** none. No migration, no schema change.
+- **MCP / API:** the dispatcher's description text only. Its input schema, risk
+  classification and host enforcement are pinned unchanged.
+- **Security:** neutral by construction, carried by enforcement-unchanged proofs.
+  No descriptor may contain a secret, path, hash or executable location.
+- **Tests:** named per task below.
 
 ## Technical approach
 
-The catalog already exists and is already rendered. The job lane simply does not
-build or pass one, so slice 1 reuses the chat path's builder rather than writing
-a second one, and passes it on the existing spawn input field. The descriptor and
-overflow work happen inside the catalog entry shape and its renderer, which both
-lanes share, so the chat lane benefits without a second code path.
+**One builder, both lanes.** The job path calls the same catalog builder the chat
+path uses, from the access snapshot it already loads, and sets the existing
+`capabilityCatalog` field on its spawn input. No second builder and no new
+plumbing: the field, the compiler and the renderer already exist.
 
-0108 and 0114 are unbuilt decisions with migrations. They come before the editing
-contract because the contract cannot fence writes without 0108's revision or
-authorize them without 0114's persisted owner. Neither is optional and neither is
-a dependency to assume.
+**Descriptor union.** `CatalogEntry`
+(`application/agents/agent-prompt-capability-catalog.ts:23`) gains a closed
+`invocation` union over the four usable implementation kinds
+(`shared/semantic-capabilities.ts:25`; the legacy `mcp_tool` is rejected at
+validation and never reaches the catalog): `local_cli` carries the dispatcher
+tool, the capability id and the reviewed argument patterns rendered as reviewed
+per the owner's ruling; `mcp_pattern` the MCP proxy tool and connected server
+name, because a pattern alone is not callable; `tool_rule` the tool name,
+including skill actions, which are a tool rule distinguished by source and
+governed by decision 0129; `adapter` the dispatcher tool and capability id,
+because its reference is opaque. Skill actions are NOT a binding kind: that name
+belongs to `CapabilityRuntimeAccessSourceType`, a different axis. The entry also
+renders `stableRef`, which the renderer drops today.
 
-The document tools adopt Anthropic's `memory_20250818` command shape verbatim,
-including its specified error strings, implemented as gantry MCP tools over the
-document store. They join the shared mutation classification the scheduled tool
-selector removes (`shared/admin-mcp-tools.ts:32`, applied at
-`runner/gantry-mcp-tool-surface.ts:152`) and their handlers call the existing
-provenance guard (`jobs/ipc-scheduler-mutation-authority.ts:6`).
+**Tool presence is pinned, not assumed.** The dispatcher is already reachable on
+autonomous runs and the failing run proved it, but the plan asserts it rather than
+trusting it: the tool a descriptor names is checked present in the provider's real
+projection (`adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:353`)
+for a scheduled run, including with tool search active.
+
+**Shedding rule.** A named default guidance budget plus a ceiling derived as at
+least the compact representation of the granted set, so the ceiling can never
+conflict with the never-hide rule, replacing the fixed 1,500
+(`application/agents/prompt-profile-service.ts:54`). Material is shed in order:
+non-granted entries, then descriptions, then descriptors. Past the ceiling every
+grant still renders display name and stable id, and an overflow diagnostic is
+recorded on the run's startup event.
+
+**Dispatcher text.** `capability_run`'s description points at the catalog instead
+of the deleted block. Schema, risk and enforcement pinned by test.
+
+**Decisive proof.** The replay builds its materialization through the production
+path, asserts the dispatcher is present in it, then drives the runner adapter with
+a named recorded fixture and a stub that selects tools only from that projection.
+Its first tool action must be a well-formed dispatcher call, with no preceding
+call to anything absent from the projection. The negative control removes the
+descriptor and asserts the same harness does not produce that call.
 
 ## Task decomposition
 
-- **T1 Discovery.** Build the catalog on the job path from its access snapshot
-  and carry it on the spawn input; give the catalog entry a complete invocation
-  descriptor for every binding kind; make overflow drop non-granted material
-  before any granted entry and never reduce a grant to a count; delete the
-  per-capability block added by 97ded3746. Proofs: the scheduled spawn input
-  carries a catalog, the rendered descriptor asserted exactly, the over-budget
-  case across all four binding kinds, and enforcement-unchanged tests for 0120
-  and 0130. Ships alone and fixes the reported failure.
-- **T2 Job definition revision (0108).** Migration adds `definition_revision`;
-  every operator-meaningful write increments it; runs record the revision they
-  claimed; finalization fences on it.
-- **T3 Canonical job owner (0114).** Migration adds the persisted discriminated
-  owner; the conversation-derived helper (`application/jobs/job-management-access.ts:9`)
-  stops being an authorization source.
-- **T4 Document contract.** `document_view`, `document_str_replace`,
-  `document_insert` over the job-prompt store, with one conditional write matching
-  identity and expected revision, authority resolution per 0114 and 0118 including
-  the shared-group case, absence from scheduled surfaces plus the provenance
-  guard, and the secret rules: verbatim only in the store, redacted in every sink,
-  protected matches never counted or reported, refusal byte-identical to
-  not-found, rate-limited.
-- **T5 Facade ambiguity.** The workspace `FileEdit` refuses an ambiguous match
-  instead of editing the first one.
-
-Sequence: T1, then T2 and T3 in either order, then T4, then T5. T5 may ship any
-time after T1.
+Single task. Write scope (about 12 files): source — `jobs/execution-phases-run.ts`,
+`application/agents/agent-prompt-capability-catalog.ts`,
+`application/agents/agent-prompt-capability-guidance.ts`,
+`application/agents/prompt-profile-service.ts`, `runner/mcp/context.ts` (delete
+the 97ded3746 block), `runner/mcp/tools/capability-run.ts` (description only);
+tests — the capability catalog, capability guidance, agent spawn prompt, job
+execution phases, capability structured invocation and locked introspection
+suites, plus a new replay suite. Budget 12 files / 900 lines. `user_facing: true`
+only in the sense that a person sees fewer failed calls; no visible surface
+changes, so no functional check is required beyond the live smoke.
 
 ## Risks
 
-- T4 is the large one; if its file count approaches the cap, split the tools from
-  the secret rules rather than growing the task.
-- The live KnackLabs check is a smoke check on the deployed runtime, not a merge
-  gate, because a live model run is not reproducible in CI.
-- Deleting the runtime-context block must not touch the generic dispatcher tool
-  or its contract.
+- The shedding rule changes a shared renderer, so chat prompts change too. The
+  budget constants and the ordered shed keep that bounded and asserted.
+- Deleting the runtime-context block must not touch the dispatcher's schema or
+  enforcement; both are pinned by test.
+- The replay harness is the one genuinely new piece of test machinery; if it grows
+  past a few hundred lines, keep it a fixture-driven table rather than a framework.
+- The live smoke is not reproducible in CI and is not a merge gate.
 
 ## Verify plan
 
-Per task: the named focused suites, then `npm run typecheck`, `npm run lint`,
-`npm run format:check`, `npm run check:architecture`, and `verify.py` with
-`GANTRY_TEST_DATABASE_URL`. After T1 lands and deploys, five serial runs of
-`job-knacklabs-lead-maintenance-43527c192a6e` with the per-run event query as
-evidence.
+The suites named above by file through `vitest.unit.config.ts`, then
+`npm run typecheck`, `npm run lint`, `npm run format:check`,
+`npm run check:architecture` and `verify.py` with `GANTRY_TEST_DATABASE_URL`.
+
+After it lands and deploys, as evidence rather than a gate: five serial runs of
+`job-knacklabs-lead-maintenance-43527c192a6e`, each requiring at least one
+successful capability invocation and zero `tool.activity` rows with phase
+`failure` for `capability_run` or `mcp_call_tool` before it, with the per-run
+event query and the startup diagnostic retained redacted. Verify the job still
+exists before treating it as evidence.
 
 
 ## What to return

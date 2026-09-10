@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?",
+      "options": [
+        "Placeholder, fall back if unsafe (Recommended)",
+        "Never show argument shapes",
+        "Show the reviewed shape as-is"
+      ],
+      "chosen": "Show the reviewed shape as-is"
+    }
+  ],
+  "at": "2026-09-10T13:43:47.602303+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
