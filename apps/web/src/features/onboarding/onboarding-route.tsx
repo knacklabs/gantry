@@ -123,6 +123,9 @@ export function OnboardingRoute() {
       });
       if (!response.ok) throw new Error('The AI employee could not be created.');
       const body = await response.json() as { agent: { id: string } };
+      localStorage.removeItem('gantry.onboarding.name');
+      localStorage.removeItem('gantry.onboarding.title');
+      localStorage.removeItem('gantry.onboarding.responsibilities');
       setAgentId(body.agent.id); setStep(2); setIdentity(false);
       await client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey });
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Setup could not be saved.'); }
