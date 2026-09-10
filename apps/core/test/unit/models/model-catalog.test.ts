@@ -86,9 +86,19 @@ describe('model catalog resolution', () => {
       alias: 'opus',
       runnerModel: 'claude-opus-5',
     });
+    expect(resolveModelSelection('Fable 5.1')).toMatchObject({
+      ok: true,
+      alias: 'fable-5.1',
+      runnerModel: 'claude-fable-5-1',
+    });
     expect(resolveModelSelection('fable')).toMatchObject({
       ok: true,
       alias: 'fable',
+      runnerModel: 'claude-fable-5-1',
+    });
+    expect(resolveModelSelection('fable-5')).toMatchObject({
+      ok: true,
+      alias: 'fable-5',
       runnerModel: 'claude-fable-5',
     });
   });
