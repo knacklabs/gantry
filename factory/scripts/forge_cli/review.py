@@ -277,6 +277,22 @@ def _recommendation(blocking: int, non_blocking: int) -> str:
 
 _VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
 
+# A pass that cannot see a contract is SUPPOSED to say `not_in_chunk`, but the
+# engine reliably ignores that instruction and reports `partial` with evidence
+# that says so in prose ("... is not present in chunk 1", "outside this
+# chunk", "cannot be verified from this chunk"). Reading the prose is the only
+# thing that actually works, so both forms are honoured. This only ever
+# DOWNGRADES a partial when another pass gave a real verdict; when no pass did,
+# the contract stays partial and still fails closed.
+_CHUNK_BLIND = re.compile(
+    r"not present in (?:this |the )?chunk"
+    r"|(?:outside|beyond) (?:this|the) chunk"
+    r"|not (?:in|within) (?:this|the) chunk"
+    r"|cannot be verified from (?:this|the) chunk"
+    r"|(?:outside|not in) (?:this|the) (?:diff )?slice",
+    re.IGNORECASE,
+)
+
 
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
     """One verdict per contract across every text; when a contract is verdicted
@@ -300,7 +316,9 @@ def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
             verdict = match.group("verdict").lower()
             evidence = ((match.group("evidence") or "").strip()
                         or "reviewer verdict")
-            if verdict == "not_in_chunk":
+            if verdict == "not_in_chunk" or (
+                verdict == "partial" and _CHUNK_BLIND.search(evidence)
+            ):
                 unseen.setdefault(cid, ("partial", evidence))
                 continue
             current = real.get(cid)
