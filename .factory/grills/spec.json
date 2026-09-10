@@ -3,103 +3,101 @@
   "gate": "spec",
   "verdict": "pass",
   "issue": "GRANTED-1",
-  "summary": "Sixth cold read of the spec, run at the requirements gate. Nine gaps: eight resolved in the amended spec, the ninth an owner choice on catalog overflow, settled as names always with details degrading past a ceiling.",
+  "summary": "Sixth cold read of the combined spec returned eight findings. The pattern was scope: each read opened new protocol surface on the document half while the capability half was close to settled. The owner ruled a split. Three findings are resolved in the new capability-only spec, one by verifying the tool surface against the runtime, and four leave with the document half into its own spec.",
   "gaps": [
-    "The promised complete invocation descriptor cannot be derived for every binding kind: MCP-pattern bindings carry only server and tool patterns and adapters only an opaque reference, neither with an argument schema.",
-    "'Every grant always renders' has no feasible bound against a fixed 1,500-character guidance section and a deterministic truncating renderer.",
-    "The criterion removing the per-capability runtime block while preserving the dispatcher unchanged is self-contradictory, because the dispatcher description points at that block.",
-    "The document-tool authority model is incomplete and internally conflicting: the scheduled read surface of decision 0106 is an explicit list that does not include the view tool, while the write-authority criterion would make a read-only scheduled viewer unusable.",
-    "Interactive write approval is unspecified: joining the scheduler mutation set only removes tools from autonomous surfaces and does not make attended writes ask, which decision 0107 requires.",
-    "Canonical ownership does not resolve the shared-group case, and no document reference grammar or discovery path is defined, so a group editor has no way to address the prompt without the forbidden authority source.",
-    "The revision fence does not specify the existing whole-document update protocol, its returned revision, or its conflict result, so no retry contract exists for an attended updater.",
-    "The document command contract is incomplete: omitted, invalid and empty-document semantics for ranges, insertion points on an empty document, and returned revisions on mutation are all unstated.",
-    "'Rate-limited' and 'deterministic replay' are not falsifiable: no limit, window, key, durability choice or response, and no harness or fixture that proves the descriptor caused the call."
+    "Overflow breaks the settled 'names always, details degrade' answer: only ids were guaranteed past the ceiling, not display names, and neither the default budget nor the ceiling was defined, making the criterion untestable.",
+    "'Every granted capability' omitted a real binding kind, skill_action, so four kinds were named where the runtime union has five, risking collapse of skill attachment into action authority.",
+    "The discovery solution named only prompt rendering, not the mechanism decision 0158 requires, and a stub selecting from supplied text proves the stub rather than that the tool is reachable.",
+    "The concurrency contract contradicted itself by permitting the whole-document update without an expected revision, which could still overwrite a document edit.",
+    "The authority model invented a shared-group owner that decision 0114 does not permit, and conflicted with itself on whether an absent acting person fails closed or permits the edit.",
+    "The document protocol left core behaviour to guesswork: line-ending counting, multiline match line numbers, insertion separators, invalid or cross-application references, and the discovery response.",
+    "The redaction claim had no complete persistence inventory or owning boundary, naming four sinks while leaving runner events, provider artifacts and retry paths unspecified.",
+    "Runtime scope was contradictory: non-Anthropic lanes were deferred while a change in the DeepAgents facade was still required, and the live smoke was unowned with no existence verification."
   ],
   "contradictions": [
-    "The spec both removed the per-capability runtime block and preserved the dispatcher contract unchanged, while that dispatcher's description directs the model to the removed block."
+    "The spec promised no silently lost work while permitting the whole-document update without an expected revision, and deferred non-Anthropic lanes while still requiring a change in the DeepAgents facade."
   ],
   "resolutions": [
-    "Spec now defines a closed descriptor union per binding kind and states that kinds without an argument schema carry the reachable tool identity and say so, rather than an invented shape.",
-    "Owner ruled the ceiling behaviour: the section grows from the granted set up to a stated ceiling, non-granted material is dropped first, then descriptions, then entries compact; past the ceiling every granted id still renders without its descriptor and an overflow diagnostic is recorded. No grant is reduced to a count or omitted.",
-    "Spec now updates the dispatcher description text to point at the catalog, while pinning its input schema, risk classification and host enforcement unchanged by test.",
-    "Spec now separates read and write authority: reading needs the job read authority a caller already has and the view tool joins decision 0106's explicit scheduled read surface, which this story extends by naming it there; only writes require write authority.",
-    "Spec now classifies the write tools high-risk so they ask in normal auto mode per decision 0107, rather than inheriting a default classification.",
-    "Spec now defines the reference grammar as an opaque job-scoped key discovered from the job read, never itself a source of authority, and authorizes a shared-group job for an acting person the host records as a member of that group.",
-    "Spec now gives the whole-document update the same optional expected revision: stale is refused with the actual revision so the caller re-reads and retries, omitted behaves as today, and every successful write returns its revision.",
-    "Spec now states omitted, out-of-bounds and inverted range behaviour, empty-document reads, line-zero prepend as the only valid insertion into an empty document, an error past the last line, and a returned revision on every mutation; criteria 7 and 7b prove them.",
-    "Spec now sets the limiter at ten failures per document and caller per minute, process-local and bounding probing within a run, with a distinct error and criterion 12c; and the replay criterion now names the harness and fixture and adds a negative control proving the descriptor causes the call."
+    "Split spec criterion 4 now retains display name and stable id for every grant past the ceiling, sheds material in a fixed order, records an overflow diagnostic, and requires budget and ceiling to be named constants asserted by the test.",
+    "Split spec now enumerates all five binding kinds including skill_action, preserves decision 0129's terminal-wildcard semantics, keeps skill attachment separate from action authority, and asserts a descriptor per kind in criterion 3.",
+    "Verified against the tool surface: capability_run is not removed from autonomous surfaces (admin-mcp-tools.ts:96, gantry-mcp-tool-surface.ts:152) and the failing run's own fourth attempt succeeded through it, so the dispatcher was always reachable and the missing element is knowledge. The spec records this, and criterion 5 adds a negative control proving the descriptor causes the call.",
+    "Owner ruled the split: document reading and editing, including revision fencing, move to their own spec. The contradiction leaves this spec entirely.",
+    "Out of scope under the split; the owner model belongs to the document spec, which owns completing decision 0114.",
+    "Out of scope under the split; the document protocol belongs to the document spec.",
+    "Out of scope under the split; the redaction boundary and its sink inventory belong to the document spec.",
+    "Split spec has no lane contradiction: it changes one builder that both lanes share and touches no provider facade. The live smoke is explicitly not a merge gate and is stated as evidence retained on the story rather than a reproducible proof."
   ],
   "open_items": [
-    "Non-blocking: a capability lookup tool would remove the ceiling entirely and is deferred as out of scope for this story."
+    "The document edit contract, its protocol detail, the redaction sink inventory, and completing decisions 0108 and 0114 move to a separate spec, not yet drafted.",
+    "Relaxing argv validation stays future direction under decision 0158, gated on a replacement boundary that must supersede 0120 and 0130."
   ],
   "questions_asked": 1,
+  "input_sha256": "0695251aadd2171ff16c5824bd7bdfa256a6cf7fe42ce9e9283d4f9a0667d254",
   "rounds": [
     {
-      "question": "If an agent's granted capabilities will not fit the prompt section, what should it see?",
+      "question": "Six reads in, the two halves are behaving like different-sized problems. Split them?",
       "options": [
-        "Names always, details degrade (Recommended)",
-        "Full details, no ceiling",
-        "Add a lookup tool"
+        "Split the spec (Recommended)",
+        "Keep one spec and push through",
+        "Cut the document half entirely"
       ],
-      "chosen": "Names always, details degrade (Recommended)",
+      "chosen": "Split the spec (Recommended)",
       "frontier_empty": true
     }
   ],
   "inspected_refs": [
-    "docs/specs/agents-can-use-what-they-are-granted.md",
-    "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md",
-    "docs/decisions/0107-typed-permission-decision-provenance.md",
-    "docs/decisions/0108-job-definition-revision-fencing.md",
-    "docs/decisions/0114-canonical-job-owner.md",
-    "docs/decisions/0118-identity-scoped-approval-and-grants.md",
-    "apps/core/src/shared/semantic-capabilities.ts",
+    "docs/specs/granted-capability-is-visible.md",
+    "docs/decisions/0109-semantic-capability-job-dependencies.md",
+    "docs/decisions/0120-local-cli-structured-invocation.md",
+    "docs/decisions/0129-skill-action-capability-rules.md",
+    "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
+    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
     "apps/core/src/shared/admin-mcp-tools.ts",
-    "apps/core/src/application/agents/prompt-profile-service.ts",
-    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
-    "apps/core/src/application/jobs/job-management-types.ts",
-    "apps/core/src/jobs/ipc-scheduler-access.ts",
+    "apps/core/src/shared/capability-runtime-access.ts",
+    "apps/core/src/runner/gantry-mcp-tool-surface.ts",
+    "apps/core/src/runner/mcp/context.ts",
     "apps/core/src/runner/mcp/tools/capability-run.ts",
-    "apps/core/src/runner/mcp/tools/capabilities.ts"
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/runtime/group-agent-access-context.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts"
   ],
   "citations": [
     {
-      "finding": "The promised complete invocation descriptor cannot be derived for every binding kind: MCP-pattern bindings carry only server and tool patterns and adapters only an opaque reference, neither with an argument schema.",
-      "ref": "apps/core/src/shared/semantic-capabilities.ts"
-    },
-    {
-      "finding": "'Every grant always renders' has no feasible bound against a fixed 1,500-character guidance section and a deterministic truncating renderer.",
+      "finding": "Overflow breaks the settled 'names always, details degrade' answer: only ids were guaranteed past the ceiling, not display names, and neither the default budget nor the ceiling was defined, making the criterion untestable.",
       "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
     },
     {
-      "finding": "The criterion removing the per-capability runtime block while preserving the dispatcher unchanged is self-contradictory, because the dispatcher description points at that block.",
-      "ref": "apps/core/src/runner/mcp/tools/capability-run.ts"
+      "finding": "'Every granted capability' omitted a real binding kind, skill_action, so four kinds were named where the runtime union has five, risking collapse of skill attachment into action authority.",
+      "ref": "apps/core/src/shared/capability-runtime-access.ts"
     },
     {
-      "finding": "The document-tool authority model is incomplete and internally conflicting: the scheduled read surface of decision 0106 is an explicit list that does not include the view tool, while the write-authority criterion would make a read-only scheduled viewer unusable.",
-      "ref": "docs/decisions/0106-scheduled-runs-cannot-mutate-jobs.md"
+      "finding": "The discovery solution named only prompt rendering, not the mechanism decision 0158 requires, and a stub selecting from supplied text proves the stub rather than that the tool is reachable.",
+      "ref": "docs/decisions/0158-granted-capabilities-must-be-discoverable.md"
     },
     {
-      "finding": "Interactive write approval is unspecified: joining the scheduler mutation set only removes tools from autonomous surfaces and does not make attended writes ask, which decision 0107 requires.",
-      "ref": "docs/decisions/0107-typed-permission-decision-provenance.md"
+      "finding": "The concurrency contract contradicted itself by permitting the whole-document update without an expected revision, which could still overwrite a document edit.",
+      "ref": "docs/decisions/0108-job-definition-revision-fencing.md"
     },
     {
-      "finding": "Canonical ownership does not resolve the shared-group case, and no document reference grammar or discovery path is defined, so a group editor has no way to address the prompt without the forbidden authority source.",
+      "finding": "The authority model invented a shared-group owner that decision 0114 does not permit, and conflicted with itself on whether an absent acting person fails closed or permits the edit.",
       "ref": "docs/decisions/0114-canonical-job-owner.md"
     },
     {
-      "finding": "The revision fence does not specify the existing whole-document update protocol, its returned revision, or its conflict result, so no retry contract exists for an attended updater.",
-      "ref": "apps/core/src/application/jobs/job-management-types.ts"
+      "finding": "The document protocol left core behaviour to guesswork: line-ending counting, multiline match line numbers, insertion separators, invalid or cross-application references, and the discovery response.",
+      "ref": "apps/core/src/application/jobs/job-management-service.ts"
     },
     {
-      "finding": "The document command contract is incomplete: omitted, invalid and empty-document semantics for ranges, insertion points on an empty document, and returned revisions on mutation are all unstated.",
-      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
+      "finding": "The redaction claim had no complete persistence inventory or owning boundary, naming four sinks while leaving runner events, provider artifacts and retry paths unspecified.",
+      "ref": "apps/core/src/shared/sensitive-material.ts"
     },
     {
-      "finding": "'Rate-limited' and 'deterministic replay' are not falsifiable: no limit, window, key, durability choice or response, and no harness or fixture that proves the descriptor caused the call.",
-      "ref": "docs/specs/agents-can-use-what-they-are-granted.md"
+      "finding": "Runtime scope was contradictory: non-Anthropic lanes were deferred while a change in the DeepAgents facade was still required, and the live smoke was unowned with no existence verification.",
+      "ref": "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts"
     }
   ],
-  "input_sha256": "a07e6c91fd999ea6b8945d23aaab6a1f09f1bfcb4c75a51cfee5962130b819c6",
-  "recorded_at": "2026-09-10T13:12:40+00:00",
-  "commit": "29b66040eebcfe7a09d83f9435453a71902e414c"
+  "recorded_at": "2026-09-10T13:27:08+00:00",
+  "commit": "c3a7169cd2c3726386bb59e24808d363a3d2d4aa"
 }

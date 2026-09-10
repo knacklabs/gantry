@@ -1,7 +1,7 @@
 ---
 slug: granted-capability-is-visible
 title: A granted capability is visible to the agent that holds it
-status: draft
+status: confirmed
 saved: 2026-09-10T13:24:58+00:00
 ---
 

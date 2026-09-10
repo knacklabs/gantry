@@ -2590,17 +2590,16 @@
     },
     {
       "key": "GRANTED-1",
-      "title": "Agents can use what they are granted",
-      "story": "As someone who grants an agent a capability or a document, I want the agent to see what it holds and change it in place, so that a scheduled job stops guessing its way to a sheet and an edit stops destroying the text around it.",
+      "title": "A granted capability is visible to the agent that holds it",
+      "story": "As someone who grants an agent a capability, I want the agent to see what it holds and how to call it, so that a scheduled job stops guessing its way to a sheet and wasting calls every run.",
       "acceptance_criteria": [
-        "A scheduled run receives a capability catalog built from its access snapshot, carried on its spawn input",
-        "Every granted capability renders with its stable id and a complete invocation descriptor, and is never elided by overflow",
-        "Enforcement is unchanged: template mismatch still refused, no classifier-derived allow reaches the capability wrapper",
-        "Jobs carry the definition revision of decision 0108 and the persisted owner of decision 0114, migrations included",
-        "A document can be read as a line slice and edited by exact span, failing loudly and unchanged on absent or ambiguous text",
-        "A write carrying a stale revision is refused by one conditional statement, and a concurrent whole-document update is fenced by the same revision",
-        "Protected spans are never counted, reported, or distinguishable from absent text, and only the document store holds text verbatim",
-        "The document write tools are absent from scheduled tool surfaces and their handlers call the provenance guard"
+        "A scheduled run's spawn input carries a capability catalog built from its access snapshot",
+        "Every granted capability renders its display name, stable id and an invocation descriptor for its binding kind",
+        "All five binding kinds produce a descriptor, with opaque adapter references never rendered",
+        "No grant is hidden by overflow: names and ids always render, details degrade past a named ceiling, and the overflow is recorded",
+        "A deterministic replay makes the granted capability the first attempt, with a negative control proving the descriptor causes it",
+        "The superseded runtime-context block is gone and the dispatcher points at the catalog with its schema and enforcement pinned",
+        "Enforcement is unchanged: template mismatch still refused and no classifier-derived allow reaches the capability wrapper"
       ],
       "order": 120,
       "status": "active",
@@ -2608,9 +2607,9 @@
       "skill": "backend",
       "kind": "feature",
       "depends_on": [],
-      "spec": "docs/specs/agents-can-use-what-they-are-granted.md"
+      "spec": "docs/specs/granted-capability-is-visible.md"
     }
   ],
   "generated_by": "human",
-  "updated_at": "2026-09-10T11:54:11+00:00"
+  "updated_at": "2026-09-10T13:31:16+00:00"
 }
