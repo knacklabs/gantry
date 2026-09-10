@@ -216,14 +216,12 @@ async function createVerification(
   const agentId = typeof payload.agentId === 'string' ? payload.agentId : '';
   const conversationId =
     typeof payload.conversationId === 'string' ? payload.conversationId : '';
-  const challenge =
-    typeof payload.challenge === 'string' ? payload.challenge : '';
-  if (!agentId || !conversationId || !/^GY-[A-Z0-9]{5}$/.test(challenge)) {
+  if (!agentId || !conversationId) {
     sendError(
       res,
       400,
       'INVALID_REQUEST',
-      'A valid agent, conversation, and challenge are required.',
+      'A valid agent and conversation are required.',
     );
     return true;
   }
@@ -301,6 +299,7 @@ async function createVerification(
     );
     return true;
   }
+  const challenge = `GY-${randomUUID().replace(/-/g, '').slice(0, 5).toUpperCase()}`;
   const id = `onboarding-verification:${randomUUID()}`;
   await storage.service.db.insert(onboardingVerificationsPostgres).values({
     id,

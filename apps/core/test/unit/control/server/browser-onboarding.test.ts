@@ -47,4 +47,11 @@ describe('browser onboarding route', () => {
     expect(source).toContain('if (verification?.status === \'completed\') return null;');
     expect(source).toContain("verification?.status === 'pending'");
   });
+
+  it('generates challenge codes at the server trust boundary', () => {
+    expect(source).toContain(
+      "const challenge = `GY-${randomUUID().replace(/-/g, '').slice(0, 5).toUpperCase()}`;",
+    );
+    expect(source).not.toContain('payload.challenge');
+  });
 });

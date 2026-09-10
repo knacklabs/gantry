@@ -73,7 +73,7 @@ export function OnboardingRoute() {
   const [approver, setApprover] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [challenge, setChallenge] = useState(() => `GY-${Math.random().toString(36).slice(2, 7).toUpperCase()}`);
+  const [challenge, setChallenge] = useState('');
   const [verificationId, setVerificationId] = useState('');
 
   const providers = useQuery(modelProviderQuery);
@@ -169,7 +169,7 @@ export function OnboardingRoute() {
       const response = await browserFetch('/ui/api/onboarding/verifications', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ agentId, conversationId, challenge: code }),
+        body: JSON.stringify({ agentId, conversationId }),
       });
       if (!response.ok) throw new Error('The test message could not be prepared.');
       const body = await response.json() as { verification: { id: string; challenge: string } };
