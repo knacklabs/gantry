@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { onboardingSetupsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -454,6 +455,12 @@ export async function handleBrowserAgentRoutes(
       };
       await storage.repositories.agents.saveAgent(agent);
       await storage.repositories.agentConfigs.saveConfigVersion(config);
+      if (body.onboarding === true) {
+        await storage.service.db
+          .insert(onboardingSetupsPostgres)
+          .values({ agentId: agent.id, appId, createdAt: now, updatedAt: now })
+          .onConflictDoNothing();
+      }
       if (modelAlias !== undefined) {
         await ctx.agentSettings.writeAgentModelSetting({
           runtimeHome: ctx.runtimeHome,

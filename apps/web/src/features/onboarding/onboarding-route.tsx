@@ -124,7 +124,7 @@ export function OnboardingRoute() {
       const lines = responsibilities.split('\n').map((line) => line.trim()).filter(Boolean);
       const response = await browserFetch('/ui/api/agents', {
         method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...browserCsrfHeader() },
-        body: JSON.stringify({ name: name.trim(), modelAlias: model, customRole: { name: `${name.trim()} — ${title.trim() || 'Employee'}`, prompt: [`You are the organisation's ${title.trim() || 'AI employee'}.`, '', 'Responsibilities:', ...lines.map((line) => `- ${line}`)].join('\n') } }),
+        body: JSON.stringify({ name: name.trim(), modelAlias: model, onboarding: true, customRole: { name: `${name.trim()} — ${title.trim() || 'Employee'}`, prompt: [`You are the organisation's ${title.trim() || 'AI employee'}.`, '', 'Responsibilities:', ...lines.map((line) => `- ${line}`)].join('\n') } }),
       });
       if (!response.ok) throw new Error('The AI employee could not be created.');
       const body = await response.json() as { agent: { id: string } };

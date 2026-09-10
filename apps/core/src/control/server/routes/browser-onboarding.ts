@@ -3,7 +3,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
-import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
+import {
+  onboardingSetupsPostgres,
+  onboardingVerificationsPostgres,
+} from '../../../adapters/storage/postgres/schema/schema.js';
 import { DEFAULT_AGENT_ID } from '../../../adapters/storage/postgres/seeds.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import type { AppId } from '../../../domain/app/app.js';
@@ -61,42 +64,66 @@ export async function handleBrowserOnboardingRoutes(
   }
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
+  const now = new Date().toISOString();
+  await storage.service.db
+    .update(onboardingVerificationsPostgres)
+    .set({ status: 'expired', updatedAt: now })
+    .where(
+      and(
+        eq(onboardingVerificationsPostgres.appId, appId),
+        inArray(onboardingVerificationsPostgres.status, [
+          'pending',
+          'inbound_received',
+        ]),
+        lt(onboardingVerificationsPostgres.expiresAt, now),
+      ),
+    );
   const agents = await storage.repositories.agents.listAgents(appId);
   const onboardingAgents = agents.filter((agent) => agent.id !== DEFAULT_AGENT_ID);
   const accounts =
     await storage.repositories.providerAccounts.listProviderAccounts(appId);
+  const setups = await storage.service.db
+    .select({ agentId: onboardingSetupsPostgres.agentId })
+    .from(onboardingSetupsPostgres)
+    .where(eq(onboardingSetupsPostgres.appId, appId));
+  const setupAgentIds = new Set(setups.map((setup) => setup.agentId));
   const resumeCandidates = await Promise.all(
-    onboardingAgents.map(async (agent) => {
+    onboardingAgents
+      .filter((agent) => setupAgentIds.has(agent.id))
+      .map(async (agent) => {
       const account = accounts.find((item) => item.agentId === agent.id);
       const [verification] = await storage.service.db
         .select({
           id: onboardingVerificationsPostgres.id,
           challenge: onboardingVerificationsPostgres.challenge,
+          status: onboardingVerificationsPostgres.status,
         })
         .from(onboardingVerificationsPostgres)
         .where(
           and(
             eq(onboardingVerificationsPostgres.appId, appId),
             eq(onboardingVerificationsPostgres.agentId, agent.id),
-            inArray(onboardingVerificationsPostgres.status, [
-              'pending',
-              'inbound_received',
-            ]),
           ),
         )
         .orderBy(desc(onboardingVerificationsPostgres.createdAt))
         .limit(1);
+      if (verification?.status === 'completed') return null;
+      const activeVerification =
+        verification?.status === 'pending' ||
+        verification?.status === 'inbound_received';
       return {
         id: agent.id,
         name: agent.name,
         accountId: account?.id ?? null,
-        verificationId: verification?.id ?? null,
-        challenge: verification?.challenge ?? null,
+        verificationId: activeVerification ? verification.id : null,
+        challenge: activeVerification ? verification.challenge : null,
         hasWorkspace: Boolean(account),
       };
-    }),
+      }),
   );
-  const resumable = resumeCandidates.map((agent) => ({
+  const resumable = resumeCandidates.flatMap((agent) =>
+    agent ? [agent] : [],
+  ).map((agent) => ({
     ...agent,
     step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
   }));

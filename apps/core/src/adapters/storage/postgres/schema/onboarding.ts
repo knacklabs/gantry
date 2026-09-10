@@ -64,3 +64,24 @@ export const onboardingVerificationsPostgres = pgTable(
     ).on(table.conversationId, table.status),
   }),
 );
+
+export const onboardingSetupsPostgres = pgTable(
+  'onboarding_setups',
+  {
+    agentId: text('agent_id')
+      .primaryKey()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    app: index('idx_onboarding_setups_app').on(table.appId),
+  }),
+);

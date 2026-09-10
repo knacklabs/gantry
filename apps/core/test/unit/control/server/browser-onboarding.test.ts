@@ -40,4 +40,11 @@ describe('browser onboarding route', () => {
       'Install this employee in the selected conversation before verifying it.',
     );
   });
+
+  it('uses durable setup records and omits completed verification from resume', () => {
+    expect(source).toContain('onboardingSetupsPostgres');
+    expect(source).toContain('const setupAgentIds = new Set(');
+    expect(source).toContain('if (verification?.status === \'completed\') return null;');
+    expect(source).toContain("verification?.status === 'pending'");
+  });
 });
