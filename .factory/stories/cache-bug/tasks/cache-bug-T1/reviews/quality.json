@@ -1,11 +1,28 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
-  "score": 10,
-  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..f7a439f, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
-  "blocking_findings": [],
-  "non_blocking_findings": [],
-  "recommendation": "approve",
+  "score": 9,
+  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..3bca6fe, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "blocking_findings": [
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC7: R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/adapters/llm/deepagents-langchain/runner",
+      "summary": "[P2] Preserve the resolved model route in DeepAgents usage (apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:390): The spawned DeepAgents lane sets both `provider` and `modelRoute` from `input.provider`, while the inline lane performs the inverse by setting both from `modelEntry.modelRoute.id`."
+    },
+    {
+      "category": "maintainability",
+      "area": "docs/specs",
+      "summary": "[P2] Correct the authoritative spec to name the new retirement operation (docs/specs/cache-bug.md:124): The newly added confirmed spec says `expireProviderSession` becomes the atomic fenced transition that returns a retired reference, but this patch deliberately introduces `retireProviderSession` for that contract while preserving `expireProviderSession` for compaction-delta degradation."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     ".envrc",
     ".github/workflows/ci.yml",
@@ -60,12 +77,12 @@
     {
       "contract_id": "T1-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts:105 evidence"
+      "evidence": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts:1 evidence"
     },
     {
       "contract_id": "T1-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer.ts:140 evidence"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:421 evidence"
     },
     {
       "contract_id": "T1-AC3",
@@ -75,27 +92,27 @@
     {
       "contract_id": "T1-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:51 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:57 evidence"
     },
     {
       "contract_id": "T1-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:43 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:47 evidence"
     },
     {
       "contract_id": "T1-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:88 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:92 evidence"
     },
     {
       "contract_id": "T1-AC7",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-usage.ts:105 evidence"
+      "verdict": "partial",
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:390 conflates provider and modelRoute"
     },
     {
       "contract_id": "T1-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:120 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:122 evidence"
     },
     {
       "contract_id": "T1-AC9",
@@ -147,10 +164,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "7c56afe6288b4fa489ac5bdec71cc04c8e2ff1251320bb30b9e26a44cb2660a7",
+  "review_run_id": "be9c11e2c773d8263cddb0e86144beeed66841e401bae2d58ad6405afbe2653f",
   "brief_sha256": "67cd5d51bc8b4fda6b6d5b52038dc2f5290d0a8b061644767c55be28d9ddb8e2",
-  "branch_diff_digest": "dc67b2eaf4fa19dee97721706f30470255126d120c7869ac2dc67f529e477f54",
+  "branch_diff_digest": "65a29a303c0269363e82833e237b0504253f9d62c499b42af67031892387f058",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T12:03:41+00:00",
-  "commit": "f7a439f9c69366802d2b24f991ac54e85a88c11e"
+  "recorded_at": "2026-09-10T12:40:34+00:00",
+  "commit": "3bca6fe591d12f6af59a04738334f1fe0a78973e"
 }
