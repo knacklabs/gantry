@@ -64,18 +64,22 @@ export async function handleBrowserOnboardingRoutes(
   const accounts =
     await storage.repositories.providerAccounts.listProviderAccounts(appId);
   const resumeCandidates = await Promise.all(
-    agents.map(async (agent) => ({
-      id: agent.id,
-      name: agent.name,
-      hasWorkspace: accounts.some((account) => account.agentId === agent.id),
-      hasAssignment:
-        (
-          await storage.repositories.providerAccounts.listConversationInstalls(
-            appId,
-            agent.id,
-          )
-        ).length > 0,
-    })),
+    agents.map(async (agent) => {
+      const account = accounts.find((item) => item.agentId === agent.id);
+      return {
+        id: agent.id,
+        name: agent.name,
+        accountId: account?.id ?? null,
+        hasWorkspace: Boolean(account),
+        hasAssignment:
+          (
+            await storage.repositories.providerAccounts.listConversationInstalls(
+              appId,
+              agent.id,
+            )
+          ).length > 0,
+      };
+    }),
   );
   const resumable = resumeCandidates
     .map((agent) => ({
