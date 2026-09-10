@@ -40,6 +40,7 @@ import {
 } from '@core/runtime/ipc-tool-input-sanitization.js';
 import { parsePermissionClassifierResponse } from '@core/runtime/permission-classifier-prompt.js';
 import * as nativeRisk from '@core/runtime/permission-classifier-native-risk.js';
+import { unavailablePromptConsultResult } from '@core/runtime/permission-judge-outage.js';
 
 const baseInput = {
   appId: 'default' as never,
@@ -159,6 +160,15 @@ describe('permission classifier verdict client', () => {
     await expectUnavailable('validation_failure', () =>
       query.mockResolvedValue('{}'),
     );
+  });
+
+  it('stamps status unavailable for the wiring_missing failure code', () => {
+    expect(
+      unavailablePromptConsultResult('wiring_missing', Date.now()),
+    ).toMatchObject({
+      status: PermissionClassifierStatus.Unavailable,
+      failureCode: 'wiring_missing',
+    });
   });
 
   it('stamps status skipped for aborted, input_truncated and every non-LLM branch', async () => {

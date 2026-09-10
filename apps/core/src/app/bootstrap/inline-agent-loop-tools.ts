@@ -36,6 +36,13 @@ import {
   type PermissionClassifierRuntimeConfig,
 } from '../../runtime/permission-classifier.js';
 import {
+  isJudgeUnavailable,
+  judgeOutageReason,
+  observeJudgeAvailabilityForRequest,
+  sendJudgeOfflineNoticeForRequest,
+  unavailablePromptConsultResult,
+} from '../../runtime/permission-judge-outage.js';
+import {
   loadAgentAccessSnapshot,
   resolveTurnSemanticCapabilitiesFromSnapshot,
   resolveTurnSelectedMcpServerIdsFromSnapshot,
@@ -369,37 +376,44 @@ export function createInlineCoreTools(
             toolInput,
             CLASSIFIER_MAX,
           );
-          if (deps.publishRuntimeEvent) {
-            classifierDecision = await consultPermissionClassifierBeforePrompt({
-              permissionMode: run.permissionMode,
-              requestFamily: 'tool',
-              appId: run.appId,
-              agentId: run.agentId,
-              agentFolder: laneInput.group.folder,
-              runId: activeRunId,
-              jobId: run.jobId,
-              conversationId: run.chatJid,
-              threadId: run.threadId,
-              correlationId: permissionRequestId,
-              actor: { kind: 'system', source: 'permission' },
-              intentSource: 'operator_message',
-              turnIntentSummary: run.prompt,
-              canonicalToolName: name,
-              toolInput: classifierInput.toolInput,
-              toolInputRedactedPaths: classifierInput.redactedPaths,
-              toolInputTruncatedPaths: classifierInput.truncatedPaths,
-              policyDecisionReason: decision.reason,
-              approvedCapabilityIds,
-              workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
-              reviewedMcpReadBindings,
-              yoloMode: permissionSettings.permissions.yoloMode,
-              suggestions: request.suggestions,
-              ...(promotion ? { promotion } : {}),
-              classifierConfig: permissionRuntimeConfig,
-              signal: context?.signal,
-              publishRuntimeEvent: deps.publishRuntimeEvent,
-              classifierConsult: deps.classifierConsult,
-            });
+          const classifierEligible =
+            run.permissionMode === 'auto' ||
+            run.permissionMode === 'auto_strict';
+          if (classifierEligible) {
+            classifierDecision = deps.publishRuntimeEvent
+              ? await consultPermissionClassifierBeforePrompt({
+                  permissionMode: run.permissionMode,
+                  requestFamily: 'tool',
+                  appId: run.appId,
+                  agentId: run.agentId,
+                  agentFolder: laneInput.group.folder,
+                  runId: activeRunId,
+                  jobId: run.jobId,
+                  conversationId: run.chatJid,
+                  threadId: run.threadId,
+                  correlationId: permissionRequestId,
+                  actor: { kind: 'system', source: 'permission' },
+                  intentSource: 'operator_message',
+                  turnIntentSummary: run.prompt,
+                  canonicalToolName: name,
+                  toolInput: classifierInput.toolInput,
+                  toolInputRedactedPaths: classifierInput.redactedPaths,
+                  toolInputTruncatedPaths: classifierInput.truncatedPaths,
+                  policyDecisionReason: decision.reason,
+                  approvedCapabilityIds,
+                  workspaceRoot: resolveWorkspaceFolderPath(
+                    laneInput.group.folder,
+                  ),
+                  reviewedMcpReadBindings,
+                  yoloMode: permissionSettings.permissions.yoloMode,
+                  suggestions: request.suggestions,
+                  ...(promotion ? { promotion } : {}),
+                  classifierConfig: permissionRuntimeConfig,
+                  signal: context?.signal,
+                  publishRuntimeEvent: deps.publishRuntimeEvent,
+                  classifierConsult: deps.classifierConsult,
+                })
+              : unavailablePromptConsultResult('wiring_missing', Date.now());
             if (
               classifierDecision?.decision === 'allow' &&
               !request.decisionOptions?.length
@@ -407,16 +421,29 @@ export function createInlineCoreTools(
               // prettier-ignore
               return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
           }
+          if (classifierDecision && isJudgeUnavailable(classifierDecision)) {
+            request.decisionReason = judgeOutageReason(classifierDecision);
+          } else {
+            observeJudgeAvailabilityForRequest(classifierDecision, request);
+          }
           if (
             !request.decisionOptions?.length &&
             run.permissionMode !== 'ask' &&
             run.isScheduledJob === true
           ) {
+            await sendJudgeOfflineNoticeForRequest(
+              classifierDecision,
+              deps.sendMessage,
+              request,
+            );
             return {
               ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
-              reason: classifierDecision
-                ? `Classifier requested human approval: ${classifierDecision.reason}`
-                : 'This tool is not eligible for unattended auto-permission.',
+              reason:
+                classifierDecision && isJudgeUnavailable(classifierDecision)
+                  ? judgeOutageReason(classifierDecision)
+                  : classifierDecision
+                    ? `Classifier requested human approval: ${classifierDecision.reason}`
+                    : 'This tool is not eligible for unattended auto-permission.',
             };
           }
           const effectiveSuggestions = classifierDecision?.denylistHit
@@ -447,6 +474,11 @@ export function createInlineCoreTools(
             // prettier-ignore
             rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps, canonicalRoot: permissionTailContext?.canonicalRoot }),
             beforePrompt: async () => {
+              await sendJudgeOfflineNoticeForRequest(
+                classifierDecision,
+                deps.sendMessage,
+                request,
+              );
               laneInput.jobActivity.beginPermissionRequest(
                 request.requestId,
                 request.toolName,

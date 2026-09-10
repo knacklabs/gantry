@@ -26,6 +26,7 @@ import type {
 } from '@core/domain/types.js';
 import type { PermissionDecisionSource } from '@core/domain/types.js';
 import type { RailProvenance } from '@core/domain/permission-lane.js';
+import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import type { PermissionMode } from '@core/shared/permission-mode.js';
 import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
@@ -47,6 +48,7 @@ export interface TapBudgetFixture {
   attachmentOpenIds?: { wellFormed: boolean; count: number };
   trustedRoots: string[];
   classifierVerdict: {
+    status?: PermissionClassifierStatus;
     risk_level: 'low' | 'medium' | 'high' | 'critical';
     risk_category?:
       | 'destructive'
@@ -60,6 +62,12 @@ export interface TapBudgetFixture {
   classifierConsult?: () => Promise<
     TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
   >;
+  sendMessage?: (
+    jid: string,
+    text: string,
+    options?: { threadId?: string; providerAccountId?: string },
+  ) => Promise<void>;
+  publishRuntimeEvent?: (() => Promise<void>) | false;
 }
 
 export async function assertLlmConsultNotInvoked(): Promise<never> {
@@ -73,9 +81,16 @@ export async function replayPermissionRequest(
   decidedBy: PermissionApprovalDecision['decidedBy'];
   source: PermissionDecisionSource;
   railProvenance: RailProvenance | null;
+  sendMessage: NonNullable<TapBudgetFixture['sendMessage']>;
+  publishRuntimeEvent: NonNullable<TapBudgetFixture['publishRuntimeEvent']>;
 }> {
   fs.mkdirSync(fixture.workspaceRoot, { recursive: true });
   let taps = 0;
+  const sendMessage = fixture.sendMessage ?? (async () => undefined);
+  const publishRuntimeEvent =
+    fixture.publishRuntimeEvent === false
+      ? undefined
+      : (fixture.publishRuntimeEvent ?? (async () => undefined));
   const responseKeyId = fixture.hostJobId
     ? `tap-budget-${fixture.hostJobId}`
     : undefined;
@@ -130,10 +145,14 @@ export async function replayPermissionRequest(
         classifierConsult:
           fixture.classifierConsult ??
           (async () => ({
+            status:
+              fixture.classifierVerdict.status ??
+              PermissionClassifierStatus.Answered,
             ...fixture.classifierVerdict,
             latencyMs: 1,
           })),
-        publishRuntimeEvent: async () => undefined,
+        sendMessage,
+        publishRuntimeEvent,
         getPermissionRuntimeSettings: () => ({
           agents: {
             main_agent: { permissionMode: fixture.permissionMode },
@@ -157,12 +176,20 @@ export async function replayPermissionRequest(
   if (!decision.source) {
     throw new Error('Replay decision is missing canonical provenance.');
   }
-  return {
-    taps,
-    decidedBy: decision.decidedBy,
-    source: decision.source,
-    railProvenance: decision.railProvenance ?? null,
-  };
+  return Object.defineProperties(
+    {
+      taps,
+      decidedBy: decision.decidedBy,
+      source: decision.source,
+      railProvenance: decision.railProvenance ?? null,
+    },
+    {
+      sendMessage: { value: sendMessage },
+      publishRuntimeEvent: {
+        value: publishRuntimeEvent ?? (async () => undefined),
+      },
+    },
+  );
 }
 
 export const TAP_BUDGET_WORKSPACE_ROOT =
@@ -179,6 +206,12 @@ interface ExactMemoryReplay {
 async function replayExactMemorySequence(
   scenario: string,
   steps: Array<{ command: string; rememberCode?: PermissionRememberCode }>,
+  options: {
+    classifierConsult?: () => Promise<
+      TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
+    >;
+    sendMessage?: TapBudgetFixture['sendMessage'];
+  } = {},
 ): Promise<ExactMemoryReplay> {
   const rows: PermissionDecisionMemoryRow[] = [];
   const decisionMemory = inMemoryDecisionMemory(rows);
@@ -273,11 +306,15 @@ async function replayExactMemorySequence(
             applications.push(interaction.decision.mode);
             return permissionDecisionResult(interaction.decision);
           },
-          classifierConsult: async () => ({
-            risk_level: 'high',
-            reason: 'Remember this exact command.',
-            latencyMs: 1,
-          }),
+          classifierConsult:
+            options.classifierConsult ??
+            (async () => ({
+              status: PermissionClassifierStatus.Answered,
+              risk_level: 'high',
+              reason: 'Remember this exact command.',
+              latencyMs: 1,
+            })),
+          sendMessage: options.sendMessage ?? (async () => undefined),
           publishRuntimeEvent: async () => undefined,
           getPermissionDecisionMemoryRepository: () => decisionMemory,
           getPermissionRuntimeSettings: () => ({
@@ -321,13 +358,19 @@ export async function replayRememberedExactAllow(): Promise<{
   };
 }
 
-export function replayDestructiveExactMemory(): Promise<ExactMemoryReplay> {
-  return replayExactMemorySequence('s4', [
-    { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
-    { command: 'rm -rf build' },
-    { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
-    { command: 'rm -rf dist' },
-  ]);
+export function replayDestructiveExactMemory(
+  options?: Parameters<typeof replayExactMemorySequence>[2],
+): Promise<ExactMemoryReplay> {
+  return replayExactMemorySequence(
+    's4',
+    [
+      { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
+      { command: 'rm -rf build' },
+      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
+      { command: 'rm -rf dist' },
+    ],
+    options,
+  );
 }
 
 export async function replayRememberedJobProjection(): Promise<{

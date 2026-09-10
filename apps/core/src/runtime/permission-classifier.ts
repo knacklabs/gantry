@@ -65,7 +65,8 @@ export type PermissionClassifierFailureCode =
   | 'query_error'
   | 'parse_failure'
   | 'validation_failure'
-  | 'input_truncated';
+  | 'input_truncated'
+  | 'wiring_missing';
 
 export interface PermissionClassifierInput {
   appId: AppId;
