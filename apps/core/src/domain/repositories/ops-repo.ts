@@ -453,7 +453,10 @@ export interface RuntimeAgentSessionRepository {
     expectedAgentSessionResetAt: string | null;
     contextHighWaterMark: number;
   }): Promise<boolean>;
-  retireProviderSession?(input: {
+  // Required, never optional: an access-fingerprint change or a missing
+  // provider session MUST retire the row (0158 §3, T1-AC6). A repository that
+  // cannot retire must not be wired into a live runtime.
+  retireProviderSession(input: {
     providerSessionId: string;
     agentSessionId: string;
     provider: ExecutionProviderId;

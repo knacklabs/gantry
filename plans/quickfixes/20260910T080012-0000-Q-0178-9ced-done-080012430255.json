@@ -1,0 +1,15 @@
+{
+  "event": "done",
+  "id": "Q-0178-9ced",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "companion outage (five frozen Codex workers, 2026-09-09/10): re-applying cache-bug-T1 review fix two (provider-session retirement required, never optional \u2014 security P1) host-side under a stage-bound window; per Ravi (chat, 2026-09-10)",
+  "started_at": "2026-09-10T07:59:05+00:00",
+  "completed_at": "2026-09-10T08:00:12+00:00",
+  "files": [
+    "apps/core/src/domain/repositories/ops-repo.ts",
+    "apps/core/src/runtime/group-agent-runner.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
