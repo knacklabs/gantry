@@ -56,18 +56,20 @@ type RuntimeGroupProcessorInput = Pick<
 };
 
 export function createRuntimeGroupProcessor(input: RuntimeGroupProcessorInput) {
-  const storage = getRuntimeStorage();
+  let rememberedService: HumanDecisionMemoryService | undefined;
   return createGroupProcessor({
     ...input,
-    getToolRepository: () => storage.repositories.tools,
-    getAsyncTaskRepository: () => storage.repositories.asyncTasks,
-    getPatternCandidateRepository: () => storage.repositories.patternCandidates,
+    getToolRepository: () => getRuntimeStorage().repositories.tools,
+    getAsyncTaskRepository: () => getRuntimeStorage().repositories.asyncTasks,
+    getPatternCandidateRepository: () =>
+      getRuntimeStorage().repositories.patternCandidates,
     getProactiveSurfacingRepository: () =>
-      storage.repositories.proactiveSurfacing,
+      getRuntimeStorage().repositories.proactiveSurfacing,
     getAgentLockStatus: resolveAgentLockStatus,
-    getSkillRepository: () => storage.repositories.skills,
-    getMcpServerRepository: () => storage.repositories.mcpServers,
-    getCapabilitySecretRepository: () => storage.repositories.capabilitySecrets,
+    getSkillRepository: () => getRuntimeStorage().repositories.skills,
+    getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
+    getCapabilitySecretRepository: () =>
+      getRuntimeStorage().repositories.capabilitySecrets,
     getSkillArtifactStore:
       input.skillArtifactStore ?? getRuntimeSkillArtifactStore,
     collectSessionMemory: input.collectSessionMemory,
@@ -78,13 +80,16 @@ export function createRuntimeGroupProcessor(input: RuntimeGroupProcessorInput) {
       getDefaultModelConfig('interactive', agentFolder).model,
     getSelectedAgentHarness,
     remembered: {
-      service: new HumanDecisionMemoryService({
-        repository: storage.repositories.permissionDecisionMemory,
-      }),
+      // Storage opens after app construction; resolve it on first use.
+      get service() {
+        return (rememberedService ??= new HumanDecisionMemoryService({
+          repository: getRuntimeStorage().repositories.permissionDecisionMemory,
+        }));
+      },
       usedBy: (appId) =>
         createUsedByJobReader({
           appId,
-          permissions: storage.repositories.permissions,
+          permissions: getRuntimeStorage().repositories.permissions,
           listJobs: async (jobIds) =>
             (
               await Promise.all(

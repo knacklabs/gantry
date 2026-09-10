@@ -121,6 +121,25 @@ const OPUS_MODEL_METADATA = {
   supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
 } as const;
 
+const FABLE_MODEL_METADATA = {
+  contextWindowTokens: 1_000_000,
+  maxOutputTokens: 128_000,
+  inputUsdPerMillionTokens: 10,
+  outputUsdPerMillionTokens: 50,
+  cachedInputUsdPerMillionTokens: 1,
+  cacheWriteUsdPerMillionTokens: 12.5,
+  cacheMode: DIRECT_PROMPT_CACHE_MODE,
+  cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
+  supportsThinking: true,
+  supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
+  supportsAdaptiveThinking: true,
+  supportsTools: true,
+  imageInput: true,
+  imageToolResults: true,
+  pdfInput: true,
+  supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+} as const;
+
 const OPENROUTER_PROVIDER_AVAILABILITY: ModelProviderAvailability = {
   verifiedAt: '2026-06-22',
   evidence: {
@@ -392,29 +411,24 @@ export type ModelResolution =
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
   executableModelEntry({
+    id: 'anthropic:fable-5-1',
+    route: anthropicRoute('claude-fable-5-1'),
+    displayName: 'Fable 5.1',
+    runnerModel: 'claude-fable-5-1',
+    aliases: ['fable', 'fable-5.1'],
+    recommendedAlias: 'fable',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
+    ...FABLE_MODEL_METADATA,
+  }),
+  executableModelEntry({
     id: 'anthropic:fable-5',
     route: anthropicRoute('claude-fable-5'),
     displayName: 'Fable 5',
     runnerModel: 'claude-fable-5',
-    aliases: ['fable', 'fable-5'],
-    recommendedAlias: 'fable',
+    aliases: ['fable-5'],
+    recommendedAlias: 'fable-5',
     source: CLAUDE_MODELS_OVERVIEW_SOURCE,
-    contextWindowTokens: 1_000_000,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 10,
-    outputUsdPerMillionTokens: 50,
-    cachedInputUsdPerMillionTokens: 1,
-    cacheWriteUsdPerMillionTokens: 12.5,
-    cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
-    supportsThinking: true,
-    supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
-    supportsAdaptiveThinking: true,
-    supportsTools: true,
-    imageInput: true,
-    imageToolResults: true,
-    pdfInput: true,
-    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+    ...FABLE_MODEL_METADATA,
   }),
   executableModelEntry({
     id: ['anth', 'ropic:opus-5'].join(''),
