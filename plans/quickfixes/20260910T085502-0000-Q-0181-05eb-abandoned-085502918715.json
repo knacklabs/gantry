@@ -1,0 +1,10 @@
+{
+  "event": "abandoned",
+  "id": "Q-0181-05eb",
+  "profile": "degraded",
+  "reason": "finding rejected against contract; no product change needed",
+  "opened_reason": "review P1: resetProviderSessionScope must stop (empty list) when chatJid is given but no route owner resolves (T1-AC8 no-route path); companion workers frozen, host-side fix",
+  "started_at": "2026-09-10T08:53:29+00:00",
+  "completed_at": "2026-09-10T08:55:02+00:00",
+  "files": []
+}

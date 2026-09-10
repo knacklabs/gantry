@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0184-f1b9",
+  "profile": "degraded",
+  "reason": "review round on merged tree: T1-AC2 gaps (normaliser consumer errors and tool-permission denials must keep the accumulated partial usage) and the inline-lane provider/modelRoute conflation (AC7); companion workers frozen, host-side fix per Ravi",
+  "started_at": "2026-09-10T09:25:12+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

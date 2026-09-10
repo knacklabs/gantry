@@ -1,0 +1,12 @@
+{
+  "topic": "forge review needs the current Codex CLI on PATH",
+  "lesson": "Switching the shell to Node 24 via nvm drops the nvm Node 22 bin where codex-cli 0.153 is installed, so autoreview resolves Homebrew's stale codex-cli 0.141, which fails on ~/.codex/config.toml (map where it expects a boolean) and exits 1 with no JSON. Run forge review on the default PATH (or prefix the nvm 22 bin); only verify.py needs Node 24.",
+  "source": "scratchpad review-merged.log 2026-09-10; codex session 01a08a93-4352",
+  "applies_to": [
+    ".factory/review-briefs/**",
+    "factory/scripts/forge_cli/review.py"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T09:11:33+00:00"
+}
