@@ -15,26 +15,9 @@ import {
   RAIL_CATALOG_VERSION,
 } from '../domain/permission-effect-key.js';
 import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
-import type {
-  PermissionClassifierFailureCode,
-  PermissionClassifierPromptConsultResult,
-} from './permission-classifier.js';
+import type { PermissionClassifierPromptConsultResult } from './permission-classifier.js';
 
 export const judgeOutageLatch = createJudgeOutageLatch();
-
-export function unavailablePromptConsultResult(
-  failureCode: PermissionClassifierFailureCode,
-  startedAt: number,
-): PermissionClassifierPromptConsultResult {
-  return {
-    status: PermissionClassifierStatus.Unavailable,
-    risk_level: 'high',
-    reason: `Classifier unavailable (${failureCode}); ask the user.`,
-    latencyMs: Date.now() - startedAt,
-    failureCode,
-    decision: 'ask',
-  };
-}
 
 export function isJudgeUnavailable(
   result: PermissionClassifierPromptConsultResult | undefined,

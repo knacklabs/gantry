@@ -83,6 +83,8 @@ export async function replayPermissionRequest(
   fixture: TapBudgetFixture,
 ): Promise<{
   taps: number;
+  approved: boolean;
+  mode: PermissionApprovalDecision['mode'];
   decidedBy: PermissionApprovalDecision['decidedBy'];
   source: PermissionDecisionSource;
   railProvenance: RailProvenance | null;
@@ -196,6 +198,8 @@ export async function replayPermissionRequest(
       railProvenance: decision.railProvenance ?? null,
     },
     {
+      approved: { value: decision.approved },
+      mode: { value: decision.mode },
       sendMessage: { value: sendMessage },
       publishRuntimeEvent: {
         value: publishRuntimeEvent ?? (async () => undefined),
@@ -394,6 +398,7 @@ export async function replayRememberedJobProjection(
     classifierConsult?: () => Promise<
       TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
     >;
+    publishRuntimeEvent?: (() => Promise<void>) | false;
   } = {},
 ): Promise<{
   chatTaps: number;
@@ -401,7 +406,9 @@ export async function replayRememberedJobProjection(
   railBumpTaps: number;
   revoked: 'applied' | 'already_revoked' | 'not_found';
   decisions: PermissionApprovalDecision[];
+  decisionReasons: Array<string | undefined>;
   railBumpDecision: PermissionApprovalDecision;
+  railBumpReason?: string;
 }> {
   const command = `cd ${TAP_BUDGET_WORKSPACE_ROOT} && ls && git log`;
   const chat = await replayExactMemorySequence('s5', [
@@ -411,6 +418,7 @@ export async function replayRememberedJobProjection(
   const memory = inMemoryDecisionMemory(rows);
   const replayJob = async (requestId: string, jobCommand: string) => {
     let taps = 0;
+    let decisionReason: string | undefined;
     const responseKeyId = `tap-budget-${requestId}`;
     registerWorkerPermissionRunRestriction({
       sourceAgentFolder: 'main_agent',
@@ -442,8 +450,9 @@ export async function replayRememberedJobProjection(
               agentConfig: { permissionMode: 'auto' },
             },
           }),
-          requestPermissionApproval: async () => {
+          requestPermissionApproval: async (request) => {
             taps += 1;
+            decisionReason = request.decisionReason;
             return permissionDecisionResult({
               approved: false,
               mode: 'cancel',
@@ -458,7 +467,12 @@ export async function replayRememberedJobProjection(
               reason: 'Ask the person.',
               latencyMs: 1,
             })),
-          publishRuntimeEvent: async () => undefined,
+          ...(options.publishRuntimeEvent === false
+            ? {}
+            : {
+                publishRuntimeEvent:
+                  options.publishRuntimeEvent ?? (async () => undefined),
+              }),
           getPermissionDecisionMemoryRepository: () => memory,
           opsRepository: {
             getJobById: async () => ({
@@ -476,7 +490,7 @@ export async function replayRememberedJobProjection(
           }),
         } as never,
       });
-      return { taps, decision };
+      return { taps, decision, decisionReason };
     } finally {
       unregisterPermissionRunRestriction({
         sourceAgentFolder: 'main_agent',
@@ -506,7 +520,15 @@ export async function replayRememberedJobProjection(
     railBumpTaps: railBump.taps,
     revoked,
     decisions: [projected.decision, nearMiss.decision, afterForget.decision],
+    decisionReasons: [
+      projected.decisionReason,
+      nearMiss.decisionReason,
+      afterForget.decisionReason,
+    ],
     railBumpDecision: railBump.decision,
+    ...(railBump.decisionReason
+      ? { railBumpReason: railBump.decisionReason }
+      : {}),
   };
 }
 

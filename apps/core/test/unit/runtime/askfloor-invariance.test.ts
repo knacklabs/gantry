@@ -5,23 +5,27 @@ import {
   createInlineCoreTools,
   wireInlineAgentLoopTools,
 } from '@core/app/bootstrap/inline-agent-loop-tools.js';
-import { decisionForMode } from '@core/domain/permission-decision.js';
-import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import {
-  FAMILY_RULE_RAIL_HIT_REASON,
-  coordinatePermissionDecision,
-} from '@core/runtime/permission-decision-coordinator.js';
+  JUDGE_OFFLINE_NOTICE,
+  JUDGE_OFFLINE_REASON,
+} from '@core/application/permissions/permission-judge-outage-latch.js';
+import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
+import type { PermissionApprovalDecision } from '@core/domain/types.js';
+import { FAMILY_RULE_RAIL_HIT_REASON } from '@core/runtime/permission-decision-coordinator.js';
 import type { PermissionClassifierFailureCode } from '@core/runtime/permission-classifier.js';
 import { judgeOutageLatch } from '@core/runtime/permission-judge-outage.js';
+import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { evaluateNeutralToolPreChecks } from '@core/runner/tool-gate-core.js';
 import {
   formatMemoryToolResponse,
   formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
+import { permissionDecisionResult } from '../channels/permission-approval-result-helpers.js';
 import {
   replayPermissionRequest,
   replayRememberedJobProjection,
   TAP_BUDGET_WORKSPACE_ROOT,
+  type TapBudgetFixture,
 } from './askfloor-tap-budget-harness.js';
 
 const FAILURE_CODES = [
@@ -34,17 +38,104 @@ const FAILURE_CODES = [
   'wiring_missing',
 ] as const satisfies readonly PermissionClassifierFailureCode[];
 
-const fixtureBase = {
-  workspaceRoot: TAP_BUDGET_WORKSPACE_ROOT,
-  trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
-};
-
-const answeredVerdict = {
+const ANSWERED_VERDICT = {
   status: PermissionClassifierStatus.Answered,
   risk_level: 'high' as const,
   risk_category: 'network' as const,
   reason: 'The judge requires approval.',
 };
+
+const CARD = {
+  taps: 1,
+  approved: false,
+  mode: 'cancel',
+  decidedBy: 'owner',
+  source: 'user',
+  railProvenance: null,
+  decisionReason: null,
+} as const;
+
+const ANSWERED_CARD = {
+  ...CARD,
+  decisionReason: 'The judge requires approval.',
+} as const;
+
+const OFFLINE_CARD = {
+  ...CARD,
+  decisionReason: JUDGE_OFFLINE_REASON,
+} as const;
+
+const FIND_RAIL_CARD = {
+  ...CARD,
+  decisionReason:
+    'Shell input is unsupported: Bash meta-executor find is not supported for persistent approval.',
+} as const;
+
+const STRICT_CARD = {
+  ...CARD,
+  decisionReason: 'No approved capability boundary covers this action.',
+} as const;
+
+const fixtureBase = {
+  workspaceRoot: TAP_BUDGET_WORKSPACE_ROOT,
+  trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+};
+
+type PermissionTuple = {
+  taps: number;
+  approved: boolean;
+  mode: PermissionApprovalDecision['mode'];
+  decidedBy: PermissionApprovalDecision['decidedBy'];
+  source: PermissionApprovalDecision['source'];
+  railProvenance: PermissionApprovalDecision['railProvenance'] | null;
+  decisionReason: string | null;
+};
+
+function permissionTuple(
+  result: Awaited<ReturnType<typeof replayPermissionRequest>>,
+): PermissionTuple {
+  return {
+    taps: result.taps,
+    approved: result.approved,
+    mode: result.mode,
+    decidedBy: result.decidedBy,
+    source: result.source,
+    railProvenance: result.railProvenance,
+    decisionReason: result.decisionReason ?? null,
+  };
+}
+
+function decisionTuple(
+  decision: PermissionApprovalDecision,
+  decisionReason?: string,
+): Omit<PermissionTuple, 'taps'> {
+  return {
+    approved: decision.approved,
+    mode: decision.mode,
+    decidedBy: decision.decidedBy,
+    source: decision.source,
+    railProvenance: decision.railProvenance ?? null,
+    decisionReason: decisionReason ?? null,
+  };
+}
+
+function projectionTuples(
+  replay: Awaited<ReturnType<typeof replayRememberedJobProjection>>,
+) {
+  return {
+    chatTaps: replay.chatTaps,
+    jobTaps: replay.jobTaps,
+    railBumpTaps: replay.railBumpTaps,
+    revoked: replay.revoked,
+    decisions: replay.decisions.map((decision, index) =>
+      decisionTuple(decision, replay.decisionReasons[index]),
+    ),
+    railBumpDecision: decisionTuple(
+      replay.railBumpDecision,
+      replay.railBumpReason,
+    ),
+  };
+}
 
 function unavailableVerdict(failureCode: PermissionClassifierFailureCode) {
   return {
@@ -56,49 +147,104 @@ function unavailableVerdict(failureCode: PermissionClassifierFailureCode) {
   };
 }
 
-const tuple = (
-  result: Awaited<ReturnType<typeof replayPermissionRequest>>,
-) => ({
-  taps: result.taps,
-  decidedBy: result.decidedBy,
-  source: result.source,
-  railProvenance: result.railProvenance,
-});
-
-async function replayFamilyRail(unavailable = false) {
-  const request = {
-    requestId: 'invariance-family-rail',
-    sourceAgentFolder: 'main_agent',
-    toolName: 'RunCommand',
-    toolInput: { command: 'rm -rf build' },
-    suggestions: [
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        rules: [{ toolName: 'RunCommand', ruleContent: 'rm *' }],
-      },
-    ],
-  } as never;
-  let taps = 0;
-  const decision = await coordinatePermissionDecision({
-    request,
-    reviewedRuleDecision: {
-      status: 'allow',
-      reason: 'The command family is allowed.',
-      matchedRule: 'RunCommand(rm *)',
-      isFamilyRule: true,
-    } as never,
-    tail: async () => {
-      taps += 1;
-      return {
-        ...decisionForMode(request, 'cancel', 'owner', 'human'),
-        reason: unavailable
-          ? 'Asking because my safety judge is offline.'
-          : 'The judge requires approval.',
-      };
+async function replayFixture(
+  request: Omit<
+    TapBudgetFixture,
+    keyof typeof fixtureBase | 'classifierVerdict'
+  >,
+  failureCode?: PermissionClassifierFailureCode,
+) {
+  judgeOutageLatch.clearAll();
+  const notices: string[] = [];
+  const result = await replayPermissionRequest({
+    ...fixtureBase,
+    ...request,
+    classifierVerdict: failureCode
+      ? unavailableVerdict(failureCode)
+      : ANSWERED_VERDICT,
+    sendMessage: async (_jid, text) => {
+      notices.push(text);
     },
+    ...(failureCode === 'wiring_missing' ? { publishRuntimeEvent: false } : {}),
   });
-  return { taps, decision, reason: request.decisionReason };
+  judgeOutageLatch.clearAll();
+  return { tuple: permissionTuple(result), notices };
+}
+
+async function replayFamilyRail(failureCode?: PermissionClassifierFailureCode) {
+  judgeOutageLatch.clearAll();
+  const notices: string[] = [];
+  let taps = 0;
+  let decisionReason: string | undefined;
+  let policyDecisionReason: string | undefined;
+  const decision = await resolvePermissionIpcDecision({
+    request: {
+      requestId: 'invariance-family-rail',
+      targetJid: 'invariance:family-rail',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput: { command: 'rm -rf build' },
+    },
+    sourceAgentFolder: 'main_agent',
+    deps: {
+      conversationRoutes: () => ({}),
+      requestPermissionApproval: async (request) => {
+        taps += 1;
+        decisionReason = request.decisionReason;
+        return permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          source: 'user',
+        });
+      },
+      classifierConsult: async (input) => {
+        policyDecisionReason = input.policyDecisionReason;
+        return {
+          ...(failureCode ? unavailableVerdict(failureCode) : ANSWERED_VERDICT),
+          latencyMs: 1,
+        };
+      },
+      sendMessage: async (_jid, text) => {
+        notices.push(text);
+      },
+      ...(failureCode === 'wiring_missing'
+        ? {}
+        : { publishRuntimeEvent: async () => undefined }),
+      getToolRepository: () => ({
+        listAgentToolBindings: async () => [
+          { status: 'active', toolId: 'family-rule', personId: null },
+        ],
+        getTool: async () => ({
+          id: 'family-rule',
+          appId: 'default',
+          name: 'RunCommand(rm *)',
+        }),
+      }),
+      getPermissionRuntimeSettings: () => ({
+        agents: { main_agent: { permissionMode: 'auto' } },
+        permissions: {
+          autoMode: {},
+          trustedRoots: [TAP_BUDGET_WORKSPACE_ROOT],
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    } as never,
+  });
+  judgeOutageLatch.clearAll();
+  return {
+    tuple: {
+      taps,
+      approved: decision.approved,
+      mode: decision.mode,
+      decidedBy: decision.decidedBy,
+      source: decision.source,
+      railProvenance: decision.railProvenance ?? null,
+      decisionReason: decisionReason ?? null,
+    },
+    notices,
+    policyDecisionReason,
+  };
 }
 
 async function replayInlineScheduled(
@@ -117,7 +263,7 @@ async function replayInlineScheduled(
     },
     channelWiring: {
       sendMessage: async () => {
-        notices.push('notice');
+        notices.push(JUDGE_OFFLINE_NOTICE);
       },
       requestPermissionApproval: async () => {
         throw new Error(
@@ -137,10 +283,10 @@ async function replayInlineScheduled(
     ...(failureCode === 'wiring_missing'
       ? {}
       : { publishRuntimeEvent: async () => undefined }),
-    classifierConsult: async () =>
-      failureCode
-        ? { ...unavailableVerdict(failureCode), latencyMs: 1 }
-        : { ...answeredVerdict, latencyMs: 1 },
+    classifierConsult: async () => ({
+      ...(failureCode ? unavailableVerdict(failureCode) : ANSWERED_VERDICT),
+      latencyMs: 1,
+    }),
     recordDecision: async () => undefined,
     warn: () => undefined,
   } as never);
@@ -199,15 +345,19 @@ describe('ASKFLOOR judge invariance', () => {
         label: 'ask',
         request: {
           permissionMode: 'ask' as const,
-          command: 'git status 2>/dev/null',
+          command: "find . -name '*.ts'",
         },
+        answered: FIND_RAIL_CARD,
+        unavailable: FIND_RAIL_CARD,
       },
       {
         label: 'auto_strict',
         request: {
           permissionMode: 'auto_strict' as const,
-          command: 'git status 2>/dev/null',
+          command: "find . -name '*.ts'",
         },
+        answered: STRICT_CARD,
+        unavailable: STRICT_CARD,
       },
       {
         label: 'interactive_auto',
@@ -220,7 +370,8 @@ describe('ASKFLOOR judge invariance', () => {
             payload: { source: { type: 'path', path: '/tmp/upload.txt' } },
           },
         },
-        offlineReason: true,
+        answered: ANSWERED_CARD,
+        unavailable: OFFLINE_CARD,
       },
       {
         label: 'trusted-host autonomous',
@@ -234,7 +385,8 @@ describe('ASKFLOOR judge invariance', () => {
             payload: { source: { type: 'path', path: '/tmp/upload.txt' } },
           },
         },
-        offlineReason: true,
+        answered: ANSWERED_CARD,
+        unavailable: OFFLINE_CARD,
       },
       {
         label: 'YOLO backstop',
@@ -247,15 +399,35 @@ describe('ASKFLOOR judge invariance', () => {
             denylistPaths: [],
           },
         },
+        answered: {
+          taps: 0,
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'hard_deny',
+          source: 'human_once',
+          railProvenance: null,
+          decisionReason: null,
+        },
+        unavailable: {
+          taps: 0,
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'hard_deny',
+          source: 'human_once',
+          railProvenance: null,
+          decisionReason: null,
+        },
       },
       {
         label: 'unmapped forced ask',
         request: {
           permissionMode: 'auto' as const,
+          targetJid: 'invariance:unmapped',
           toolName: 'mcp__gantry__frobnicate_everything',
           toolInput: {},
         },
-        offlineReason: true,
+        answered: ANSWERED_CARD,
+        unavailable: OFFLINE_CARD,
       },
       {
         label: 'scheduler mutation',
@@ -264,119 +436,185 @@ describe('ASKFLOOR judge invariance', () => {
           toolName: 'mcp__gantry__scheduler_delete_job',
           toolInput: { jobId: 'job-1' },
         },
+        answered: { ...CARD, decisionReason: 'scheduler mutation' },
+        unavailable: { ...CARD, decisionReason: 'scheduler mutation' },
       },
       {
-        label: 'destructive command',
+        label: 'admin mutation',
         request: {
           permissionMode: 'auto' as const,
-          command: 'rm -rf build',
+          toolName: 'mcp__gantry__admin_permission_revoke',
+          toolInput: {},
         },
-        offlineReason: true,
+        answered: { ...CARD, decisionReason: 'admin mutation' },
+        unavailable: { ...CARD, decisionReason: 'admin mutation' },
+      },
+      {
+        label: 'destructive',
+        request: { permissionMode: 'auto' as const, command: 'rm -rf build' },
+        answered: ANSWERED_CARD,
+        unavailable: OFFLINE_CARD,
       },
     ];
 
     for (const fixture of fixtures) {
-      judgeOutageLatch.clearAll();
-      const answered = await replayPermissionRequest({
-        ...fixtureBase,
-        ...fixture.request,
-        classifierVerdict: answeredVerdict,
+      await expect(
+        replayFixture(fixture.request),
+        fixture.label,
+      ).resolves.toEqual({
+        tuple: fixture.answered,
+        notices: [],
       });
       for (const failureCode of FAILURE_CODES) {
-        judgeOutageLatch.clearAll();
-        const unavailable = await replayPermissionRequest({
-          ...fixtureBase,
-          ...fixture.request,
-          classifierVerdict: unavailableVerdict(failureCode),
-          ...(failureCode === 'wiring_missing'
-            ? { publishRuntimeEvent: false }
-            : {}),
+        await expect(
+          replayFixture(fixture.request, failureCode),
+          `${fixture.label}:${failureCode}`,
+        ).resolves.toEqual({
+          tuple: fixture.unavailable,
+          notices:
+            fixture.unavailable.decisionReason === JUDGE_OFFLINE_REASON &&
+            fixture.request.targetJid
+              ? [JUDGE_OFFLINE_NOTICE]
+              : [],
         });
-        expect(tuple(unavailable), `${fixture.label}:${failureCode}`).toEqual(
-          tuple(answered),
-        );
-        if (fixture.offlineReason) {
-          expect(unavailable.decisionReason).toBe(
-            'Asking because my safety judge is offline.',
-          );
-        }
       }
     }
 
+    const family = await replayFamilyRail();
+    expect(family).toEqual({
+      tuple: ANSWERED_CARD,
+      notices: [],
+      policyDecisionReason: `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
+    });
     for (const failureCode of FAILURE_CODES) {
-      const answered = await replayRememberedJobProjection();
-      const unavailable = await replayRememberedJobProjection({
-        classifierConsult: async () => ({
-          ...unavailableVerdict(failureCode),
-          latencyMs: 1,
-        }),
-      });
-      expect(unavailable).toMatchObject({
-        chatTaps: answered.chatTaps,
-        jobTaps: answered.jobTaps,
-        railBumpTaps: answered.railBumpTaps,
-        revoked: answered.revoked,
-      });
-      expect(unavailable).toMatchObject({
-        chatTaps: 1,
-        jobTaps: [0, 1, 1],
-        railBumpTaps: 1,
-        revoked: 'applied',
+      await expect(
+        replayFamilyRail(failureCode),
+        `family:${failureCode}`,
+      ).resolves.toEqual({
+        tuple: OFFLINE_CARD,
+        notices: [JUDGE_OFFLINE_NOTICE],
+        policyDecisionReason:
+          failureCode === 'wiring_missing'
+            ? undefined
+            : `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
       });
     }
 
-    const family = await replayFamilyRail();
-    expect(family).toMatchObject({ taps: 1 });
-    expect(family.reason).toBe(
-      `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
-    );
-    for (const failureCode of FAILURE_CODES) {
-      await expect(
-        replayFamilyRail(Boolean(failureCode)),
-      ).resolves.toMatchObject({
-        taps: family.taps,
-        decision: {
-          approved: family.decision.approved,
-          mode: family.decision.mode,
-          decidedBy: family.decision.decidedBy,
-          source: family.decision.source,
+    const answeringProjection = {
+      chatTaps: 1,
+      jobTaps: [0, 1, 1],
+      railBumpTaps: 1,
+      revoked: 'applied',
+      decisions: [
+        {
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'human_decision',
+          source: 'human_decision',
+          railProvenance: null,
+          decisionReason: null,
         },
-        reason: family.reason,
-      });
+        {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          source: 'user',
+          railProvenance: null,
+          decisionReason: 'Ask the person.',
+        },
+        {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          source: 'user',
+          railProvenance: null,
+          decisionReason: 'Ask the person.',
+        },
+      ],
+      railBumpDecision: {
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'owner',
+        source: 'user',
+        railProvenance: null,
+        decisionReason: 'Ask the person.',
+      },
+    };
+    const unavailableProjection = {
+      ...answeringProjection,
+      decisions: [
+        answeringProjection.decisions[0],
+        {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          source: 'user',
+          railProvenance: null,
+          decisionReason: JUDGE_OFFLINE_REASON,
+        },
+        {
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          source: 'user',
+          railProvenance: null,
+          decisionReason: JUDGE_OFFLINE_REASON,
+        },
+      ],
+      railBumpDecision: {
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'owner',
+        source: 'user',
+        railProvenance: null,
+        decisionReason: JUDGE_OFFLINE_REASON,
+      },
+    };
+    await expect(
+      replayRememberedJobProjection().then(projectionTuples),
+    ).resolves.toEqual(answeringProjection);
+    for (const failureCode of FAILURE_CODES) {
+      const replay = await replayRememberedJobProjection(
+        failureCode === 'wiring_missing'
+          ? { publishRuntimeEvent: false }
+          : {
+              classifierConsult: async () => ({
+                ...unavailableVerdict(failureCode),
+                latencyMs: 1,
+              }),
+            },
+      );
+      expect(projectionTuples(replay)).toEqual(unavailableProjection);
     }
   });
 
   it('keeps the inline-scheduled path and the attachment_open birthright unchanged under an unavailable judge', async () => {
+    const attachment = {
+      permissionMode: 'auto' as const,
+      toolName: 'mcp__gantry__attachment_open',
+      toolInput: { attachment_ids: ['attachment-1'] },
+      attachmentOpenIds: { wellFormed: true, count: 1 },
+    };
+    const attachmentTuple = {
+      taps: 0,
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'birthright',
+      source: 'birthright',
+      railProvenance: null,
+      decisionReason: null,
+    };
+    await expect(replayFixture(attachment)).resolves.toEqual({
+      tuple: attachmentTuple,
+      notices: [],
+    });
     for (const failureCode of FAILURE_CODES) {
-      const answeredAttachment = await replayPermissionRequest({
-        ...fixtureBase,
-        permissionMode: 'auto',
-        toolName: 'mcp__gantry__attachment_open',
-        toolInput: { attachment_ids: ['attachment-1'] },
-        attachmentOpenIds: { wellFormed: true, count: 1 },
-        classifierVerdict: answeredVerdict,
-      });
-      const unavailableAttachment = await replayPermissionRequest({
-        ...fixtureBase,
-        permissionMode: 'auto',
-        toolName: 'mcp__gantry__attachment_open',
-        toolInput: { attachment_ids: ['attachment-1'] },
-        attachmentOpenIds: { wellFormed: true, count: 1 },
-        classifierVerdict: unavailableVerdict(failureCode),
-        ...(failureCode === 'wiring_missing'
-          ? { publishRuntimeEvent: false }
-          : {}),
-      });
-      expect(tuple(unavailableAttachment)).toEqual(tuple(answeredAttachment));
-      expect(unavailableAttachment).toMatchObject({
-        taps: 0,
-        decidedBy: 'birthright',
-        source: 'birthright',
+      await expect(replayFixture(attachment, failureCode)).resolves.toEqual({
+        tuple: attachmentTuple,
+        notices: [],
       });
 
-      const answeredInline = await replayInlineScheduled();
-      const unavailableInline = await replayInlineScheduled(failureCode);
-      expect(answeredInline).toEqual({
+      await expect(replayInlineScheduled()).resolves.toEqual({
         result: {
           allowed: false,
           reason:
@@ -384,12 +622,9 @@ describe('ASKFLOOR judge invariance', () => {
         },
         notices: [],
       });
-      expect(unavailableInline).toEqual({
-        result: {
-          allowed: false,
-          reason: 'Asking because my safety judge is offline.',
-        },
-        notices: ['notice'],
+      await expect(replayInlineScheduled(failureCode)).resolves.toEqual({
+        result: { allowed: false, reason: JUDGE_OFFLINE_REASON },
+        notices: [JUDGE_OFFLINE_NOTICE],
       });
     }
   });

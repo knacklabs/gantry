@@ -4,22 +4,20 @@ import { PermissionClassifierStatus } from '@core/domain/permission-classifier-s
 import {
   judgeOutageLatch,
   sendJudgeOfflineNoticeForRequest,
-  unavailablePromptConsultResult,
 } from '@core/runtime/permission-judge-outage.js';
 
 afterEach(() => judgeOutageLatch.clearAll());
 
 describe('permission judge outage runtime glue', () => {
   it('builds the synthetic unavailable prompt result sends the offline notice once per key with the provider account skips the send without a target and swallows send failures', async () => {
-    expect(
-      unavailablePromptConsultResult('wiring_missing', Date.now()),
-    ).toMatchObject({
+    const unavailable = {
       status: PermissionClassifierStatus.Unavailable,
-      risk_level: 'high',
-      decision: 'ask',
+      risk_level: 'high' as const,
+      decision: 'ask' as const,
       failureCode: 'wiring_missing',
       reason: 'Classifier unavailable (wiring_missing); ask the user.',
-    });
+      latencyMs: 0,
+    };
 
     const sendMessage = vi.fn(async () => undefined);
     const request = {
@@ -28,10 +26,6 @@ describe('permission judge outage runtime glue', () => {
       targetJid: 'tg:one',
       threadId: 'thread-one',
     };
-    const unavailable = unavailablePromptConsultResult(
-      'wiring_missing',
-      Date.now(),
-    );
     await sendJudgeOfflineNoticeForRequest(unavailable, sendMessage, request);
     await sendJudgeOfflineNoticeForRequest(unavailable, sendMessage, request);
     expect(sendMessage).toHaveBeenCalledOnce();
