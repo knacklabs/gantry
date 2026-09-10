@@ -56,14 +56,8 @@ WORKFLOW_PATHS = (".factory/", "plans/", "docs/context/ledger.json")
 # repo builds these AS product (no constitution/VENDORED_FROM marker), so it
 # keeps the strict set and the per-task scope check stays honest when dogfooding.
 HARNESS_MACHINERY_PATHS = (
-    "factory/", ".claude/", ".codex/", "constitution/",
+    "factory/", ".claude/", ".codex/", ".github/", "constitution/",
     "harness/", ".gstack/",
-    # NOT ".github/": the harness vendors no workflow into a client (no
-    # VENDOR_MANIFEST.json entry is under .github/), so a client's CI is its
-    # OWN product. Excluding the prefix reset it to the task base inside the
-    # review bundle, which made any acceptance criterion that requires a CI
-    # change permanently unprovable — the lens saw a local gate wired to a
-    # step that was not there and correctly called the criterion partial.
     # Top-level vendored harness FILES (not directories) that `forge upgrade`
     # rewrites and a client never authors as its own product. Excluding them
     # keeps the per-task scope/dirt check honest when the coordinator's own
