@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -115,7 +115,10 @@ async function getVerification(
       and(
         eq(onboardingVerificationsPostgres.id, id),
         eq(onboardingVerificationsPostgres.appId, appId),
-        eq(onboardingVerificationsPostgres.status, 'pending'),
+        inArray(onboardingVerificationsPostgres.status, [
+          'pending',
+          'inbound_received',
+        ]),
         lt(onboardingVerificationsPostgres.expiresAt, now),
       ),
     );
