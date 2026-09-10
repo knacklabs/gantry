@@ -1414,6 +1414,22 @@ export class PostgresMessageRepository implements MessageRepository {
           })),
         );
       }
+      if (message.direction === 'inbound') {
+        const text = message.parts
+          .flatMap((part) => part.kind === 'text' ? [part.text] : part.kind === 'markdown' ? [part.markdown] : [])
+          .join('\n');
+        if (text) {
+          await tx.update(pgSchema.onboardingVerificationsPostgres)
+            .set({ status: 'inbound_received', inboundMessageId: targetMessageId, updatedAt: message.createdAt })
+            .where(and(
+              eq(pgSchema.onboardingVerificationsPostgres.appId, message.appId),
+              eq(pgSchema.onboardingVerificationsPostgres.conversationId, message.conversationId),
+              eq(pgSchema.onboardingVerificationsPostgres.status, 'pending'),
+              gt(pgSchema.onboardingVerificationsPostgres.expiresAt, message.createdAt),
+              sql`${text} LIKE '%' || ${pgSchema.onboardingVerificationsPostgres.challenge} || '%'`,
+            ));
+        }
+      }
       if (replacementAttachmentRows.length > 0) {
         await tx
           .insert(pgSchema.messageAttachmentsPostgres)
