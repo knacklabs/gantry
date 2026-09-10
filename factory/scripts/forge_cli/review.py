@@ -284,14 +284,24 @@ _VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
 # thing that actually works, so both forms are honoured. This only ever
 # DOWNGRADES a partial when another pass gave a real verdict; when no pass did,
 # the contract stays partial and still fails closed.
-_CHUNK_BLIND = re.compile(
-    r"not present in (?:this |the )?chunk"
-    r"|(?:outside|beyond) (?:this|the) chunk"
-    r"|not (?:in|within) (?:this|the) chunk"
-    r"|cannot be verified from (?:this|the) chunk"
-    r"|(?:outside|not in) (?:this|the) (?:diff )?slice",
+# Two independent signals, both required: the evidence talks about the review
+# CHUNK, and it says the thing is ABSENT. Matching exact phrasings failed —
+# across runs the engine wrote "not present in chunk 1", "not shown in
+# chunk 1", "outside this chunk" and "cannot be verified from this chunk", so
+# each fix caught some and missed the rest. A verdict that describes a real
+# defect describes the CODE; one that mentions the chunk is talking about what
+# the pass could see.
+_CHUNK_REF = re.compile(r"\bchunk\b|\bdiff slice\b", re.IGNORECASE)
+_ABSENCE = re.compile(
+    r"\b(?:not|outside|beyond|cannot|can ?not|could ?n[o']t|unable|absent"
+    r"|missing|elsewhere|omitted|excluded)\b",
     re.IGNORECASE,
 )
+
+
+def _chunk_blind(evidence: str) -> bool:
+    """True when a `partial` is reporting review scope, not a code defect."""
+    return bool(_CHUNK_REF.search(evidence) and _ABSENCE.search(evidence))
 
 
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
@@ -317,7 +327,7 @@ def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
             evidence = ((match.group("evidence") or "").strip()
                         or "reviewer verdict")
             if verdict == "not_in_chunk" or (
-                verdict == "partial" and _CHUNK_BLIND.search(evidence)
+                verdict == "partial" and _chunk_blind(evidence)
             ):
                 unseen.setdefault(cid, ("partial", evidence))
                 continue
