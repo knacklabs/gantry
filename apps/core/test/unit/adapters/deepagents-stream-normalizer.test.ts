@@ -14,6 +14,7 @@ import {
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
 import {
+  abortPartialUsage,
   DeepAgentPartialUsage,
   deepAgentUsageEventIdForTurn,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
@@ -1043,7 +1044,7 @@ describe('normalizeDeepAgentStream', () => {
     });
   });
 
-  it('wraps a close-driven abort with its partial usage and keeps the abort as the cause', async () => {
+  it('passes a close-driven abort through unwrapped, with its partial usage attached', async () => {
     const abortError = Object.assign(new Error('Aborted by signal'), {
       name: 'AbortError',
     });
@@ -1061,10 +1062,12 @@ describe('normalizeDeepAgentStream', () => {
       emit: () => undefined,
     }).catch((error: unknown) => error);
 
-    expect(error).toBeInstanceOf(DeepAgentPartialUsage);
-    const partial = error as DeepAgentPartialUsage;
-    expect(partial.cause).toBe(abortError);
-    expect(partial.usage).toMatchObject({ inputTokens: 90, outputTokens: 3 });
+    expect(error).toBe(abortError);
+    expect(error).not.toBeInstanceOf(DeepAgentPartialUsage);
+    expect(abortPartialUsage(error)?.usage).toMatchObject({
+      inputTokens: 90,
+      outputTokens: 3,
+    });
   });
 });
 

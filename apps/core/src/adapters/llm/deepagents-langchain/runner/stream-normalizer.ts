@@ -31,7 +31,9 @@ import {
   normalizedUsage,
   type UsageAccumulator,
 } from './stream-normalizer-usage.js';
+import { isAbortError } from './live-control.js';
 import {
+  attachAbortPartialUsage,
   DeepAgentPartialUsage,
   deepAgentUsageEventIdForTurn,
   isDeepAgentPartialUsage,
@@ -163,7 +165,12 @@ export async function normalizeDeepAgentStream(
       wrapPartialUsage,
     );
   } catch (error) {
-    throw isDeepAgentPartialUsage(error) ? error : wrapPartialUsage(error);
+    if (isDeepAgentPartialUsage(error)) throw error;
+    // A close-driven abort keeps its identity; the usage rides along on it.
+    if (isAbortError(error)) {
+      throw attachAbortPartialUsage(error, wrapPartialUsage(error));
+    }
+    throw wrapPartialUsage(error);
   }
 }
 

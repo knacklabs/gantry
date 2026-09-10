@@ -290,12 +290,8 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
         });
         includeMemoryContext = false;
       } catch (err) {
-        // A close-driven abort is a graceful stop, not a failure. The
-        // normalizer wraps aborts with their partial usage, so read the cause.
-        if (
-          liveControl.closed() &&
-          isAbortError(isDeepAgentPartialUsage(err) ? err.cause : err)
-        ) {
+        // A close-driven abort is a graceful stop, not a failure.
+        if (liveControl.closed() && isAbortError(err)) {
           stoppedThisTurn = true;
         } else {
           throw err;

@@ -2,6 +2,7 @@ import type {
   NormalizedModelUsage,
   RuntimeContextUsageSnapshot,
 } from '../../../../shared/model-catalog.js';
+import { isAbortError } from './live-control.js';
 
 export class DeepAgentPartialUsage {
   readonly kind = 'deep_agent_partial_usage';
@@ -49,9 +50,35 @@ export async function* partialUsageEvents<T>(
   try {
     for await (const event of events) yield event;
   } catch (error) {
-    // Aborts are wrapped too: a denied tool cuts the stream with a bare
-    // AbortError and its usage must survive (T1-AC2). Consumers that need to
-    // recognise an abort read `cause`.
-    throw isDeepAgentPartialUsage(error) ? error : onError(error);
+    // Aborts keep their identity (a close-driven abort is a graceful stop);
+    // normalizeDeepAgentStream attaches the partial usage to them instead.
+    if (isAbortError(error)) throw error;
+    throw onError(error);
   }
+}
+
+const ABORT_PARTIAL_USAGE = Symbol('DeepAgentAbortPartialUsage');
+
+// A denied tool cuts the stream with a bare AbortError; its usage must still
+// survive (T1-AC2) without changing the abort's identity, so the partial usage
+// rides on the abort as a non-enumerable property.
+export function attachAbortPartialUsage(
+  abort: unknown,
+  partial: DeepAgentPartialUsage,
+): unknown {
+  if (typeof abort === 'object' && abort !== null) {
+    Object.defineProperty(abort, ABORT_PARTIAL_USAGE, {
+      value: partial,
+      enumerable: false,
+    });
+  }
+  return abort;
+}
+
+export function abortPartialUsage(
+  error: unknown,
+): DeepAgentPartialUsage | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const partial = (error as Record<symbol, unknown>)[ABORT_PARTIAL_USAGE];
+  return isDeepAgentPartialUsage(partial) ? partial : undefined;
 }

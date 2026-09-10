@@ -17,6 +17,7 @@ import {
   type LangGraphStreamEvent,
 } from './stream-normalizer.js';
 import {
+  abortPartialUsage,
   DeepAgentPartialUsage,
   isDeepAgentPartialUsage,
 } from './stream-normalizer-partial-usage.js';
@@ -422,13 +423,17 @@ export async function runDeepAgentTurn(input: {
       // scheduler finalization routes into the setup pause.
       if (terminalPermissionDenial) {
         // The denial stays the terminal error, but it keeps the usage the
-        // normaliser accumulated before the stream was cut (T1-AC2).
-        throw isDeepAgentPartialUsage(error)
+        // normaliser accumulated before the stream was cut (T1-AC2) — carried
+        // as a wrapper, or attached to the bare AbortError the abort raised.
+        const partial = isDeepAgentPartialUsage(error)
+          ? error
+          : abortPartialUsage(error);
+        throw partial
           ? new DeepAgentPartialUsage(
               terminalPermissionDenial,
-              error.usage,
-              error.contextUsage,
-              error.usageEventId,
+              partial.usage,
+              partial.contextUsage,
+              partial.usageEventId,
             )
           : terminalPermissionDenial;
       }
