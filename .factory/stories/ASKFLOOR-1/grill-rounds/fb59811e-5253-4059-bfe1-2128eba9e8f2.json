@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "When the judge is offline and a SCHEDULED JOB hits a classifier ask, decision 0157 already routes it to a card in the job's conversation. Should that conversation also get the one-line outage notice before the card, like a DM does?",
+      "options": [
+        "Yes, same one notice per conversation (Recommended)",
+        "No notice for jobs, reason line only"
+      ],
+      "chosen": "Yes, same one notice per conversation (Recommended)"
+    },
+    {
+      "question": "The grill folded five fixes into T6; scope is now 13 files with a 15-file / 1,400-line review budget (over the 15-file target only on the budget headroom). Accept that budget, or split T6 into two tasks?",
+      "options": [
+        "Accept 15 files / 1,400 lines (Recommended)",
+        "Split into T6a (latch, hooks, unit suites) and T6b (invariance suite, S6, aggregation)"
+      ],
+      "chosen": "Accept 15 files / 1,400 lines (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T02:28:07.297614+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
