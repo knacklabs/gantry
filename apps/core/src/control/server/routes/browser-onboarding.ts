@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -66,27 +66,35 @@ export async function handleBrowserOnboardingRoutes(
   const resumeCandidates = await Promise.all(
     agents.map(async (agent) => {
       const account = accounts.find((item) => item.agentId === agent.id);
+      const [verification] = await storage.service.db
+        .select({ id: onboardingVerificationsPostgres.id })
+        .from(onboardingVerificationsPostgres)
+        .where(
+          and(
+            eq(onboardingVerificationsPostgres.appId, appId),
+            eq(onboardingVerificationsPostgres.agentId, agent.id),
+            inArray(onboardingVerificationsPostgres.status, [
+              'pending',
+              'inbound_received',
+            ]),
+          ),
+        )
+        .orderBy(desc(onboardingVerificationsPostgres.createdAt))
+        .limit(1);
       return {
         id: agent.id,
         name: agent.name,
         accountId: account?.id ?? null,
+        verificationId: verification?.id ?? null,
         hasWorkspace: Boolean(account),
-        hasAssignment:
-          (
-            await storage.repositories.providerAccounts.listConversationInstalls(
-              appId,
-              agent.id,
-            )
-          ).length > 0,
       };
     }),
   );
   const resumable = resumeCandidates
     .map((agent) => ({
       ...agent,
-      step: agent.hasAssignment ? 4 : agent.hasWorkspace ? 3 : 2,
-    }))
-    .filter((agent) => agent.step < 4);
+      step: agent.verificationId ? 4 : agent.hasWorkspace ? 3 : 2,
+    }));
   sendJson(res, 200, {
     firstRun: agents.length === 0,
     resume: resumable[0] ?? null,

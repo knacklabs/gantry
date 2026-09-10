@@ -28,7 +28,7 @@ const STEPS = [
 
 const DUTIES = ['Answer questions', 'Summarise threads', 'Search internal docs'];
 
-type OnboardingStatus = { firstRun: boolean; resume: { id: string; name: string; accountId: string | null; hasWorkspace: boolean; step: 2 | 3 } | null };
+type OnboardingStatus = { firstRun: boolean; resume: { id: string; name: string; accountId: string | null; verificationId: string | null; hasWorkspace: boolean; step: 2 | 3 | 4 } | null };
 const onboardingStatusQuery = queryOptions({
   queryKey: ['onboarding-status'],
   queryFn: async (): Promise<OnboardingStatus> => {
@@ -94,6 +94,7 @@ export function OnboardingRoute() {
     if (!started || !status.data?.resume || agentId) return;
     setAgentId(status.data.resume.id);
     setAccountId(status.data.resume.accountId ?? '');
+    setVerificationId(status.data.resume.verificationId ?? '');
     setName((current) => current || status.data.resume!.name);
     setStep(status.data.resume.step);
   }, [agentId, started, status.data]);
