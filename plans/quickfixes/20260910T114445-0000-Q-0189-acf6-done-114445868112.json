@@ -1,0 +1,15 @@
+{
+  "event": "done",
+  "id": "Q-0189-acf6",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Two P2 autoreview follow-ups on host-owned gate wiring: the lint:changed npm script expands $files unquoted (a contributor-controlled filename like [f]oo.ts globs to another path, silently bypassing the blocking gate AC9 promises), and the stale-owner integration test never supplies a mismatched owner so raise's agentSessionId/provider/externalSessionId predicates are unverified. Both are two-file, in-scope edits to build wiring and a test; a full Codex delegate round for a shell quoting fix and a test loop is disproportionate to the change.",
+  "started_at": "2026-09-10T11:42:53+00:00",
+  "completed_at": "2026-09-10T11:44:45+00:00",
+  "files": [
+    "package.json",
+    "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

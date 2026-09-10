@@ -118,21 +118,33 @@ maybeDescribe('provider session context high-water mark', () => {
 
   it('raise rejects a stale owner and ignores non-resumable rows', async () => {
     const session = await sessionContext('stale-and-expired');
+    const owned = measurementInput({
+      sessionId: session.sessionId,
+      context: session.context,
+      contextHighWaterMark: 100,
+    });
+    // One mismatch per ownership predicate: if raise dropped any one of them it
+    // would update a different session's row, and a single combined case would
+    // still pass with two of the three missing. The generation stays valid so
+    // only ownership is under test; reset_at is the next test's subject.
+    for (const staleOwner of [
+      { agentSessionId: `${owned.agentSessionId}-other` },
+      { provider: 'openai:deepagents-langchain' as ExecutionProviderId },
+      { externalSessionId: `${owned.externalSessionId}-other` },
+    ]) {
+      await expect(
+        runtime.sessionOps.raiseProviderSessionContextHighWaterMark({
+          ...owned,
+          ...staleOwner,
+        }),
+      ).resolves.toBe(false);
+    }
     await runtime.service.db
       .update(pgSchema.agentSessionsPostgres)
       .set({ resetAt: '2026-09-09T00:00:00.000Z' })
       .where(
         eq(pgSchema.agentSessionsPostgres.id, session.context.agentSessionId),
       );
-    await expect(
-      runtime.sessionOps.raiseProviderSessionContextHighWaterMark(
-        measurementInput({
-          sessionId: session.sessionId,
-          context: session.context,
-          contextHighWaterMark: 100,
-        }),
-      ),
-    ).resolves.toBe(false);
     await runtime.service.db
       .update(pgSchema.providerSessionsPostgres)
       .set({ status: 'expired' })

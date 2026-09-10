@@ -30,5 +30,19 @@
       "git": "? plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md\u0000\u0000\u0000"
     }
   },
-  "task_sha256": "b233f1d95888be75b1ddca4db29489532b6294e89ef2f88a94c3089ffc34e995"
+  "task_sha256": "b233f1d95888be75b1ddca4db29489532b6294e89ef2f88a94c3089ffc34e995",
+  "local_review_stamp": {
+    "stage_id": "cache-bug-T1",
+    "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
+    "brief_sha256": "",
+    "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
+    "product_tree_digest": "8ca0f8e48893b724fe9fe725d66b8aa01917efe3aa99c69ceda0455bc289740f",
+    "recorded_at": "2026-09-10T11:41:56+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  }
 }
