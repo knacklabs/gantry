@@ -1,0 +1,12 @@
+{
+  "topic": "DeepAgents usage modelRoute granularity",
+  "lesson": "The spawned DeepAgents lane sets usage.provider and usage.modelRoute from the same input.provider, so cache policy resolves at PROVIDER granularity through the documented usage.modelRoute ?? usage.provider fallback, which has its own required test. That is accepted for cache-bug-T1 and ledgered as deferral D-0083, not a defect: the runner's resolved model carries modelId and endpointFamily but no registry route, so passing the real route crosses the host-to-runner IPC input contract. It belongs to cache-bug-T2, which enforces the ceiling on this metric and already reopens that input path. Do not re-raise it against T1.",
+  "source": "cache-bug-T1 autoreview rounds 13-14 (quality P2, twice)",
+  "applies_to": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/src/shared/model-usage.ts"
+  ],
+  "severity": "low",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-10T16:09:50+00:00"
+}

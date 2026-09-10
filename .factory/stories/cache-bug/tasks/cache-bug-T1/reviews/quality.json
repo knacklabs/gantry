@@ -2,24 +2,39 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
   "score": 9,
-  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..3bca6fe, Codex via the autoreview skill at --max-priority P2): 0 blocking, 2 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 1 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "quality lens over cache-bug-T1 (47 product path(s), ad98a63..02e9ecf, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. Review passes returned. chunk 1/2: 1 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [
     {
       "category": "plan-contract-partial",
       "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC1: S1 derivation: modelVisibleInputTokens returns 271,500 for an Anthropic usage of 1,000 input / 270,000 cache read / 500 cache write; 1,000 for an OpenAI-compatible usage of 1,000 input / 800 cached; the additive form for a mixed or unresolved route; totalBillableInputTokens and all other billing fields unchanged; the route resolves from usage.modelRoute and falls back to usage.provider when modelRoute is absent (provider fallback)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC6: R1 retirement: retireProviderSession is one atomic active\u2192expired UPDATE fenced on id, agent_session_id, provider, external_session_id, status='active' and the generation, returning { providerSessionId, externalSessionId, executionProviderId } or undefined; the fingerprint-change, missing-session and ops-service facade callers switch to it, while the compaction-delta degradation path keeps the existing expireProviderSession helper unchanged (0159 \u00a74)."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
       "summary": "T1-AC7: R3 registry: every executable route's cacheSupport.prompt declares cacheReadsIncludedInInput and cacheWritesIncludedInInput (type in model-provider-registry.ts); the registry validator fails a route missing either; nonzero OpenAI and OpenRouter cache-write usage yields inputTokens unchanged; DeepAgents normalised usage carries the resolved provider and modelRoute."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC9: S11 lint gate: a package.json script lint:changed (ESLint over the TypeScript files changed against the merge-base with origin/main) runs inside FACTORY_STRUCTURAL_CMD in .envrc and as the blocking CI check step; full npm run lint stays an advisory continue-on-error CI step; every file this task touches is lint-clean; the 82 pre-existing errors outside the diff are recorded as deferral D-0080 with a trigger and are neither fixed, baselined nor suppressed here."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#technical-approach",
+      "summary": "T1-AC10: S10 unchanged behaviour: the four pinned tests (group-processing 'passes hydrated memory context with provider session resume id', agent-runner-ipc 'resumes and persists SDK sessions for live channel turns', claude-agent-sdk-boundary 'passes hermetic Gantry capabilities and settings into the Claude SDK', deepagents-memory-context 'injects the trust-scoped memory block exactly once as a model-visible user message') and the scheduled-job tests are untouched and green; python3 factory/scripts/verify.py is green."
     }
   ],
   "non_blocking_findings": [
     {
       "category": "bug",
       "area": "apps/core/src/adapters/llm/deepagents-langchain/runner",
-      "summary": "[P2] Preserve the resolved model route in DeepAgents usage (apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:390): The spawned DeepAgents lane sets both `provider` and `modelRoute` from `input.provider`, while the inline lane performs the inverse by setting both from `modelEntry.modelRoute.id`."
-    },
-    {
-      "category": "maintainability",
-      "area": "docs/specs",
-      "summary": "[P2] Correct the authoritative spec to name the new retirement operation (docs/specs/cache-bug.md:124): The newly added confirmed spec says `expireProviderSession` becomes the atomic fenced transition that returns a retired reference, but this patch deliberately introduces `retireProviderSession` for that contract while preserving `expireProviderSession` for compaction-delta degradation."
+      "summary": "[P2] Preserve the distinct DeepAgents model route (apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:390): `runDeepAgentTurn` populates both `usage.provider` and `usage.modelRoute` from `input.provider`; the inline lane likewise assigns the route id to both fields."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -76,33 +91,33 @@
   "contract_verdicts": [
     {
       "contract_id": "T1-AC1",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/shared/model-visible-input-tokens.test.ts:1 evidence"
+      "verdict": "partial",
+      "evidence": "apps/core/src/shared/model-usage.ts:1 derivation details are outside this chunk"
     },
     {
       "contract_id": "T1-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts:421 evidence"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.ts:51 preserves abort identity while carrying partial usage"
     },
     {
       "contract_id": "T1-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:290 evidence"
+      "evidence": "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/index.ts:290 emits classified terminal errors with accumulated usage"
     },
     {
       "contract_id": "T1-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:57 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:55 validates and atomically raises the mark"
     },
     {
       "contract_id": "T1-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:47 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:44 uses IS NOT DISTINCT FROM for the shared generation fence"
     },
     {
       "contract_id": "T1-AC6",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:92 evidence"
+      "verdict": "partial",
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:92 implements the atomic retirement, but caller coverage is outside this chunk"
     },
     {
       "contract_id": "T1-AC7",
@@ -112,17 +127,17 @@
     {
       "contract_id": "T1-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:122 evidence"
+      "evidence": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:121 selects references under lock and returns a frozen list after the transaction"
     },
     {
       "contract_id": "T1-AC9",
-      "verdict": "implemented",
-      "evidence": ".github/workflows/ci.yml:66 evidence"
+      "verdict": "partial",
+      "evidence": ".github/workflows/ci.yml:66 installs the blocking changed-file lint step, while the script body and lint result are outside this chunk"
     },
     {
       "contract_id": "T1-AC10",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 evidence"
+      "verdict": "partial",
+      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:1 is listed in the bundle, but successful execution and preservation of the pinned leaves cannot be verified from this chunk"
     }
   ],
   "rejected_findings": [
@@ -164,10 +179,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "be9c11e2c773d8263cddb0e86144beeed66841e401bae2d58ad6405afbe2653f",
+  "review_run_id": "209859ddc9024d3287e307b954364cbf041033c20dd42f8bf36dce0e2f82334b",
   "brief_sha256": "67cd5d51bc8b4fda6b6d5b52038dc2f5290d0a8b061644767c55be28d9ddb8e2",
-  "branch_diff_digest": "65a29a303c0269363e82833e237b0504253f9d62c499b42af67031892387f058",
+  "branch_diff_digest": "050c8c390251f173b946fc591a37c88fe144166bd73aadb205d56254732bd90d",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T12:40:34+00:00",
-  "commit": "3bca6fe591d12f6af59a04738334f1fe0a78973e"
+  "recorded_at": "2026-09-10T16:09:15+00:00",
+  "commit": "02e9ecf9eef176296cf5da234377c549697f04ee"
 }

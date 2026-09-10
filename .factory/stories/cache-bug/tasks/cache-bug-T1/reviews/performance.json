@@ -2,7 +2,7 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T1",
   "score": 10,
-  "summary": "performance lens over cache-bug-T1 (47 product path(s), ad98a63..3bca6fe, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
+  "summary": "performance lens over cache-bug-T1 (47 product path(s), ad98a63..02e9ecf, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. Review passes returned. chunk 1/2: 0 finding(s), chunk 2/2: 0 finding(s). See preserved pass reports for provider conclusions.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -83,10 +83,10 @@
     }
   ],
   "aspect": "performance",
-  "review_run_id": "be9c11e2c773d8263cddb0e86144beeed66841e401bae2d58ad6405afbe2653f",
+  "review_run_id": "209859ddc9024d3287e307b954364cbf041033c20dd42f8bf36dce0e2f82334b",
   "brief_sha256": "67cd5d51bc8b4fda6b6d5b52038dc2f5290d0a8b061644767c55be28d9ddb8e2",
-  "branch_diff_digest": "65a29a303c0269363e82833e237b0504253f9d62c499b42af67031892387f058",
+  "branch_diff_digest": "050c8c390251f173b946fc591a37c88fe144166bd73aadb205d56254732bd90d",
   "residual_risks": [],
-  "recorded_at": "2026-09-10T12:40:34+00:00",
-  "commit": "3bca6fe591d12f6af59a04738334f1fe0a78973e"
+  "recorded_at": "2026-09-10T16:09:15+00:00",
+  "commit": "02e9ecf9eef176296cf5da234377c549697f04ee"
 }
