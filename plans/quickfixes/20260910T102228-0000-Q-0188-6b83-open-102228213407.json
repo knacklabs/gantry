@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0188-6b83",
+  "profile": "degraded",
+  "reason": "review round: close-driven aborts must stay unwrapped (recognisable by identity) while a denial-driven abort still keeps its accumulated usage; attach the partial usage to the abort error as a non-enumerable property instead of wrapping it; companion workers frozen, host-side per Ravi",
+  "started_at": "2026-09-10T10:22:28+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
