@@ -15,6 +15,14 @@ import { stripShellCommandEnvPrefix } from '@core/runtime/ipc-shell-command-pref
 const RUNNER_IPC_CHILD_TIMEOUT_MS = 90_000;
 const RUNNER_IPC_TEST_TIMEOUT_MS = 100_000;
 const SLOW_RUNNER_IPC_TEST_TIMEOUT_MS = 120_000;
+// How long the emitted fake SDK waits for a spawned runner to write its
+// permission-request file. The budget has to cover process startup, not just
+// the write: at one second this passed in isolation every time and failed only
+// inside the full suite, after ~9000 preceding tests — a load-dependent flake
+// that reads as a product bug. Still an order of magnitude under the 100s test
+// timeout, so a genuine hang still aborts with the helper's own message rather
+// than vitest's generic one.
+const IPC_REQUEST_WAIT_MS = 30_000;
 // The heartbeat test observes a real 15s heartbeat interval after a cold tsx
 // runner boot, so it needs a wider per-spawn budget than the default child
 // runner timeout and a matching vitest timeout above it.
@@ -276,7 +284,9 @@ let hostPermissionResponseCount = 0;
 async function respondToNextPermissionRequest() {
   const requestDir = path.join(process.env.GANTRY_IPC_DIR, 'permission-requests');
   const responseDir = path.join(process.env.GANTRY_IPC_DIR, 'permission-responses');
-  const deadline = Date.now() + 1000;
+  // Interpolated at write time, not referenced: this function is emitted into
+  // the fake SDK module, where the test file's own constants are out of scope.
+  const deadline = Date.now() + ${IPC_REQUEST_WAIT_MS};
   let request;
   while (Date.now() < deadline) {
     if (fs.existsSync(requestDir)) {

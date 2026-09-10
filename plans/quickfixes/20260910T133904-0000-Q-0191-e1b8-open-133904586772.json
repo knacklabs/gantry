@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0191-e1b8",
+  "profile": "degraded",
+  "reason": "Pre-existing load-dependent flake blocking cache-bug-T1's stage close: respondToNextPermissionRequest in agent-runner-ipc.test.ts waits only 1s (Date.now()+1000, polling 25ms) for a spawned runner subprocess to write its permission-request file, inside a test whose own timeout is 100s. Under verify.py's full-suite load the child cannot start and write in time, so it exits 1 and the assertion fails; the same test passes 3/3 in isolation and the suite passes 9249/9249 standalone. Introduced by 4be59d292, untouched by this task's diff. One-line deadline fix in a file already inside T1's write scope.",
+  "started_at": "2026-09-10T13:39:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}
