@@ -30,6 +30,7 @@ import {
   type ModelProvider,
 } from '../operations/operations-queries';
 import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
+import { gantrySplashMark, knacklabsMark } from '../../assets/onboarding';
 import { usePreferences } from '../../features/preferences/preferences-provider';
 
 const STEPS = [
@@ -50,6 +51,15 @@ const DUTIES = [
   'Summarise threads',
   'Search internal docs',
 ];
+
+const SPLASH_ROLES = [
+  'HR assistant',
+  'support desk',
+  'research analyst',
+  'ops watchdog',
+  'note taker',
+  'executive assistant',
+] as const;
 
 type OnboardingStatus = {
   firstRun: boolean;
@@ -527,27 +537,51 @@ function Splash({
 }) {
   return (
     <main className="onboarding-splash">
-      <div>
-        <GantryMark hero />
-        <h1>Gantry</h1>
-        <h2>
+      <div className="onboarding-splash-content">
+        <div className="onboarding-splash-brand">
+          <img
+            className="onboarding-splash-mark"
+            src={gantrySplashMark}
+            alt=""
+            aria-hidden="true"
+          />
+          <span className="onboarding-splash-mark-reduced" aria-hidden="true">
+            <GantryMark />
+          </span>
+          <span>Gantry</span>
+        </div>
+        <h1>
           {resume
             ? `Finish setting up ${resume.name}`
             : 'Set Up Your First Agent'}
-        </h2>
-        <p>
-          Your organisation’s new <strong>AI employee</strong>
+        </h1>
+        <p className="onboarding-splash-role">
+          <span>Your organisation’s new</span>
+          <span className="onboarding-splash-role-window">
+            <span className="onboarding-splash-role-list">
+              {[...SPLASH_ROLES, SPLASH_ROLES[0]].map((role, index) => (
+                <span key={`${role}-${index}`}>{role}</span>
+              ))}
+            </span>
+          </span>
         </p>
-        <p>
+        <p className="onboarding-splash-description">
           Hire one, tell it what it should handle, and it starts working where
           your team already talks. Takes about three minutes.
         </p>
-        <button onClick={onStart}>
+        <button className="onboarding-splash-action" onClick={onStart}>
           {resume ? 'Resume setup' : 'Hire your first employee'}{' '}
           <ChevronRight size={16} />
         </button>
       </div>
-      <small>Powered by KnackLabs</small>
+      <footer className="onboarding-splash-footer">
+        <span aria-hidden="true" />
+        <a href="https://www.knacklabs.ai" target="_blank" rel="noreferrer">
+          <span>Powered by</span>
+          <img src={knacklabsMark} alt="" aria-hidden="true" />
+          <strong>KnackLabs</strong>
+        </a>
+      </footer>
     </main>
   );
 }
