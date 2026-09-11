@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0197-d6a7",
+  "profile": "degraded",
+  "reason": "Reapply onto main: the three model pins in harness.yaml (implementation gpt-6-astra low, grill gpt-5.6-sol high, lite gpt-5.6-luna max), the stale AGENTS.md reasoning-defaults line, and the D-0082/D-0084 corrections to the story plan and confirmed spec. These were first made on the stale feat/cache-bug-... branch, which is 164 commits behind main; redone here on a branch cut from origin/main.",
+  "started_at": "2026-09-11T02:41:38+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

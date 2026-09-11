@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0163-741d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Ravi 2026-09-10: repin the two workflow modes in harness.yaml \u2014 grill to gpt-5.6-sol @ high (was gpt-5.6-terra @ xhigh) and lite to gpt-5.6-luna @ max (was gpt-5.6-terra @ high). Both are read by mode_run_config (grill.py:400, fix.py:36) and reach the companion argv. max is a valid effort per ~/.codex enabled-reasoning-efforts. One client-owned file, not vendor-tracked; the gate tests that assert terra/xhigh run against a forge.py init scaffold in tmp_path, not this repo.",
+  "started_at": "2026-09-10T18:25:17+00:00",
+  "completed_at": "2026-09-10T18:25:56+00:00",
+  "files": [
+    "harness.yaml"
+  ]
+}
