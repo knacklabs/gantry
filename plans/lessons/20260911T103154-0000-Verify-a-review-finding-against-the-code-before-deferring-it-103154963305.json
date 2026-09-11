@@ -1,0 +1,12 @@
+{
+  "topic": "Verify a review finding against the code before deferring it",
+  "lesson": "CORRECTS lesson 155, which was wrong. usage.modelRoute in the spawned DeepAgents lane ALREADY carries the resolved registry route: execution-adapter.ts:134 projects effectiveModelEntry.modelRoute.id into GANTRY_DEEPAGENTS_MODEL_PROVIDER, resolveModelProvider() reads it, and runner/index.ts:143 passes it as input.provider \u2014 so modelRoute: input.provider is the route id, and cache policy resolves at route granularity. Two autoreview rounds, a deferral (D-0083, now withdrawn) and lesson 155 all asserted provider-granularity because a field NAMED provider carries a route id, and nobody traced the value to its source. The general lesson: a finding about what a value CONTAINS must be verified by following the assignment chain to where the value is produced, not by reading the field's name or type at the point of use.",
+  "source": "cache-bug plan grill round 2 (2026-09-11) overturning autoreview rounds 13-14 and deferral D-0083",
+  "applies_to": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-11T10:31:54+00:00"
+}
