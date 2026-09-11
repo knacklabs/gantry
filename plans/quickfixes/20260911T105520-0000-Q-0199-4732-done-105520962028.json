@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0199-4732",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Rewrite the T2/T3 half of the cache-bug plan against verified current code, per Ravi, and add T4 for the settings DTO/OpenAPI surface. Grounded in reads rather than prior prose: the high-water column is integer with no clamp (sessions.ts:89, provider-session-measurement.ts:16); RetiredProviderSessionReference has three fields with both producers projecting them (:114, :180) though the reset already filters on agentSessionId (:186); runAgent is awaited at group-processing.ts:669 while finalisation runs at :778, so the delivery boundary is there, not in the runner; clearCurrentSession is declared void (session-commands.ts:176) with one supplier (group-processing-session-command-handlers.ts:174); RuntimeEventPublishInput carries payload: unknown (events.ts:76) and no event family carries a version; and the resolved route was never broken.",
+  "started_at": "2026-09-11T10:53:34+00:00",
+  "completed_at": "2026-09-11T10:55:20+00:00",
+  "files": []
+}
