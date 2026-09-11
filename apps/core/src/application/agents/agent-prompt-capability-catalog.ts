@@ -160,7 +160,9 @@ function resolveReadyActions(
         (binding) => binding.kind === 'mcp_tool',
       )
     ) {
-      return [];
+      throw new Error(
+        `Capability ${capability.capabilityId} uses the unsupported legacy mcp_tool binding.`,
+      );
     }
     const revision = normalizedRevision(capability.version);
     const accountLabel = normalizedOptional(

@@ -777,7 +777,3 @@ export class PromptProfileService {
     }
   }
 }
-
-// Re-exported from the domain layer (single source of truth) for existing
-// importers of this module.
-export { PROMPT_PROFILE_VIRTUAL_SCOPE };
