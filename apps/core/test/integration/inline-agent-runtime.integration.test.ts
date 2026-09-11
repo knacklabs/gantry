@@ -185,8 +185,6 @@ import type {
 import { readScheduledJobHeartbeat } from '@core/runtime/agent-spawn-scheduled-idle.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { runJobAgentWithFailover } from '@core/jobs/execution-failover.js';
-import { createInlineAgentTaskLifecycle } from '@core/app/bootstrap/inline-agent-task-lifecycle.js';
-import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { createPostgresIntegrationRuntime } from '../harness/postgres-integration-runtime.js';
 import { hasPostgresIntegrationDatabase } from '../harness/postgres-integration-runtime.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
@@ -412,9 +410,9 @@ function configureProviderMocks(): void {
         session_id: 'claude-inline-session',
       };
       if (options.outputFormat) {
-        const initialPrompt = await (prompt as AsyncIterable<unknown>)
-          [Symbol.asyncIterator]()
-          .next();
+        const promptIterable = prompt as AsyncIterable<unknown>;
+        const initialPrompt =
+          await promptIterable[Symbol.asyncIterator]().next();
         const structuredAttempt = structuredAttemptPrompts.claude.push(
           JSON.stringify(initialPrompt.value),
         );
