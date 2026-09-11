@@ -79,7 +79,12 @@ phases:
   planning:
     owner: "claude-code:plan-mode"
     alternate: "codex:planner-high"
-    exploration: "/codex:rescue --model gpt-5.6-terra --effort high (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
+    # Ravi, 2026-09-11: the read-only breadth lane moves from terra at high to
+    # luna at max. `max` is above the harness's own ALLOWED_EFFORTS, which
+    # gates only the `--effort` OVERRIDE flag, so it works as a written pin
+    # here and in the /codex:rescue argv, but `--effort max` on the CLI would
+    # still be refused.
+    exploration: "/codex:rescue --model gpt-5.6-luna --effort max (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
     contract: "factory/prompts/planner.md"
     plan_artifact: "plans/active/<issue>-<slug>.md via forge.py plan save"
     decisions: "docs/decisions/ records BEFORE decomposition is recorded"
@@ -94,7 +99,7 @@ phases:
       the contract is identical: same sections (incl. Decisions), same
       forge.py plan save step, same gates. When planning in Claude, delegate
       ALL codebase exploration to Codex read-only runs
-      (/codex:rescue --model gpt-5.6-terra --effort high — read-only by
+      (/codex:rescue --model gpt-5.6-luna --effort max — read-only by
       default; raw codex exec is hook-blocked, no exceptions).
       Approval is the saved plan file, not a flag.
   decomposition:
@@ -108,14 +113,13 @@ phases:
     notes: "Per-task task graph; records the user_facing flag the ship gate reads."
   implementation:
     owner: "codex:/codex:rescue"
-    model: "gpt-6-astra"
-    # Ravi, 2026-09-10: astra at low is fast, and this pin rides on that being
-    # good enough — judged per task by verify plus the three-lens review, not
-    # by feel. It replaces terra at xhigh, so it is a deliberate drop from the
-    # old floor: raise a single run with `./forge delegate <id> --effort high`
-    # (or xhigh) for migrations, cross-domain or security work, which is where
-    # that floor was aimed.
-    reasoning: "low"
+    model: "gpt-5.6-sol"
+    # Ravi, 2026-09-11: astra at low was tried on the strength of being fast
+    # and did not work out, so implementation returns to sol at medium. Raise a
+    # single run with `./forge delegate <id> --effort high` (or xhigh) for
+    # migrations, cross-domain or security work — that is where the old terra
+    # xhigh floor was aimed, and medium is not it.
+    reasoning: "medium"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
       # the recorder refuses a user-facing testing artifact unless skills_used

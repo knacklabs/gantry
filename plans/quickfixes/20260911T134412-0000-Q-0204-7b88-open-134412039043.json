@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0204-7b88",
+  "profile": "degraded",
+  "reason": "Ravi repins the model roles, 2026-09-11: astra at low is not working out for implementation, so implementation goes back to sol at medium; grilling stays sol at high; and the read-only exploration lane moves from terra at high to luna at max. Touches the authoritative pins in harness.yaml plus the four prose statements of the same facts (WORKFLOW.md, AGENTS.md, factory/skills/forge.md) and the stale grill model in .claude/CLAUDE.md, which still says terra at xhigh while the pin grill.py actually reads says sol at high.",
+  "started_at": "2026-09-11T13:44:12+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
