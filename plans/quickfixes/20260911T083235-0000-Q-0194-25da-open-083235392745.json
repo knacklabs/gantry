@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0194-25da",
+  "profile": "degraded",
+  "reason": "Node 24 alignment plus the three test-reliability fixes deferred as D-0085. CI installs Node 25 while the production container (ops/docker/Dockerfile node:24-bookworm-slim) and local dev both run 24, so the gate tests a major we do not ship; engines permits both. Also add engine-strict so the range is enforced rather than advisory, and fix three waits that assert on async cross-process work without waiting for it \u2014 parallel CI jobs raise contention and make all three fail more often.",
+  "started_at": "2026-09-11T08:32:35+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
