@@ -838,6 +838,25 @@ def task_evidence_path(
         root, key, f"tasks/{task_id}/{name}", for_write=for_write)
 
 
+def proof_read_path(root: Path, key: str | None, name: str) -> Path:
+    """Where a READER finds proof: the task's copy when a task owns the run and
+    has recorded one, the story's otherwise.
+
+    `proof_path` answers where a WRITER puts proof, and per-task runs put it
+    under the task. Readers that resolved story-only therefore missed proof the
+    recorders had just written — the review gate, the board, the phase summary,
+    the stage rows and the review brief all did. The fallback keeps story-level
+    runs and older stories working unchanged, which is what makes this a
+    completion of the per-task move rather than a flag day.
+    """
+    task_id = active_task_id(root)
+    if task_id and key:
+        scoped = task_evidence_path(root, key, task_id, name)
+        if scoped.is_file():
+            return scoped
+    return evidence_path(root, key, name)
+
+
 def task_marker_path(key: str, task_id: str) -> Path:
     """Return the committed marker shared by task start and task closeout."""
     for label, value in (("story key", key), ("task id", task_id)):
@@ -1825,6 +1844,24 @@ def task_digest(task: dict) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+CONTRACT_BLOCK_START = "<!-- forge:contract -->"
+CONTRACT_BLOCK_END = "<!-- /forge:contract -->"
+_CONTRACT_BLOCK = re.compile(
+    rb"\n?" + re.escape(CONTRACT_BLOCK_START.encode()) + rb".*?"
+    + re.escape(CONTRACT_BLOCK_END.encode()) + rb"\n?", re.DOTALL)
+
+
+def strip_derived_sections(text: bytes) -> bytes:
+    """Drop the harness-rendered contract block before hashing a plan.
+
+    The block is rendered FROM the recorded decomposition (see
+    `render_task_contract_block`), so it cannot drift from the contract and
+    is not something a human authored or a grill judged. Hashing it made a
+    scope widening -- which re-renders the block -- stale the plan approval.
+    """
+    return _CONTRACT_BLOCK.sub(b"\n", text)
+
+
 def plan_digest_without_assumptions(path: Path) -> str:
     """The plan digest every grill and approval binds to: the authored BODY,
     without the frontmatter block and without implementation-time appendices.
@@ -1850,6 +1887,7 @@ def plan_body_digest(path: Path) -> str:
     """
     raw = path.read_bytes()
     normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    normalised = strip_derived_sections(normalised)
     frontmatter = re.match(br"\A---\n(.*?)\n---\n", normalised, re.DOTALL)
     body = normalised[frontmatter.end():] if frontmatter else normalised
     # Authored frontmatter (decisions_reviewed, ...) is part of what was
@@ -1866,6 +1904,84 @@ def plan_body_digest(path: Path) -> str:
 # Frontmatter keys `plan save` writes itself (plus saved:/updated: stamps):
 # harness bookkeeping, never something a grill read.
 PLAN_SAVE_OWNED_FIELDS = rb"(issue|title|status|saved|updated|story):"
+
+
+def render_task_contract_block(task: dict, amendments: dict | None = None) -> str:
+    """The recorded contract, rendered for a reader of the task plan.
+
+    Written once, in the decomposition; rendered here; never hand-copied. The
+    plan used to carry its own copy of the criteria and the file list, held
+    equal to the contract by a Codex cold read -- five of T2's six "blockers"
+    were that copy drifting. A rendered block cannot drift.
+    """
+    lines = [CONTRACT_BLOCK_START,
+             "## Contract (recorded)", "",
+             "Rendered by the harness from the recorded decomposition; edit the "
+             "decomposition, not this block. It is excluded from the plan's "
+             "approval and grill digests, so a re-render never stales either.", ""]
+    objective = str(task.get("objective") or "").strip()
+    if objective:
+        lines += ["**Objective.** " + objective, ""]
+    criteria = [str(c) for c in task.get("acceptance_criteria") or []]
+    lines += ["**Acceptance criteria**", ""]
+    lines += [f"- {c}" for c in criteria] or ["- (none recorded)"]
+    lines.append("")
+    scope = [str(p) for p in task.get("write_scope") or []]
+    lines += ["**Write scope** (what `stage done` measures the diff against)", ""]
+    lines += [f"- {p}" for p in scope] or ["- (none recorded)"]
+    added = (amendments or {}).get("added_paths") or []
+    if added:
+        reasons = {}
+        for entry in (amendments or {}).get("amendments") or []:
+            for path in entry.get("added_paths") or []:
+                reasons.setdefault(path, str(entry.get("reason") or ""))
+        lines += ["", "**Scope amendments** (measured paths the scope did not name, "
+                  "recorded with `forge stage amend-scope`)", ""]
+        lines += [f"- {p}" + (f" -- {reasons[p]}" if reasons.get(p) else "")
+                  for p in added]
+    lines.append("")
+    tests = task.get("required_tests") or []
+    lines += ["**Required tests** (run by `stage done`)", ""]
+    lines += [f"- `{t.get('id')}` -- `{t.get('command')}` ({t.get('path')})"
+              for t in tests if isinstance(t, dict)] or ["- (none recorded)"]
+    lines.append("")
+    verify = [str(v) for v in task.get("verify_commands") or []]
+    lines += ["**Verify commands**", ""]
+    lines += [f"- `{v}`" for v in verify] or ["- (none recorded)"]
+    budget = task.get("review_budget") or {}
+    if isinstance(budget, dict) and budget:
+        lines += ["", f"**Review budget.** {budget.get('max_changed_files')} files / "
+                  f"{budget.get('max_changed_lines')} lines"
+                  + (f" -- {budget.get('reason')}" if budget.get("reason") else "")]
+    lines += [CONTRACT_BLOCK_END]
+    return "\n".join(lines) + "\n"
+
+
+def refresh_task_plan_contract(root: Path, task_id: str, task: dict) -> bool:
+    """Re-render the contract block inside the saved task plan, if there is one.
+
+    Called wherever the contract or its amendments move: the decomposition
+    recorder, `task plan save`, `stage amend-scope`. Returns True when the
+    file changed. The block sits before `## Implementation Assumptions` when
+    that appendix exists, else at the end.
+    """
+    from forge_cli.stages import scope_amendments_path
+    story = _active_story_key(root)
+    path = evidence_path(root, story, f"task-plans/{task_id}.md", for_write=True)
+    if not path.is_file():
+        return False
+    amendments = (load_json(scope_amendments_path(root), default={})
+                  .get("tasks", {}).get(task_id))
+    block = render_task_contract_block(task, amendments if isinstance(amendments, dict) else None)
+    text = path.read_text(encoding="utf-8")
+    stripped = strip_derived_sections(text.encode("utf-8")).decode("utf-8")
+    head, marker, tail = stripped.partition("\n## Implementation Assumptions")
+    head = head.rstrip("\n") + "\n\n"
+    rebuilt = head + block + (("\n" + marker.lstrip("\n") + tail) if marker else "")
+    if rebuilt == text:
+        return False
+    path.write_text(rebuilt, encoding="utf-8")
+    return True
 
 
 def approved_plan_digest(
@@ -1915,6 +2031,61 @@ def harness_owned_prefixes() -> tuple[str, ...]:
     from forge_cli.stages import WORKFLOW_PATHS
     return tuple(sorted(set(WORKFLOW_PATHS) | set(HARNESS_PREFIXES)))
 
+
+def product_excluded_prefixes(root: Path) -> tuple[str, ...]:
+    """The ONE definition of "not product": the workflow ledgers, plans,
+    decision records, and in a vendored client the harness machinery.
+
+    Four lists used to answer this question -- the stage measure, the review
+    scope, the stamp's tree digest and the grill's grounding -- and they
+    disagreed: a decision record was not a scope stray but did stale the
+    review stamp. Every closeout check now asks this function, so a path is
+    product for all of them or for none.
+    """
+    from forge_cli.stages import measure_prefixes
+    return measure_prefixes(root)
+
+
+def product_delta_digest(root: Path, base_sha: str, head: str = "") -> str:
+    """Hash of the product diff this task's branch made since `base_sha`.
+
+    This is what a review reads and what a seal ships, so it is what the
+    review stamp binds to -- and nothing else. Contract text, brief text,
+    decision records and evidence commits change none of these bytes, so
+    none of them can stale a review any more. Two different diffs can leave
+    the tree in the same state; a tree digest could not tell them apart, this
+    can.
+
+    Base -> INDEX, not base -> HEAD: the reviewed tree is stamped while it is
+    staged and committed afterwards, and the digest must not move at that
+    commit. `stage done` requires a clean index at close, so there it equals
+    base -> HEAD. Paths are the branch's own commits (`committed_paths`,
+    first-parent) plus what is staged, so a trunk merge received mid-stage
+    is not attributed to the stage.
+    """
+    from forge_cli.stages import _git, committed_paths
+    head = head or head_sha(root) or ""
+    empty = hashlib.sha256(b"").hexdigest()
+    if not base_sha or not head:
+        return empty
+    excluded = product_excluded_prefixes(root)
+    # The lossless git helper the stage measure uses (encoding-hygiene
+    # allowlisted); a bare call here failed the hygiene gate.
+    staged_raw = _git(root, "diff", "--cached", "--name-only", "-z", base_sha)
+    paths = {path for path in staged_raw.split("\0") if path}
+    if base_sha != head:
+        paths |= committed_paths(root, base_sha, head)
+    ordered = sorted(path for path in paths if not path.startswith(excluded))
+    if not ordered:
+        return empty
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "--no-ext-diff", "--cached", base_sha,
+         "--", *ordered],
+        cwd=root, capture_output=True, env=clean_git_env(),
+    )
+    if diff.returncode != 0:
+        raise SystemExit("cannot derive the product delta digest: git diff failed")
+    return hashlib.sha256(diff.stdout).hexdigest()
 
 def product_tree_digest(root: Path, treeish: str = "",
                         exclude: tuple[str, ...] = (".factory/", "plans/")) -> str:
@@ -1968,6 +2139,21 @@ GROUNDING_CONTRACT_FIELDS = (
     "verify_commands",
     "user_facing",
 )
+# Once the stage is OPEN, three of those fields stop being what the work IS
+# and become how the work is MEASURED: `write_scope` is enforced by measuring
+# the diff, `required_tests` and `verify_commands` by running them. Each has a
+# mechanical gate that can actually check it; a cold reader can only guess at
+# them. Widening scope or fixing a test command mid-stage therefore changes
+# nothing the grill judged, and re-grilling on it re-asked a question whose
+# answer had not changed (T2: a scope widening cost a 21-minute re-grill, a
+# plan rewrite and a human re-approval for zero code change).
+IN_STAGE_GROUNDING_FIELDS = (
+    "objective",
+    "acceptance_criteria",
+    "plan_contracts",
+    "user_facing",
+)
+MEASUREMENT_CONTRACT_FIELDS = ("write_scope", "required_tests", "verify_commands")
 # Deliberately NOT grounded: `review_budget` and `reviewer_focus` are
 # bookkeeping for the reviewer, and `title`/`id`/`epic_id` are labels. Raising
 # a file-count ceiling used to invalidate the grill and force a full re-grill
@@ -1985,7 +2171,8 @@ def task_in_stage(root: Path, task_id: str) -> bool:
 
 
 def grounding_digest(root: Path, task: dict, *, treeish: str = "",
-                     in_stage: bool = False) -> str:
+                     in_stage: bool = False,
+                     fields: tuple[str, ...] | None = None) -> str:
     """Bind a task grill to what the work IS: the substantive contract, the
     approved plan, and — only before the stage opens — the product tree."""
     decomposition = load_json(protected_decomposition_state_path(root), default={})
@@ -2010,8 +2197,10 @@ def grounding_digest(root: Path, task: dict, *, treeish: str = "",
             f"cannot derive the task grounding digest: approved plan {plan_file!r} "
             "does not exist"
         )
+    if fields is None:
+        fields = IN_STAGE_GROUNDING_FIELDS if in_stage else GROUNDING_CONTRACT_FIELDS
     body = {
-        "contract": {field: task.get(field) for field in GROUNDING_CONTRACT_FIELDS},
+        "contract": {field: task.get(field) for field in fields},
         "plan_sha256": plan_digest_without_assumptions(plan),
     }
     # The product tree is part of the grounding only until the stage opens.
@@ -2080,6 +2269,13 @@ def grounding_matches(root: Path, task: dict, recorded: str, *,
                                     in_stage=in_stage):
         return True
     if in_stage:
+        # Recorded in-stage under the previous rule, which still grounded the
+        # three measurement fields. Those fields have not moved if this
+        # matches, so the record is as good as one made today.
+        if recorded == grounding_digest(root, task, treeish=treeish,
+                                        in_stage=True,
+                                        fields=GROUNDING_CONTRACT_FIELDS):
+            return True
         # Stamped BEFORE the stage opened, so the tree was part of it. The
         # stage pinned that same tree as its baseline, so measuring against
         # the baseline reproduces exactly what was recorded. Without this the

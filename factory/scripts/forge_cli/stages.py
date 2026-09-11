@@ -32,6 +32,7 @@ from factory_lib import (
     protected_decomposition_state_path, repo_root, require_approved_plan_digest,
     require_ready_task, require_task_worktree, run_state_path,
     safe_factory_write_json, sha256_of, story_dir, task_digest,
+    proof_read_path,
 )
 
 from .common import fail
@@ -955,16 +956,32 @@ def task_for(base: Path, stage_id: str) -> dict:
 
 
 def stage_review_binding(base: Path, stage: dict, task: dict) -> dict[str, str]:
-    """The exact stage/product identity a local review authorizes."""
-    from .delegate import current_delegation
+    """What a review stamp attests: THIS diff, from THIS base, for THIS stage.
 
+    It used to also hash the contract text, the brief text and every tracked
+    file. None of those is what the reviewer read, so each could stale a
+    review of unchanged code: a scope widening, a decision record, a contract
+    re-record. On T2 that cost three re-reviews and a no-op delegate in one
+    morning. The reviewer read the product diff; the stamp binds to the
+    product diff.
+    """
+    from factory_lib import product_delta_digest
+    base_sha = stage_baseline(base, stage)
+    return {
+        "stage_id": stage.get("id", ""),
+        "base_sha": base_sha,
+        "delta_id": product_delta_digest(base, base_sha),
+    }
+
+
+def _legacy_stamp_binding(base: Path, stage: dict, task: dict) -> dict[str, str]:
+    """The pre-delta binding, kept so a stamp recorded under it can be
+    accepted -- and converted -- when it is still fresh by its own rule."""
+    from .delegate import current_delegation
     task_sha256 = task_digest(task)
     launch = current_delegation(
-        base,
-        stage.get("id", ""),
-        stage_started_at=stage.get("started_at", ""),
-        task_sha256=task_sha256,
-        ignore_lock=True,
+        base, stage.get("id", ""), stage_started_at=stage.get("started_at", ""),
+        task_sha256=task_sha256, ignore_lock=True,
     )
     brief_sha256 = launch.get("brief_sha256", "") if launch else ""
     return {
@@ -975,6 +992,34 @@ def stage_review_binding(base: Path, stage: dict, task: dict) -> dict[str, str]:
         "product_tree_digest": product_tree_digest(base),
     }
 
+
+def stamp_is_fresh(base: Path, stage: dict, task: dict) -> bool:
+    """Does the stage's review stamp cover the diff as it stands?
+
+    A stamp recorded under the previous rule is accepted when it is fresh by
+    that rule -- the tree it hashed is the tree here -- and is converted in
+    place so the next check is the cheap one. A stamp stale under either rule
+    is stale. Nothing is revived.
+    """
+    stamp = stage.get("local_review_stamp")
+    if not isinstance(stamp, dict):
+        return False
+    expected = stage_review_binding(base, stage, task)
+    if "delta_id" in stamp:
+        return all(stamp.get(key) == value for key, value in expected.items())
+    legacy = _legacy_stamp_binding(base, stage, task)
+    if any(stamp.get(key) != value for key, value in legacy.items()):
+        return False
+    from .delegate import delegation_exclusion
+    with delegation_exclusion(base, "stages", kind="stage-state", namespace="state"):
+        data = load_stages(base)
+        live = _find(data, stage.get("id", ""))
+        current = live.get("local_review_stamp")
+        if isinstance(current, dict) and "delta_id" not in current:
+            current.update(expected)
+            write_stages(base, data)
+    stamp.update(expected)
+    return True
 
 def stamp_stage_review(base: Path, stage_id: str, *, generated_by: str = "autoreview",
                        lenses: tuple[str, ...] | list[str] = ()) -> dict:
@@ -997,6 +1042,8 @@ def stamp_stage_review(base: Path, stage_id: str, *, generated_by: str = "autore
             fail(f"{stage_id} has no recorded task contract to bind the review to")
         stamp = {
             **stage_review_binding(base, stage, task),
+            # Evidence, not binding: which contract the review ran under.
+            "contract_sha256": task_digest(task),
             "recorded_at": now_iso(),
             "generated_by": generated_by,
             "lenses": list(lenses),
@@ -1025,20 +1072,18 @@ def revoke_stage_review_stamp(base: Path, stage_id: str) -> bool:
 
 
 def _require_reviewed_commit(base: Path, stage: dict, task: dict) -> None:
-    stamp = stage.get("local_review_stamp")
-    expected = stage_review_binding(base, stage, task)
     stage_id = stage.get("id")
+    stamp = stage.get("local_review_stamp")
     if not isinstance(stamp, dict):
         fail(f"{stage_id} has no stage-local review stamp. Run `forge review "
-             f"{stage_id}` on the committed tree — a run with no blocking finding "
-             "stamps the stage — then retry.")
-    stale = [key for key, value in expected.items() if stamp.get(key) != value]
-    if stale:
-        fail(f"{stage_id} has a STALE stage-local review stamp "
-             f"({', '.join(stale)} changed). "
-             f"Commit the final tree and rerun `forge review {stage_id}` "
-             "(a done stage: `forge task reopen "
-             f"{stage_id} --review-fix` first when fixes are still to land), then retry.")
+             f"{stage_id}` on the committed tree -- a run with no blocking finding "
+             f"stamps the stage -- or `forge task close {stage_id}`, which runs "
+             "the review only when the diff has moved, then closes and seals.")
+    if not stamp_is_fresh(base, stage, task):
+        fail(f"{stage_id} has a STALE stage-local review stamp: the product diff "
+             "changed since the review read it. Commit the final tree and run "
+             f"`forge task close {stage_id}` (it re-reviews exactly the new diff, "
+             f"reopening a done stage itself), or `forge review {stage_id}` then retry.")
     product_dirt = sorted(product_tree_snapshot(base)["dirty"])
     if product_dirt:
         fail(f"{stage.get('id')} has uncommitted or staged PRODUCT changes: "
@@ -1051,9 +1096,8 @@ def _require_reviewed_commit(base: Path, stage: dict, task: dict) -> None:
         if not path.startswith(workflow_prefixes(base))
     ] if base_sha and head and base_sha != head else []
     if not committed_product:
-        fail(f"{stage.get('id')} closes on an EMPTY committed delta — stage work "
+        fail(f"{stage.get('id')} closes on an EMPTY committed delta -- stage work "
              "must be committed before completion.")
-
 
 def _find(data: dict, stage_id: str) -> dict:
     stage = next((s for s in data.get("stages", []) if s.get("id") == stage_id), None)
@@ -1367,13 +1411,17 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
     window. Returns the window id when a window satisfied it, else ""."""
     from .delegate import argv_digest, brief_path, current_delegation
 
-    digest = task_digest(task)
     brief = brief_path(base, stage_id)
+    # Any contract version: the launch proves Codex wrote inside THIS stage.
+    # Binding it to the contract digest orphaned every launch the moment the
+    # contract was re-recorded, and the only way back was a Codex launch that
+    # did nothing but produce a row with the new digest. The contract at
+    # launch time stays on the row as evidence; `stage done` records a
+    # contract that moved (decision 0023).
     entry = current_delegation(
         base,
         stage_id,
         stage_started_at=stage.get("started_at", ""),
-        task_sha256=digest,
         ignore_lock=True,
     )
     argv = entry.get("argv") if entry else None
@@ -1403,9 +1451,7 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
         entry
         and entry.get("launch_status") == "succeeded"
         and entry.get("write") is True
-        and entry.get("task_sha256") == digest
         and entry.get("stage_started_at") == stage.get("started_at")
-        and entry.get("brief_sha256") == sha256_of(brief)
         and argv_valid
     )
     if valid:
@@ -1413,8 +1459,8 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
     window = _host_window_covering(base, stage, task)
     if window:
         return str(window.get("id") or "?")
-    fail(f"{stage_id} has no successful write launch bound to this stage, "
-         "task contract and brief. Either run `forge delegate "
+    fail(f"{stage_id} has no successful write launch bound to this stage. "
+         "Either run `forge delegate "
          f"{stage_id}` successfully (`--print-only` is diagnostic only), or "
          "— when the fix is one Codex's sandbox cannot make (a DB-surfaced "
          "defect, a host-only check) — make it inside a ledgered window: "
@@ -1680,25 +1726,52 @@ def _run_verify_commands(base: Path, stage_id: str, task: dict) -> None:
                  f"{command}\n" + "\n".join(tail[-15:]))
 
 
-def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
-                  stage: dict, task: dict) -> None:
-    # Validate the input tree, run the task proof once, then validate again.
-    # Verify commands are executable shell and may mutate files; only the
-    # post-command measurement is allowed to authorize completion.
-    _measure(base, args.id, stage, task)
-    _require_reviewed_commit(base, stage, task)
-    _require_successful_launch(base, args.id, stage, task)
+def run_stage_proof(base: Path, stage_id: str, task: dict) -> tuple[dict, dict, list[str]]:
+    """Run the task's verify commands and required tests, read-only.
+
+    Returns the product and authority snapshots the proof ran against and the
+    required-test ids that matched no case, for the close to record. Factored
+    out so `task close` can run the proof BEFORE spending a review on a tree
+    that would have failed it anyway.
+    """
     proof_tree = product_tree_snapshot(base)
     authority_tree = protected_authority_snapshot(base)
     with termination_signal_guard():
-        _run_verify_commands(base, args.id, task)
-        test_id_misses = _run_required_tests(base, args.id, task)
+        _run_verify_commands(base, stage_id, task)
+        test_id_misses = _run_required_tests(base, stage_id, task)
     if product_tree_snapshot(base) != proof_tree:
-        fail(f"{args.id} proof commands changed the product tree; verification "
+        fail(f"{stage_id} proof commands changed the product tree; verification "
              "must be read-only")
     if protected_authority_snapshot(base) != authority_tree:
-        fail(f"{args.id} proof commands changed protected Forge authority; "
+        fail(f"{stage_id} proof commands changed protected Forge authority; "
              "stage completion refused")
+    return proof_tree, authority_tree, test_id_misses
+
+
+def _finish_stage(base: Path, args: argparse.Namespace, data: dict,
+                  stage: dict, task: dict, *,
+                  proof: tuple[dict, dict, list[str]] | None = None) -> None:
+    # Validate the input tree, run the task proof once, then validate again.
+    # Verify commands are executable shell and may mutate files; only the
+    # post-command measurement is allowed to authorize completion.
+    #
+    # `task close` runs the proof BEFORE spending a review and hands it in
+    # here, so a proof-driven fix never costs a review that ran too early;
+    # a standalone `stage done` keeps its own refusal order.
+    # A corrupt delegation ledger refuses before any other verdict: nothing
+    # below can be trusted against it. The old stamp binding read the ledger
+    # incidentally and so failed here by accident; now it is deliberate.
+    from .delegate import load_delegations
+    load_delegations(base)
+    _measure(base, args.id, stage, task)
+    _require_reviewed_commit(base, stage, task)
+    _require_successful_launch(base, args.id, stage, task)
+    if proof is None:
+        proof = run_stage_proof(base, args.id, task)
+    proof_tree, authority_tree, test_id_misses = proof
+    if product_tree_snapshot(base) != proof_tree:
+        fail(f"{args.id}'s product tree changed after its required proof; "
+             "rerun stage completion against the final snapshot")
     _measure(base, args.id, stage, task)
     final_task = task_for(base, args.id)
     _measure(base, args.id, stage, final_task)
@@ -1808,8 +1881,8 @@ def _refuse_incomplete_against_complete_proof(base: Path, task_id: str) -> None:
     if not key:
         return
     verify_ok = verify_passed(load_json(
-        evidence_path(base, key, "verify.json"), default={}))
-    tests = load_json(evidence_path(base, key, "tests.json"), default={})
+        proof_read_path(base, key, "verify.json"), default={}))
+    tests = load_json(proof_read_path(base, key, "tests.json"), default={})
     aspects = ("quality", "performance", "security")
     lenses = {
         aspect: review_passed(load_json(
@@ -1828,6 +1901,43 @@ def _refuse_incomplete_against_complete_proof(base: Path, task_id: str) -> None:
         "every recorded claim and reports which one disagrees with the repo. "
         "Use --incomplete only when work genuinely remains."
     )
+
+
+def reopen_stage_for_review_fix(base: Path, stage_id: str) -> dict:
+    """A done, unshipped stage goes back to active so a fix can land.
+
+    Identity stays: base, contract digest, start time, plan approval. Only the
+    review stamp goes -- it is bound to the pre-fix diff. `task close` calls
+    this itself when a done stage's diff has moved; `task reopen --review-fix`
+    remains as the explicit verb.
+    """
+    from .delegate import delegation_exclusion
+    with delegation_exclusion(base, "stages", kind="stage-state", namespace="state"):
+        data = load_stages(base)
+        stages = data.get("stages") or []
+        idx = next((i for i, st in enumerate(stages) if st.get("id") == stage_id), None)
+        if idx is None:
+            fail(f"task {stage_id} is not in the current decomposition")
+        target = stages[idx]
+        if target.get("status") != "done":
+            fail(f"task {stage_id} is '{target.get('status')}', not done -- a review "
+                 "fix reopens a stage that closed clean and then failed its review")
+        later = [st.get("id") for st in stages[idx + 1:]
+                 if st.get("status") in ("done", "active")]
+        if later:
+            fail(f"task {stage_id} cannot take a review fix while "
+                 f"{', '.join(later)} already built on it; reopen without "
+                 "--review-fix to move the frontier back")
+        for field in ("local_review_stamp", "completed_at"):
+            target.pop(field, None)
+        target["status"] = "active"
+        target["review_fix_reopened_at"] = now_iso()
+        target["review_fix_count"] = int(target.get("review_fix_count") or 0) + 1
+        write_stages(base, data)
+    append_event(base, "stage-reopened", actor="implementer",
+                 story=data.get("issue", ""),
+                 detail=f"{stage_id}: review fix round {target['review_fix_count']}")
+    return target
 
 
 def cmd_amend_scope(args) -> None:
@@ -1896,6 +2006,8 @@ def cmd_amend_scope(args) -> None:
         "measured_head": head_sha(base),
     })
     dump_json(scope_amendments_path(base), record)
+    from factory_lib import refresh_task_plan_contract
+    refresh_task_plan_contract(base, args.id, task)
     print(f"Amended {args.id} scope with {len(strays)} measured path(s): "
           f"{', '.join(sorted(strays)[:6])}"
           f"{'…' if len(strays) > 6 else ''} — contract, grill and delegate "

@@ -14,6 +14,7 @@ from factory_lib import (
     task_evidence_path,
     evidence_path, load_json, now_iso, parse_sections,
     plan_digest_without_assumptions, repo_root, run_state_path, story_dir, task_rows,
+    proof_read_path,
 )
 
 # Shipped/archived plans move out of active|completed; scan debt too or a
@@ -178,16 +179,16 @@ def _plan_evidence(
     tasks = merge_task_detail(decomposition, stages, derived_rows)
     # The same predicates pr_ready gates on: a tick here must mean the gate
     # would open, not merely that a file is on disk.
-    recorded = load_json(evidence_path(base, story, "tests.json"), default={})
+    recorded = load_json(proof_read_path(base, story, "tests.json"), default={})
     evidence = {
         "verify": verify_passed(load_json(
-            evidence_path(base, story, "verify.json"), default={})),
+            proof_read_path(base, story, "verify.json"), default={})),
         "tests": tests_passed(recorded.get("automated")) and (
             tests_passed(recorded.get("functional"), functional=True)
             if recorded.get("functional") else True),
         "reviews": {
             aspect: review_passed(load_json(
-                evidence_path(base, story, f"reviews/{aspect}.json"), default={}))
+                proof_read_path(base, story, f"reviews/{aspect}.json"), default={}))
             for aspect in ("quality", "performance", "security")
         },
     }
