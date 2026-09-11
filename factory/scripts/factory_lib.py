@@ -9,6 +9,7 @@ import re
 import stat
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -948,29 +949,103 @@ def _resolve_trunk_branch(root: Path) -> str:
 # a few seconds of staleness on "has this marker landed yet" costs a read-only
 # dashboard nothing.
 MARKER_FETCH_TTL = 0.0
-_TRUNK_FETCH_AT: dict[tuple[str, str], float] = {}
+_TRUNK_FETCH_AT: dict[tuple[str, str], tuple[float, bool]] = {}
+# Two locks, so a request never waits on the network when it need not: the
+# state lock guards the dict for a lookup; the run lock serialises the fetch
+# itself (two fetches of one ref at once race on FETCH_HEAD and the ref lock).
+_TRUNK_FETCH_STATE = threading.Lock()
+_TRUNK_FETCH_RUN = threading.Lock()
+# A failed fetch is reused for at most this long, whatever the window: a board
+# polling an offline remote does not wait on it every poll, and still sees the
+# network come back within one poll.
+_TRUNK_FETCH_FAILURE_TTL = 10.0
+
+# Set by the board server only (make_server). A board re-derives the same git
+# facts on every request; with this on, a fact whose inputs are files git
+# rewrites whenever the answer can change is reused until those files change.
+# Every CLI process leaves it off, so the gates keep asking git directly.
+BOARD_MEMO = False
+
+
+def _board_memo(namespace: str, stamp: tuple, compute):
+    if not BOARD_MEMO:
+        return compute()
+    from forge_cli import fscache
+
+    return fscache.cached(namespace, stamp, compute)
+
+
+def _git_dirs(root: Path) -> tuple[Path, Path] | None:
+    """(this worktree's git dir, the shared common dir), or None outside git."""
+    try:
+        git_dir = git_control_dir(root).parent
+    except SystemExit:
+        return None
+    common = (git_dir.parent.parent
+              if git_dir.parent.name == "worktrees" else git_dir)
+    return git_dir, common
+
+
+def _trunk_fetch_window(key: tuple[str, str], ttl: float) -> bool | None:
+    if ttl <= 0.0:
+        return None
+    with _TRUNK_FETCH_STATE:
+        last = _TRUNK_FETCH_AT.get(key)
+    if last is None:
+        return None
+    at, ok = last
+    valid = ttl if ok else min(ttl, _TRUNK_FETCH_FAILURE_TTL)
+    return ok if time.monotonic() - at < valid else None
 
 
 def fetch_trunk(root: Path, trunk: str, *, ttl: float = 0.0) -> bool:
     """Fetch ``origin/<trunk>`` and report whether it should now be present.
 
-    Factored out so the board fetches the trunk ONCE per render (before checking
-    every task's marker) instead of once per task, while the CLI frontier and
-    ship gates keep fetching live per check. With ``ttl > 0`` a fetch made within
-    the last ``ttl`` seconds is reused instead of hitting the network again."""
-    cache_key = (str(root), trunk)
-    if ttl > 0.0:
-        last = _TRUNK_FETCH_AT.get(cache_key)
-        if last is not None and (time.monotonic() - last) < ttl:
-            return True
+    With ``ttl > 0`` a fetch made within the last ``ttl`` seconds is reused
+    instead of hitting the network again. The board process raises
+    ``MARKER_FETCH_TTL``, and that floor applies to EVERY fetch made in that
+    process: the per-render one in ``task_rows`` and the ones ``forge next``
+    makes through ``task_marker_on_main``, which used to go around the window
+    and pay a network round trip (2.7 s on a real remote) per marker check.
+    A call that finds a fetch inside its window never waits on one in flight.
+    Every CLI process leaves the TTL at zero and stays live.
+    """
+    ttl = max(ttl, MARKER_FETCH_TTL)
+    key = (str(root), trunk)
+    reused = _trunk_fetch_window(key, ttl)
+    if reused is not None:
+        return reused
+    with _TRUNK_FETCH_RUN:
+        # Another caller may have fetched while this one waited for the lock.
+        reused = _trunk_fetch_window(key, ttl)
+        if reused is not None:
+            return reused
+        ok = _fetch_trunk_now(root, trunk)
+        with _TRUNK_FETCH_STATE:
+            _TRUNK_FETCH_AT[key] = (time.monotonic(), ok)
+        return ok
+
+
+def _fetch_trunk_now(root: Path, trunk: str) -> bool:
     fetch = subprocess.run(
         ["git", "fetch", "origin", trunk], cwd=root, capture_output=True,
         text=True, env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
-    if fetch.returncode != 0:
-        return False
-    _TRUNK_FETCH_AT[cache_key] = time.monotonic()
-    return True
+    return fetch.returncode == 0
+
+
+def refresh_trunk(root: Path, trunk: str) -> bool:
+    """Fetch now, whatever the window says, and start a fresh window.
+
+    For a refresher on its own clock (the board's). Requests that find the
+    previous fetch still inside its window do not wait for this one.
+    """
+    key = (str(root), trunk)
+    with _TRUNK_FETCH_RUN:
+        ok = _fetch_trunk_now(root, trunk)
+        with _TRUNK_FETCH_STATE:
+            _TRUNK_FETCH_AT[key] = (time.monotonic(), ok)
+        return ok
 
 
 def task_marker_on_main(
@@ -994,24 +1069,52 @@ def task_marker_on_main(
         # every caller. `forge next` and the board read this on repos that have
         # no origin (they never crash); the per-task ship gate re-checks live.
         return False
-    present = subprocess.run(
-        ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
-        cwd=root, capture_output=True, text=True, env=clean_git_env(),
-        encoding="utf-8", errors="surrogateescape",
-    )
-    return present.returncode == 0
+
+    def ask() -> bool:
+        present = subprocess.run(
+            ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
+            cwd=root, capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8", errors="surrogateescape",
+        )
+        return present.returncode == 0
+
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return ask()
+    from forge_cli import fscache
+
+    # Fixed by where origin/<trunk> points; git rewrites the loose ref or
+    # packed-refs whenever that moves. `forge next` asks this for every
+    # shipped task on each recompute (17 checks on one repo).
+    common = dirs[1]
+    stamp = (fscache.file_stamp(common / "refs" / "remotes" / "origin" / trunk),
+             fscache.file_stamp(common / "packed-refs"))
+    return _board_memo(f"board:marker:{common}:{trunk}:{marker.as_posix()}",
+                       stamp, ask)
 
 
 def _has_origin(root: Path) -> bool:
     """Whether an `origin` remote is configured (cheap; no network). Marker-on-
     trunk per-task routing only applies when there is a trunk to ship a PR to;
     without an origin the frontier keeps its stage-status behaviour."""
-    result = subprocess.run(
-        ["git", "remote", "get-url", "origin"], cwd=root,
-        capture_output=True, text=True, env=clean_git_env(),
-        encoding="utf-8",
-    )
-    return result.returncode == 0
+    def ask() -> bool:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"], cwd=root,
+            capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8",
+        )
+        return result.returncode == 0
+
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return ask()
+    from forge_cli import fscache
+
+    # Remotes live in config; a worktree-scoped config can add one too.
+    git_dir, common = dirs
+    stamp = (fscache.file_stamp(common / "config"),
+             fscache.file_stamp(git_dir / "config.worktree"))
+    return _board_memo(f"board:has_origin:{git_dir}", stamp, ask)
 
 
 def _windows_reparse_point(path: Path) -> bool:
@@ -1898,6 +2001,13 @@ def plan_body_digest(path: Path) -> str:
         if not re.match(PLAN_SAVE_OWNED_FIELDS, line)
     )
     approved_body = body.partition(b"\n## Implementation Assumptions")[0]
+    # Trailing newlines are normalised because `strip_derived_sections`
+    # substitutes a newline for the contract block, and the block is appended
+    # after one. Removing it therefore leaves one MORE trailing newline than
+    # the file carried before the block existed, so the first render of the
+    # block changed this digest and `task approve` refused with "the plan
+    # CHANGED" against byte-identical authored text.
+    approved_body = approved_body.rstrip(b"\n") + b"\n"
     return hashlib.sha256(authored + b"\n---\n" + approved_body).hexdigest()
 
 
@@ -2090,6 +2200,27 @@ def product_delta_digest(root: Path, base_sha: str, head: str = "") -> str:
 def product_tree_digest(root: Path, treeish: str = "",
                         exclude: tuple[str, ...] = (".factory/", "plans/")) -> str:
     """Hash product blobs from the index, or from a named historical tree."""
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return _product_tree_digest_now(root, treeish, exclude)
+    from forge_cli import fscache
+
+    git_dir, common = dirs
+    if treeish:
+        # An object id names the same tree forever; a ref name can move.
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", treeish):
+            return _product_tree_digest_now(root, treeish, exclude)
+        namespace, stamp = f"board:tree:{common}:{treeish}:{exclude}", ()
+    else:
+        # `ls-files --stage` reads this worktree's index and nothing else.
+        namespace = f"board:index-tree:{git_dir}:{exclude}"
+        stamp = (fscache.file_stamp(git_dir / "index"),)
+    return _board_memo(namespace, stamp,
+                       lambda: _product_tree_digest_now(root, treeish, exclude))
+
+
+def _product_tree_digest_now(root: Path, treeish: str,
+                             exclude: tuple[str, ...]) -> str:
     git_args = (["ls-tree", "-r", "-z", treeish]
                 if treeish else ["ls-files", "--stage", "-z"])
     proc = subprocess.run(
