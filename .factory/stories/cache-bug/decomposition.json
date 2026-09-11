@@ -319,7 +319,7 @@
       "user_facing": false,
       "objective": "Reclaim DeepAgents checkpoint state for retired sessions: add releaseSession to the adapter contract, implement it in the DeepAgents adapter with deleteThread, and add the host coordinator that runs after the reply for ceiling, fingerprint, missing-session and both /new paths, sanitising errors and publishing cleanup_failed. Runs in parallel with T2 (graph amendment approved by Ravi in chat, 2026-09-09): T3 implements releaseRetiredProviderSessions in a new runtime module plus the adapter port and both /new handlers, consuming T1's retired-reference type; it never edits group-agent-runner.ts or runtime-event-types.ts, which T2 owns.",
       "dependencies": [
-        "cache-bug-T1"
+        "cache-bug-T2"
       ],
       "acceptance_criteria": [
         "S8: for ceiling, missing-session, fingerprint and /new, the retired thread's rows leave checkpoints, checkpoint_blobs and checkpoint_writes; checkpoint_migrations and other threads' rows remain; a second call is a no-op; a simulated deletion failure leaves the session expired, the reply delivered and session.provider.cleanup_failed recorded; a lost retirement transition performs no cleanup.",
@@ -329,6 +329,22 @@
         "S10/S11: scheduled-job tests untouched and green; verify.py green.",
         "Parallel seam: T3's write scope is disjoint from T2's \u2014 adapter contract, DeepAgents adapter and checkpoint setup, the new provider-session-release.ts coordinator exporting releaseRetiredProviderSessions(refs), session-commands.ts and runtime-services-active-new.ts /new handlers, and tests; the cleanup_failed publication uses the event type T2 registers and integrates at merge."
       ]
+    },
+    {
+      "id": "cache-bug-T4",
+      "title": "The desired-state settings contract",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Give /v1/settings/desired-state a typed request and response DTO and register it in the OpenAPI registry. The route accepts settings?: unknown and returns record-shaped JSON today, and the registry documents /v1/settings but not this path, so the payload that limits.provider_session_max_input_tokens changes is an untyped, undocumented public surface. Separated from T2 because it is a public HTTP contract with its own canon requirements.",
+      "dependencies": [
+        "cache-bug-T3"
+      ],
+      "acceptance_criteria": [
+        "API-1: PUT /v1/settings/desired-state accepts a typed request DTO \u2014 no `unknown` at the boundary \u2014 and rejects a malformed body with a path-level error rather than accepting it and failing later in the parser.",
+        "API-2: GET /v1/settings/desired-state returns a typed response DTO whose shape includes limits.provider_session_max_input_tokens, so the field T2 added is part of the declared contract rather than incidental record-shaped JSON.",
+        "API-3: the path is registered in the OpenAPI registry with request and response schemas that match the implementation, satisfying the endpoint-documentation standard; a schema that drifts from the handler fails the check.",
+        "API-4: a PUT/GET round trip proves the new limits key survives the public surface unchanged, and the settings pipeline T2 built behaves identically \u2014 this task changes the contract's typing and documentation, not its behaviour."
+      ]
     }
   ],
   "build_waves": [
@@ -336,10 +352,15 @@
       "cache-bug-T1"
     ],
     [
-      "cache-bug-T2",
+      "cache-bug-T2"
+    ],
+    [
       "cache-bug-T3"
+    ],
+    [
+      "cache-bug-T4"
     ]
   ],
-  "plan_sha256": "279a4a3c4f2b67fcc466e23dbdf1a239743aadcf56308a81f1f454aa26f35ee9",
-  "commit": "28bc58a1fee2c08759c37c663403030cf26dbc55"
+  "plan_sha256": "f6e0cfeff437291974f8a56186bc8cb9cee3bb7f5bdb5b60ccd8e6407b533289",
+  "commit": "2b427d09a83afa8a2e7027fdb041d1845b0fe77b"
 }

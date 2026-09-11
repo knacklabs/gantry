@@ -1,7 +1,7 @@
 {
   "id": "cache-bug-T1",
   "title": "Measurement, storage, and the quality gate",
-  "status": "active",
+  "status": "done",
   "started_at": "2026-09-09T11:11:15+00:00",
   "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
   "dirty_at_start": {
@@ -64,5 +64,6 @@
       "performance",
       "security"
     ]
-  }
+  },
+  "completed_at": "2026-09-11T13:23:49+00:00"
 }
