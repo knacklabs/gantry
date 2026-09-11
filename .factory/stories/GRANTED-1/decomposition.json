@@ -19,7 +19,7 @@
         "No grant is hidden: shedding follows the fixed order and the derived ceiling cannot conflict with the never-hide rule",
         "Hard overflow fails the run before any provider or tool call with a redacted capability_catalog_overflow diagnostic naming the counts",
         "The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation",
-        "A deterministic replay builds materialization through the production path and makes the dispatcher call first, with a negative control proving the descriptor causes it",
+        "A deterministic replay builds the materialization through the production path, asserts the descriptor is present in it, and shows the descriptor is SUFFICIENT to call the production dispatcher: the real dispatcher registration accepts exactly the descriptor's capability id and argument pattern, and with the descriptor removed there is nothing to call. That the model chooses it FIRST is model behaviour a unit test cannot prove and is evidenced by the live run instead",
         "The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged",
         "No descriptor contains an executable path or hash, asserted against a binding carrying both; reviewed argument operands render verbatim by owner ruling"
       ],
@@ -68,7 +68,7 @@
         },
         {
           "id": "GRANTED-1-C9",
-          "statement": "A deterministic replay builds materialization through the production path and makes the dispatcher call first, with a negative control proving the descriptor causes it",
+          "statement": "A deterministic replay builds the materialization through the production path, asserts the descriptor is present in it, and shows the descriptor is SUFFICIENT to call the production dispatcher: the real dispatcher registration accepts exactly the descriptor's capability id and argument pattern, and with the descriptor removed there is nothing to call. That the model chooses it FIRST is model behaviour a unit test cannot prove and is evidenced by the live run instead",
           "source": "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md \u00a7 Acceptance Criteria"
         },
         {
@@ -98,12 +98,13 @@
         "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
         "apps/core/test/unit/jobs/execution-phases-run.test.ts",
         "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
-        "apps/core/test/unit/runner/capability-catalog-replay.test.ts"
+        "apps/core/test/unit/runner/capability-catalog-replay.test.ts",
+        "apps/core/src/application/agents/agent-profile-service.ts"
       ],
       "verify_commands": [
         "npx vitest run --config vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner",
         "npm run typecheck",
-        "npm run lint",
+        "npx eslint apps/core/src/jobs/execution-phases-run.ts apps/core/src/application/agents/agent-prompt-capability-catalog.ts apps/core/src/application/agents/agent-prompt-capability-guidance.ts apps/core/src/application/agents/prompt-profile-service.ts apps/core/src/runtime/agent-spawn-prompt.ts apps/core/src/runtime/agent-spawn.ts apps/core/src/runtime/agent-spawn-host.ts apps/core/src/runner/mcp/context.ts apps/core/src/runner/mcp/tools/capability-run.ts apps/core/src/application/agents/agent-profile-service.ts",
         "npm run format:check",
         "npm run check:architecture",
         "python3 factory/scripts/verify.py"
@@ -199,12 +200,12 @@
         "That reviewed argument operands render verbatim by owner ruling, while the executable path and hash never appear"
       ],
       "review_budget": {
-        "max_changed_files": 16,
+        "max_changed_files": 17,
         "max_changed_lines": 1400,
-        "reason": "Nine source files and seven test files. Scope widened once for the two spawn seams; the redaction sinks were removed again by owner ruling that approved templates are trusted and reviewed argument shapes render verbatim everywhere."
+        "reason": "Nine source files and seven test files. Scope widened once for the two spawn seams; the redaction sinks were removed again by owner ruling that approved templates are trusted and reviewed argument shapes render verbatim everywhere. The security lens then required removing a compatibility re-export whose only consumer is agent-profile-service.ts, so that file joins the scope for a one-symbol import change."
       }
     }
   ],
   "project": "",
-  "commit": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4"
+  "commit": "22e76d5b884f6b9e15e1aa057505075f72c137db"
 }

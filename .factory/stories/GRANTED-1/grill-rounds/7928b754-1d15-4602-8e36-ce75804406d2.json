@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The model policy is patched in place, and a re-vendor will silently revert it. Land it upstream now?",
+      "options": [
+        "You land it upstream (Recommended)",
+        "Leave it patched here",
+        "I open the upstream change"
+      ],
+      "chosen": "You land it upstream (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T02:37:10.932606+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

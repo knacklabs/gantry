@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "A review-mandated scope widening re-stales the task grill, forcing a re-record and re-approval. Fold this into the simplification?",
+      "options": [
+        "Yes, it is the same defect (Recommended)",
+        "Treat it as its own fix",
+        "Leave it, it is correct behaviour"
+      ],
+      "chosen": "Yes, it is the same defect (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T11:31:44.192812+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

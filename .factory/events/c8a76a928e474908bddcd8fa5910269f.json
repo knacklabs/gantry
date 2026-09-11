@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-11T03:15:34+00:00", "story": "GRANTED-1", "detail": "S-0103-7696: Checked, and the split is 82 pre-existing plus ONE that is ours. Every lint error sits in a file outside the write scope except this: apps/core/src/runtime/agent-spawn.ts:101 'RunnerAgentInput' is def"}

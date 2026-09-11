@@ -1,7 +1,7 @@
 {
   "id": "GRANTED-1-T1",
   "title": "The scheduled run is told which capabilities it holds",
-  "status": "active",
+  "status": "done",
   "started_at": "2026-09-10T18:01:52+00:00",
   "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
   "dirty_at_start": {
@@ -18,5 +18,37 @@
       "git": "1 .M N... 100644 100644 100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 b606c3fde9ae7f34b9c597ffec4db3943de468c0 .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 0\t.factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000H .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000"
     }
   },
-  "task_sha256": "96ef1a85384e8b46410865259706b2e0f0145c9707a101b56f2719bcf878210c"
+  "task_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
+  "local_review_stamp": {
+    "stage_id": "GRANTED-1-T1",
+    "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
+    "delta_id": "fbb219a3cb07a3ed9f73a11a3cccd605f6cfd7c3afc0bb82860baabfbfefce05",
+    "contract_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
+    "recorded_at": "2026-09-11T13:48:57+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  },
+  "completed_at": "2026-09-11T13:56:58+00:00",
+  "measured": {
+    "strays": [
+      "AGENTS.md",
+      "harness.yaml"
+    ],
+    "files": 19,
+    "lines": 1780,
+    "budget": {
+      "files": 17,
+      "lines": 1400
+    },
+    "test_id_misses": []
+  },
+  "contract_changed": {
+    "at": "2026-09-11T13:56:58+00:00",
+    "from": "96ef1a85384e8b46410865259706b2e0f0145c9707a101b56f2719bcf878210c",
+    "to": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac"
+  }
 }

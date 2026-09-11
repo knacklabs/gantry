@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The diff is 1,643 lines against a 1,400 ceiling. I judge this at stage close. How do you want it handled?",
+      "options": [
+        "Accept the overage (Recommended)",
+        "Make me look before you seal",
+        "Cut it back under the ceiling"
+      ],
+      "chosen": "Accept the overage (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T13:14:09.581472+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
