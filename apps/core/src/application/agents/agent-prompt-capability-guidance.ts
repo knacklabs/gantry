@@ -46,9 +46,13 @@ export function composePromptWithRequiredCapabilityCatalog(input: {
   grantedCount: number;
   compactReadyLines: readonly string[];
 }): string {
-  if (input.totalBudget <= 0 || input.blocks.length === 0) return '';
+  if (
+    input.grantedCount === 0 &&
+    (input.totalBudget <= 0 || input.blocks.length === 0)
+  )
+    return '';
   const capabilityBlock = input.blocks[input.capabilityIndex] ?? '';
-  if (capabilityBlock.length > input.totalBudget) {
+  if (input.blocks.length === 0 || capabilityBlock.length > input.totalBudget) {
     const compactLength = input.compactReadyLines.join('\n').length;
     let remaining = Math.max(
       0,

@@ -20,7 +20,11 @@ import {
   renderChannelPromptPresentationLine,
 } from '@core/application/agents/prompt-profile-service.js';
 import type { AgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
-import { renderCapabilityGuidancePrompt } from '@core/application/agents/agent-prompt-capability-guidance.js';
+import {
+  CapabilityCatalogOverflowError,
+  composePromptWithRequiredCapabilityCatalog,
+  renderCapabilityGuidancePrompt,
+} from '@core/application/agents/agent-prompt-capability-guidance.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 import '@core/channels/register-builtins.js';
 
@@ -589,6 +593,33 @@ describe('PromptProfileService', () => {
       compact.compactPrompt.length + 100,
     );
   });
+
+  it.each([0, -1])(
+    'fails closed instead of hiding grants at a %s total prompt budget',
+    (totalBudget) => {
+      let overflow: CapabilityCatalogOverflowError | undefined;
+
+      try {
+        composePromptWithRequiredCapabilityCatalog({
+          blocks: ['Profile', '- Operations · Ready action [id: ready:one]'],
+          capabilityIndex: 1,
+          totalBudget,
+          grantedCount: 1,
+          compactReadyLines: ['- Operations · Ready action [id: ready:one]'],
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(CapabilityCatalogOverflowError);
+        overflow = error as CapabilityCatalogOverflowError;
+      }
+
+      expect(overflow).toMatchObject({
+        code: 'capability_catalog_overflow',
+        grantedCount: 1,
+        renderableCount: 0,
+        sheddingStage: 'compact_overflow',
+      });
+    },
+  );
 
   it('compiles the Communication and Output Style guidance untruncated', async () => {
     const { service } = createService();
