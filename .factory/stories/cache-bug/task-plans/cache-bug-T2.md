@@ -136,6 +136,40 @@ the sessions the ceiling targets, with nothing failing to show it. Negative
 and non-integer values still raise `ProviderSessionMeasurementError`; clamping
 is for the top end only, where the value is real but unstorable.
 
+The clamp has to reach the actual write, not just the runner.
+`raiseProviderSessionContextHighWaterMark`
+(`canonical-session-repository-context-mark.postgres.ts:57`) today validates
+and then writes `input.contextHighWaterMark` unchanged, so a clamp applied
+only at the call site in the runner leaves the repository operation itself
+able to send an oversized integer to SQL from any other caller. The domain
+helper therefore NORMALISES and returns the storable value, and the
+repository consumes that return value — which is why that file is in the
+write scope. One guard where every caller already routes through is a smaller
+change than a guard at each call site, and it is the only version that cannot
+be bypassed by the next caller.
+
+**The YAML renderer.** `renderLimitsSettingsYaml`
+(`runtime-settings-optional-blocks-renderer.ts:27`) returns early when
+`limits.providers` is empty, so a cap configured with no per-provider entry
+produces no `limits:` block at all and vanishes from canonical
+`settings.yaml`. The renderer must emit the block for a scalar-only cap, or
+the setting fails to survive a round-trip through the very file that is
+supposed to be canonical.
+
+**The first mark.** A session created or replaced during this turn must get a
+mark too, not just one that was resumed — otherwise the ceiling checks a fresh
+session a turn later than it should, and one long first turn takes an extra
+oversized resume. `setSession` returns `Promise<boolean | void>`
+(`domain/repositories/ops-repo.ts:441`) and yields no ids, so the runner
+raises using the `nextSessionId` it just persisted as both the internal
+provider-session id and the external session id. That is correct because the
+Postgres adapter inserts `id: sessionId` and `externalSessionId: sessionId`
+(`canonical-session-repository.postgres.ts:498,501`) — an adapter detail the
+port never promised, so a test pins the invariant rather than leaving it
+accidental. Ravi ruled this at the task grill over the alternative of a
+one-time non-hydrating context re-read, which reads both ids from the source
+of truth but costs a query on every fresh session.
+
 **The cap setting.** `provider_session_max_input_tokens` parses as a sibling
 of the provider entries rather than inside one, because it is not
 provider-specific. It defaults to 150,000 and rejects outside 20,000-900,000
@@ -170,9 +204,12 @@ compile. No event family in this repository carries a `version` field, so
 these follow that convention; if canon turns out to require versioning, that
 gets its own decision rather than a one-off versioned family here.
 
-Publication is best-effort. A failed publish is logged and swallowed — it
-never suppresses or delays the user's reply, which is the whole point of the
-ceiling being invisible to the person talking to the agent.
+Publication is best-effort in exactly the sense the spec states and no
+stronger: a failed publish is logged and swallowed, and a publication FAILURE
+never suppresses the reply. The approved criterion makes no latency promise,
+so this plan does not claim one either — an earlier draft said publication
+never *delays* the reply, which is a stronger guarantee than the contract and
+one the named failure test cannot prove.
 
 **The lost race.** A lost `active -> expired` transition means a concurrent
 writer changed the row. The re-read uses `hydrateMemory: false` because
@@ -206,8 +243,16 @@ No user-visible change for a healthy session: under-cap and unmarked sessions
 resume exactly as today, with the same memory block and snapshot. A session
 past the cap loses its provider-side continuity on its next turn and keeps its
 durable Gantry memory; the reply still arrives. Operators gain one setting,
-two event families and a documented recipe. No HTTP contract changes in this
-task — the typed DTO for `/v1/settings/desired-state` is T4.
+two event families and a documented recipe.
+
+The API surface is **Changed**, not unaffected. An earlier draft of this plan
+said there were no HTTP contract changes, which contradicted the approved
+plan: the new key changes the JSON that `/v1/settings/desired-state` accepts
+and returns, so the approved Verify Plan assigns T2 a PUT/GET round trip over
+that route and calls it the only proof the field is reachable through the API
+whose payload shape it changes. T2 keeps that proof. No route SOURCE changes
+here — the existing untyped route already returns the revised document — and
+the typed request/response DTO plus the OpenAPI registry entry remain T4's.
 
 ## Task Decomposition
 
@@ -238,17 +283,28 @@ to T4.
 
 On Node 24 (`.nvmrc`): `npm run db:migrations:check` (no migration in this
 task — it must stay clean), `npm run typecheck`, `npm run lint:changed`, the
-twenty-two required tests, then `python3 factory/scripts/verify.py`. The
-required set covers the clamp at and above the boundary plus the still-rejected
-invalid values; the preflight's resume/retire/fresh path, the crossing run
-deferred to the next resume, the promoted `ready` row, the untouched
-`maintenance_compact` row and the lost transition; both R6 branches; the cap's
-default, its range rejection, its round trip and the reader-version hold; the
-discriminated payload typing, the two publication envelopes and the
-reply-survives-publish-failure case; the sink's collection order; and the
-recipe executed against the schema. The four pinned S6 tests run unchanged and
-must stay green without edits. The Postgres leaf runs on the host against a
-throwaway pgvector database.
+thirty-one required tests, then `python3 factory/scripts/verify.py`. The
+required set covers the clamp at and above the boundary, the still-rejected
+invalid values, and the repository consuming the normalised value so an
+oversized mark cannot reach SQL; the preflight's resume/retire/fresh path, the
+crossing run deferred to the next resume, the promoted `ready` row, the
+untouched `maintenance_compact` row and the lost transition; both R6 branches;
+the cap's default, its range rejection, its round trip, the scalar-only YAML
+block, application at reader version 16 and the old-reader hold; the
+discriminated `retired` payload, the flat `cleanup_failed` payload, all THREE
+publication envelopes (ceiling, fingerprint, missing-session), query and
+projection for both families, and the reply-survives-publish-failure case;
+the sink's collection order; the first mark on a fresh session and the
+`id === externalSessionId` invariant it relies on; the desired-state PUT/GET
+round trip; and the recipe executed against the schema.
+
+The count and the claim were both wrong in the first draft: it named
+twenty-two leaves and asserted they covered both publication envelopes, while
+the set omitted fingerprint publication, `cleanup_failed` typing, and the
+query and projection proof that R5 requires. The task grill caught it.
+
+The four pinned S6 tests run unchanged and must stay green without edits. The
+Postgres leaves run on the host against a throwaway pgvector database.
 
 ## Manual Verification
 

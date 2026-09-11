@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "A fresh or replacement provider session has no mark after its first turn, so the ceiling checks it one turn later than it should. How should T2 handle the first mark?",
+      "options": [
+        "Pin the id invariant (Recommended)",
+        "Re-read after persisting",
+        "Accept it and defer"
+      ],
+      "chosen": "Pin the id invariant (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T14:16:20.045197+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

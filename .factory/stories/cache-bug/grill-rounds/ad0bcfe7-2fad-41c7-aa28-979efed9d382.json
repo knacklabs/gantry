@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The grill amendment grew T2 to 12 criteria, 31 required tests and 16 scope entries \u2014 bigger than when the plan was approved. Any remaining gap before T2 goes to implementation, or is it sound to hand off as one task?",
+      "options": [
+        "Hand off as one task (Recommended)",
+        "Split the settings pipeline out",
+        "Split the docs and recipe out"
+      ],
+      "chosen": "Hand off as one task (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T14:23:06.924488+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

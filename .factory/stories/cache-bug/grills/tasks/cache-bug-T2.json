@@ -1,0 +1,166 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "issue": "cache-bug",
+  "task_id": "cache-bug-T2",
+  "summary": "First task-gate cold read of cache-bug-T2 (Codex gpt-5.6-sol @ high, read-only, job task-mtx0v7vf-4j0ng3). Twelve findings: one already resolved by a merge the cold read predated, ten repository-answerable and folded into a single amendment of the task contract and task plan, and one put to Ravi because it changed scope. Two of the contradictions live in approval-digest-bound artifacts (the story plan body and the spec body) and were ledgered as deferrals with T3 triggers on the ceremony trade-off Ravi has ruled three times before. The amendment added two files to the write scope, two acceptance criteria, and nine required leaves, and corrected three wrong claims in the task plan.",
+  "gaps": [
+    "The write scope omitted runtime-settings-optional-blocks-renderer.ts, whose renderLimitsSettingsYaml returns early when limits.providers is empty (:27), so a cap configured with no per-provider entry is dropped from canonical settings.yaml and does not survive a round-trip.",
+    "The clamp could not reach the actual write path: raiseProviderSessionContextHighWaterMark validates and then writes input.contextHighWaterMark unchanged (canonical-session-repository-context-mark.postgres.ts:57,64), and that file was outside the write scope, so a runner-only clamp left the repository operation able to send an oversized integer to SQL from any other caller.",
+    "A fresh or replacement provider session had no specified identity for its first mark. setSession returns Promise<boolean | void> (ops-repo.ts:441) and yields no ids, so every required test could pass against an already-resumed row while first-run and post-retirement replacement marks stayed NULL, delaying the ceiling by one turn.",
+    "Event proof was incomplete against AC7 and R5: the required leaves omitted the fingerprint publication, the cleanup_failed payload typing, and the query and projection coverage, while the task plan claimed its leaves covered both publication envelopes.",
+    "S7 had no proof that a CURRENT worker applies a revision carrying the new cap at reader version 16; the leaves covered only the default, the range rejection, serialisation and the old-reader hold.",
+    "The approved plan assigns T2 a PUT/GET round trip over /v1/settings/desired-state and classes T2's API impact as Changed, but the task plan declared no HTTP contract changes and carried no route test \u2014 dropping the only proof the new key is reachable through the API whose payload shape it changes."
+  ],
+  "contradictions": [
+    "AC7 described BOTH event families as discriminated over retirement reasons. The spec gives that union only to session.provider.retired; session.provider.cleanup_failed is a flat {providerSessionHash, executionProviderId, error} payload (docs/specs/cache-bug.md:215).",
+    "AC8 required a readonly RetiredProviderSessionReference[] sink and then required three callers to push into it. A readonly array cannot be pushed to.",
+    "The task plan and reviewer focus promised publication is never on the reply's critical path and never DELAYS the reply, which is stronger than the accepted criterion and the spec, both of which promise only that a publication FAILURE never suppresses delivery. The named failure test can pass while awaiting a slow publisher.",
+    "The approved story plan contradicts itself on the drain boundary: plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:350 says the queue is drained once at the end of runAgent, while :586-588 of the same plan rules that a drain there would precede or delay the fallback reply and places the boundary in group-processing.ts after finalizeGroupAgentUserVisibleOutput.",
+    "The decomposition's T3 objective still said T3 runs in parallel with T2, contradicting its own dependencies: ['cache-bug-T2'] and the settled sequential ruling.",
+    "docs/specs/cache-bug.md behaviour 5 still describes the retired provider-session reference with three fields, while decision 0159 section 3 \u2014 accepted, amended 2026-09-11 \u2014 requires a fourth, agentSessionId."
+  ],
+  "resolutions": [
+    "Finding 1 (T1's lifecycle marker not on trunk) was already resolved when the grill reported it: PR #507 merged as f1e7af51d and .factory/stories/cache-bug/tasks/cache-bug-T1/pr-ready.json is on main. The cold read saw a pre-merge tree. No amendment needed.",
+    "The YAML renderer joined the write scope, and AC6 now requires the block to be emitted for a scalar-only cap, with a required leaf asserting the round trip.",
+    "canonical-session-repository-context-mark.postgres.ts joined the write scope. AC2 now requires the domain helper to NORMALISE and return the storable value with the repository consuming that return value, so the guard sits where every caller already routes through rather than at each call site; a Postgres leaf asserts an oversized value cannot reach SQL.",
+    "The first mark was put to Ravi in this grill (AskUserQuestion) and ruled: the runner raises using the nextSessionId it just persisted as both the internal and external id. Correct because the Postgres adapter inserts id: sessionId and externalSessionId: sessionId (canonical-session-repository.postgres.ts:498,501) \u2014 an adapter detail the port never promised, so a new AC and two leaves pin the invariant and the fresh-session mark. Chosen over a non-hydrating context re-read (robust but a query per fresh session) and over leaving the first mark NULL (which would allow one extra oversized resume).",
+    "AC7 was rewritten: only session.provider.retired is reason-discriminated, cleanup_failed is a separate flat payload, all three publication envelopes are named with their own leaves including fingerprint, and query plus projection proof is required for both families. Four leaves added.",
+    "AC6 now requires application at reader version 16 proven directly rather than inferred, with its own leaf in settings-import-service.test.ts.",
+    "A new criterion carries the desired-state PUT/GET round trip as T2's, citing the approved plan's Verify Plan which calls it the only proof of reachability; the task plan's Surface Impact was corrected to class the API as Changed. T4 keeps the typed DTO and the OpenAPI registry entry; no route source changes in T2.",
+    "AC8 now specifies a readonly options property holding a mutable array, resolving the type contradiction.",
+    "The stronger latency promise was removed from the task plan and the reviewer focus, which now state the spec's promise exactly \u2014 a publication failure never suppresses the reply \u2014 and tell the reviewer not to demand more than the accepted criterion makes.",
+    "The T3 objective was corrected in the re-recorded decomposition: it now states T3 runs AFTER T2 and names the superseded parallel-graph amendment.",
+    "D-0090 ledgered for the plan's self-contradicting drain sentence, with its trigger BEFORE T3's ceremony rather than T4's, because T3 owns the drain and its implementer reads that section. Deferred on the same ceremony trade-off Ravi ruled for D-0082, D-0084 and D-0089: the plan body is approval-digest bound, and no consumer reads the stale sentence before T3.",
+    "D-0091 ledgered for the spec's three-field retired reference, triggered at T3's ceremony in the same window that widens the type to four fields, so the document and the code stop disagreeing at the same moment. Deferred because the spec body feeds requirements_digest and editing it re-stales the recorded requirements pass."
+  ],
+  "open_items": [],
+  "questions_asked": 2,
+  "new_abstractions": [],
+  "current_flow": "T1 shipped the measurement and the storage and stopped at the boundary: raiseProviderSessionContextHighWaterMark exists and is never called, so provider_sessions.context_high_water_mark is NULL for every row; there is no cap setting to compare against, because the limits parser accepts only <providerId>.requests_per_minute; group-agent-runner.ts resumes any resumable row without reading the mark; and the retirements T1 already performs at :394 and :514 return a reference nobody reads and emit no event. T2 closes all four and clamps the value at the column's limit, which T1 could not carry because it is sealed.",
+  "inspected_refs": [
+    "apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:27",
+    "apps/core/src/config/settings/runtime-settings-limits-parser.ts:24",
+    "apps/core/src/config/settings/settings-fleet-import.ts:71",
+    "apps/core/src/config/settings/settings-import-service.ts:149",
+    "apps/core/src/runtime/settings-revision-listener.ts:181",
+    "apps/core/src/runtime/group-agent-runner.ts:59",
+    "apps/core/src/runtime/group-agent-runner.ts:161",
+    "apps/core/src/runtime/group-agent-runner.ts:242",
+    "apps/core/src/runtime/group-agent-runner.ts:394",
+    "apps/core/src/runtime/group-agent-runner.ts:514",
+    "apps/core/src/runtime/group-processing.ts:669",
+    "apps/core/src/runtime/group-processing.ts:778",
+    "apps/core/src/runtime/group-processing-types.ts:81",
+    "apps/core/src/domain/events/events.ts:103",
+    "apps/core/src/domain/events/runtime-event-types.ts",
+    "apps/core/src/domain/repositories/ops-repo.ts:441",
+    "apps/core/src/domain/sessions/provider-session-measurement.ts:16",
+    "apps/core/src/adapters/storage/postgres/schema/sessions.ts:89",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:57",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:498",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-helpers.postgres.ts:11",
+    "docs/specs/cache-bug.md:150",
+    "docs/specs/cache-bug.md:202",
+    "docs/specs/cache-bug.md:215",
+    "docs/decisions/0159-adapter-session-release-port.md:37",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:350",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:429",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:490",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:586",
+    "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:670"
+  ],
+  "citations": [
+    {
+      "finding": "The write scope omitted runtime-settings-optional-blocks-renderer.ts, whose renderLimitsSettingsYaml returns early when limits.providers is empty (:27), so a cap configured with no per-provider entry is dropped from canonical settings.yaml and does not survive a round-trip.",
+      "source": "apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:27 against plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:490"
+    },
+    {
+      "finding": "The clamp could not reach the actual write path: raiseProviderSessionContextHighWaterMark validates and then writes input.contextHighWaterMark unchanged (canonical-session-repository-context-mark.postgres.ts:57,64), and that file was outside the write scope, so a runner-only clamp left the repository operation able to send an oversized integer to SQL from any other caller.",
+      "source": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts:57,64"
+    },
+    {
+      "finding": "A fresh or replacement provider session had no specified identity for its first mark. setSession returns Promise<boolean | void> (ops-repo.ts:441) and yields no ids, so every required test could pass against an already-resumed row while first-run and post-retirement replacement marks stayed NULL, delaying the ceiling by one turn.",
+      "source": "apps/core/src/domain/repositories/ops-repo.ts:441 against apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:498,501"
+    },
+    {
+      "finding": "The approved plan assigns T2 a PUT/GET round trip over /v1/settings/desired-state and classes T2's API impact as Changed, but the task plan declared no HTTP contract changes and carried no route test \u2014 dropping the only proof the new key is reachable through the API whose payload shape it changes.",
+      "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:429 and plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:670"
+    },
+    {
+      "finding": "AC7 described BOTH event families as discriminated over retirement reasons. The spec gives that union only to session.provider.retired; session.provider.cleanup_failed is a flat {providerSessionHash, executionProviderId, error} payload (docs/specs/cache-bug.md:215).",
+      "source": "docs/specs/cache-bug.md:215"
+    },
+    {
+      "finding": "The approved story plan contradicts itself on the drain boundary: plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:350 says the queue is drained once at the end of runAgent, while :586-588 of the same plan rules that a drain there would precede or delay the fallback reply and places the boundary in group-processing.ts after finalizeGroupAgentUserVisibleOutput.",
+      "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:350 against plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:586"
+    },
+    {
+      "finding": "docs/specs/cache-bug.md behaviour 5 still describes the retired provider-session reference with three fields, while decision 0159 section 3 \u2014 accepted, amended 2026-09-11 \u2014 requires a fourth, agentSessionId.",
+      "source": "docs/decisions/0159-adapter-session-release-port.md:37 against docs/specs/cache-bug.md:150"
+    },
+    {
+      "finding": "Event proof was incomplete against AC7 and R5: the required leaves omitted the fingerprint publication, the cleanup_failed payload typing, and the query and projection coverage, while the task plan claimed its leaves covered both publication envelopes.",
+      "source": "docs/specs/cache-bug.md:202-218 and the R5 requirement against the required_tests recorded in .factory/stories/cache-bug/decomposition.json, and the coverage claim in .factory/stories/cache-bug/task-plans/cache-bug-T2.md"
+    },
+    {
+      "finding": "S7 had no proof that a CURRENT worker applies a revision carrying the new cap at reader version 16; the leaves covered only the default, the range rejection, serialisation and the old-reader hold.",
+      "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:218-222 (S7) against the required_tests recorded in .factory/stories/cache-bug/decomposition.json; apps/core/src/config/settings/settings-fleet-import.ts:71"
+    },
+    {
+      "finding": "AC8 required a readonly RetiredProviderSessionReference[] sink and then required three callers to push into it. A readonly array cannot be pushed to.",
+      "source": ".factory/stories/cache-bug/decomposition.json \u2014 the AC8 statement requiring a readonly array and three push callers; TypeScript readonly array types have no push"
+    },
+    {
+      "finding": "The task plan and reviewer focus promised publication is never on the reply's critical path and never DELAYS the reply, which is stronger than the accepted criterion and the spec, both of which promise only that a publication FAILURE never suppresses delivery. The named failure test can pass while awaiting a slow publisher.",
+      "source": "docs/specs/cache-bug.md:215 and the accepted criterion in .factory/stories/cache-bug/decomposition.json against the prose in .factory/stories/cache-bug/task-plans/cache-bug-T2.md and the recorded reviewer_focus"
+    },
+    {
+      "finding": "The decomposition's T3 objective still said T3 runs in parallel with T2, contradicting its own dependencies: ['cache-bug-T2'] and the settled sequential ruling.",
+      "source": ".factory/stories/cache-bug/decomposition.json \u2014 the T3 objective against its own dependencies field and plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md:645-650"
+    }
+  ],
+  "rounds": [
+    {
+      "question": "A fresh or replacement provider session has no mark after its first turn, so the ceiling checks it one turn later than it should. How should T2 handle the first mark?",
+      "options": [
+        "Pin the id invariant (Recommended)",
+        "Re-read after persisting",
+        "Accept it and defer"
+      ],
+      "chosen": "Pin the id invariant (Recommended)"
+    },
+    {
+      "question": "The grill amendment grew T2 to 12 criteria, 31 required tests and 16 scope entries \u2014 bigger than when the plan was approved. Any remaining gap before T2 goes to implementation, or is it sound to hand off as one task?",
+      "options": [
+        "Hand off as one task (Recommended)",
+        "Split the settings pipeline out",
+        "Split the docs and recipe out"
+      ],
+      "chosen": "Hand off as one task (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "grounding_basis": "working-tree",
+  "criteria_map": {
+    "S4 post-run raise: a run that ends in error but reported usage raises the mark through raiseProviderSessionContextHighWaterMark with the model-visible input tokens T1 computes; a run that reported no usage does not call the operation at all (not with zero, not with undefined).": "The raise operation exists and is uncalled: raiseProviderSessionContextHighWaterMark at canonical-session-repository-context-mark.postgres.ts:57 has no caller in the runtime, and group-agent-runner.ts performs no post-run raise, so context_high_water_mark is NULL for every row. The usage that feeds it is T1's modelVisibleInputTokens; a run reporting none must not call the operation at all rather than pass zero.",
+    "THE OVERFLOW CLAMP: the stored mark is clamped at 2,147,483,647 \u2014 the limit of the `integer` column at schema/sessions.ts:89 \u2014 in domain/sessions/provider-session-measurement.ts, at the domain boundary and not in SQL. The constant derives from the column type, NOT from the limits parser's 900,000 maximum: a real mark can exceed 900,001 on a ~1M-context model, and coupling the two would let a widened cap range leave a clipped mark unable to exceed the cap, silently ending retirement for exactly the sessions the ceiling targets. Covered at the boundary: 2,147,483,647 stores unchanged, above it clamps, and a negative or non-integer still raises ProviderSessionMeasurementError.": "The column is integer (schema/sessions.ts:89) while assertProviderSessionContextHighWaterMark (domain/sessions/provider-session-measurement.ts:16) checks only non-negative integer, and the repository writes input.contextHighWaterMark unchanged (context-mark.postgres.ts:64). The cap's own maximum is 900,000 in the settings range, which is why the clamp constant must come from the column type and not from the parser bounds.",
+    "S5 ceiling preflight: an over-cap session is not passed as the resume id; retirement returns the reference; the run proceeds fresh; the replacement handle is persisted; the reply is delivered; a run that CROSSES the cap mid-run is retired on the FOLLOWING resume, never mid-run; a `maintenance_compact` row is not retired; a `ready` row is promoted first (the preflight sits after prepareCompactionDeltaReplay and after the access-fingerprint check, and evaluates the mark on the SELECTED row only); a lost transition persists no replacement.": "The seam is real and ordered: prepareCompactionDeltaReplay at group-agent-runner.ts:161 promotes a ready row, the access-fingerprint check at :383-410 retires and clears resumeProviderSessionId, and resumeProviderSessionId is assigned at :193. maintenance_compact is in RESUMABLE_PROVIDER_SESSION_STATUSES (canonical-session-repository-helpers.postgres.ts:11-14), so the ceiling must not retire it.",
+    "R6 lost-race re-read, BOTH branches: on a lost ceiling transition the turn context is re-read with `hydrateMemory: false`, and the carried memory block is reused ONLY when the agent session id and the null-normalised `reset_at` generation both still match. On a mismatch the carried block is DISCARDED and memory rehydrated, because decision 0078's exactly-once hydration is per turn and a mismatch means a concurrent reset. Both branches carry regression coverage \u2014 a match-only implementation would leak a retired session's memory into the replacement.": "The fence is null-safe by IS NOT DISTINCT FROM (context-mark.postgres.ts:53), so a lost transition means a concurrent writer changed the row. Decision 0078 makes memory hydration exactly-once per turn, which is why the re-read passes hydrateMemory: false; reuse is safe only when the agent session id and the null-normalised reset_at both still match.",
+    "S6 no regression for healthy sessions: an under-cap or unmarked session resumes with its memory block and snapshot, and these four pinned tests stay green and UNTOUCHED \u2014 apps/core/test/unit/runtime/group-processing.test.ts \"passes hydrated memory context with provider session resume id\", apps/core/test/unit/runner/agent-runner-ipc.test.ts live-turn persist/resume, apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts memory+prompt user message, and apps/core/test/unit/adapters/deepagents-memory-context.test.ts.": "All four pinned tests exist: apps/core/test/unit/runtime/group-processing.test.ts, apps/core/test/unit/runner/agent-runner-ipc.test.ts, apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts, and apps/core/test/unit/adapters/deepagents-memory-context.test.ts (the plan names the fourth without a path; it lives under test/unit/adapters, not test/unit/runtime).",
+    "S7 the cap setting: `limits.provider_session_max_input_tokens` parses beside the existing per-provider entries in runtime-settings-limits-parser.ts (which today accepts only `<providerId>.requests_per_minute`), defaults to 150,000, rejects values outside 20,000-900,000 with a PATH-LEVEL error, round-trips through the revision document and the desired-state export, is applied from a new revision by a current worker, and a worker below the bumped reader version holds its prior revision and alerts. CURRENT_SETTINGS_READER_VERSION goes 15 -> 16 (settings-fleet-import.ts:71). The canonical YAML renderer must emit the block for a scalar-only cap: renderLimitsSettingsYaml (runtime-settings-optional-blocks-renderer.ts:27) returns early when `limits.providers` is empty, so a cap configured without any per-provider entry is silently dropped from settings.yaml and does not survive a round-trip.": "runtime-settings-limits-parser.ts:24 accepts only <providerId>.requests_per_minute today, so the key is genuinely new; CURRENT_SETTINGS_READER_VERSION is 15 at settings-fleet-import.ts:71, so 16 is the next value; SettingsRevisionListener holds and alerts at settings-revision-listener.ts:181-196; and renderLimitsSettingsYaml returns early on an empty providers map at runtime-settings-optional-blocks-renderer.ts:27, which is why the scalar-only YAML block is part of this criterion.",
+    "S9 event TYPES and the three non-`/new` publications, with R5's envelope: `session.provider.retired` and `session.provider.cleanup_failed` are registered runtime event types. ONLY `session.provider.retired` carries a payload DISCRIMINATED on `reason` in {ceiling, fingerprint, missing, new} \u2014 `providerSessionHash` (full lowercase hex SHA-256 of the raw external session id) and `executionProviderId` always, `contextHighWaterMark` and `cap` ONLY for `reason = ceiling`. `session.provider.cleanup_failed` is a SEPARATE, flat payload type `{providerSessionHash, executionProviderId, error}` (spec:215) and is NOT reason-discriminated; conflating the two was a defect in the first draft of this criterion. RuntimeEventPublishInput carries `payload: unknown` (domain/events/events.ts:103) with six or more consumers across app/bootstrap/, so a standalone interface binds nothing: these families publish through a typed helper that narrows the payload, such that a wrong payload for a `reason` FAILS TO COMPILE. T2 publishes all three of ceiling and fingerprint at preflight with `sessionId = agentSessionId` and no run id, and missing-session after the failed attempt with THAT attempt's `runId` \u2014 each with its own test, fingerprint included. Publication is best-effort in the sense the spec states and no stronger: a publication FAILURE never suppresses the reply. Proof covers publish, query AND projection for both families. T2 does NOT publish the `/new` event \u2014 T3 owns both `/new` handlers.": "docs/specs/cache-bug.md:202-214 gives session.provider.retired the reason-discriminated payload and its per-reason envelopes; :215 gives session.provider.cleanup_failed a separate flat payload. RuntimeEventPublishInput carries payload: unknown at domain/events/events.ts:103 with consumers across app/bootstrap/, so compile-time discrimination needs a typed helper rather than a standalone interface.",
+    "The retired-reference handover to T3: `GroupAgentRunResult` is the bare union 'success' | 'error' | 'stopped' (group-agent-runner.ts:59) and widening it would edit group-processing-types.ts:81, which T3 owns. So T2 adds an OPTIONAL typed sink to runAgent's options object \u2014 a `readonly RetiredProviderSessionReference[]` collector \u2014 and each of its three retirement sites (ceiling preflight, access-fingerprint at :394, missing-session at :514) pushes the reference retirement now returns, in retirement order. Absent sink is a no-op that cannot throw. T3 supplies the sink and drains it in group-processing.ts after the complete primary-plus-fallback delivery attempt settles. T2 does not touch group-processing.ts, group-processing-types.ts or group-processing-session-command-handlers.ts.": "GroupAgentRunResult is 'success' | 'error' | 'stopped' at group-agent-runner.ts:59 and is consumed by onRunResult at group-processing-types.ts:81, so widening it would edit T3's files. runAgent's options object is inline-typed at group-agent-runner.ts:82-109, so an optional property is entirely inside this task. T3's drain must run after finalizeGroupAgentUserVisibleOutput (group-processing.ts:778), which is after runAgent is awaited (:669).",
+    "S12 and R7 operator documentation: docs/memory/provider-session-ceiling-operations.md holds the pre-deploy reset with its stop condition, the orphan scan, and the observability recipe. The recipe SQL is EXTRACTED FROM THE DOCUMENT by the test and executed against the current schema by a Postgres integration test, so the document cannot drift from the schema silently. R7: docs/architecture/canonical-domain-model.md:165 no longer states that fresh runs restore durable Gantry memory only (runtime-components.md was already corrected).": "canonical-domain-model.md:165 still says fresh runs restore durable Gantry memory only. The recipe's hash join is specified in the spec at :217-218 as encode(sha256(external_session_id::bytea), 'hex'), and decision 0160 records snake_case physical columns, so the recipe's column names follow the schema as built.",
+    "S10 and S11: the scheduled-job tests are untouched and green, and `python3 factory/scripts/verify.py` is green including the diff-scoped `npm run lint:changed`.": "verify.py is the recorded gate and includes npm run lint:changed from T1 onward; the scheduled-job suites are outside this task's write scope and must remain untouched.",
+    "The public desired-state payload: the approved plan classes T2's API impact as CHANGED and assigns T2 a control-API round trip \u2014 PUT a document carrying `limits.provider_session_max_input_tokens` to `/v1/settings/desired-state`, GET it back, and assert the value survives the public surface. The plan states this is the only proof the field is reachable through the API whose payload shape it changes, so it is T2's and not deferrable to T4; T4 still owns the typed request/response DTO and the OpenAPI registry entry. No route SOURCE change in T2 \u2014 the existing untyped route already returns the revised document.": "The approved plan classes T2's API impact as Changed at plan:434 and its Verify Plan at plan:670-677 assigns T2 the PUT/GET round trip over /v1/settings/desired-state, stating it is the only proof the field is reachable through the API whose payload shape it changes. The route is currently untyped and already returns the revised document, so T2 needs the proof but no route source change.",
+    "The FIRST mark on a fresh or replacement session: the post-run raise must record a mark for a session created or replaced during this turn, not only for one that was resumed. `setSession` returns `Promise<boolean | void>` (domain/repositories/ops-repo.ts:441) and yields no ids, so the runner raises using the `nextSessionId` it just persisted as BOTH the internal provider-session id and the external session id. That is correct because the Postgres adapter inserts `id: sessionId` AND `externalSessionId: sessionId` (canonical-session-repository.postgres.ts:498,501) \u2014 an adapter detail the port never promised, so T2 pins it with a test asserting the invariant, plus a test that a fresh session's first turn records a mark. Ravi's ruling at the T2 task grill (2026-09-11), chosen over a non-hydrating context re-read (more robust but an extra query per fresh session) and over leaving the first mark NULL (which would let one long first turn take an extra oversized resume).": "setSession returns Promise<boolean | void> at domain/repositories/ops-repo.ts:441 and yields no ids; the runner passes nextSessionId at group-agent-runner.ts:242 and tracks it at :265. The Postgres adapter inserts id: sessionId and externalSessionId: sessionId at canonical-session-repository.postgres.ts:498,501, so the two ids coincide for a new row \u2014 an adapter detail the port never promised, which is why the invariant is pinned by a test."
+  },
+  "input_sha256": "d5fa7d277a3ed8676da896085b09bba4cd460d4286cd24a38a37b77a7a3c0367",
+  "grounding_treeish": "",
+  "task_plan_sha256": "68256a814fd32a99431cf0409c0053e367e9ec7f5eaa038fe4a90cdfefaa0cee",
+  "recorded_at": "2026-09-11T14:23:19+00:00",
+  "commit": "f1e7af51d0b652c62b931ff0868f44b228e85c46"
+}
