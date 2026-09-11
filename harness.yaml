@@ -16,16 +16,22 @@ precedence:
 
 modes:
   lite:
-    model: "gpt-5.6-terra"
-    reasoning: "high"
+    model: "gpt-5.6-luna"
+    # Ravi, 2026-09-10. `max` sits above the harness's own ALLOWED_EFFORTS
+    # (low/medium/high/xhigh), which gates only the `--effort` OVERRIDE flag:
+    # a pin here is passed through by mode_run_config unvalidated and the CLI
+    # accepts it (enabled-reasoning-efforts carries ultra and max). So the pin
+    # works, but `forge delegate --effort max` would still be refused.
+    reasoning: "max"
     bound: 5
-  # The harness's cold reader for `forge grill` (its gate test pins this exact
-  # model). The per-task contract grills this project runs go out through the
-  # codex companion on gpt-5.6-sol at xhigh — owner policy 2026-09-05, one
+  # The cold reader for `forge grill`. Repinned by Ravi 2026-09-10 to sol at
+  # high, which also settles a drift: the note here used to claim the per-task
+  # grills ran on sol at xhigh while the pin below said terra at xhigh, and
+  # the pin is what mode_run_config actually reads (grill.py:400). Still one
   # grill per round, no parallel second model.
   grill:
-    model: "gpt-5.6-terra"
-    reasoning: "xhigh"
+    model: "gpt-5.6-sol"
+    reasoning: "high"
     bound: 0
 
 phases:
@@ -102,11 +108,14 @@ phases:
     notes: "Per-task task graph; records the user_facing flag the ship gate reads."
   implementation:
     owner: "codex:/codex:rescue"
-    model: "gpt-5.6-terra"
-    # Floor, not a ceiling; this project runs its implementers at xhigh. Raise
-    # a single run with `./forge delegate <id> --effort high` when a pin lower
-    # than that is ever chosen for migrations, cross-domain or security work.
-    reasoning: "xhigh"
+    model: "gpt-6-astra"
+    # Ravi, 2026-09-10: astra at low is fast, and this pin rides on that being
+    # good enough — judged per task by verify plus the three-lens review, not
+    # by feel. It replaces terra at xhigh, so it is a deliberate drop from the
+    # old floor: raise a single run with `./forge delegate <id> --effort high`
+    # (or xhigh) for migrations, cross-domain or security work, which is where
+    # that floor was aimed.
+    reasoning: "low"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:
       # the recorder refuses a user-facing testing artifact unless skills_used

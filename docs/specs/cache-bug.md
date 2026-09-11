@@ -123,12 +123,17 @@ final cold read amended once per the one-read rule):
    and alerts (0025 skew contract) instead of failing. A lowered value takes
    effect on the next resume evaluated by a worker that has applied that
    revision. No environment variable, no per-agent override.
-5. **Atomic retirement returning the retired reference.**
-   `expireProviderSession` becomes one atomic `active`→`expired` transition
+5. **Atomic retirement returning the retired reference.** A NEW
+   `retireProviderSession` is one atomic `active`→`expired` transition
    fenced on provider-session id, `agent_session_id` ownership, status
    `active`, and `agent_sessions.reset_at`; it returns the retired
    `{ providerSessionId, externalSessionId, executionProviderId }` or nothing
-   if no row transitioned. On a lost transition the host re-reads the turn
+   if no row transitioned. The existing `expireProviderSession` REMAINS for
+   the compaction-delta degradation path, which operates on a `ready` row and
+   is unchanged: no release, no retirement event (0159 §4). Three callers move
+   to the new operation — the access-fingerprint change, the missing-session
+   retry, and the ops-service facade.
+   On a lost transition the host re-reads the turn
    context and proceeds with what it finds; it does not persist a replacement
    handle for a generation it does not own. Covered retirement paths:
    ceiling (new), missing-session, access-fingerprint change, and `/new`,
