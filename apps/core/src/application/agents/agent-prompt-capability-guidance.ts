@@ -334,8 +334,11 @@ function renderInvocation(
         : undefined;
     }
     case 'tool_rule':
-    case 'adapter':
       return `  invoke: ${oneLine(invocation.toolName)} directly`;
+    case 'adapter':
+      return invocation.toolName
+        ? `  invoke: ${oneLine(invocation.toolName)} directly`
+        : '  info: adapter binding is informational only';
   }
 }
 

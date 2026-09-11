@@ -422,6 +422,7 @@ describe('PromptProfileService', () => {
               capabilityId: 'google.sheets.values.get',
               argumentPatterns: ['["sheets","values","get","--range","*"]'],
             },
+            { kind: 'adapter' },
           ],
         },
       ],
@@ -436,7 +437,7 @@ describe('PromptProfileService', () => {
     });
 
     expect(prompt).toContain(
-      '- Sheets · Read sheet values [id: google.sheets.values.get] — Read reviewed spreadsheet ranges.\n  invoke: mcp__gantry__capability_run with capabilityId="google.sheets.values.get" and args ["sheets","values","get","--range","*"]',
+      '- Sheets · Read sheet values [id: google.sheets.values.get] — Read reviewed spreadsheet ranges.\n  invoke: mcp__gantry__capability_run with capabilityId="google.sheets.values.get" and args ["sheets","values","get","--range","*"]\n  info: adapter binding is informational only',
     );
   });
 

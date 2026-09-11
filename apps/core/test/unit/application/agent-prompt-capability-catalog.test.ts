@@ -26,9 +26,7 @@ function semanticCapability(input: {
     can: input.description ?? `Use ${input.capabilityId}.`,
     cannot: 'Grant additional authority.',
     credentialSource: 'none',
-    implementationBindings: input.implementationBindings ?? [
-      { kind: 'adapter', adapterRef: 'test' },
-    ],
+    implementationBindings: input.implementationBindings ?? [],
   };
 }
 
@@ -179,10 +177,29 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
       },
       { kind: 'tool_rule', toolName: 'WebFetch' },
       { kind: 'adapter', toolName: 'BrowserOpen' },
+      { kind: 'adapter' },
     ]);
     expect(JSON.stringify(catalog)).not.toMatch(
       /\/opt\/private\/gws|sha256:private|private-adapter-ref/,
     );
+  });
+
+  it('keeps a non-builtin adapter binding as an informational descriptor without exposing its reference', () => {
+    const catalog = resolveAgentPromptCapabilityCatalog({
+      appId: 'app-one',
+      agentId: 'agent-one',
+      readySemanticCapabilities: [
+        semanticCapability({
+          capabilityId: 'adapter.read',
+          implementationBindings: [
+            { kind: 'adapter', adapterRef: 'private-adapter-ref' },
+          ],
+        }),
+      ],
+    });
+
+    expect(catalog.readyActions[0]?.invocations).toEqual([{ kind: 'adapter' }]);
+    expect(JSON.stringify(catalog)).not.toContain('private-adapter-ref');
   });
 
   it('a capability with several bindings renders every one of them in a deterministic order', () => {

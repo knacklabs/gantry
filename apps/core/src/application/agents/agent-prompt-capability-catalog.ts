@@ -36,7 +36,7 @@ export type CatalogInvocation =
       toolPatterns: string[];
     }
   | { kind: 'tool_rule'; toolName: string }
-  | { kind: 'adapter'; toolName: string };
+  | { kind: 'adapter'; toolName?: string };
 
 export interface CatalogEntry {
   kind: CatalogEntryKind;
@@ -245,7 +245,7 @@ function projectInvocation(
       const adapterRef = binding.adapterRef?.trim();
       return adapterRef?.startsWith('builtin:') && adapterRef.length > 8
         ? [{ kind: 'adapter', toolName: adapterRef.slice(8) }]
-        : [];
+        : [{ kind: 'adapter' }];
     }
     case 'mcp_tool':
       return [];
