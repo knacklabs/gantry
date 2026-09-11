@@ -7,6 +7,14 @@ import {
   renderChannelPromptPresentationLine,
 } from '../application/agents/prompt-profile-service.js';
 import type { ConversationRoute } from '../domain/types.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../domain/events/runtime-event-conversation.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type { AgentEngine } from '../shared/agent-engine.js';
+import { CapabilityCatalogOverflowError } from '../application/agents/agent-prompt-capability-guidance.js';
 import type { AgentId, AgentRoleSnapshot } from '../domain/agent/agent.js';
 import type {
   AgentConfigRepository,
@@ -45,6 +53,7 @@ export async function compileSpawnSystemPrompt(input: {
   appId: string;
   accessPreset: PromptAccessPreset;
   mcpInventoryToolsMounted: boolean;
+  agentEngine: AgentEngine;
   modelIdentity?: PromptModelIdentity;
   resolveRoleSnapshot?: (
     agentId: string,
@@ -85,6 +94,7 @@ export async function compileSpawnSystemPrompt(input: {
         agentId,
         accessPreset: input.accessPreset,
         capabilityCatalog: input.agentInput.capabilityCatalog,
+        agentEngine: input.agentEngine,
         mcpInventoryToolsMounted: input.mcpInventoryToolsMounted,
         ...(input.modelIdentity ? { modelIdentity: input.modelIdentity } : {}),
         runtimeContext: {
@@ -118,10 +128,67 @@ export async function compileSpawnSystemPrompt(input: {
       }),
     );
   } catch (err) {
+    if (err instanceof CapabilityCatalogOverflowError) throw err;
     logger.warn(
       { err, agentFolder: input.group.folder },
       'Failed to compile prompt profile; continuing without custom system prompt',
     );
   }
   return compiledSystemPrompt;
+}
+
+export async function publishCapabilityCatalogOverflowDiagnostic(input: {
+  error: CapabilityCatalogOverflowError;
+  agentInput: AgentInput;
+  appId: string;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
+}): Promise<void> {
+  if (!input.publishRuntimeEvent) return;
+  const conversationId = isRuntimeEventConversationFkId(
+    input.agentInput.chatJid,
+  )
+    ? input.agentInput.chatJid
+    : undefined;
+  const threadId = isRuntimeEventThreadFkId(input.agentInput.threadId)
+    ? input.agentInput.threadId
+    : undefined;
+  try {
+    await input.publishRuntimeEvent({
+      appId: input.appId as never,
+      ...(input.agentInput.agentId
+        ? { agentId: input.agentInput.agentId as never }
+        : {}),
+      ...(input.agentInput.runId
+        ? { runId: input.agentInput.runId as never }
+        : {}),
+      ...(input.agentInput.jobId
+        ? { jobId: input.agentInput.jobId as never }
+        : {}),
+      ...(conversationId ? { conversationId: conversationId as never } : {}),
+      ...(threadId ? { threadId: threadId as never } : {}),
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
+      actor: { kind: 'system', source: 'runtime' },
+      responseMode: 'none',
+      payload: {
+        provider: 'host',
+        diagnostic: input.error.code,
+        conversationJid: input.agentInput.chatJid,
+        grantedCount: input.error.grantedCount,
+        renderableCount: input.error.renderableCount,
+        sheddingStage: input.error.sheddingStage,
+      },
+    });
+  } catch (err) {
+    logger.warn(
+      {
+        err,
+        appId: input.appId,
+        agentId: input.agentInput.agentId,
+        runId: input.agentInput.runId,
+      },
+      'Capability catalog overflow diagnostic persistence failed',
+    );
+  }
 }

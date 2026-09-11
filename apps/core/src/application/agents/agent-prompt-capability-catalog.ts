@@ -6,7 +6,9 @@ import { isGantryFacadeExactToolName } from '../../shared/agent-tool-references.
 import { isDurableGantryMcpToolFullName } from '../../shared/admin-mcp-tools.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import {
+  localCliArgPatterns,
   semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityImplementationBinding,
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
 import { humanizeTechnicalIdentifier } from '../../shared/user-visible-messages.js';
@@ -20,6 +22,22 @@ export type CatalogEntryKind =
   | 'skill'
   | 'mcp_source';
 
+export type CatalogInvocation =
+  | {
+      kind: 'local_cli';
+      toolRef: 'capability_run';
+      capabilityId: string;
+      argumentPatterns: string[];
+    }
+  | {
+      kind: 'mcp_pattern';
+      toolRef: 'mcp_call_tool';
+      serverName: string;
+      toolPatterns: string[];
+    }
+  | { kind: 'tool_rule'; toolName: string }
+  | { kind: 'adapter'; toolName: string };
+
 export interface CatalogEntry {
   kind: CatalogEntryKind;
   stableRef: string;
@@ -28,6 +46,7 @@ export interface CatalogEntry {
   description: string;
   category: string;
   accountLabel?: string;
+  invocations?: CatalogInvocation[];
 }
 
 export interface AgentPromptCapabilityCatalog {
@@ -135,29 +154,46 @@ function requestableToolIdentity(name: string): string | undefined {
 function resolveReadyActions(
   capabilities: readonly SemanticCapabilityDefinition[] | undefined,
 ): CatalogEntry[] {
-  const actions = (capabilities ?? []).map((capability): CatalogEntry => {
+  const actions = (capabilities ?? []).flatMap((capability): CatalogEntry[] => {
+    if (
+      capability.implementationBindings.some(
+        (binding) => binding.kind === 'mcp_tool',
+      )
+    ) {
+      return [];
+    }
     const revision = normalizedRevision(capability.version);
     const accountLabel = normalizedOptional(
       capability.accountLabel,
       ACCOUNT_LABEL_LIMIT,
     );
-    return {
-      kind: 'reviewed_capability',
-      stableRef: capability.capabilityId,
-      ...(revision ? { revision } : {}),
-      displayName: normalizedText(
-        capability.displayName,
-        humanizeTechnicalIdentifier(capability.capabilityId),
-        DISPLAY_NAME_LIMIT,
-      ),
-      description: normalizedText(
-        capability.can,
-        'Reviewed action available to this agent.',
-        DESCRIPTION_LIMIT,
-      ),
-      category: normalizedText(capability.category, 'actions', CATEGORY_LIMIT),
-      ...(accountLabel ? { accountLabel } : {}),
-    };
+    const invocations = capability.implementationBindings
+      .flatMap((binding) => projectInvocation(capability, binding))
+      .sort(compareInvocations);
+    return [
+      {
+        kind: 'reviewed_capability',
+        stableRef: capability.capabilityId,
+        ...(revision ? { revision } : {}),
+        displayName: normalizedText(
+          capability.displayName,
+          humanizeTechnicalIdentifier(capability.capabilityId),
+          DISPLAY_NAME_LIMIT,
+        ),
+        description: normalizedText(
+          capability.can,
+          'Reviewed action available to this agent.',
+          DESCRIPTION_LIMIT,
+        ),
+        category: normalizedText(
+          capability.category,
+          'actions',
+          CATEGORY_LIMIT,
+        ),
+        ...(accountLabel ? { accountLabel } : {}),
+        ...(invocations.length > 0 ? { invocations } : {}),
+      },
+    ];
   });
   const uniqueActions = dedupeEntries(actions);
   const nameCounts = new Map<string, number>();
@@ -169,6 +205,65 @@ function resolveReadyActions(
     nameCounts.get(action.displayName.toLowerCase()) === 1
       ? withoutAccountLabel(action)
       : action,
+  );
+}
+
+function projectInvocation(
+  capability: SemanticCapabilityDefinition,
+  binding: SemanticCapabilityImplementationBinding,
+): CatalogInvocation[] {
+  switch (binding.kind) {
+    case 'local_cli':
+      return [
+        {
+          kind: 'local_cli',
+          toolRef: 'capability_run',
+          capabilityId: capability.capabilityId,
+          argumentPatterns: localCliArgPatterns({
+            implementationBindings: [binding],
+          }),
+        },
+      ];
+    case 'mcp_pattern':
+      return binding.mcpServer?.trim() && binding.mcpToolPatterns?.length
+        ? [
+            {
+              kind: 'mcp_pattern',
+              toolRef: 'mcp_call_tool',
+              serverName: binding.mcpServer.trim(),
+              toolPatterns: [...binding.mcpToolPatterns],
+            },
+          ]
+        : [];
+    case 'tool_rule':
+      return binding.rule?.trim()
+        ? [{ kind: 'tool_rule', toolName: binding.rule.trim() }]
+        : [];
+    case 'adapter': {
+      const adapterRef = binding.adapterRef?.trim();
+      return adapterRef?.startsWith('builtin:') && adapterRef.length > 8
+        ? [{ kind: 'adapter', toolName: adapterRef.slice(8) }]
+        : [];
+    }
+    case 'mcp_tool':
+      return [];
+  }
+}
+
+const INVOCATION_KIND_ORDER: Record<CatalogInvocation['kind'], number> = {
+  local_cli: 0,
+  mcp_pattern: 1,
+  tool_rule: 2,
+  adapter: 3,
+};
+
+function compareInvocations(
+  left: CatalogInvocation,
+  right: CatalogInvocation,
+): number {
+  return (
+    INVOCATION_KIND_ORDER[left.kind] - INVOCATION_KIND_ORDER[right.kind] ||
+    compareText(JSON.stringify(left), JSON.stringify(right))
   );
 }
 

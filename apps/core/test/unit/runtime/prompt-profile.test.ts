@@ -21,6 +21,7 @@ import {
 } from '@core/application/agents/prompt-profile-service.js';
 import type { AgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
 import { renderCapabilityGuidancePrompt } from '@core/application/agents/agent-prompt-capability-guidance.js';
+import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 import '@core/channels/register-builtins.js';
 
 const loggerSpies = vi.hoisted(() => ({
@@ -399,41 +400,113 @@ describe('PromptProfileService', () => {
     expect(locked).not.toContain('request_access');
   });
 
-  it('truncates only whole trailing catalog entries within the section budget', () => {
+  it('rendered guidance carries name, stable id, lane tool name and reviewed argument shape', async () => {
     const catalog: AgentPromptCapabilityCatalog = {
       schemaVersion: 1,
-      digest: 'catalog:large',
-      readyActions: Array.from({ length: 8 }, (_, index) => ({
-        kind: 'reviewed_capability' as const,
-        stableRef: `ready:${index}`,
-        displayName: `Ready action ${index}`,
-        description: 'A deliberately long ready-action description. '.repeat(8),
-        category: 'Operations',
-      })),
-      installedSkills: Array.from({ length: 40 }, (_, index) => ({
-        kind: 'skill' as const,
-        stableRef: `skill:${index.toString().padStart(2, '0')}`,
-        displayName: `Skill ${index.toString().padStart(2, '0')}`,
-        description: `Description for skill ${index}.`,
-        category: 'Skills',
-      })),
+      digest: 'catalog:invocation',
+      readyActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'google.sheets.values.get',
+          displayName: 'Read sheet values',
+          description: 'Read reviewed spreadsheet ranges.',
+          category: 'Sheets',
+          invocations: [
+            {
+              kind: 'local_cli',
+              toolRef: 'capability_run',
+              capabilityId: 'google.sheets.values.get',
+              argumentPatterns: ['["sheets","values","get","--range","*"]'],
+            },
+          ],
+        },
+      ],
+      installedSkills: [],
       connectedMcpSources: [],
     };
 
-    const rendered = capabilityGuidancePrompt(catalog, 'full');
+    const prompt = await createService().service.compileSystemPrompt({
+      agentFolder: 'team',
+      capabilityCatalog: catalog,
+      agentEngine: DEFAULT_AGENT_ENGINE,
+    });
 
-    expect(rendered.length).toBeLessThanOrEqual(
-      DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+    expect(prompt).toContain(
+      '- Sheets · Read sheet values [id: google.sheets.values.get] — Read reviewed spreadsheet ranges.\n  invoke: mcp__gantry__capability_run with capabilityId="google.sheets.values.get" and args ["sheets","values","get","--range","*"]',
     );
-    for (let index = 0; index < 8; index += 1) {
-      expect(rendered).toContain(`Ready action ${index}`);
+  });
+
+  it('shedding removes requestables, then discovery, then source summaries, then descriptions, then descriptors', () => {
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:large',
+      readyActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'ready:one',
+          displayName: 'Ready action',
+          description: 'Ready description '.repeat(8),
+          category: 'Operations',
+          invocations: [{ kind: 'tool_rule', toolName: 'WebFetch' }],
+        },
+      ],
+      requestableActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'requestable:one',
+          displayName: 'Requestable action',
+          description: 'Requestable description '.repeat(8),
+          category: 'Operations',
+        },
+      ],
+      installedSkills: [
+        {
+          kind: 'skill',
+          stableRef: 'skill:one',
+          displayName: 'Installed skill',
+          description: 'Skill description '.repeat(8),
+          category: 'Skills',
+        },
+      ],
+      connectedMcpSources: [
+        {
+          kind: 'mcp_source',
+          stableRef: 'mcp:one',
+          displayName: 'Connected source',
+          description: 'Source description '.repeat(8),
+          category: 'MCP',
+        },
+      ],
+    };
+    const render = (budget: number) =>
+      renderCapabilityGuidancePrompt({
+        catalog,
+        accessPreset: 'full',
+        mcpInventoryToolsMounted: true,
+        agentEngine: DEFAULT_AGENT_ENGINE,
+        budget,
+      });
+    const stages = [];
+    let rendered = render(10_000);
+    stages.push(rendered.diagnostics.sheddingStage);
+    for (let index = 0; index < 6; index += 1) {
+      rendered = render(rendered.prompt.length - 1);
+      stages.push(rendered.diagnostics.sheddingStage);
     }
-    expect(rendered).toMatch(/\+\d+ more installed skills/);
-    for (const line of rendered
-      .split('\n')
-      .filter((candidate) => candidate.startsWith('- Skill '))) {
-      expect(line).toMatch(/ — Description for skill \d+\.$/);
-    }
+
+    expect(stages).toEqual([
+      'none',
+      'requestable_actions',
+      'discovery',
+      'connected_sources',
+      'installed_skills',
+      'descriptions',
+      'invocations',
+    ]);
+    expect(rendered.prompt).toContain('Ready action');
+    expect(rendered.prompt).toContain('[id: ready:one]');
+    expect(rendered.prompt).not.toContain('WebFetch');
+    expect(rendered.diagnostics.omitted.readyActions).toBe(0);
   });
 
   it('reports rendered and omitted catalog counts after whole-entry truncation', async () => {
@@ -479,41 +552,42 @@ describe('PromptProfileService', () => {
     ).toBe(20);
   });
 
-  it('reserves a connected source and its exact omitted count after many skills', () => {
+  it('the compact grant list survives the total prompt budget', async () => {
     const catalog: AgentPromptCapabilityCatalog = {
       schemaVersion: 1,
-      digest: 'catalog:balanced-truncation',
-      readyActions: [],
-      installedSkills: Array.from({ length: 40 }, (_, index) => ({
-        kind: 'skill' as const,
-        stableRef: `skill:${index.toString().padStart(2, '0')}`,
-        displayName: `Skill ${index.toString().padStart(2, '0')}`,
-        description: `Long skill description ${index} `.repeat(8),
-        category: 'Skills',
+      digest: 'catalog:compact-total',
+      readyActions: Array.from({ length: 20 }, (_, index) => ({
+        kind: 'reviewed_capability' as const,
+        stableRef: `grant:${index}`,
+        displayName: `Grant ${index}`,
+        description: 'Description '.repeat(20),
+        category: 'Operations',
       })),
-      connectedMcpSources: Array.from({ length: 20 }, (_, index) => ({
-        kind: 'mcp_source' as const,
-        stableRef: `mcp:source-${index.toString().padStart(2, '0')}`,
-        displayName: `Connected source ${index.toString().padStart(2, '0')}`,
-        description: `Long connected source description ${index} `.repeat(8),
-        category: 'MCP',
-      })),
+      installedSkills: [],
+      connectedMcpSources: [],
     };
-
-    const rendered = renderCapabilityGuidancePrompt({
+    const compact = renderCapabilityGuidancePrompt({
       catalog,
       accessPreset: 'full',
       mcpInventoryToolsMounted: true,
-      budget: DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+      budget: 1,
+    });
+    const service = new PromptProfileService({
+      sectionBudgets: { CAPABILITY_GUIDANCE: 1 },
+      totalBudget: compact.compactPrompt.length + 100,
     });
 
-    expect(rendered.prompt.length).toBeLessThanOrEqual(
-      DEFAULT_PROMPT_SECTION_BUDGETS.CAPABILITY_GUIDANCE,
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      capabilityCatalog: catalog,
+    });
+
+    for (let index = 0; index < 20; index += 1) {
+      expect(prompt).toContain(`[id: grant:${index}]`);
+    }
+    expect(prompt.length).toBeLessThanOrEqual(
+      compact.compactPrompt.length + 100,
     );
-    expect(rendered.prompt).toContain('Connected source 00');
-    expect(rendered.prompt).toContain('- +19 more connected sources');
-    expect(rendered.diagnostics.rendered.connectedMcpSources).toBe(1);
-    expect(rendered.diagnostics.omitted.connectedMcpSources).toBe(19);
   });
 
   it('compiles the Communication and Output Style guidance untruncated', async () => {

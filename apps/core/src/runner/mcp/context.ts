@@ -23,7 +23,6 @@ import {
 import {
   parseSemanticCapabilityDefinitionsRecord,
   type SemanticCapabilityDefinition,
-  localCliArgPatterns,
 } from '../../shared/semantic-capabilities.js';
 
 function requirePathEnv(name: string): string {
@@ -288,7 +287,6 @@ export function capabilityStatusText(): string {
           '- Use admin_permission_list (read-only, no grant needed) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
           '- Treat skill commands, MCP tool names, local CLI commands, browser internals, and network hosts as review/audit metadata unless a reviewed capability grants the action.',
         ]),
-    ...grantedCliCapabilityLines(currentAllowedTools),
     // Scheduler guidance only when scheduler tools are actually mounted; the
     // locked fail-closed tool set excludes them, so locked agents are never
     // told about tools they cannot call.
@@ -407,31 +405,6 @@ export function capabilityStatusText(): string {
       'settings.yaml selected capabilities plus action-first runtime defaults',
   });
   return [...lines, '', formatAgentToolAccess(view)].join('\n');
-}
-
-// A granted CLI capability is called through capability_run with the argv
-// after the executable. The reviewed shapes are not secret (approval cards
-// show them verbatim); stating them here spares every run the failed probe
-// that otherwise teaches the shape through a denial.
-function grantedCliCapabilityLines(currentAllowedTools: string[]): string[] {
-  const lines = availableSemanticCapabilities
-    .filter((capability) =>
-      currentAllowedTools.includes(`capability:${capability.capabilityId}`),
-    )
-    .map((capability) => ({
-      id: capability.capabilityId,
-      patterns: localCliArgPatterns(capability),
-    }))
-    .filter((entry) => entry.patterns.length > 0)
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((entry) => `- ${entry.id}: args ${entry.patterns.join(' or ')}`);
-  return lines.length === 0
-    ? []
-    : [
-        '',
-        'Granted CLI capabilities (call mcp__gantry__capability_run with capabilityId and args after the executable; never an MCP server or RunCommand):',
-        ...lines,
-      ];
 }
 
 function displayMcpSourceName(sourceId: string): string {

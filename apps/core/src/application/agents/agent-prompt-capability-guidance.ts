@@ -3,10 +3,40 @@ import {
   type AgentPromptCapabilityCatalog,
   type CatalogEntry,
 } from './agent-prompt-capability-catalog.js';
+import {
+  DEFAULT_AGENT_ENGINE,
+  type AgentEngine,
+} from '../../shared/agent-engine.js';
 
 export interface CapabilityCatalogRenderDiagnostics {
   rendered: CatalogSectionCounts;
   omitted: CatalogSectionCounts;
+  sheddingStage: CapabilityCatalogSheddingStage;
+}
+
+export type CapabilityCatalogSheddingStage =
+  | 'none'
+  | 'requestable_actions'
+  | 'discovery'
+  | 'connected_sources'
+  | 'installed_skills'
+  | 'descriptions'
+  | 'invocations'
+  | 'compact_overflow';
+
+export class CapabilityCatalogOverflowError extends Error {
+  readonly code = 'capability_catalog_overflow';
+
+  constructor(
+    readonly grantedCount: number,
+    readonly renderableCount: number,
+    readonly sheddingStage: CapabilityCatalogSheddingStage,
+  ) {
+    super(
+      `Capability catalog overflow: ${grantedCount} grants, ${renderableCount} renderable.`,
+    );
+    this.name = 'CapabilityCatalogOverflowError';
+  }
 }
 
 interface CatalogSectionCounts {
@@ -16,14 +46,18 @@ interface CatalogSectionCounts {
   connectedMcpSources: number;
 }
 
-type CatalogPromptSection = 'ready' | 'skill' | 'mcp';
-
 export function renderCapabilityGuidancePrompt(input: {
   catalog: AgentPromptCapabilityCatalog | undefined;
   accessPreset: 'full' | 'locked';
   mcpInventoryToolsMounted: boolean;
   budget: number;
-}): { prompt: string; diagnostics: CapabilityCatalogRenderDiagnostics } {
+  agentEngine?: AgentEngine;
+}): {
+  prompt: string;
+  compactPrompt: string;
+  compactReadyLines: string[];
+  diagnostics: CapabilityCatalogRenderDiagnostics;
+} {
   const readyActions = sortedCatalogEntries(input.catalog?.readyActions);
   const requestableActions =
     input.accessPreset === 'locked'
@@ -53,104 +87,142 @@ export function renderCapabilityGuidancePrompt(input: {
           '- Search connected MCP inventory with mcp_search_tools.',
           '- Callable now -> mcp_call_tool. Acquire first -> request_access for the reviewed capability.',
         ];
-  const assemble = (
-    ready: readonly string[],
-    skills: readonly string[],
-    sources: readonly string[],
-  ) =>
+  const assemble = (options: {
+    ready: readonly string[];
+    skills: readonly string[];
+    sources: readonly string[];
+    requestables: readonly string[];
+    discovery: readonly string[];
+  }) =>
     [
       ...intro,
       '',
       'Ready actions',
-      ...ready,
+      ...options.ready,
       '',
       'Requestable next-run actions',
-      ...(renderedRequestable.length > 0 ? renderedRequestable : ['- none']),
+      ...(options.requestables.length > 0 ? options.requestables : ['- none']),
       '',
       'Installed skills',
-      ...skills,
+      ...(options.skills.length > 0 ? options.skills : ['- none']),
       '',
       'Connected MCP sources',
-      ...sources,
+      ...(options.sources.length > 0 ? options.sources : ['- none']),
       '',
-      ...discovery,
+      ...options.discovery,
     ].join('\n');
-  const fits = (
-    ready: readonly string[],
-    skills: readonly string[],
-    sources: readonly string[],
-  ) => assemble(ready, skills, sources).length <= input.budget;
-
-  const sourceReservation = reserveConnectedSourcePresence({
-    entries: connectedMcpSources,
-    fits,
-  });
-  let readyDescriptionLimit = 160;
-  let renderedReady = readyActions.map((entry) =>
-    renderCatalogEntry(entry, 'ready', readyDescriptionLimit),
+  const readyWithDetails = readyActions.map((entry) =>
+    renderReadyCatalogEntry(entry, input.agentEngine, true, true),
   );
-  while (
-    readyDescriptionLimit > 0 &&
-    !fits(renderedReady, [], sourceReservation.lines)
-  ) {
-    readyDescriptionLimit = Math.max(0, readyDescriptionLimit - 20);
-    renderedReady = readyActions.map((entry) =>
-      renderCatalogEntry(entry, 'ready', readyDescriptionLimit),
-    );
-  }
-  if (!fits(renderedReady, [], sourceReservation.lines)) {
-    renderedReady = appendWholeEntriesWithinBudget({
-      entries: readyActions,
-      currentReady: [],
-      currentSkills: [],
-      currentSources: sourceReservation.lines,
-      section: 'ready',
-      descriptionLimit: 0,
-      summaryLabel: 'ready actions',
-      fits,
-    });
-  }
-
-  const renderedSkills = appendWholeEntriesWithinBudget({
-    entries: installedSkills,
-    currentReady: renderedReady,
-    currentSkills: [],
-    currentSources: sourceReservation.lines,
-    section: 'skill',
-    descriptionLimit: 160,
-    summaryLabel: 'installed skills',
-    fits,
-  });
-  const renderedSources = appendWholeEntriesWithinBudget({
-    entries: connectedMcpSources,
-    currentReady: renderedReady,
-    currentSkills: renderedSkills,
-    currentSources: [],
-    section: 'mcp',
-    descriptionLimit: sourceReservation.descriptionLimit,
-    summaryLabel: 'connected sources',
-    fits,
-  });
+  const readyWithoutDescriptions = readyActions.map((entry) =>
+    renderReadyCatalogEntry(entry, input.agentEngine, false, true),
+  );
+  const compactReadyLines = readyActions.map((entry) =>
+    renderReadyCatalogEntry(entry, input.agentEngine, false, false),
+  );
+  const renderedSkills = installedSkills.map((entry) =>
+    renderCatalogEntry(entry, true),
+  );
+  const renderedSources = connectedMcpSources.map((entry) =>
+    renderCatalogEntry(entry, true),
+  );
+  const stages = [
+    {
+      stage: 'none' as const,
+      ready: readyWithDetails,
+      requestables: renderedRequestable,
+      discovery,
+      skills: renderedSkills,
+      sources: renderedSources,
+    },
+    {
+      stage: 'requestable_actions' as const,
+      ready: readyWithDetails,
+      requestables: [],
+      discovery,
+      skills: renderedSkills,
+      sources: renderedSources,
+    },
+    {
+      stage: 'discovery' as const,
+      ready: readyWithDetails,
+      requestables: [],
+      discovery: [],
+      skills: renderedSkills,
+      sources: renderedSources,
+    },
+    {
+      stage: 'connected_sources' as const,
+      ready: readyWithDetails,
+      requestables: [],
+      discovery: [],
+      skills: renderedSkills,
+      sources: [],
+    },
+    {
+      stage: 'installed_skills' as const,
+      ready: readyWithDetails,
+      requestables: [],
+      discovery: [],
+      skills: [],
+      sources: [],
+    },
+    {
+      stage: 'descriptions' as const,
+      ready: readyWithoutDescriptions,
+      requestables: [],
+      discovery: [],
+      skills: [],
+      sources: [],
+    },
+    {
+      stage: 'invocations' as const,
+      ready: compactReadyLines,
+      requestables: [],
+      discovery: [],
+      skills: [],
+      sources: [],
+    },
+  ];
+  const compactPrompt = compactReadyLines.join('\n');
+  const renderStage = (stage: (typeof stages)[number]) =>
+    stage.stage === 'invocations' ? compactPrompt : assemble(stage);
+  const budget =
+    readyActions.length > 0
+      ? Math.max(input.budget, compactPrompt.length)
+      : input.budget;
+  const selected =
+    stages.find((stage) => renderStage(stage).length <= budget) ?? stages.at(-1)!;
+  const prompt = renderStage(selected);
   const renderedCounts = {
-    readyActions: renderedEntryCount(renderedReady),
-    ...(requestableActions.length > 0
-      ? { requestableActions: requestableActions.length }
+    readyActions: readyActions.length,
+    ...(selected.requestables.length > 0
+      ? { requestableActions: selected.requestables.length }
       : {}),
-    installedSkills: renderedEntryCount(renderedSkills),
-    connectedMcpSources: renderedEntryCount(renderedSources),
+    installedSkills: selected.skills.length,
+    connectedMcpSources: selected.sources.length,
   };
   return {
-    prompt: assemble(renderedReady, renderedSkills, renderedSources),
+    prompt,
+    compactPrompt,
+    compactReadyLines,
     diagnostics: {
       rendered: renderedCounts,
       omitted: {
-        readyActions: readyActions.length - renderedCounts.readyActions,
-        ...(requestableActions.length > 0 ? { requestableActions: 0 } : {}),
+        readyActions: 0,
+        ...(requestableActions.length > 0
+          ? {
+              requestableActions:
+                requestableActions.length -
+                (renderedCounts.requestableActions ?? 0),
+            }
+          : {}),
         installedSkills:
           installedSkills.length - renderedCounts.installedSkills,
         connectedMcpSources:
           connectedMcpSources.length - renderedCounts.connectedMcpSources,
       },
+      sheddingStage: selected.stage,
     },
   };
 }
@@ -166,94 +238,65 @@ function renderRequestableCatalogEntry(entry: CatalogEntry): string {
   return `- ${identity} · ${displayName} — ${description} (${target})`;
 }
 
-function reserveConnectedSourcePresence(input: {
-  entries: readonly CatalogEntry[];
-  fits: (
-    ready: readonly string[],
-    skills: readonly string[],
-    sources: readonly string[],
-  ) => boolean;
-}): { lines: string[]; descriptionLimit: number } {
-  if (input.entries.length === 0) return { lines: [], descriptionLimit: 160 };
-  for (const descriptionLimit of [160, 0]) {
-    const lines = [
-      renderCatalogEntry(input.entries[0]!, 'mcp', descriptionLimit),
-    ];
-    if (input.entries.length > 1) {
-      lines.push(`- +${input.entries.length - 1} more connected sources`);
-    }
-    if (input.fits([], [], lines)) return { lines, descriptionLimit };
-  }
-  const summary = `- +${input.entries.length} more connected sources`;
-  return {
-    lines: input.fits([], [], [summary]) ? [summary] : [],
-    descriptionLimit: 0,
-  };
-}
-
-function appendWholeEntriesWithinBudget(input: {
-  entries: readonly CatalogEntry[];
-  currentReady: readonly string[];
-  currentSkills: readonly string[];
-  currentSources: readonly string[];
-  section: CatalogPromptSection;
-  descriptionLimit: number;
-  summaryLabel: string;
-  fits: (
-    ready: readonly string[],
-    skills: readonly string[],
-    sources: readonly string[],
-  ) => boolean;
-}): string[] {
-  const rendered: string[] = [];
-  const candidateFits = (lines: readonly string[]) => {
-    const ready = input.section === 'ready' ? lines : input.currentReady;
-    const skills = input.section === 'skill' ? lines : input.currentSkills;
-    const sources = input.section === 'mcp' ? lines : input.currentSources;
-    return input.fits(ready, skills, sources);
-  };
-  for (let index = 0; index < input.entries.length; index += 1) {
-    const line = renderCatalogEntry(
-      input.entries[index]!,
-      input.section,
-      input.descriptionLimit,
-    );
-    const remaining = input.entries.length - index - 1;
-    const candidate = [
-      ...rendered,
-      line,
-      ...(remaining > 0 ? [`- +${remaining} more ${input.summaryLabel}`] : []),
-    ];
-    if (!candidateFits(candidate)) break;
-    rendered.push(line);
-  }
-  const omitted = input.entries.length - rendered.length;
-  if (omitted <= 0) return rendered;
-  const summary = `- +${omitted} more ${input.summaryLabel}`;
-  while (rendered.length > 0 && !candidateFits([...rendered, summary])) {
-    rendered.pop();
-  }
-  return candidateFits([...rendered, summary])
-    ? [...rendered, summary]
-    : rendered;
-}
-
 function renderCatalogEntry(
   entry: CatalogEntry,
-  section: CatalogPromptSection,
-  descriptionLimit: number,
+  includeDescription: boolean,
 ): string {
   const displayName = oneLine(entry.displayName);
   const account = entry.accountLabel ? ` (${oneLine(entry.accountLabel)})` : '';
-  const label =
-    section === 'ready'
-      ? `${oneLine(entry.category)} · ${displayName}${account}`
-      : `${displayName}${account}`;
-  const description = truncateCatalogDescription(
-    oneLine(entry.description),
-    descriptionLimit,
-  );
+  const label = `${displayName}${account}`;
+  const description = includeDescription ? oneLine(entry.description) : '';
   return description ? `- ${label} — ${description}` : `- ${label}`;
+}
+
+function renderReadyCatalogEntry(
+  entry: CatalogEntry,
+  agentEngine: AgentEngine | undefined,
+  includeDescription: boolean,
+  includeInvocations: boolean,
+): string {
+  const account = entry.accountLabel ? ` (${oneLine(entry.accountLabel)})` : '';
+  const description = includeDescription
+    ? ` — ${oneLine(entry.description)}`
+    : '';
+  const line = `- ${oneLine(entry.category)} · ${oneLine(entry.displayName)}${account} [id: ${oneLine(entry.stableRef)}]${description}`;
+  if (!includeInvocations) return line;
+  const invocations = (entry.invocations ?? [])
+    .map((invocation) => renderInvocation(invocation, agentEngine))
+    .filter((value): value is string => Boolean(value));
+  return invocations.length > 0 ? [line, ...invocations].join('\n') : line;
+}
+
+function renderInvocation(
+  invocation: NonNullable<CatalogEntry['invocations']>[number],
+  agentEngine: AgentEngine | undefined,
+): string | undefined {
+  switch (invocation.kind) {
+    case 'local_cli': {
+      const toolName = resolveLaneToolName(invocation.toolRef, agentEngine);
+      return toolName
+        ? `  invoke: ${toolName} with capabilityId="${oneLine(invocation.capabilityId)}" and args ${invocation.argumentPatterns.join(' or ')}`
+        : undefined;
+    }
+    case 'mcp_pattern': {
+      const toolName = resolveLaneToolName(invocation.toolRef, agentEngine);
+      return toolName
+        ? `  invoke: ${toolName} with serverName="${oneLine(invocation.serverName)}" and toolName matching ${invocation.toolPatterns.map((pattern) => `"${oneLine(pattern)}"`).join(' or ')}`
+        : undefined;
+    }
+    case 'tool_rule':
+    case 'adapter':
+      return `  invoke: ${oneLine(invocation.toolName)} directly`;
+  }
+}
+
+function resolveLaneToolName(
+  toolRef: 'capability_run' | 'mcp_call_tool',
+  agentEngine: AgentEngine | undefined,
+): string | undefined {
+  return agentEngine === DEFAULT_AGENT_ENGINE
+    ? `mcp__gantry__${toolRef}`
+    : undefined;
 }
 
 function sortedCatalogEntries(
@@ -264,15 +307,4 @@ function sortedCatalogEntries(
 
 function oneLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
-}
-
-function truncateCatalogDescription(value: string, limit: number): string {
-  if (limit <= 0) return '';
-  if (value.length <= limit) return value;
-  if (limit <= 3) return value.slice(0, limit);
-  return `${value.slice(0, limit - 3).trimEnd()}...`;
-}
-
-function renderedEntryCount(lines: readonly string[]): number {
-  return lines.filter((line) => !/^- \+\d+ more /.test(line)).length;
 }
