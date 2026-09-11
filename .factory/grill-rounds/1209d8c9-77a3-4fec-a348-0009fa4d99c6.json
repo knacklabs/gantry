@@ -1,0 +1,43 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Reviewers want a ~2-minute demo right after the problem statement. What anchor can you actually deliver on stage?",
+      "options": [
+        "Live Telegram demo (Recommended)",
+        "Recorded screen capture",
+        "Screenshots only"
+      ],
+      "chosen": "Live Telegram demo (Recommended)"
+    },
+    {
+      "question": "Chaitanya said pick ONE or TWO core problems and go deep (\"permissions alone is a huge topic\"). Which two problems carry the deep-dive? Everything else gets one summary slide.",
+      "options": [
+        "Permissions/trust (Recommended)",
+        "Memory (Recommended)",
+        "Safety/sandbox & key handling",
+        "Scale/crash recovery"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "Srix: title and talk didn't match; the strong anchor is \"OpenClaw, but for the org\". What's the new title direction?",
+      "options": [
+        "OpenClaw-anchored (Recommended)",
+        "Problem-anchored",
+        "Keep 'Harness or ceremony' spirit"
+      ],
+      "chosen": "OpenClaw-anchored (Recommended)"
+    },
+    {
+      "question": "Where do I build the rewritten deck?",
+      "options": [
+        "Update same design canvas (Recommended)",
+        "Fresh canvas"
+      ],
+      "chosen": "Update same design canvas (Recommended)"
+    }
+  ],
+  "at": "2026-08-31T17:34:46.381219+00:00",
+  "session_id": "6a103c87-a8c9-4ad2-8499-b9794c3dcc64"
+}

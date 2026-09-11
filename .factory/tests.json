@@ -1,0 +1,94 @@
+{
+  "functional": {
+    "status": "passed",
+    "score": 9,
+    "summary": "Functional check passed for the tracked CLEANUP-01 provider-boundary architecture gate diff. The architecture gate and focused regression suite pass, generated production scanning and ignored test/spec behavior are covered, raw LLM provider host/name blocking is covered, and no tracked browser runtime/helper/test files changed.",
+    "blocking_findings": [],
+    "non_blocking_findings": [
+      "Tracked diff adds browser-boundary exception metadata for existing Playwright/Puppeteer migration debt, but no browser runtime/helper/test files are in the tracked diff."
+    ],
+    "remaining_gaps": [
+      "Validation focused on the architecture gate and regression tests; full verify.py was run separately and passed."
+    ],
+    "residual_risks": [
+      "Architecture checking is static regex/text based, so very dynamic provider construction still needs review discipline.",
+      "Existing provider-boundary migration debt remains allowed only by exact capped exceptions."
+    ],
+    "commands_run": [
+      "python3 .codex/scripts/tests/test_check_architecture.py passed 53 tests",
+      "npm run check:architecture passed",
+      "python3 .codex/scripts/check_architecture.py passed",
+      "python3 .codex/scripts/verify.py passed",
+      "git diff --name-only scope check confirmed no tracked browser runtime/helper/test files"
+    ],
+    "tests_added_or_updated": [
+      ".codex/scripts/tests/test_check_architecture.py covers generated production files/directories, ignored test/spec sources, production imports from ignored sources, raw LLM provider endpoints, provider imports/terms, non-LLM provider-family paths, direct provider sends, and alias/computed/optional/destructured provider-send call forms."
+    ],
+    "manual_validation_steps": [
+      "Run python3 .codex/scripts/tests/test_check_architecture.py and confirm 53 tests pass.",
+      "Run npm run check:architecture and confirm Architecture checks passed.",
+      "Run git diff --name-only --diff-filter=ACMRTUXB and confirm scope is architecture gates/tests/docs/AGENTS/MCP copy only."
+    ],
+    "reviewed_scope": [
+      ".codex/AGENTS.md",
+      ".codex/architecture-exceptions.json",
+      ".codex/architecture-map.json",
+      ".codex/scripts/architecture_rules.py",
+      ".codex/scripts/check_architecture.py",
+      ".codex/scripts/tests/test_check_architecture.py",
+      "AGENTS.md",
+      "apps/core/src/runner/mcp/stdio.ts",
+      "apps/core/src/runner/mcp/tools/messaging.ts",
+      "apps/core/src/runner/mcp/tools/service.ts",
+      "docs/architecture/framework-boundaries.md"
+    ],
+    "recommendation": "approve",
+    "recorded_at": "2026-05-12T05:31:30+00:00"
+  },
+  "automated": {
+    "status": "passed",
+    "summary": "Read-only automated verification pass for CLEANUP-01 passed. Focused architecture regressions, browser wrong-lane guidance, MCP fixture behavior, live architecture gate, and deterministic verify all passed without source edits.",
+    "score": 9,
+    "tests_added_or_updated": [
+      "No new edits in this pass; existing working-tree tests reviewed: .codex/scripts/tests/test_check_architecture.py",
+      "No new edits in this pass; existing working-tree tests reviewed: apps/core/test/unit/adapters/browser/provider-browser-wrong-lane-guidance.test.ts",
+      "No new edits in this pass; existing working-tree tests reviewed: apps/core/test/unit/adapters/claude-config-materializer.test.ts",
+      "No new edits in this pass; existing working-tree tests reviewed: apps/core/test/unit/runner/ipc-mcp-stdio.test.ts"
+    ],
+    "commands_run": [
+      "python3 -m unittest .codex.scripts.tests.test_check_architecture (failed before test discovery: invalid module form for dot-prefixed .codex path)",
+      "python3 -m unittest discover .codex/scripts/tests -p 'test_check_architecture.py'",
+      "python3 .codex/scripts/check_architecture.py",
+      "npm run test:unit -- apps/core/test/unit/adapters/browser/provider-browser-wrong-lane-guidance.test.ts apps/core/test/unit/adapters/claude-config-materializer.test.ts apps/core/test/unit/runner/ipc-mcp-stdio.test.ts",
+      "python3 .codex/scripts/verify.py"
+    ],
+    "pass_fail_summary": "PASS: 47 architecture checker tests via unittest discovery. PASS: check_architecture.py. PASS: 3 focused unit test files, 37 tests. PASS: deterministic verify.py. One initial unittest command failed before discovery because .codex is a dot-prefixed path, then the supported discovery command passed.",
+    "blocking_findings": [],
+    "remaining_gaps": [
+      "Static architecture detection is intentionally bounded; computed imports, deeply indirect HTTP clients, and obfuscated provider strings are not proven by these focused checks beyond the existing architecture test coverage.",
+      "No live provider/browser runtime was exercised because this requested pass was automated verification of the current working tree.",
+      "Postgres-specific integration was not run because CLEANUP-01 changes are architecture gate/browser-MCP guidance only, with no DB-backed behavior touched."
+    ],
+    "reviewed_scope": [
+      ".codex/architecture-map.json",
+      ".codex/architecture-exceptions.json",
+      ".codex/scripts/architecture_rules.py",
+      ".codex/scripts/check_architecture.py",
+      ".codex/scripts/tests/test_check_architecture.py",
+      "apps/core/src/adapters/browser/browser-wrong-lane-guidance.ts",
+      "apps/core/src/runner/mcp/tools/service.ts",
+      "apps/core/src/runner/mcp/tools/messaging.ts",
+      "apps/core/src/runner/mcp/stdio.ts",
+      "apps/core/test/unit/adapters/browser/provider-browser-wrong-lane-guidance.test.ts",
+      "apps/core/test/unit/adapters/claude-config-materializer.test.ts",
+      "apps/core/test/unit/runner/ipc-mcp-stdio.test.ts",
+      "docs/architecture/framework-boundaries.md",
+      "AGENTS.md"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-05-12T04:04:16+00:00"
+  },
+  "updated_at": "2026-05-12T05:31:30+00:00"
+}

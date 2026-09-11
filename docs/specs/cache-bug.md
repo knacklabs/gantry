@@ -69,9 +69,12 @@ final cold read amended once per the one-read rule):
 
 ## Behaviour
 
-1. **Model-visible input per run.** The host derives
-   `modelVisibleInputTokens` from provider-resolved usage components of a
-   run. The provider registry entry that already names the cache usage
+1. **Observed context per run.** The observed value is
+   `contextUsage.totalTokens` when the run reports it; only when it does not
+   does the host fall back to a derived `modelVisibleInputTokens` (decision
+   0158 §2, which governs — an earlier draft of this spec made the derived
+   figure primary, which would have violated the accepted decision). The
+   derived figure comes from provider-resolved usage components of a run. The provider registry entry that already names the cache usage
    fields gains two booleans, `cacheReadsIncludedInInput` and
    `cacheWritesIncludedInInput`:
    - Anthropic (`cache_read_input_tokens`, `cache_creation_input_tokens`
@@ -88,6 +91,14 @@ final cold read amended once per the one-read rule):
    Because usage is per run, the figure over-approximates a single call's
    context; accepted for a retirement trigger. Billing fields and
    `totalBillableInputTokens` are unchanged.
+
+   The value written to the column SATURATES at 900,001 — one above the
+   largest permitted cap. The column is a Postgres `integer`, so an
+   unclamped cumulative measurement above 2,147,483,647 would fail at SQL and
+   leave the session unmarked and therefore resumable, defeating the very
+   retirement it should trigger. Any value at or above the saturation point
+   already retires, and the exact figure remains in `model.usage`, so nothing
+   the ceiling needs is lost.
 2. **Typed per-session high-water mark, atomic and fenced.** A new nullable
    integer column `provider_sessions.context_high_water_mark` (decision 0017:
    resume-governing state is a typed column, never `metadata_json`). A new
@@ -96,7 +107,11 @@ final cold read amended once per the one-read rule):
    `UPDATE ... SET context_high_water_mark = GREATEST(COALESCE(existing, 0),
    value)` whose predicate fences on provider-session id, `agent_session_id`
    ownership, a resumable status, and `agent_sessions.reset_at` equal to the
-   caller's generation, and returns whether a row changed. A non-integer or
+   caller's generation, and returns whether a row changed. "Changed" means
+   the mark actually ROSE: an observation equal to or lower than the stored
+   mark reports no change, because `GREATEST` leaves the row untouched. A
+   caller must not read `false` as a lost fence — it means either a losing
+   predicate or an observation that was not a new high. A non-integer or
    negative `value` is rejected before SQL. It is called after any run
    (including an errored run) whose output carries usage; runs without usage
    do not call it. The turn context projection returns
@@ -148,8 +163,13 @@ final cold read amended once per the one-read rule):
 6. **Adapter cleanup port.** The execution-adapter contract gains an optional
    `releaseSession({ externalSessionId, runtimeStorage })` capability; the
    host calls it from a non-empty retirement result, passing the same
-   `runtimeStorage` it passes to `prepare()`, after the reply path is
-   unblocked. The DeepAgents adapter implements it by deriving the checkpoint
+   `runtimeStorage` it passes to `prepare()`, after the COMPLETE delivery
+   attempt settles. "Settles" means the primary send and any fallback
+   delivery have finished, successfully or not: a drain at the end of
+   `runAgent` would precede or delay the fallback reply, which happens after
+   `runAgent` returns. Cleanup must never block delivery and must never throw
+   through it, and both `/new` acknowledgements wrap it in `finally` so a
+   rejected acknowledgement cannot skip cleanup and leak the checkpoint. The DeepAgents adapter implements it by deriving the checkpoint
    schema exactly as `prepare()` does and calling the saver's
    `deleteThread(externalSessionId)`, which removes that thread's rows from
    `checkpoints`, `checkpoint_blobs` and `checkpoint_writes`; it is
@@ -170,12 +190,19 @@ final cold read amended once per the one-read rule):
    no mark and will resume normally; (b) the orphan reclamation procedure
    driven by cleanup-failed events and the uncovered paths in behaviour 5.
 8. **Observability events.** Two registered runtime event types.
-   `session.provider.retired` (payload: `reason` ∈ {ceiling, fingerprint,
-   missing, new}, `providerSessionHash`, `executionProviderId`,
-   `contextHighWaterMark`, `cap`) — for ceiling and fingerprint it is
-   published at preflight with envelope `sessionId = agentSessionId` and no
-   run id; for missing-session it is published after the failed attempt with
-   that attempt's `runId`; for `/new` after commit with `sessionId`.
+   `session.provider.retired` carries a DISCRIMINATED payload on `reason` ∈
+   {ceiling, fingerprint, missing, new}: `providerSessionHash` and
+   `executionProviderId` always, plus `contextHighWaterMark` and `cap` ONLY
+   when `reason = ceiling`. The other three reasons are not caused by a cap
+   check, so those two fields are causal evidence that does not exist for
+   them; the type omits them rather than carrying nulls that cannot be told
+   apart from unknown values. Published at preflight with envelope
+   `sessionId = agentSessionId` and no run id for ceiling and fingerprint;
+   after the failed attempt with that attempt's `runId` for missing-session;
+   after commit for `/new`, one event PER RETIRED ROW, with `sessionId` taken
+   from the `agentSessionId` now carried on each retired reference (decision
+   0159) rather than from a separate boundary lookup that can fail while the
+   reset succeeds.
    `session.provider.cleanup_failed` (payload: `providerSessionHash`,
    `executionProviderId`, `error`). `providerSessionHash` is the full
    lowercase hex SHA-256 of the raw external session id, and the recipe joins
@@ -186,6 +213,43 @@ final cold read amended once per the one-read rule):
    ordered by `agent_runs.started_at`, unioned with `session.provider.retired`
    events by hash and `agent_session_id`; plus DeepAgents checkpoint-table
    row counts per hashed thread id in the derived checkpoint schema.
+
+## Settled requirements (R1-R7)
+
+Resolved at the requirements gate and binding on every task. They were
+recorded in `.factory/stories/cache-bug/grills/requirements.json` and carried
+only in the plan; a grill flagged their absence here, so they now live in the
+spec that governs the story.
+
+- **R1 — null-safe generation fences.** Every generation fence compares
+  `agent_sessions.reset_at` with `IS NOT DISTINCT FROM`, never plain equality:
+  `reset_at` is nullable, so a never-reset session would match no row under
+  `=`. Proof covers null/null succeeding and null/non-null being rejected.
+- **R2 — one cumulative partial-usage payload.** An errored turn's single
+  final error output carries one cumulative partial-usage payload with the
+  turn's stable usage identifier, and the host records the mark exactly once.
+  No double-write, no omitted mark, no second event shape.
+- **R3 — complete route metadata.** Every executable route declares explicit
+  cache read and write inclusion booleans, the registry validator rejects a
+  route missing either, and the DeepAgents normaliser carries the resolved
+  route. OpenAI and OpenRouter report nonzero cache writes, so "n/a" was
+  wrong.
+- **R4 — reply before release.** `/new` reset returns immutable retired
+  references after commit; the handler replies and then dispatches
+  best-effort cleanup. Orphans from process loss are covered by the operator
+  scan, not by a retry system.
+- **R5 — sanitised errors and event proof.** The host publishes both event
+  types directly through the runtime event exchange (0013) with `sessionId`.
+  A cleanup error is sanitised and never carries a raw external session id.
+  Proof covers publish, query and projection.
+- **R6 — non-hydrating race recovery.** A lost-race re-read uses
+  `hydrateMemory: false` and the existing generation-fenced carry from the
+  compaction-delta path, so decision 0078's exactly-once hydration holds.
+- **R7 — architecture alignment.** `docs/architecture/runtime-components.md`
+  and `canonical-domain-model.md` are aligned with `session-resume.md` as a
+  canon edit inside the task. The pages currently say a cold run restores
+  Gantry memory only, which contradicts the persisted-handle resume this
+  story depends on.
 
 ## Acceptance criteria
 

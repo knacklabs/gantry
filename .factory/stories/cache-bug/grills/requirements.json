@@ -1,47 +1,83 @@
 {
   "generated_by": "griller",
   "gate": "requirements",
-  "issue": "cache-bug",
   "verdict": "pass",
-  "summary": "Requirements gate for cache-bug: one cold read (task-mttuwfzc-iz11oe) of the confirmed spec against repo reality returned seven implementation-shaping gaps, all repository-answered; the confirmed spec is left as recorded (its spec-gate read cap is exhausted) and every resolution is carried verbatim into the plan as binding requirements R1-R7; frontier closed by the human in one ledgered round.",
-  "questions_asked": 1,
+  "issue": "cache-bug",
+  "summary": "Requirements gate re-read after T1 shipped and after the spec was corrected: the previous pass was stale against the product-tree digest. Eight findings \u2014 four decisions put to Ravi (discriminated retirement payload, agentSessionId correlation amending 0159, cleanup after the full delivery attempt settles, saturation at 900,001) and four settled from the repository. Amended once; frontier closed.",
   "gaps": [
-    "Generation fence written as plain equality; reset_at is nullable so a never-reset session would match no row",
-    "Partial usage on errored turns unspecified: adapters could double-write, omit the mark, or invent a second event shape",
-    "DeepAgents usage does not carry the resolved route (fallback over-counts); cache writes called n/a though OpenAI and OpenRouter report nonzero cache_write_tokens",
-    "/new reset returns void and deletes rows; no way for references to leave the transaction or for cleanup failure to be emitted",
-    "Runner-output forwarder carries no sessionId and persists payloads unredacted; a raw cleanup error could leak a provider-session handle",
-    "Lost retirement race re-read would hydrate memory again, violating decision 0078 exactly-once",
-    "runtime-components.md and a second architecture page say cold runs are memory-only, contradicting session-resume.md and the intended retirement path"
+    "The previous requirements pass was stale against the product-tree digest and could not support a current gate claim.",
+    "The settled R1-R7 requirements lived only in the plan and were absent from the spec that governs the story.",
+    "'Reports whether a row changed' did not define an equal or lower observation, which the implementation answers by returning false only when the mark does not rise.",
+    "The retirement event payload required contextHighWaterMark and cap for reasons that are not caused by a cap check, and /new's references did not carry those values at all.",
+    "The /new retirement event required sessionId, but the reset returned no owning agent-session id, so correlation depended on a boundary lookup that can fail while the reset succeeds.",
+    "'After the reply path is unblocked' was undefined against fallback delivery, which happens after runAgent returns, and a rejected /new acknowledgement could skip cleanup entirely.",
+    "The high-water contract accepted any non-negative integer while the column is a Postgres integer, so a large cumulative measurement would fail at SQL and leave the session unmarked and resumable."
   ],
   "contradictions": [
-    "0078 exactly-once hydration vs a default re-read on a lost race",
-    "session-resume.md stored-handle resume vs architecture pages saying cold runs are memory-only"
+    "The spec made derived modelVisibleInputTokens the measurement while accepted decision 0158 \u00a72 requires contextUsage.totalTokens first and the derived figure only as fallback.",
+    "docs/architecture/runtime-components.md said a cold start injects durable Gantry memory only, contradicting session-resume.md's stored-handle resume and the retirement path that depends on it."
   ],
   "resolutions": [
-    "Gap 1 \u2014 null-safe IS NOT DISTINCT FROM on every generation fence, with null/null success and null/non-null rejection tests (plan requirement R1; carried as spec amendment text in the plan input)",
-    "Gap 2 \u2014 final error output carries one cumulative partial-usage payload with the stable usage identifier; host records the mark exactly once (plan R2)",
-    "Gap 3 \u2014 every executable route declares explicit read/write inclusion booleans, registry validator rejects missing ones, DeepAgents normaliser carries the resolved route; OpenAI/OpenRouter nonzero write-token tests (plan R3)",
-    "Gap 4 \u2014 /new reset returns immutable retired references after commit; handler replies then dispatches best-effort cleanup; process-loss orphans covered by the operator scan (plan R4)",
-    "Gap 5 \u2014 host publishes both new events directly through the runtime event exchange (0013) with sessionId; cleanup error sanitised, never an external session id; publish/query/projection proof (plan R5)",
-    "Gap 6 \u2014 lost-race re-read uses hydrateMemory:false and the existing generation-fenced carry from the compaction-delta path (plan R6)",
-    "Gap 7 \u2014 align runtime-components.md and the second page with session-resume.md as a canon edit inside the task (plan R7)",
-    "Contradiction 1 \u2014 resolved for 0078 via the fenced carry pattern (plan R6)",
-    "Contradiction 2 \u2014 resolved for session-resume.md via the docs alignment (plan R7)"
+    "Superseded by this record, bound to the amended spec and the current product tree.",
+    "R1-R7 written into the spec as a Settled requirements section, sourced from the requirements record so they bind every task rather than only the plan's readers.",
+    "The spec now states that 'changed' means the mark ROSE: an equal or lower observation reports no change, and a caller must not read false as a lost fence.",
+    "Ravi: the payload is DISCRIMINATED on reason \u2014 providerSessionHash and executionProviderId always, contextHighWaterMark and cap only for reason=ceiling, since they are causal evidence that does not exist for the other reasons.",
+    "Ravi: agentSessionId is carried on each retired reference out of the same committed read, and /new publishes one event per retired row using it; decision 0159 \u00a73 amended accordingly with the reason recorded in place.",
+    "Ravi: cleanup drains after the COMPLETE primary-plus-fallback delivery attempt settles, success or failure, never blocking or throwing through delivery, with finally around both /new acknowledgements so a rejected send cannot skip it.",
+    "Ravi: the stored mark SATURATES at 900,001, one above the largest permitted cap. Anything at or above that already retires, the exact figure stays in model.usage, and the overflow path disappears without a second migration.",
+    "The spec now defers to 0158 \u00a72: contextUsage.totalTokens is the observed value when reported, with modelVisibleInputTokens as the documented fallback.",
+    "runtime-components.md now states that a cold start resumes the stored provider-session handle when present and resumable, names session-resume.md as canon for the resume contract, and explains that retirement exists because of that resume (R7)."
   ],
   "open_items": [],
+  "questions_asked": 5,
   "rounds": [
     {
-      "question": "Requirements gate closing question. The single cold read found seven implementation-shaping gaps (null-safe generation fence, one cumulative partial-usage payload on errors, explicit cache read/write booleans per route with the resolved route carried, /new returning retired references after commit, host-published events with a sanitised error, non-hydrating lost-race re-read per 0078, and aligning two architecture pages with session-resume.md). All seven are answered by the repository. Because the confirmed spec cannot be re-saved without a fresh spec-gate read and that gate's read cap is used up, they become binding plan requirements R1 to R7 rather than spec edits. Any remaining gap before I record the requirements gate and author the plan?",
+      "question": "The spec lists `contextHighWaterMark` and `cap` on every `session.provider.retired` event, but only ceiling retirement is caused by a cap check \u2014 fingerprint, missing-session and /new retirement are not, and /new's retired references don't even carry those values. How should the payload be shaped?",
       "options": [
-        "No remaining gap, record and plan (Recommended)",
+        "Discriminated payload: require for ceiling only (Recommended)",
+        "Nullable for the other reasons",
+        "Populate for every reason"
+      ],
+      "chosen": "Discriminated payload: require for ceiling only (Recommended)"
+    },
+    {
+      "question": "The spec requires the /new retirement event to carry `sessionId`, but decision 0159 and the implemented reset return only providerSessionId, externalSessionId and executionProviderId. The active /new path's separate boundary lookup can fail while the reset still succeeds, so the producer cannot reliably attribute every retirement. How should correlation work?",
+      "options": [
+        "Add agentSessionId to the retired reference (Recommended)",
+        "Use the boundary lookup, tolerate gaps",
+        "Omit sessionId from /new events"
+      ],
+      "chosen": "Add agentSessionId to the retired reference (Recommended)"
+    },
+    {
+      "question": "The plan says cleanup drains 'after the reply path is unblocked', but fallback delivery happens after runAgent returns \u2014 so a drain at the end of runAgent can precede or delay the fallback reply. Both /new handlers can also skip cleanup entirely if their acknowledgement send rejects. When should cleanup actually run?",
+      "options": [
+        "After the full delivery attempt settles, in a finally (Recommended)",
+        "Only after successful delivery",
+        "After the primary callback, as planned"
+      ],
+      "chosen": "After the full delivery attempt settles, in a finally (Recommended)"
+    },
+    {
+      "question": "The high-water mark accepts any non-negative integer, but the Postgres column is `integer`, capping at 2,147,483,647. A larger cumulative run measurement is valid under the written contract yet fails at SQL \u2014 leaving the session unmarked and therefore resumable, which defeats the retirement it was supposed to trigger. The cap setting's own maximum is 900,000.",
+      "options": [
+        "Saturate the stored mark at 900,001 (Recommended)",
+        "Widen the column to bigint",
+        "Reject measurements above the integer range"
+      ],
+      "chosen": "Saturate the stored mark at 900,001 (Recommended)"
+    },
+    {
+      "question": "Closing round for the cache-bug requirements gate. Your four decisions are applied to the spec and to decision 0159: the retirement event payload is discriminated on reason so cap and mark appear only for ceiling; each retired reference now carries agentSessionId so /new publishes one event per row from the same committed read instead of a lookup that can fail; cleanup drains after the full primary-plus-fallback delivery attempt settles, wrapped in finally around both /new acknowledgements; and the stored mark saturates at 900,001 rather than overflowing the integer column. Four more were repo-settled: the spec now defers to 0158's contextUsage.totalTokens-first measurement (an earlier draft made the derived figure primary, which would have violated the accepted decision); the settled R1-R7 requirements now live in the spec rather than only in the plan; the raise contract states that an equal or lower observation reports no change, so false is not read as a lost fence; and runtime-components.md is aligned with session-resume.md, which had claimed a cold start injects memory only. Any remaining gap before I record the pass?",
+      "options": [
+        "No remaining gap, record it (Recommended)",
         "Yes, there is a gap"
       ],
-      "chosen": "No remaining gap, record and plan (Recommended)",
+      "chosen": "No remaining gap, record it (Recommended)",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "8d59657b1b6f14aed45b8ac77cfe0841b8ced733e5fed16416dadd02c5dfffaa",
-  "recorded_at": "2026-09-09T09:05:13+00:00",
-  "commit": "148589a11cf437661399dd68d38a74891be3ee50"
+  "input_sha256": "a79fcd6fb41d96b6e5c9aaf19e5436231997dc205d074732ca1d08bd20ede486",
+  "recorded_at": "2026-09-11T10:19:59+00:00",
+  "commit": "3f2abb2e796298a8ed86a95d17067265e78b8bb9"
 }

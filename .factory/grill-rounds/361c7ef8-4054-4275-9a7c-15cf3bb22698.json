@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Which change should the artifact reflect?",
+      "options": [
+        "Rename: roadmap items are now called tasks (not stories) everywhere",
+        "The new task-level loop from PR 443 (story \u2192 tasks \u2192 task plan in plan mode \u2192 task grill)",
+        "Both"
+      ],
+      "chosen": "The new task-level loop from PR 443 (story \u2192 tasks \u2192 task plan in plan mode \u2192 task grill)"
+    }
+  ],
+  "at": "2026-08-27T08:54:04.437235+00:00",
+  "session_id": "6a103c87-a8c9-4ad2-8499-b9794c3dcc64"
+}

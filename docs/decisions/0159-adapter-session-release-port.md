@@ -35,9 +35,18 @@ deletes provider-session rows inside a transaction and returns `void`.
    id or connection string) before emitting `session.provider.cleanup_failed`;
    the session stays expired.
 3. `resetScope` returns the immutable list of retired
-   `{ providerSessionId, externalSessionId, executionProviderId }` it
-   removed, materialised inside its transaction and returned after commit;
-   the `/new` handler replies, then dispatches best-effort release for each.
+   `{ providerSessionId, externalSessionId, executionProviderId,
+   agentSessionId }` it removed, materialised inside its transaction and
+   returned after commit; the `/new` handler replies, then dispatches
+   best-effort release for each.
+
+   AMENDED 2026-09-11 (Ravi, requirements gate): `agentSessionId` was added
+   to the reference. The spec requires the `/new` retirement event to carry
+   `sessionId`, and the active `/new` path's separate command-boundary lookup
+   can fail while the reset itself succeeds — leaving a committed retirement
+   that cannot be attributed. Carrying the owning agent-session id out of the
+   same committed read removes the guess: the handler publishes one event per
+   retired row using the id that row came with.
 4. Covered paths: ceiling, missing-session, access-fingerprint change, `/new`.
    Not covered, with retention stated: normal handle replacement (the prior
    row is deleted by `setSession`); agent and workspace removal cascades;

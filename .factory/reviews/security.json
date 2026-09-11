@@ -1,0 +1,30 @@
+{
+  "aspect": "security",
+  "score": 9,
+  "summary": "No blocking security vulnerabilities found in the tracked CLEANUP-01 provider-boundary architecture-gate diff. Raw HTTP LLM provider hosts and names, generated production directories, direct provider sends, ignored-source imports, package classifications, and exact exception ratchets were reviewed.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Fully dynamic provider URL construction or config-derived fetch targets can still evade static regex scans.",
+    "Provider host and dependency patterns must be updated when adding new model backends.",
+    "Exact migration exceptions still allow current provider-boundary debt by file and count until the named migration phases are complete."
+  ],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "Tracked git diff only",
+    ".codex/architecture-map.json",
+    ".codex/architecture-exceptions.json",
+    ".codex/scripts/architecture_rules.py",
+    ".codex/scripts/check_architecture.py",
+    ".codex/scripts/tests/test_check_architecture.py",
+    "AGENTS.md",
+    ".codex/AGENTS.md",
+    "apps/core/src/runner/mcp wording changes",
+    "docs/architecture/framework-boundaries.md",
+    "python3 .codex/scripts/tests/test_check_architecture.py passed 53 tests",
+    "npm run check:architecture passed"
+  ],
+  "blocking": [],
+  "warnings": [],
+  "recorded_at": "2026-05-12T05:29:19+00:00"
+}

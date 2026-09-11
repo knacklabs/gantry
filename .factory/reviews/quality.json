@@ -1,0 +1,30 @@
+{
+  "aspect": "quality",
+  "score": 9,
+  "summary": "No blocking or non-blocking engineering findings in the tracked CLEANUP-01 provider-boundary architecture-gate diff. Generated production sources are scanned, test/spec sources are ignored unless production imports them, raw LLM provider hosts and names are blocked outside the LLM adapter, and browser runtime refactor behavior is not in scope.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Provider-boundary detection is static text and regex based rather than type-aware, so highly dynamic construction still needs review discipline.",
+    "Current provider-boundary debt remains allowed only through exact capped exceptions until planned migration cleanup.",
+    "Browser Playwright/Puppeteer debt remains represented by exact exceptions and belongs to the browser branch."
+  ],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "Tracked git diff only",
+    ".codex/architecture-map.json",
+    ".codex/architecture-exceptions.json",
+    ".codex/scripts/architecture_rules.py",
+    ".codex/scripts/check_architecture.py",
+    ".codex/scripts/tests/test_check_architecture.py",
+    "AGENTS.md",
+    ".codex/AGENTS.md",
+    "apps/core/src/runner/mcp tracked wording changes",
+    "docs/architecture/framework-boundaries.md",
+    "python3 .codex/scripts/tests/test_check_architecture.py passed 53 tests",
+    "npm run check:architecture passed"
+  ],
+  "blocking": [],
+  "warnings": [],
+  "recorded_at": "2026-05-12T05:29:19+00:00"
+}
