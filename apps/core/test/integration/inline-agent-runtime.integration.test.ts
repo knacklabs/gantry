@@ -1375,13 +1375,23 @@ maybeDescribe('inline session turns through the control API', () => {
     }
     expect(mcpCalls).toEqual([{ value: 'claude' }, { value: 'openai' }]);
     expect(gatewayCalls).toContain('/openai/mock');
-    expect(channelEffects.outbound.map(({ text }) => text)).toEqual(
-      expect.arrayContaining([
-        'Claude core message',
-        'OpenAI core message',
-        '{"lane":"first"}',
-        '{"lane":"second"}',
-      ]),
+    // Outbound delivery is asynchronous and lands AFTER the run row flips to
+    // 'completed', which is all the vi.waitFor above waits for. Asserting
+    // straight after that read caught the second lane's message only most of
+    // the time — it passed twice and failed on the third run of identical
+    // code. Wait for the thing actually being asserted.
+    await vi.waitFor(
+      () => {
+        expect(channelEffects.outbound.map(({ text }) => text)).toEqual(
+          expect.arrayContaining([
+            'Claude core message',
+            'OpenAI core message',
+            '{"lane":"first"}',
+            '{"lane":"second"}',
+          ]),
+        );
+      },
+      { timeout: 20_000, interval: 50 },
     );
     expect(channelEffects.userQuestions).toHaveLength(2);
     expect(channelEffects.permissionRequests).toHaveLength(2);
