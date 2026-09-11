@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0205-7cd5",
+  "profile": "quickfix",
+  "reason": "Ravi, 2026-09-11: make the grill check whether the artifact is simple enough, at the task gate too. The plan gate already hunts a simpler shape and fails over-built plans, and constitution 09-agent-conduct section 2 names the plan grill as the place that happens \u2014 but the task gate hunts only missing scope, unproven criteria, reachability and the user_facing flag, with no simplicity check at all. That is why the cache-bug-T2 task grill produced twelve findings without once asking whether the task was over-built; the orchestrator had to raise the split question himself. Adds a simplicity hunt to the task gate in factory/prompts/griller.md aimed at what a task CONTRACT over-builds (criteria tracing to nothing, required tests proving nothing new, write_scope wider than the criteria need, a new abstraction where a utility exists, a task too big to review in one pass) and extends conduct section 2 to name the task grill beside the plan grill so the law matches the prompt. Goes upstream to symphony-forge as its own change.",
+  "started_at": "2026-09-11T14:24:53+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
