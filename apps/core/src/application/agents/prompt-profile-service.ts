@@ -11,14 +11,10 @@ import {
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
 import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
-import {
-  renderCapabilityGuidancePrompt,
-  type CapabilityCatalogRenderDiagnostics,
-} from './agent-prompt-capability-guidance.js';
+// prettier-ignore
+import { composePromptWithRequiredCapabilityCatalog, renderCapabilityGuidancePrompt, type CapabilityCatalogRenderDiagnostics } from './agent-prompt-capability-guidance.js';
 import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
 import type { AgentPromptCapabilityCatalog } from './agent-prompt-capability-catalog.js';
-import type { AgentEngine } from '../../shared/agent-engine.js';
-import { CapabilityCatalogOverflowError } from './agent-prompt-capability-guidance.js';
 import {
   AGENTS_FILENAME,
   defaultAgentsPromptMarkdown,
@@ -310,7 +306,7 @@ export interface CompilePromptProfileOptions {
   // locked instruction projection; absent defaults to full (today's prompt).
   accessPreset?: PromptAccessPreset;
   capabilityCatalog?: AgentPromptCapabilityCatalog;
-  agentEngine?: AgentEngine;
+  agentEngine?: import('../../shared/agent-engine.js').AgentEngine;
   mcpInventoryToolsMounted?: boolean;
   // Resolved model identity for this run; rendered as a plain "You are running
   // on ..." runtime rule. Changes only when model config changes (cache-safe).
@@ -350,10 +346,6 @@ interface PromptSection {
   name: PromptSectionName;
   source: string;
   content: string;
-  capabilityCatalog?: {
-    grantedCount: number;
-    compactReadyLines: readonly string[];
-  };
 }
 
 function makeSection(
@@ -563,10 +555,6 @@ export class PromptProfileService {
             name: 'CAPABILITY_GUIDANCE' as const,
             source: CAPABILITY_GUIDANCE_SOURCE,
             content: renderedCapabilityGuidance.prompt,
-            capabilityCatalog: {
-              grantedCount: options.capabilityCatalog?.readyActions.length ?? 0,
-              compactReadyLines: renderedCapabilityGuidance.compactReadyLines,
-            },
           };
     if (capabilityGuidance) sections.push(capabilityGuidance);
 
@@ -582,7 +570,17 @@ export class PromptProfileService {
 
     if (agentInstructions) sections.push(agentInstructions);
 
-    return this.composeWithinTotalBudget(sections);
+    return composePromptWithRequiredCapabilityCatalog({
+      blocks: sections.map(renderSection),
+      capabilityIndex:
+        (options.capabilityCatalog?.readyActions.length ?? 0) > 0 &&
+        capabilityGuidance
+          ? sections.indexOf(capabilityGuidance)
+          : -1,
+      totalBudget: this.totalBudget,
+      grantedCount: options.capabilityCatalog?.readyActions.length ?? 0,
+      compactReadyLines: renderedCapabilityGuidance.compactReadyLines,
+    });
   }
 
   private async writeDefaultIfMissing(input: {
@@ -777,68 +775,6 @@ export class PromptProfileService {
       if (err instanceof FileArtifactNotFoundError) return null;
       throw err;
     }
-  }
-
-  private composeWithinTotalBudget(sections: PromptSection[]): string {
-    if (this.totalBudget <= 0 || sections.length === 0) return '';
-
-    const capabilityIndex = sections.findIndex(
-      (section) =>
-        section.name === 'CAPABILITY_GUIDANCE' &&
-        (section.capabilityCatalog?.grantedCount ?? 0) > 0,
-    );
-    const capabilitySection = sections[capabilityIndex];
-    const capabilityBlock = capabilitySection
-      ? renderSection(capabilitySection)
-      : '';
-    if (
-      capabilitySection?.capabilityCatalog &&
-      capabilityBlock.length > this.totalBudget
-    ) {
-      const metadata = capabilitySection.capabilityCatalog;
-      const frameLength =
-        capabilityBlock.length - capabilitySection.content.length;
-      const contentBudget = Math.max(0, this.totalBudget - frameLength);
-      let remaining = contentBudget;
-      let renderableCount = 0;
-      for (const line of metadata.compactReadyLines) {
-        const length = line.length + (renderableCount > 0 ? 1 : 0);
-        if (length > remaining) break;
-        remaining -= length;
-        renderableCount += 1;
-      }
-      throw new CapabilityCatalogOverflowError(
-        metadata.grantedCount,
-        renderableCount,
-        'compact_overflow',
-      );
-    }
-
-    let output = '';
-
-    for (const section of sections) {
-      const separator = output.length === 0 ? '' : '\n\n';
-      const remaining = this.totalBudget - output.length;
-      const reservedCapabilityLength =
-        section.name !== 'CAPABILITY_GUIDANCE' &&
-        capabilityIndex > sections.indexOf(section)
-          ? capabilityBlock.length + 2
-          : 0;
-      if (remaining <= separator.length + reservedCapabilityLength) continue;
-
-      const block = renderSection(section);
-      const availableForBlock =
-        remaining - separator.length - reservedCapabilityLength;
-      const nextBlock =
-        block.length <= availableForBlock
-          ? block
-          : block.slice(0, availableForBlock).trimEnd();
-
-      if (!nextBlock) break;
-      output += separator + nextBlock;
-    }
-
-    return output.trim();
   }
 }
 

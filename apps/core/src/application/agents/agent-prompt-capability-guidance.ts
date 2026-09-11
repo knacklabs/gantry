@@ -39,6 +39,50 @@ export class CapabilityCatalogOverflowError extends Error {
   }
 }
 
+export function composePromptWithRequiredCapabilityCatalog(input: {
+  blocks: readonly string[];
+  capabilityIndex: number;
+  totalBudget: number;
+  grantedCount: number;
+  compactReadyLines: readonly string[];
+}): string {
+  if (input.totalBudget <= 0 || input.blocks.length === 0) return '';
+  const capabilityBlock = input.blocks[input.capabilityIndex] ?? '';
+  if (capabilityBlock.length > input.totalBudget) {
+    const compactLength = input.compactReadyLines.join('\n').length;
+    let remaining = Math.max(
+      0,
+      input.totalBudget - (capabilityBlock.length - compactLength),
+    );
+    let renderableCount = 0;
+    for (const line of input.compactReadyLines) {
+      const length = line.length + (renderableCount > 0 ? 1 : 0);
+      if (length > remaining) break;
+      remaining -= length;
+      renderableCount += 1;
+    }
+    throw new CapabilityCatalogOverflowError(
+      input.grantedCount,
+      renderableCount,
+      'compact_overflow',
+    );
+  }
+
+  let output = '';
+  for (const [index, block] of input.blocks.entries()) {
+    const separator = output ? '\n\n' : '';
+    const reserved =
+      index < input.capabilityIndex ? capabilityBlock.length + 2 : 0;
+    const available =
+      input.totalBudget - output.length - separator.length - reserved;
+    if (available <= 0) continue;
+    const nextBlock = block.slice(0, available).trimEnd();
+    if (!nextBlock) break;
+    output += separator + nextBlock;
+  }
+  return output.trim();
+}
+
 interface CatalogSectionCounts {
   readyActions: number;
   requestableActions?: number;
@@ -192,7 +236,8 @@ export function renderCapabilityGuidancePrompt(input: {
       ? Math.max(input.budget, compactPrompt.length)
       : input.budget;
   const selected =
-    stages.find((stage) => renderStage(stage).length <= budget) ?? stages.at(-1)!;
+    stages.find((stage) => renderStage(stage).length <= budget) ??
+    stages.at(-1)!;
   const prompt = renderStage(selected);
   const renderedCounts = {
     readyActions: readyActions.length,

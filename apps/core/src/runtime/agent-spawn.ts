@@ -82,10 +82,8 @@ import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import {
   compileSpawnSystemPrompt,
-  publishCapabilityCatalogOverflowDiagnostic,
   resolveCurrentAgentRoleSnapshot,
 } from './agent-spawn-prompt.js';
-import { CapabilityCatalogOverflowError } from '../application/agents/agent-prompt-capability-guidance.js';
 import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
@@ -100,7 +98,6 @@ import {
   buildRunnerSandboxSpawnInput,
   buildBaseRunnerEnv,
   buildAndLogRunnerRuntimeDetails,
-  type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 import {
   prepareAgentSpawn,
@@ -178,8 +175,7 @@ async function spawnAgentWithContext(
     agentSettings,
     group.agentConfig?.permissionMode,
   );
-  const agentEngine = resolvedModel.value.agentEngine;
-  const effectiveModel = resolvedModel.value.runnerModel;
+  const { agentEngine, runnerModel: effectiveModel } = resolvedModel.value;
   const preSpawnAdmissionError = hostStartup.measure(
     'preSpawnAdmissionMs',
     () =>
@@ -218,38 +214,27 @@ async function spawnAgentWithContext(
       getAgentRepository: () => getRuntimeStorage().repositories.agents,
       warn: logger.warn.bind(logger),
     });
-  let compiledSystemPrompt: string;
-  try {
-    compiledSystemPrompt = await compileSpawnSystemPrompt({
-      group,
-      agentInput: input,
-      appId: input.appId || 'default',
-      accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
-      mcpInventoryToolsMounted: true,
-      agentEngine,
-      modelIdentity: {
-        alias: resolvedModel.value.modelEntry.displayName,
-        modelId: resolvedModel.value.runnerModel,
-        provider: resolvedModel.value.modelEntry.modelRoute.label,
-      },
-      resolveRoleSnapshot: (agentId) =>
-        resolveCurrentAgentRoleSnapshot(
-          agentId,
-          getRuntimeStorage().repositories,
-        ),
-      fileArtifactStore: () => getRuntimeFileArtifactStore(),
-      measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
-    });
-  } catch (error) {
-    if (!(error instanceof CapabilityCatalogOverflowError)) throw error;
-    await publishCapabilityCatalogOverflowDiagnostic({
-      error,
-      agentInput: input,
-      appId: input.appId || 'default',
-      publishRuntimeEvent: options?.publishRuntimeEvent,
-    });
-    return { status: 'error', result: null, error: error.message };
-  }
+  const compiledSystemPrompt = await compileSpawnSystemPrompt({
+    group,
+    agentInput: input,
+    appId: input.appId || 'default',
+    accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
+    mcpInventoryToolsMounted: true,
+    agentEngine,
+    modelIdentity: {
+      alias: resolvedModel.value.modelEntry.displayName,
+      modelId: resolvedModel.value.runnerModel,
+      provider: resolvedModel.value.modelEntry.modelRoute.label,
+    },
+    resolveRoleSnapshot: (agentId) =>
+      resolveCurrentAgentRoleSnapshot(
+        agentId,
+        getRuntimeStorage().repositories,
+      ),
+    fileArtifactStore: () => getRuntimeFileArtifactStore(),
+    publishRuntimeEvent: options?.publishRuntimeEvent,
+    measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
+  });
   const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =
     projectSpawnRunnerInput({
       agentInput: input,

@@ -48,11 +48,9 @@ import {
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import {
   compileSpawnSystemPrompt,
-  publishCapabilityCatalogOverflowDiagnostic,
   resolveCurrentAgentRoleSnapshot,
   resolveSpawnPromptAccessPreset,
 } from './agent-spawn-prompt.js';
-import { CapabilityCatalogOverflowError } from '../application/agents/agent-prompt-capability-guidance.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeEventExchange,
@@ -178,40 +176,30 @@ export async function prepareInlineAgentHostContext(
     input.hideAuthorityTools === true ||
       process.env.GANTRY_NO_PERMISSION_TOOLS === '1',
   );
-  let compiledSystemPrompt: string | undefined;
-  try {
-    compiledSystemPrompt = resolvedModel.ok
-      ? await compileSpawnSystemPrompt({
-          group,
-          agentInput: input,
-          appId: input.appId || 'default',
-          accessPreset: promptAccessPreset,
-          mcpInventoryToolsMounted: inlineCoreToolsMountMcpInventory(),
-          agentEngine: resolvedModel.value.agentEngine,
-          modelIdentity: {
-            alias: resolvedModel.value.modelEntry.displayName,
-            modelId: resolvedModel.value.runnerModel,
-            provider: resolvedModel.value.modelEntry.modelRoute.label,
-          },
-          resolveRoleSnapshot: (agentId) =>
-            resolveCurrentAgentRoleSnapshot(
-              agentId,
-              getRuntimeStorage().repositories,
-            ),
-          fileArtifactStore: () => getRuntimeFileArtifactStore(),
-          measureAsync: async (_name, fn) => fn(),
-        })
-      : undefined;
-  } catch (error) {
-    if (!(error instanceof CapabilityCatalogOverflowError)) throw error;
-    await publishCapabilityCatalogOverflowDiagnostic({
-      error,
-      agentInput: input,
-      appId: input.appId || 'default',
-      publishRuntimeEvent: (event) => getRuntimeEventExchange().publish(event),
-    });
-    throw error;
-  }
+  const compiledSystemPrompt = resolvedModel.ok
+    ? await compileSpawnSystemPrompt({
+        group,
+        agentInput: input,
+        appId: input.appId || 'default',
+        accessPreset: promptAccessPreset,
+        mcpInventoryToolsMounted: inlineCoreToolsMountMcpInventory(),
+        agentEngine: resolvedModel.value.agentEngine,
+        modelIdentity: {
+          alias: resolvedModel.value.modelEntry.displayName,
+          modelId: resolvedModel.value.runnerModel,
+          provider: resolvedModel.value.modelEntry.modelRoute.label,
+        },
+        resolveRoleSnapshot: (agentId) =>
+          resolveCurrentAgentRoleSnapshot(
+            agentId,
+            getRuntimeStorage().repositories,
+          ),
+        fileArtifactStore: () => getRuntimeFileArtifactStore(),
+        publishRuntimeEvent: (event) =>
+          getRuntimeEventExchange().publish(event),
+        measureAsync: async (_name, fn) => fn(),
+      })
+    : undefined;
   const effectiveInput = withControls(
     input,
     runtimeSettings.agents?.[group.folder],

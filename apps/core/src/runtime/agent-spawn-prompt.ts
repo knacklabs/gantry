@@ -59,6 +59,9 @@ export async function compileSpawnSystemPrompt(input: {
     agentId: string,
   ) => Promise<AgentRoleSnapshot | undefined>;
   fileArtifactStore: PromptProfileServiceOptions['fileArtifactStore'];
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
   measureAsync: <T>(
     name: 'promptCompileMs',
     fn: () => Promise<T>,
@@ -128,7 +131,15 @@ export async function compileSpawnSystemPrompt(input: {
       }),
     );
   } catch (err) {
-    if (err instanceof CapabilityCatalogOverflowError) throw err;
+    if (err instanceof CapabilityCatalogOverflowError) {
+      await publishCapabilityCatalogOverflowDiagnostic({
+        error: err,
+        agentInput: input.agentInput,
+        appId: input.appId,
+        publishRuntimeEvent: input.publishRuntimeEvent,
+      });
+      throw err;
+    }
     logger.warn(
       { err, agentFolder: input.group.folder },
       'Failed to compile prompt profile; continuing without custom system prompt',

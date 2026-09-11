@@ -10,10 +10,11 @@ import { resolveEffectivePermissionMode } from '@core/shared/permission-mode.js'
 import {
   DEEPAGENTS_ENGINE,
   DEFAULT_AGENT_ENGINE,
+  type AgentEngine,
 } from '@core/shared/agent-engine.js';
 
 const hostSpies = vi.hoisted(() => ({
-  engine: 'anthropic_sdk' as 'anthropic_sdk' | 'deepagents',
+  engine: 'deepagents' as AgentEngine,
   publishRuntimeEvent: vi.fn(),
 }));
 

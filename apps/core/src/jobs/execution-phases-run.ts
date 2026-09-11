@@ -144,7 +144,6 @@ export async function runActiveJobAgent(
     }
   }
 }
-
 async function prepareActiveJobAgent(
   context: ActiveJobRunContext,
 ): Promise<void> {
@@ -241,16 +240,8 @@ async function invokeActiveJobAgent(
   const { currentJob, deps, runId } = context;
   const execution = context.execution!;
   const preparation = context.agentPreparation!;
-  const capabilityCatalog = preparation.accessSnapshot
-    ? resolveTurnPromptCapabilityCatalogFromSnapshot(
-        preparation.accessSnapshot,
-        resolveTurnToolPolicyFromSnapshot(
-          preparation.accessSnapshot,
-          currentJob.execution_context?.personId,
-        ).semanticCapabilities,
-        preparation.toolPolicy.effectiveAllowedTools,
-      )
-    : undefined;
+  // prettier-ignore
+  const capabilityCatalog = preparation.accessSnapshot ? resolveTurnPromptCapabilityCatalogFromSnapshot(preparation.accessSnapshot, resolveTurnToolPolicyFromSnapshot(preparation.accessSnapshot, currentJob.execution_context?.personId).semanticCapabilities, preparation.toolPolicy.effectiveAllowedTools) : undefined;
   const runOptions = buildRuntimeRunOptions({
     timeoutMs: context.timeoutMs!,
     signal: context.runLeaseAbort!.signal,
