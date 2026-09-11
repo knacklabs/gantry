@@ -2,7 +2,7 @@
 issue: cache-bug
 title: Bound provider-session context growth across runner restarts
 status: approved
-saved: 2026-09-09T10:46:21+00:00
+saved: 2026-09-11T11:32:18+00:00
 story: cache-bug
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -493,16 +493,25 @@ configured — all installed and the only fit for this repo.
    `prepareCompactionDeltaReplay` and the fingerprint check so a `ready` row
    is promoted first, and evaluates the mark on the selected row only.
 
-   SATURATION (verified gap, and T2 owns it because it owns the measurement
-   path): `provider_sessions.context_high_water_mark` is a Postgres `integer`
-   (`schema/sessions.ts:89` and the merged migration), while
-   `assertProviderSessionContextHighWaterMark`
+   THE OVERFLOW CLAMP (verified gap, and T2 owns it because it owns the
+   measurement path): `provider_sessions.context_high_water_mark` is a
+   Postgres `integer` (`schema/sessions.ts:89` and the merged migration),
+   while `assertProviderSessionContextHighWaterMark`
    (`domain/sessions/provider-session-measurement.ts:16`) validates only
    "non-negative integer". An observation above 2,147,483,647 therefore
    reaches SQL and fails, leaving an over-cap session unmarked and resumable
    — the exact outcome the ceiling exists to prevent. T2 clamps the stored
-   value at 900,001, one above the largest permitted cap, with a unit test at
-   the clamp boundary. T1 is sealed and cannot carry this.
+   value at 2,147,483,647, the COLUMN's limit, with a unit test at the clamp
+   boundary. T1 is sealed and cannot carry this.
+
+   The clamp must NOT be tied to the cap setting's maximum. An earlier draft
+   used 900,001, one above the largest configurable cap (20,000–900,000),
+   which silently coupled a policy range to a storage limit: a real mark can
+   exceed 900,001 on a ≈1M-context model, and widening the cap range past
+   900,000 would leave a clipped mark failing to exceed the cap — ending
+   retirement for exactly the sessions it targets, undetectably. The
+   reviewer checks that the clamp constant derives from the column type, not
+   from the limits parser's bounds.
 
    R6: on a LOST ceiling transition, re-read the turn context with
    `hydrateMemory: false` and reuse the carried memory block ONLY when the

@@ -3,86 +3,56 @@
   "gate": "plan",
   "verdict": "pass",
   "issue": "cache-bug",
-  "summary": "Plan gate cold read after T1 shipped and after PR 503 corrected the plan and spec. Twelve findings: four genuine decisions put to Ravi (sequential graph, scope owners for the /new event and the resolved route, cleanup evidence and the hashed id, the column-naming deviation) and the rest resolved from the repository against what T1 actually shipped. Amended once; frontier closed.",
+  "summary": "Plan gate, single cold read: 14 findings against a plan that had drifted from the merged code. Ravi chose to REWRITE the T2/T3 half against verified current code rather than patch a fourth time, and to give the settings contract its own T4. Every structural claim in the rewrite carries file:line evidence, after an earlier round propagated a repository fact that proved false. Amended once; frontier closed.",
   "gaps": [
-    "T1's task block said all four callers switch to retireProviderSession and put the compaction-delta call site in its write scope, contradicting decision 0159 \u00a74 and the new helper's `active`-row predicate.",
-    "T1's write scope could not produce its stated work: it omitted group-agent-runner.ts, the runtime-app files and package.json while naming the unchanged compaction-delta call site.",
-    "The partial-usage contract named a nonexistent DeepAgentTurnFailure wrapper, said usage is attached to an error, omitted both inline lanes, and carried a reviewer rule that the shipped Claude QueryFailure contradicts.",
-    "The plan claimed T1 carries the resolved DeepAgents registry route; the shipped code still sets modelRoute from input.provider, and D-0083 transferred the work without T2's scope covering the runner input contract.",
-    "Surface Impact called the API 'Unchanged by design' although limits.provider_session_max_input_tokens changes the typed JSON that /v1/settings/desired-state accepts and returns, and no round trip proved the field survives that surface.",
-    "Parked scope (per-request seam and capacity cap, delta snapshot, DeepAgents largest-not-summed billing) had no deferral rows and was postponed to a future story-close action.",
-    "The plan body digest had moved to ef00438d while the approved and decomposed digest remained 279a4a3c, and the plan still labelled itself approved."
+    "The 900,001 saturation rule was absent and unowned: the column is a Postgres integer and assertProviderSessionContextHighWaterMark validates only non-negative integers, so a large observation fails at SQL and leaves an over-cap session resumable \u2014 and T1, which owns that code, is sealed.",
+    "Decision 0159's four-field retired reference was not applied: the type and both producers carry three fields, so /new cannot publish one event per retired row with the owning sessionId.",
+    "Cleanup drained at the end of runAgent, the one boundary the spec rejects: fallback delivery runs after runAgent returns, and no task owned group-processing.ts where that boundary lives.",
+    "T3 could not wire the idle /new path within its scope: clearCurrentSession is declared void and its handler and supplier discard the result, none of which were in T3's write scope.",
+    "R6 specified only the winning-generation branch, so an implementation could satisfy the plan while leaking a stale session's memory after a concurrent reset.",
+    "The changed /v1/settings/desired-state payload had no DTO or OpenAPI owner, while the route accepts settings?: unknown and the registry does not document that path.",
+    "'Typed event payloads' was not an enforcing design: RuntimeEventPublishInput carries payload: unknown, so interfaces in events.ts bind nothing to eventType.",
+    "T1's declared write scope still omitted the inline lanes, stream-normalizer-partial-usage.ts and query-failure.exception.ts that actually shipped.",
+    "The SQL-recipe proof could pass while the published recipe rotted, because the plan did not require the test to execute SQL extracted from the document."
   ],
   "contradictions": [
-    "The approved parallel graph (T2 and T3 depending on T1 only) is not independently buildable: T3 needs the cleanup event type and runner drain that T2 owns, and merging T2 first activates the ceiling against a no-op drain, orphaning checkpoints until T3 lands.",
-    "The /new retirement event required by the spec had no owner: all event behaviour was assigned to T2, whose scope excludes both /new handlers, while T3 owns the handlers and claimed no event work.",
-    "Cleanup failures could leave no evidence at all \u2014 cleanup_failed is published best-effort with no fallback log or publication-failure test \u2014 and `sha256(id)` did not name which id, where hashing the internal provider-session id would break the documented operator join.",
-    "The physical column context_high_water_mark deviates from constitution/pnp-database-standards.md:46, which requires camelCase, with the deviation recorded nowhere."
+    "The plan claimed T1 carries only provider-granularity data and T2 must widen the host-to-runner contract, but the host already projects effectiveModelEntry.modelRoute.id into GANTRY_DEEPAGENTS_MODEL_PROVIDER, the runner reads it and passes it as input.provider, so usage.modelRoute already carries the resolved route.",
+    "S9 assigned all retirement-event behaviour to T2 while the decomposition gave /new publication to T3, so T2 could not finish S9 and T3 had no criterion-bound obligation.",
+    "The plan said 'sequential in one story worktree', contradicting the mandatory per-task branch and sibling-worktree lifecycle in WORKFLOW.md and AGENTS.md.",
+    "The recorded decomposition still encoded the rejected parallel graph, placing T2 and T3 in one build wave while the plan declared T3 dependent on T2.",
+    "The plan's own approval was stale: its previous grill predated the binding requirements gate, whose four decisions the plan had not absorbed."
   ],
   "resolutions": [
-    "T1's block now names THREE switched callers (fingerprint, missing-session, ops-service facade and its canonical-ops-repo twin) and states that compaction-delta keeps expireProviderSession unchanged per 0159 \u00a74, because it operates on a `ready` row the new helper's `active` predicate would not match.",
-    "T1's write scope corrected to the files that actually shipped \u2014 group-agent-runner.ts, the two runtime-app bootstrap files, provider-session-measurement.ts, canonical-ops-repo.postgres.ts and package.json \u2014 with the compaction-delta call site marked explicitly NOT in scope.",
-    "The partial-usage passage rewritten to the shipped contract: DeepAgentPartialUsage IS the thrown value with no wrapper type, a close-driven abort keeps its identity with the usage riding on it, denials and denial-driven aborts carry usage, both inline lanes emit one terminal error output, and the reviewer rule now describes both carriers accurately.",
-    "Ravi's decision: T2 takes the resolved registry route with the host-to-runner input contract added to its write scope (D-0083); the plan now states plainly that T1 sets provider and modelRoute from the same value and resolves cache policy at provider granularity.",
-    "API reclassified as Changed with the payload-shape change spelled out, and a PUT/GET control-API round trip over /v1/settings/desired-state added to the Verify Plan as T2's proof.",
-    "Recorded as D-0086 (per-request seam and capacity cap), D-0087 (delta snapshot) and D-0088 (largest-not-summed billing), each with its own trigger; Surface Impact now cites the ids instead of promising a story-close action.",
-    "The plan is being re-grilled and re-saved against the amended body for a fresh human approval, after which the decomposition rebinds to the new digest.",
-    "Ravi's decision: the graph reverts to SEQUENTIAL T1 -> T2 -> T3, the only order where each task is independently buildable and the ceiling never runs against a no-op cleanup drain. The plan already declared this order; the decomposition is what rebinds.",
-    "Ravi's decision: T3 publishes session.provider.retired for /new because it owns both handlers, while T2 keeps the event types and every other publication. Both task blocks now say so.",
-    "Ravi's decision: the hash is over the RAW EXTERNAL session id (never the internal provider-session id, which would silently match nothing in the documented join), and a structured error log carrying that hash plus the sanitised cause fires when cleanup_failed publication itself fails, with a test driving that path.",
-    "Ravi's decision: decision 0160 written and accepted, recording snake_case physical columns as this repository's deliberate deviation; the plan attests it in frontmatter and cites it at the column definition."
+    "T2 owns the clamp at 900,001 with a boundary test, placed at the domain assert rather than in SQL; recorded with the integer-column and missing-clamp evidence so the reason survives.",
+    "T3 owns adding agentSessionId and propagating the widened type through the ops port and both facades; the reset query already filters on that column, so the query change is trivial and the propagation is the real cost.",
+    "T3 owns group-processing.ts and drains after the COMPLETE primary-plus-fallback attempt settles, with the runAgent/finalisation line numbers recorded so the boundary is not re-litigated.",
+    "T3's scope now includes session-commands.ts, group-processing-session-command-handlers.ts, group-processing-types.ts and runtime-app.ts, and the plan states this is a command-surface contract change rather than wiring.",
+    "R6 now requires BOTH branches with regression coverage: reuse on a matching generation, discard and rehydrate on a mismatch, because 0078's guarantee is per turn.",
+    "New task T4 owns the typed request and response DTO and the OpenAPI registry entry, separated deliberately because it is a public HTTP contract with its own canon requirements.",
+    "T2's contract states that the publish input must change, or publication must go through a typed helper, for reason-discrimination to be compile-time safe; the reviewer checks that a wrong payload fails to compile.",
+    "T1's declared scope completed with the files that shipped, so the plan matches the merged work.",
+    "The recipe proof now requires executing SQL extracted from the document or a shared artifact, never a copy pasted into the test.",
+    "Withdrawn as false after tracing the assignment chain: D-0083 resolved as withdrawn and lesson 157 ledgered correcting lesson 155. T2's scope states plainly that the route is already correct and needs no work.",
+    "S9 split between T2 (event types, ceiling/fingerprint/missing publication) and T3 (the /new publication), with the reason recorded: the types and the handlers live in different tasks.",
+    "Replaced with the real lifecycle \u2014 T1 -> T2 -> T3 -> T4, each in its own task branch and sibling worktree cut by forge task start, merging before the next begins.",
+    "The decomposition rebinds to the sequential graph immediately after the plan is re-approved; recorded as the next action rather than left implicit.",
+    "This record supersedes the stale pass and is bound to the rewritten plan body, which absorbed the requirements gate's four decisions."
   ],
   "open_items": [],
-  "questions_asked": 5,
+  "questions_asked": 1,
   "rounds": [
     {
-      "question": "The grill says the T2 \u2225 T3 parallel graph you approved is not independently buildable: T3 needs the cleanup event type and runner drain that T2 owns, so a T3 branch cut from T1 alone cannot typecheck or falsify its ceiling/fingerprint/missing-session proofs. And in the other direction, merging T2 first switches on the default ceiling while the cleanup drain is still a no-op, orphaning DeepAgents checkpoints until T3 lands. How should the graph run?",
+      "question": "Closing round for the cache-bug plan gate, covering the 14 findings from the single cold read. Your decisions: rewrite T2/T3 against current code rather than patch again, and make the settings contract its own T4. The rewrite addressed all 14 with code-verified facts: T2 gains the 900,001 clamp (the column is integer and the assert has no clamp, and T1 is sealed) and both R6 branches; T2 LOSES the resolved-route plumbing because it was never broken (host projects modelRoute.id, the runner reads it, so usage.modelRoute is already the route) with D-0083 withdrawn and lesson 157 recording why; T3 gains agentSessionId with its propagation, group-processing.ts for the real drain boundary (runAgent is awaited at :669, finalisation at :778), and the clearCurrentSession contract plus its handler and supplier since the idle path returns void; T4 owns the typed DTO and OpenAPI entry for /v1/settings/desired-state; S9's ownership is split between T2 and T3 with the reason stated; the per-task worktree lifecycle replaces 'sequential in one story worktree'; T1's declared scope now lists the inline lanes and files that actually shipped; the recipe proof must execute SQL extracted from the document; and the decomposition rebinds to the sequential graph after approval. Any remaining gap before I record the pass?",
       "options": [
-        "T3 depends on T2 \u2014 run sequentially (Recommended)",
-        "Keep parallel, add an integration order",
-        "Keep parallel, move the shared surface into T1's follow-up"
+        "No remaining gap, record the pass (Recommended)",
+        "Yes, there is a gap",
+        "The shape changed again \u2014 re-read it"
       ],
-      "chosen": "T3 depends on T2 \u2014 run sequentially (Recommended)"
-    },
-    {
-      "question": "Two runtime surfaces have no task owner. (a) The spec requires `session.provider.retired` after commit for `/new`, but the plan gives all event behaviour to T2, whose scope excludes both /new handlers, while T3 owns the handlers and claims no event work \u2014 so cleanup could ship without the required event. (b) D-0083 transfers the resolved DeepAgents route to T2, but T2's plan scope does not include the runner input contract it needs. Who takes them?",
-      "options": [
-        "T3 takes the /new event, T2 takes the route (Recommended)",
-        "T2 takes both",
-        "Defer the route, assign only the event"
-      ],
-      "chosen": "T3 takes the /new event, T2 takes the route (Recommended)"
-    },
-    {
-      "question": "A constitution gap the grill flagged: the coordinator catches cleanup errors and publishes `session.provider.cleanup_failed` best-effort, but nothing specifies a structured fallback log or a publication-failure test. If both the cleanup and the event publication fail, an orphaned checkpoint leaves no evidence at all \u2014 which the no-swallowed-errors and structured-logging rules forbid. Separately, the plan says `sha256(id)` without naming which id; hashing the internal provider-session id instead of the raw external-session id would break the documented SQL join.",
-      "options": [
-        "Require a structured fallback log and name the id (Recommended)",
-        "Fallback log only; leave the id to the implementer",
-        "Record as a deferral instead"
-      ],
-      "chosen": "Require a structured fallback log and name the id (Recommended)"
-    },
-    {
-      "question": "The plan adds the physical column `context_high_water_mark`, but constitution/pnp-database-standards.md:46 requires camelCase physical columns. Every existing column in this repo is snake_case, so the repo convention looks like a deliberate long-standing deviation \u2014 but neither the plan nor any decision records it, so the grill counts it as an undocumented constitution violation.",
-      "options": [
-        "Record the deviation in a decision (Recommended)",
-        "Note it in the plan only",
-        "Follow the constitution: camelCase"
-      ],
-      "chosen": "Record the deviation in a decision (Recommended)"
-    },
-    {
-      "question": "Closing round for the cache-bug plan grill. Your four decisions are applied: sequential T1->T2->T3; T3 publishes the /new retirement event while T2 takes the resolved-route plumbing; a structured fallback log plus a publication-failure test with the hash named as the RAW EXTERNAL session id; and decision 0160 written and accepted for snake_case columns. The other seven I resolved from the repo: T1's caller list cut to three with compaction-delta explicitly out of scope (0159 \u00a74); T1's write scope corrected to the files that actually shipped, with the compaction call site marked NOT in scope; the partial-usage contract rewritten to what shipped (DeepAgentPartialUsage thrown directly, abort identity preserved, both inline lanes, QueryFailure for Claude); the resolved route marked as NOT delivered by T1; the API surface reclassified Changed with a PUT/GET round trip added to the Verify Plan; and the three parked items recorded as D-0086, D-0087 and D-0088 with triggers. Any remaining gap before I record the pass and save the plan for your approval?",
-      "options": [
-        "No remaining gap, record and save (Recommended)",
-        "Show me the seven before recording",
-        "Yes, there is a gap"
-      ],
-      "chosen": "No remaining gap, record and save (Recommended)",
+      "chosen": "No remaining gap, record the pass (Recommended)",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "1b903fb82d9e10d7400a1bc0278659f52f5e5c5b3e06de4cf3b23fb41d4615b4",
-  "recorded_at": "2026-09-11T10:05:13+00:00",
-  "commit": "3f2abb2e796298a8ed86a95d17067265e78b8bb9"
+  "input_sha256": "b669160f2bb844d7e3d373a6d8653582e4fe947bb0c8f004f546228c7e1b9dc9",
+  "recorded_at": "2026-09-11T11:10:23+00:00",
+  "commit": "4b2edf3e025adc856f13c89778efa3978c627e6c"
 }

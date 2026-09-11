@@ -92,13 +92,22 @@ final cold read amended once per the one-read rule):
    context; accepted for a retirement trigger. Billing fields and
    `totalBillableInputTokens` are unchanged.
 
-   The value written to the column SATURATES at 900,001 — one above the
-   largest permitted cap. The column is a Postgres `integer`, so an
-   unclamped cumulative measurement above 2,147,483,647 would fail at SQL and
-   leave the session unmarked and therefore resumable, defeating the very
-   retirement it should trigger. Any value at or above the saturation point
-   already retires, and the exact figure remains in `model.usage`, so nothing
-   the ceiling needs is lost.
+   The value written to the column is CLAMPED at 2,147,483,647, the maximum a
+   Postgres `integer` holds. Without the clamp a cumulative measurement above
+   that fails at SQL and leaves the session unmarked and therefore resumable,
+   defeating the very retirement it should trigger.
+
+   The clamp is deliberately tied to the COLUMN's limit, not to the cap
+   setting's maximum. An earlier draft clamped at 900,001 — one above the
+   largest configurable cap — which coupled two unrelated numbers: the cap
+   range (20,000–900,000) is a policy choice, while a model's context window
+   is a different quantity entirely (≈1M on the deployed model, per Why
+   above). A session can legitimately measure above 900,001, and if the cap
+   range were ever widened past 900,000 a clipped mark would stop exceeding
+   the cap — silently ending retirement for exactly the sessions it targets.
+   Clamping at the column limit removes that coupling and keeps every
+   physically meaningful magnitude; the exact figure also remains in
+   `model.usage`.
 2. **Typed per-session high-water mark, atomic and fenced.** A new nullable
    integer column `provider_sessions.context_high_water_mark` (decision 0017:
    resume-governing state is a typed column, never `metadata_json`). A new

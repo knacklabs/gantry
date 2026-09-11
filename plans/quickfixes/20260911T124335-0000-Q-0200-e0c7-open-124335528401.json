@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0200-e0c7",
+  "profile": "degraded",
+  "reason": "Ravi corrected the saturation value: clamp at the Postgres integer max 2,147,483,647, not 900,001. The 900,001 figure was one above the cap setting's maximum (20,000-900,000), which is unrelated to a model's context window (~1M on the deployed model per spec:34). That coupling was invisible and dangerous: widening the cap range above 900,000 would leave a clipped mark failing to exceed the cap, silently stopping retirement for exactly the sessions it targets. The integer max solves the only real problem, the SQL overflow, with no coupling and no loss of realistic precision. Spec and plan.",
+  "started_at": "2026-09-11T12:43:35+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
