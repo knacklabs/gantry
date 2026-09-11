@@ -2,7 +2,7 @@
 issue: cache-bug
 title: Bound provider-session context growth across runner restarts
 status: approved
-saved: 2026-09-11T11:32:18+00:00
+saved: 2026-09-11T12:45:21+00:00
 story: cache-bug
 decisions_reviewed:
   - 0000-credential-broker-boundary

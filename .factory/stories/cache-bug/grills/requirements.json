@@ -24,7 +24,7 @@
     "Ravi: the payload is DISCRIMINATED on reason \u2014 providerSessionHash and executionProviderId always, contextHighWaterMark and cap only for reason=ceiling, since they are causal evidence that does not exist for the other reasons.",
     "Ravi: agentSessionId is carried on each retired reference out of the same committed read, and /new publishes one event per retired row using it; decision 0159 \u00a73 amended accordingly with the reason recorded in place.",
     "Ravi: cleanup drains after the COMPLETE primary-plus-fallback delivery attempt settles, success or failure, never blocking or throwing through delivery, with finally around both /new acknowledgements so a rejected send cannot skip it.",
-    "Ravi: the stored mark SATURATES at 900,001, one above the largest permitted cap. Anything at or above that already retires, the exact figure stays in model.usage, and the overflow path disappears without a second migration.",
+    "Ravi: the stored mark is CLAMPED at 2,147,483,647, the Postgres integer maximum. An earlier answer used 900,001 (one above the largest configurable cap), which coupled a policy range to a storage limit \u2014 a real mark can exceed it on a ~1M-context model, and widening the cap range past 900,000 would leave a clipped mark failing to exceed the cap, silently ending retirement. The column limit removes the coupling and keeps every meaningful magnitude; model.usage still holds the exact figure.",
     "The spec now defers to 0158 \u00a72: contextUsage.totalTokens is the observed value when reported, with modelVisibleInputTokens as the documented fallback.",
     "runtime-components.md now states that a cold start resumes the stored provider-session handle when present and resumable, names session-resume.md as canon for the resume contract, and explains that retirement exists because of that resume (R7)."
   ],
@@ -77,7 +77,7 @@
       "frontier_empty": true
     }
   ],
-  "input_sha256": "79e5c698f6a146be6d9cfeafb7a6dd16995dd1c963ce9b2fe1409ae6642429c3",
-  "recorded_at": "2026-09-11T11:11:16+00:00",
-  "commit": "4b2edf3e025adc856f13c89778efa3978c627e6c"
+  "input_sha256": "e77dfad492ce22029410a40e8173706b21df4bb72e7f0017a4260fd163586cac",
+  "recorded_at": "2026-09-11T12:44:48+00:00",
+  "commit": "17cbeb9992b1a4438192239a1029ba0669962260"
 }

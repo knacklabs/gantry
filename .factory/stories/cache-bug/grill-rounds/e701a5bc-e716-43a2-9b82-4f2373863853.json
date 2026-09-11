@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The clamp correction changed the plan body, so the approval you just gave no longer binds to it (approved digest b669160f, live f6e0cfef). The only substantive change since you approved is the one you decided: the clamp is now the Postgres integer maximum 2,147,483,647 rather than 900,001, with both documents recording why the cap-relative figure was wrong \u2014 it coupled a policy range to a storage limit and would have silently ended retirement if the cap range were ever widened. Nothing else in the plan moved. Re-approve so I can rebind the decomposition and start T2?",
+      "options": [
+        "Re-approve as Ravi (Recommended)",
+        "Show me the diff first",
+        "Something else needs fixing first"
+      ],
+      "chosen": "Re-approve as Ravi (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T12:45:00.656817+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}
