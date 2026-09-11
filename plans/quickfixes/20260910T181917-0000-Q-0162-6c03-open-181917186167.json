@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0162-6c03",
+  "profile": "degraded",
+  "reason": "Pin the implementation model per Ravi (2026-09-10): harness.yaml currently pins gpt-5.6-terra @ xhigh while AGENTS.md documents gpt-5.6-sol, and .codex/config.toml's sol/medium never reaches the CLI (shadowed by ~/.codex). Switching the effective pin to gpt-6-astra @ low and aligning the stale AGENTS.md line. Two client-owned config files, neither vendor-tracked.",
+  "started_at": "2026-09-10T18:19:17+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

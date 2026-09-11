@@ -226,7 +226,8 @@ that serves it.
   and timing per reason, carries `sessionId` or `runId` as stated, and is
   not dropped.
 - S10 (T1, T2, T3) scheduled-job tests untouched and green.
-- S11 (all) `verify.py` green, now including `npm run lint`.
+- S11 (all) `verify.py` green, now including the diff-scoped
+  `npm run lint:changed`.
 - S12 (T2) operator procedures and recipe in `docs/memory/`; the query is
   executed by a Postgres test against the current schema.
 - R1 (T1) null-safe generation fence: null/null succeeds, null vs non-null
@@ -282,16 +283,18 @@ DISTINCT FROM $gen` and returns `rowCount > 0`. A typed domain error
 `ProviderSessionMeasurementError` rejects non-integer or negative values
 before SQL. `providerSessionContext` returns `contextHighWaterMark`.
 
-**Retirement (0158 §3).** `expireProviderSession` becomes
-`retireProviderSession`: `UPDATE ... SET status='expired', updated_at=now()
+**Retirement (0158 §3).** A NEW `retireProviderSession` joins the existing
+`expireProviderSession`: `UPDATE ... SET status='expired', updated_at=now()
 FROM agent_sessions WHERE id AND agent_session_id AND provider AND
 external_session_id AND status='active' AND reset_at IS NOT DISTINCT FROM
 $gen RETURNING id, external_session_id, provider`, returning the retired
-reference or `undefined`. All four existing callers switch: fingerprint
-(`group-agent-runner.ts:391`), missing-session (`:503`), the compaction-delta
-degradation path (`group-agent-runner-compaction-delta.ts:104`, keeps its
-behaviour, discards the reference, uncovered per 0159), and the
-`canonical-session-ops-service.ts` facade. New ceiling preflight in
+reference or `undefined`. THREE callers switch to it: fingerprint
+(`group-agent-runner.ts:391`), missing-session (`:503`), and the
+`canonical-session-ops-service.ts` facade with its
+`canonical-ops-repo.postgres.ts` twin. The compaction-delta degradation path
+(`group-agent-runner-compaction-delta.ts:104`) does NOT switch: it operates on
+a `ready` row and keeps calling `expireProviderSession` unchanged, performing
+no release and emitting no retirement event, per decision 0159 §4. New ceiling preflight in
 `group-agent-runner.ts` after `prepareCompactionDeltaReplay` and the
 fingerprint check: if `turnContext.contextHighWaterMark > cap` and the row is
 `active`, call `retireProviderSession`; on success clear the resume ids,
@@ -349,9 +352,13 @@ projection (the run listing consumers ignore the new family cleanly). Hash:
 `createHash('sha256').update(id).digest('hex')`.
 
 **Quality gate.** Core ESLint exists (`npm run lint`) but neither `verify.py`
-(`.envrc` `FACTORY_STRUCTURAL_CMD`) nor CI runs it. T1 adds `npm run lint` to
-`FACTORY_STRUCTURAL_CMD` and to the CI workflow's check step, and fixes any
-lint debt its own diff exposes.
+(`.envrc` `FACTORY_STRUCTURAL_CMD`) nor CI runs it. T1 adds a diff-scoped
+`npm run lint:changed` — ESLint over the TypeScript files changed against the
+merge-base with origin/main — to `FACTORY_STRUCTURAL_CMD` and as the BLOCKING
+CI check step, while full `npm run lint` runs as an advisory
+continue-on-error CI step. Gating on full lint would fail every branch on the
+82 pre-existing errors, so the diff-scoped gate is what blocks and the debt
+is a recorded deferral.
 
 **Docs.** `docs/memory/provider-session-ceiling-operations.md` carries the
 pre-deploy reset (drain, stop workers, select interactive sessions by
@@ -389,7 +396,7 @@ configured — all installed and the only fit for this repo.
 | Runtime behaviour | Changed | over-cap sessions retire on next resume; DeepAgents retired threads released after reply; both `/new` paths release |
 | API | Unchanged by design | no control-API route changes; the setting rides the existing desired-state CRUD and revision document for `limits` |
 | Data/schema | Changed | `provider_sessions.context_high_water_mark` (generated migration); `resetScope` return type; `retireProviderSession` return type |
-| CLI/ops | Changed | new `limits.provider_session_max_input_tokens` key with defaults/export; reader version 16; operator procedures in docs/memory; `npm run lint` in verify and CI |
+| CLI/ops | Changed | new `limits.provider_session_max_input_tokens` key with defaults/export; reader version 16; operator procedures in docs/memory; `npm run lint:changed` blocking in verify and CI, full lint advisory |
 | UI | N-A | no console surface |
 | Docs | Changed | docs/memory procedures + executed recipe; `runtime-components.md` and `canonical-domain-model.md` aligned |
 | Tests | Changed | unit, repository, settings, event and Postgres integration tests per task; four pinned tests untouched |
@@ -407,7 +414,7 @@ configured — all installed and the only fit for this repo.
    the reference with all four callers switched (fingerprint, missing-session,
    compaction-delta, ops-service facade); `resetScope` returning references
    through `canonical-session-ops-service.ts` and `clearSessionForChatJid`;
-   turn-context projection; `npm run lint` in `.envrc` and CI. Serves S1, S2,
+   turn-context projection; `npm run lint:changed` in `.envrc` and CI. Serves S1, S2,
    S3, S10, S11, R1, R2, R3, R4 (return type). Write scope:
    `apps/core/src/shared/model-usage.ts`,
    `apps/core/src/shared/model-provider-registry*.ts`,
@@ -472,9 +479,9 @@ no task exists for later.
   alert until upgraded; documented in the operator procedure.
 - Orphaned DeepAgents rows on process loss between commit and release, and
   from the uncovered paths: accepted (0159); operator scan documented.
-- Lint debt exposed by adding `npm run lint` to verify: T1 fixes what its
-  diff touches; pre-existing debt outside the diff is recorded as a deferral
-  with a trigger, not silently fixed.
+- Lint debt exposed by adding a lint gate to verify at all: T1 fixes what its
+  diff touches; the 82 pre-existing errors outside the diff are recorded as a
+  deferral with a trigger, not silently fixed, baselined or suppressed.
 - Recurring finding class `plan-contract-partial` touches repository
   contracts: tripwire — if review flags it on T1, escalate per WORKFLOW.md
   Recurring Findings rather than patching.
@@ -482,7 +489,7 @@ no task exists for later.
 ## Verify Plan
 
 - `python3 factory/scripts/verify.py` after each task (never bypassed);
-  from T1 on it includes `npm run lint`.
+  from T1 on it includes `npm run lint:changed`.
 - T1: `npm run db:migrations:check` clean; repository Postgres tests against
   `GANTRY_TEST_DATABASE_URL` (raise, retire, resetScope references, R1
   fences); unit tests for derivation, registry validation, normaliser route,
