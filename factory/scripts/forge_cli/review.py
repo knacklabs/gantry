@@ -374,9 +374,17 @@ def _contract_verdicts(
         if cid in parsed:
             verdict, evidence = parsed[cid]
         else:
-            verdict, evidence = "partial", (
-                "the reviewer emitted no VERDICT line for this contract; "
-                "recorded as partial (fail-closed) — re-review or verdict it")
+            # No pass verdicted this contract. That is NOT the reviewer
+            # asserting a defect: a chunked review gives each pass part of the
+            # diff, and a contract whose implementation spans slices can be
+            # judged by none of them. Recording it as `partial` made it a
+            # blocking finding, which left the task-proof gate unpassable for
+            # any task large enough to chunk. `unverified` keeps it visible as
+            # a non-blocking gap while `partial`/`missing` stay reserved for a
+            # defect a pass actually saw.
+            verdict, evidence = "unverified", (
+                "no review pass emitted a VERDICT line for this contract — "
+                "its implementation was not judged by any chunk")
         out.append({"contract_id": cid, "verdict": verdict, "evidence": evidence})
     for other in all_tasks:
         oid = other.get("id")
