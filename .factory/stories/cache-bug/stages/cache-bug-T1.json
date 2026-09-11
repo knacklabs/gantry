@@ -1,7 +1,7 @@
 {
   "id": "cache-bug-T1",
   "title": "Measurement, storage, and the quality gate",
-  "status": "active",
+  "status": "done",
   "started_at": "2026-09-09T11:11:15+00:00",
   "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
   "dirty_at_start": {
@@ -31,26 +31,11 @@
     }
   },
   "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
-  "measured": {
-    "strays": [],
-    "files": 46,
-    "lines": 22376,
-    "budget": {
-      "files": 60,
-      "lines": 22500
-    },
-    "test_id_misses": [
-      "'fingerprint change and missing-session retry retire through retireProviderSession' was not present in the fresh JUnit report (exact id or id-prefix)"
-    ]
-  },
-  "host_window": "Q-0177-620b",
   "contract_changed": {
     "at": "2026-09-10T12:17:55+00:00",
     "from": "b233f1d95888be75b1ddca4db29489532b6294e89ef2f88a94c3089ffc34e995",
     "to": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2"
   },
-  "review_fix_reopened_at": "2026-09-10T16:59:37+00:00",
-  "review_fix_count": 2,
   "local_review_stamp": {
     "stage_id": "cache-bug-T1",
     "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
@@ -64,5 +49,6 @@
       "performance",
       "security"
     ]
-  }
+  },
+  "completed_at": "2026-09-11T13:23:49+00:00"
 }
