@@ -2,7 +2,7 @@
 issue: cache-bug
 title: Bound provider-session context growth across runner restarts
 status: approved
-saved: 2026-09-09T10:46:21+00:00
+saved: 2026-09-11T12:45:21+00:00
 story: cache-bug
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -140,6 +140,7 @@ decisions_reviewed:
   - 0157-jobs-use-the-chat-permission-ladder
   - 0158-provider-session-context-ceiling
   - 0159-adapter-session-release-port
+  - 0160-physical-column-naming-is-snake-case
 ---
 
 # cache-bug — Retire oversized provider sessions across runner restarts
@@ -222,9 +223,13 @@ that serves it.
   a simulated failure leaves the session expired, the reply delivered and
   `session.provider.cleanup_failed` recorded, and a lost transition performs
   no cleanup.
-- S9 (T2) `session.provider.retired` is emitted with the specified payload
-  and timing per reason, carries `sessionId` or `runId` as stated, and is
-  not dropped.
+- S9 (T2 for the event types and the ceiling, fingerprint and
+  missing-session publications; T3 for the `/new` publication, which needs
+  both `/new` handlers) `session.provider.retired` is emitted with the
+  specified discriminated payload and timing per reason, carries `sessionId`
+  or `runId` as stated, and is not dropped. Split deliberately: a single
+  owner could not finish it, because the event types and the handlers sit in
+  different tasks.
 - S10 (T1, T2, T3) scheduled-job tests untouched and green.
 - S11 (all) `verify.py` green, now including the diff-scoped
   `npm run lint:changed`.
@@ -258,19 +263,31 @@ driven by two new required booleans on every `cacheSupport.prompt` registry
 entry (`model-provider-registry.ts`, `model-provider-registry-openai-compatible.ts`):
 Anthropic false/false, OpenAI and OpenRouter true/true, no-cache routes
 true/true; the registry validator refuses an executable route missing either.
-The DeepAgents normaliser (`runner/stream-normalizer.ts`) does not receive the
-resolved route today: `deep-agent-runner.ts` passes the route it resolves for
-the model factory into `normalizeDeepAgentStream`, and the normalised usage
-carries `provider`/`modelRoute`. Partial usage on error: the normaliser keeps
-its `UsageAccumulator` on a typed carrier (`DeepAgentTurnFailure` with
-`partialUsage`) that it attaches to the thrown error; `deep-agent-runner.ts`
-propagates it and `runner/index.ts` writes it as `usage` on the error frame
-with the turn's `usageEventId`. Claude: the `result` error branch in
+The DeepAgents normaliser (`runner/stream-normalizer.ts`) carries
+`provider`/`modelRoute` on the normalised usage. T1 sets BOTH from
+`input.provider`, so cache policy resolves at provider granularity through the
+documented `usage.modelRoute ?? usage.provider` fallback; passing the genuinely
+resolved registry route needs the host-to-runner input contract widened and is
+**T2's** work (deferral D-0083), not T1's.
+
+Partial usage on error: `DeepAgentPartialUsage` (in
+`runner/stream-normalizer-partial-usage.ts`) IS the thrown value — there is no
+separate wrapper type — carrying the accumulated usage, the context-usage
+snapshot and the turn's `usageEventId`; `deep-agent-runner.ts` propagates it
+and `runner/index.ts` writes it as `usage` on the single error frame. A
+close-driven abort is the exception: it keeps its own identity and the partial
+usage rides on it as a non-enumerable property, so a graceful stop never
+becomes an error frame. Tool-permission denials and denial-driven aborts carry
+usage the same way. Both inline lanes (`deepagents-langchain/inline-lane` and
+`anthropic-claude-agent/inline-lane`) emit one terminal error output carrying
+the accumulated usage. Claude: the `result` error branch in
 `query-loop-phases-messages.ts` normalises the message's usage before
 throwing and the runner's error frame carries it.
 
 **Storage (0158 §1, 0017).** Drizzle schema adds
-`contextHighWaterMark: integer('context_high_water_mark')` (nullable) to
+`contextHighWaterMark: integer('context_high_water_mark')` (nullable — the
+physical name is snake_case per decision 0160, which records this repository's
+deliberate deviation from the camelCase standard) to
 `providerSessionsPostgres`; migration generated with
 `npm run db:migrations:generate -- --name provider_session_context_high_water_mark`
 (never hand-written; `db:migrations:check` stays clean). Repository helper
@@ -348,8 +365,21 @@ with typed payloads in `domain/events/events.ts`; owner: the runtime
 principal used by existing runner events), `sessionId`, and `runId` when
 applicable; publication is best-effort and never suppresses the reply.
 Tests cover publish, query (`runtime_events` filter by type and session) and
-projection (the run listing consumers ignore the new family cleanly). Hash:
-`createHash('sha256').update(id).digest('hex')`.
+projection (the run listing consumers ignore the new family cleanly).
+
+Hash: `createHash('sha256').update(externalSessionId).digest('hex')` — the RAW
+EXTERNAL session id, never the internal `provider_sessions.id`. The documented
+operator SQL joins on the hash of the external id, so hashing the internal id
+would produce a value that silently matches nothing.
+
+Publication is best-effort and never suppresses the reply, but it must never
+be the only record: when publishing `session.provider.cleanup_failed` itself
+fails, the coordinator emits a structured error log carrying the same hashed
+external session id and the sanitised cause, so a checkpoint orphaned by a
+double failure still leaves evidence for the operator scan. Swallowing both
+would violate the no-swallowed-errors and structured-logging rules
+(`constitution/07-exception-handling.md`, `05-logging-and-observability.md`).
+A test drives the publication failure and asserts the log.
 
 **Quality gate.** Core ESLint exists (`npm run lint`) but neither `verify.py`
 (`.envrc` `FACTORY_STRUCTURAL_CMD`) nor CI runs it. T1 adds a diff-scoped
@@ -366,7 +396,10 @@ pre-deploy reset (drain, stop workers, select interactive sessions by
 delete their rows from the three checkpoint tables — never
 `checkpoint_migrations` — delete the provider-session rows, verify zero,
 deploy; stop condition stated), the orphan scan, and the observability SQL;
-a Postgres test executes the recipe. `runtime-components.md` and
+a Postgres test executes THE SQL EXTRACTED FROM THE DOCUMENT (or from a
+shared SQL artifact the document includes), never a copy pasted into the
+test — a duplicated query stays green while the operator-facing recipe
+drifts, which is the failure this proof exists to catch. `runtime-components.md` and
 `canonical-domain-model.md` are aligned with `session-resume.md`: a run with
 no provider handle is memory-only; a live run with a trusted stored handle
 may resume it and may be retired by 0158.
@@ -383,6 +416,10 @@ recorded in 0158 and 0159.
 - `docs/decisions/0159-adapter-session-release-port.md` (accepted) —
   provider-neutral release port, `/new` returning references, covered and
   uncovered paths including the compaction-delta degradation path.
+- `docs/decisions/0160-physical-column-naming-is-snake-case.md` (accepted) —
+  physical columns are snake_case, deviating deliberately from the camelCase
+  standard; recorded so `context_high_water_mark` is a documented choice
+  rather than an unexplained divergence.
 
 Tooling: no new packages. Drizzle migrations via `db:migrations:generate`,
 Vitest for unit and Postgres integration tests, the existing
@@ -394,13 +431,13 @@ configured — all installed and the only fit for this repo.
 | Surface | Class | Note |
 | --- | --- | --- |
 | Runtime behaviour | Changed | over-cap sessions retire on next resume; DeepAgents retired threads released after reply; both `/new` paths release |
-| API | Unchanged by design | no control-API route changes; the setting rides the existing desired-state CRUD and revision document for `limits` |
+| API | Changed | no new route, but `limits.provider_session_max_input_tokens` changes the typed JSON that `/v1/settings/desired-state` ACCEPTS and RETURNS, so the public payload shape moves; it rides the existing desired-state CRUD and the `limits` revision document |
 | Data/schema | Changed | `provider_sessions.context_high_water_mark` (generated migration); `resetScope` return type; `retireProviderSession` return type |
 | CLI/ops | Changed | new `limits.provider_session_max_input_tokens` key with defaults/export; reader version 16; operator procedures in docs/memory; `npm run lint:changed` blocking in verify and CI, full lint advisory |
 | UI | N-A | no console surface |
 | Docs | Changed | docs/memory procedures + executed recipe; `runtime-components.md` and `canonical-domain-model.md` aligned |
 | Tests | Changed | unit, repository, settings, event and Postgres integration tests per task; four pinned tests untouched |
-| Deferred | Deferred | per-request measurement seam and model-capacity cap (trigger: per-run figure too coarse); delta snapshot on resume (trigger: turns still too expensive); DeepAgents largest-not-summed billing (trigger: cost reports disputed) — all to `./forge defer add` at story close |
+| Deferred | Recorded | D-0086 per-request measurement seam and model-capacity cap; D-0087 delta snapshot on resume; D-0088 DeepAgents largest-not-summed billing. Each carries its own trigger in `plans/deferrals.md` — recorded now rather than at story close, so nothing depends on a future closeout action |
 
 ## Task Decomposition
 
@@ -411,8 +448,11 @@ configured — all installed and the only fit for this repo.
    `stream-normalizer → deep-agent-runner → index`; Claude error-branch usage;
    schema column + generated migration; `raiseProviderSessionContextHighWaterMark`
    with `ProviderSessionMeasurementError`; `retireProviderSession` returning
-   the reference with all four callers switched (fingerprint, missing-session,
-   compaction-delta, ops-service facade); `resetScope` returning references
+   the reference with THREE callers switched (fingerprint, missing-session,
+   ops-service facade and its `canonical-ops-repo.postgres.ts` twin) while the
+   compaction-delta path keeps `expireProviderSession` unchanged (0159 §4 — it
+   operates on a `ready` row, which the new helper's `active` predicate would
+   not match); `resetScope` returning references
    through `canonical-session-ops-service.ts` and `clearSessionForChatJid`;
    turn-context projection; `npm run lint:changed` in `.envrc` and CI. Serves S1, S2,
    S3, S10, S11, R1, R2, R3, R4 (return type). Write scope:
@@ -423,50 +463,191 @@ configured — all installed and the only fit for this repo.
    `apps/core/src/adapters/storage/postgres/schema/sessions.ts` + `migrations/`,
    `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository*.ts`,
    `apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts`,
-   `apps/core/src/runtime/group-agent-runner-compaction-delta.ts` (call site
-   only), `apps/core/src/domain/repositories/ops-repo.ts`, `.envrc`,
-   `.github/workflows/ci.yml`, tests.
+   `apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts`,
+   `apps/core/src/runtime/group-agent-runner.ts` (the fingerprint and
+   missing-session callers), `apps/core/src/app/bootstrap/runtime-app.ts` and
+   `runtime-services-active-new.ts` (retired-reference propagation through
+   `clearSessionForChatJid`), `apps/core/src/domain/sessions/provider-session-measurement.ts`,
+   `apps/core/src/adapters/llm/deepagents-langchain/runner/{stream-normalizer-partial-usage,stream-normalizer-usage}.ts`,
+   `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/` and
+   `apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/`,
+   `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-failure.exception.ts`,
+   `apps/core/src/domain/repositories/ops-repo.ts`, `package.json` (the
+   `lint:changed` script), `.envrc`, `.github/workflows/ci.yml`, tests.
+   NOT in scope: `group-agent-runner-compaction-delta.ts` — that call site is
+   deliberately unchanged.
    reviewer_focus: types, constants, domain error, data-access, mapping in
    their own files; one SQL statement per operation; no JSONB for the mark;
-   null-safe fences; validation before SQL; the partial-usage carrier is a
-   typed value, not an `Error` subclass with ad-hoc fields.
-2. `cache-bug-T2` — Host policy, setting, events, docs. `user_facing: false`.
+   null-safe fences; validation before SQL; the DeepAgents partial-usage
+   carrier is a typed value (`DeepAgentPartialUsage`) thrown directly, while
+   Claude's is a typed `Error` subclass (`QueryFailure` in
+   `runner/query-failure.exception.ts`) — both carry usage as declared fields,
+   neither bolts ad-hoc properties onto a bare `Error`.
+2. `cache-bug-T2` — Ceiling policy, the cap setting, and event types.
+   `user_facing: false`. Depends on T1. Serves S4, S5, S6, S7, S10, S12,
+   R6, and the event-type half of S9.
+
    Limits parser, types, defaults, revision document, export and YAML
-   renderer + reader version 16; ceiling preflight and post-run raise in
-   `group-agent-runner.ts` with the fenced non-hydrating re-read; event types
-   and typed payloads; direct best-effort publication with app, actor,
-   session and run context; publish, query and projection tests;
-   `docs/memory` procedures and executed recipe; architecture alignment.
-   Serves S4, S5, S6, S7, S9, S10, S12, R5 (events), R6, R7. Depends on T1.
-   Write scope: `apps/core/src/config/settings/{runtime-settings-limits-parser,runtime-settings-types,runtime-settings-defaults,settings-revision-document,settings-fleet-import,desired-state-current-export}.ts`
+   renderer with reader version 16. Ceiling preflight and post-run raise in
+   `group-agent-runner.ts`: the preflight sits AFTER
+   `prepareCompactionDeltaReplay` and the fingerprint check so a `ready` row
+   is promoted first, and evaluates the mark on the selected row only.
+
+   THE OVERFLOW CLAMP (verified gap, and T2 owns it because it owns the
+   measurement path): `provider_sessions.context_high_water_mark` is a
+   Postgres `integer` (`schema/sessions.ts:89` and the merged migration),
+   while `assertProviderSessionContextHighWaterMark`
+   (`domain/sessions/provider-session-measurement.ts:16`) validates only
+   "non-negative integer". An observation above 2,147,483,647 therefore
+   reaches SQL and fails, leaving an over-cap session unmarked and resumable
+   — the exact outcome the ceiling exists to prevent. T2 clamps the stored
+   value at 2,147,483,647, the COLUMN's limit, with a unit test at the clamp
+   boundary. T1 is sealed and cannot carry this.
+
+   The clamp must NOT be tied to the cap setting's maximum. An earlier draft
+   used 900,001, one above the largest configurable cap (20,000–900,000),
+   which silently coupled a policy range to a storage limit: a real mark can
+   exceed 900,001 on a ≈1M-context model, and widening the cap range past
+   900,000 would leave a clipped mark failing to exceed the cap — ending
+   retirement for exactly the sessions it targets, undetectably. The
+   reviewer checks that the clamp constant derives from the column type, not
+   from the limits parser's bounds.
+
+   R6: on a LOST ceiling transition, re-read the turn context with
+   `hydrateMemory: false` and reuse the carried memory block ONLY when the
+   generation still matches; on a mismatch, discard the carried block and
+   rehydrate, because decision 0078's exactly-once guarantee is per turn and
+   a mismatch means a concurrent reset. Regression coverage for BOTH
+   branches — reusing on match and rehydrating on mismatch — since an
+   implementation that only handles the match branch would leak a stale
+   session's memory.
+
+   Event TYPES and non-`/new` publication: register both types with typed
+   payloads, discriminated on `reason` so `contextHighWaterMark` and `cap`
+   exist only for `reason = ceiling`. Making that discrimination
+   compile-time safe requires changing the publish contract:
+   `RuntimeEventPublishInput` carries `payload: unknown`
+   (`domain/events/events.ts:76`), so standalone interfaces in `events.ts`
+   bind nothing. Either narrow the publish input for these families or
+   publish through a typed helper that does; the reviewer checks that a wrong
+   payload for a `reason` fails to compile. No event family in this
+   repository carries a `version` field today, so these follow the existing
+   convention; if canon requires versioning, that deviation gets its own
+   decision rather than a one-off versioned family here.
+
+   T2 publishes ceiling, fingerprint and missing-session events. It does NOT
+   publish the `/new` event — T3 owns both `/new` handlers.
+
+   `docs/memory` procedures and the executed observability recipe, plus the
+   architecture alignment already applied to `runtime-components.md` extended
+   to `canonical-domain-model.md` (R7).
+
+   Write scope:
+   `apps/core/src/config/settings/{runtime-settings-limits-parser,runtime-settings-types,runtime-settings-defaults,settings-revision-document,settings-fleet-import,desired-state-current-export}.ts`
    and the YAML renderer, `apps/core/src/runtime/group-agent-runner.ts`,
-   `apps/core/src/domain/events/{runtime-event-types,events}.ts`,
+   `apps/core/src/domain/sessions/provider-session-measurement.ts` (the
+   clamp), `apps/core/src/domain/events/{runtime-event-types,events}.ts`,
    `docs/memory/provider-session-ceiling-operations.md`,
-   `docs/architecture/{runtime-components,canonical-domain-model}.md`, tests.
-   reviewer_focus: policy in a thin coordinator; cap read once per turn;
-   events typed, hashed, best-effort; no second hydration; the release queue
-   is a typed list drained once at the end of the turn, with `TODO(T3)` on
-   the drain call.
-3. `cache-bug-T3` — Adapter release port and coordinator. `user_facing:
-   false`. `releaseSession` on the adapter contract; DeepAgents
-   implementation via `deleteThread`; `provider-session-release.ts`
-   coordinator with adapter-registry resolution, post-reply timing, error
-   sanitiser and `cleanup_failed` publication; wiring from ceiling,
-   fingerprint and missing-session queues and from both `/new` handlers;
-   Postgres integration tests including post-reply timing. Serves S8, S10,
-   R4 (wiring), R5 (sanitiser). Depends on T2. Write scope:
+   `docs/architecture/canonical-domain-model.md`, tests.
+   NOT in scope: the resolved model route. It is already correct — the host
+   projects `effectiveModelEntry.modelRoute.id` into
+   `GANTRY_DEEPAGENTS_MODEL_PROVIDER` (`execution-adapter.ts:134`), the
+   runner reads it (`runner/index.ts:58`) and passes it as `input.provider`
+   (`:143`), so `usage.modelRoute` already carries the resolved route.
+   Deferral D-0083 asserted otherwise and is withdrawn; see lesson 157.
+   reviewer_focus: policy in a thin coordinator; cap read once per turn; the
+   clamp is at the domain boundary, not in SQL; both R6 branches proven;
+   event payload discrimination that actually fails to compile when wrong.
+
+3. `cache-bug-T3` — Release port, cleanup coordinator, and the `/new` paths.
+   `user_facing: false`. Depends on T2. Serves S8, S10, R4, R5, and the
+   `/new` half of S9.
+
+   `releaseSession` on the adapter contract; the DeepAgents implementation
+   via `deleteThread`; `provider-session-release.ts` coordinator with
+   adapter-registry resolution, the error sanitiser, and `cleanup_failed`
+   publication. When that publication ITSELF fails, emit a structured error
+   log carrying the hashed external session id and the sanitised cause, so a
+   double failure still leaves evidence for the operator scan.
+
+   THE RETIRED REFERENCE GAINS `agentSessionId` (verified gap):
+   `RetiredProviderSessionReference`
+   (`domain/sessions/provider-session-measurement.ts:10`) has three fields,
+   and both producers project exactly those three — `retireProviderSession`'s
+   `.returning({...})` at `canonical-session-repository-context-mark.postgres.ts:114`
+   and `resetProviderSessionScope`'s `.select({...})` at `:180`. The reset
+   already filters on `agentSessionId` at `:186`, so the query change is
+   trivial; the cost is propagating the widened type through the ops port and
+   both facades. Decision 0159 §3 requires it so `/new` can publish one event
+   per retired row from the same committed read instead of a boundary lookup
+   that can fail while the reset succeeds.
+
+   THE DRAIN BOUNDARY IS IN `group-processing.ts`, NOT THE RUNNER (verified):
+   `runAgent` is awaited at `runtime/group-processing.ts:669` and
+   `finalizeGroupAgentUserVisibleOutput` runs at `:778`, after it. A drain at
+   the end of `runAgent` would therefore precede or delay the fallback reply.
+   Cleanup runs after the COMPLETE primary-plus-fallback attempt settles,
+   success or failure, never blocking and never throwing through delivery.
+
+   THE IDLE `/new` PATH NEEDS A CONTRACT CHANGE (verified):
+   `clearCurrentSession` is declared `() => Promise<void> | void`
+   (`session/session-commands.ts:176`) and called at `:316`; its only
+   supplier is `group-processing-session-command-handlers.ts:174`, which
+   delegates to `deps.clearSession` and discards the result. Nothing can
+   carry retired references out of the idle path until that return type
+   widens, so T3 owns the contract, the handler and the supplier — this is a
+   command-surface change, not wiring.
+
+   Write scope:
    `apps/core/src/application/agent-execution/agent-execution-adapter.ts`,
    `apps/core/src/adapters/llm/deepagents-langchain/{execution-adapter,checkpoint-setup}.ts`,
    `apps/core/src/runtime/provider-session-release.ts` (new),
-   `apps/core/src/runtime/group-agent-runner.ts` (drain call only),
+   `apps/core/src/runtime/group-processing.ts` (the drain boundary),
+   `apps/core/src/runtime/group-processing-session-command-handlers.ts`,
+   `apps/core/src/runtime/group-processing-types.ts`,
    `apps/core/src/session/session-commands.ts`,
-   `apps/core/src/app/bootstrap/runtime-services-active-new.ts`, tests.
-   reviewer_focus: adapter owns storage knowledge; host never names a
-   checkpoint table; idempotent; error sanitised before publish; never runs
-   before the reply; no retry loop.
+   `apps/core/src/domain/sessions/provider-session-measurement.ts` (the
+   fourth field), the repository, ops port and facades that propagate it,
+   `apps/core/src/app/bootstrap/{runtime-app,runtime-services-active-new}.ts`,
+   tests.
+   reviewer_focus: the adapter owns storage knowledge and the host never
+   names a checkpoint table; idempotent release; the error sanitised before
+   publish and before logging; cleanup never precedes the settled delivery
+   attempt; `finally` around both `/new` acknowledgements so a rejected send
+   cannot skip it; no retry loop.
 
-Tasks are sequential in one story worktree. Each traces to criteria above;
-no task exists for later.
+4. `cache-bug-T4` — The desired-state settings contract. `user_facing:
+   false`. Depends on T2 (the key must exist before its contract is typed).
+   Serves the API half of S4.
+
+   The new key changes the public payload of `/v1/settings/desired-state`,
+   and that surface is currently untyped: the route accepts
+   `settings?: unknown` and returns record-shaped JSON, and the OpenAPI
+   registry documents `/v1/settings` but not `/v1/settings/desired-state`.
+   T4 gives the endpoint a typed request and response DTO and registers it in
+   the OpenAPI registry, satisfying `constitution/pnp-api-standards.md` and
+   the swagger documentation standard. The PUT/GET round trip in the Verify
+   Plan proves the field survives the surface; the DTO and registry entry are
+   what make the contract checkable rather than incidental.
+
+   Separated from T2 deliberately: this is a public HTTP contract with its
+   own canon requirements, and folding it into the ceiling task is the
+   over-stuffing that two plan grills have already flagged.
+
+   Write scope: `apps/core/src/control/server/routes/settings.ts`, the
+   OpenAPI registry, the contracts package DTO, tests.
+   reviewer_focus: typed request AND response, no `unknown` at the boundary;
+   the registry entry matches the implementation; no behaviour change to the
+   settings pipeline T2 built.
+
+Tasks run SEQUENTIALLY — T1 -> T2 -> T3 -> T4 — and each runs in its OWN task
+branch and sibling worktree cut by `./forge task start <id>`, merging before
+the next begins (WORKFLOW.md, AGENTS.md: per-task PRs are the standard). An
+earlier draft said "sequential in one story worktree", which contradicted that
+lifecycle and would have bypassed the per-task PR boundary. The order is a
+dependency chain, not a preference: T3 needs the event types and cleanup drain
+T2 introduces, and T4 types a settings contract whose key T2 adds. Each task
+traces to criteria above; no task exists for later.
 
 ## Risks
 
@@ -490,6 +671,11 @@ no task exists for later.
 
 - `python3 factory/scripts/verify.py` after each task (never bypassed);
   from T1 on it includes `npm run lint:changed`.
+- T2: a control-API round trip over `/v1/settings/desired-state` — PUT a
+  document carrying `limits.provider_session_max_input_tokens`, GET it back,
+  and assert the value survives the public surface. The parser and exporter
+  tests cover the internals; only this proves the field is actually reachable
+  through the API whose payload shape it changes.
 - T1: `npm run db:migrations:check` clean; repository Postgres tests against
   `GANTRY_TEST_DATABASE_URL` (raise, retire, resetScope references, R1
   fences); unit tests for derivation, registry validation, normaliser route,

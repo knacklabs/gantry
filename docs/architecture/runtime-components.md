@@ -159,8 +159,16 @@ The runner emits structured stdout markers back to the host. The group processor
 provider-specific resume metadata such as Claude session ids and optional JSONL
 artifact references. Provider transcript artifacts are export/debug data, not a
 runtime continuation mechanism. Active chat continuity comes from the live
-Claude SDK streaming-input query; cold starts resolve the deterministic
-canonical session key and inject durable Gantry memory only.
+Claude SDK streaming-input query. A cold start resolves the deterministic
+canonical session key, injects durable Gantry memory, AND resumes the stored
+provider-session handle when one is present and resumable — see
+`session-resume.md`, which is canon for the resume contract. This page
+previously said memory only, which contradicted that contract and the
+size-based retirement that depends on it: retirement exists precisely because
+a cold start resumes a handle whose transcript has grown without bound. A
+handle is an adapter resume optimisation, never canonical continuity; when it
+is absent, expired or retired, the turn proceeds from memory and the bounded
+briefing alone.
 
 ## Tools And Permissions
 

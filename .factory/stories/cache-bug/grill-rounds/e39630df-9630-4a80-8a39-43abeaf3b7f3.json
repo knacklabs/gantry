@@ -1,0 +1,43 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The grill says the T2 \u2225 T3 parallel graph you approved is not independently buildable: T3 needs the cleanup event type and runner drain that T2 owns, so a T3 branch cut from T1 alone cannot typecheck or falsify its ceiling/fingerprint/missing-session proofs. And in the other direction, merging T2 first switches on the default ceiling while the cleanup drain is still a no-op, orphaning DeepAgents checkpoints until T3 lands. How should the graph run?",
+      "options": [
+        "T3 depends on T2 \u2014 run sequentially (Recommended)",
+        "Keep parallel, add an integration order",
+        "Keep parallel, move the shared surface into T1's follow-up"
+      ],
+      "chosen": "T3 depends on T2 \u2014 run sequentially (Recommended)"
+    },
+    {
+      "question": "Two runtime surfaces have no task owner. (a) The spec requires `session.provider.retired` after commit for `/new`, but the plan gives all event behaviour to T2, whose scope excludes both /new handlers, while T3 owns the handlers and claims no event work \u2014 so cleanup could ship without the required event. (b) D-0083 transfers the resolved DeepAgents route to T2, but T2's plan scope does not include the runner input contract it needs. Who takes them?",
+      "options": [
+        "T3 takes the /new event, T2 takes the route (Recommended)",
+        "T2 takes both",
+        "Defer the route, assign only the event"
+      ],
+      "chosen": "T3 takes the /new event, T2 takes the route (Recommended)"
+    },
+    {
+      "question": "A constitution gap the grill flagged: the coordinator catches cleanup errors and publishes `session.provider.cleanup_failed` best-effort, but nothing specifies a structured fallback log or a publication-failure test. If both the cleanup and the event publication fail, an orphaned checkpoint leaves no evidence at all \u2014 which the no-swallowed-errors and structured-logging rules forbid. Separately, the plan says `sha256(id)` without naming which id; hashing the internal provider-session id instead of the raw external-session id would break the documented SQL join.",
+      "options": [
+        "Require a structured fallback log and name the id (Recommended)",
+        "Fallback log only; leave the id to the implementer",
+        "Record as a deferral instead"
+      ],
+      "chosen": "Require a structured fallback log and name the id (Recommended)"
+    },
+    {
+      "question": "The plan adds the physical column `context_high_water_mark`, but constitution/pnp-database-standards.md:46 requires camelCase physical columns. Every existing column in this repo is snake_case, so the repo convention looks like a deliberate long-standing deviation \u2014 but neither the plan nor any decision records it, so the grill counts it as an undocumented constitution violation.",
+      "options": [
+        "Record the deviation in a decision (Recommended)",
+        "Note it in the plan only",
+        "Follow the constitution: camelCase"
+      ],
+      "chosen": "Record the deviation in a decision (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T09:26:17.877098+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}
