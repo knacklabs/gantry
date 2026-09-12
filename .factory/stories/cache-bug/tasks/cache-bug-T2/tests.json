@@ -1,9 +1,9 @@
 {
-  "commit": "c5399a422ffa0836c6cdd84f409940e3e3bdb628",
+  "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "cache-bug-T2 deterministic gate passed at c5399a422 WITH a real Postgres attached (GANTRY_TEST_DATABASE_URL against a throwaway pgvector:pg16 on 127.0.0.1:5433) and VITEST_MAX_WORKERS=1: structural (format:check + check:architecture), typecheck, and the full test phase \u2014 unit 9,277 passed across 726 files, integration 562 passed / 6 skipped across 85 files. The database matters: without GANTRY_TEST_DATABASE_URL the DB-gated integration lanes SKIP, and earlier verify runs in this task ran only 14 integration files instead of 85. db:migrations:check is clean (no migration by contract) and check:architecture passes, which is load-bearing here \u2014 the runner stood at 773 of its 780-line budget before T2 and hit 922 with the ceiling policy inlined, so the policy is extracted into group-agent-runner-context-ceiling.ts and the runner is back at 780.",
+    "summary": "GREEN at 0fd156c1c with a real Postgres attached. python3 factory/scripts/verify.py passes all phases \u2014 structural (format:check + check:architecture), typecheck, and the full test phase: unit 9,277 passed across 726 files, integration 562 passed / 6 skipped across 85 files. apps/core/test/integration/inline-agent-runtime.integration.test.ts passes 8/8 at this commit, re-confirmed directly. No known failing test remains in this task's scope. The database is required for this to mean anything: without GANTRY_TEST_DATABASE_URL the DB-gated lanes skip and only 14 integration files run instead of 85.",
     "blocking_findings": [],
     "commands_run": [
       "Node 24, Docker 28.1.1, GANTRY_TEST_DATABASE_URL=<throwaway pgvector:pg16 on 127.0.0.1:5433>, VITEST_MAX_WORKERS=1: python3 factory/scripts/verify.py \u2014 passed at c5399a422 (structural, typecheck, tests)",
@@ -26,7 +26,7 @@
       "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
       "apps/core/test/integration/inline-agent-runtime.integration.test.ts"
     ],
-    "pass_fail_summary": "Green at c5399a422 with the database attached. Two failures were resolved on the way, and the second was a real regression this task introduced rather than a flake.\n\n(1) async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' failed once under full-suite load and passed 6/6 across three isolated runs on the identical commit \u2014 load-correlated, outside this task's write scope, same class as deferral D-0085, not touched here.\n\n(2) inline-agent-runtime.integration.test.ts 'runs mocked Claude and OpenAI-compatible inline turns...' failed DETERMINISTICALLY on T2's code and passed at the stage baseline. The test mocks @core/runtime/agent-spawn-host.js with a vi.mock FACTORY, which replaces the module wholesale; T2 added getConfiguredProviderSessionMaxInputTokens there (the accessor seam the approved plan prescribes) and the factory did not export it, so the call threw a TypeError inside the awaited preflight and the run never left status 'running'. Fixed by completing the mock \u2014 no assertion or timeout was altered. It was invisible to every earlier verify because that lane skips without GANTRY_TEST_DATABASE_URL.",
+    "pass_fail_summary": "CURRENT STATE: green. verify.py passes at 0fd156c1c with Postgres attached and VITEST_MAX_WORKERS=1; inline-agent-runtime.integration.test.ts passes 8/8, re-confirmed at HEAD after the fix.\n\nRESOLVED \u2014 a regression this task introduced and then fixed. T2 added getConfiguredProviderSessionMaxInputTokens to agent-spawn-host.ts (the accessor seam the approved plan prescribes) and the ceiling module imports it, but inline-agent-runtime.integration.test.ts mocks that module with a vi.mock FACTORY, which replaces the module wholesale. The factory did not export the new function, so the call resolved to undefined, threw a TypeError inside the awaited preflight, and the run never left status 'running'. FIX: the factory now exports it. No assertion, timeout or production guard was altered. Verified 8/8 twice after the fix and again at HEAD.\n\nHow it was attributed, for the record and no longer the current state: the stage baseline b1e1ac0b0 passed 8/8 twice while T2 failed 1/8 twice on the same test, env and machine, and reverting only group-agent-runner.ts made it pass \u2014 which located the cause in the runner. It was invisible to every earlier verify in this task because that lane skips without GANTRY_TEST_DATABASE_URL.\n\nSEPARATELY RESOLVED, not a regression: apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' failed once under full-suite load and passed 6/6 across three isolated runs on the identical commit. Load-correlated, outside this task's write scope, same class as deferral D-0085, not touched here and passing in the green run above.",
     "remaining_gaps": [
       "apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' is timing-sensitive under full-suite load on a contended machine; outside this task's write scope and deferred, same class as D-0085.",
       "T2-AC1's wording is narrower than decision 0158 section 2 and reads as forbidding contextUsage.totalTokens, which caused autoreview to raise the same non-defect twice; rejected against 0158 and recorded as D-0092 for correction at T3's ceremony.",
@@ -39,11 +39,11 @@
     "non_blocking_findings": [],
     "residual_risks": [
       "The cap is enforced per run and as a single global token count rather than per model call or as a fraction of each model's context window \u2014 both named non-goals of the confirmed spec, recorded as deferral D-0086.",
-      "A vi.mock factory for any module T2 extended will silently omit new exports and surface as a hang rather than a clear failure. This one is fixed; lesson 165 records the pattern."
+      "A vi.mock factory for any module this task extended silently omits new exports and surfaces as a hung turn rather than a clear failure. The one instance is fixed; lesson 165 records the pattern so the next task that adds an export checks its factory mocks."
     ],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-12T19:00:55+00:00",
-    "commit": "c5399a422ffa0836c6cdd84f409940e3e3bdb628"
+    "recorded_at": "2026-09-12T19:08:28+00:00",
+    "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234"
   },
-  "updated_at": "2026-09-12T19:00:55+00:00"
+  "updated_at": "2026-09-12T19:08:28+00:00"
 }

@@ -1,11 +1,17 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 10,
-  "summary": "security lens over cache-bug-T2 (25 product path(s), b1e1ac0..9d1d42d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The retirement, event-envelope, hashing, and settings changes show no concrete authentication, credential, injection, or raw-session-ID exposure defect in the supplied diff. However, the central post-run measurement path violates its explicit contract by substituting `contextUsage` for the required model-visible usage metric and by raising without reported usage, which can defeat the new context ceiling.",
-  "blocking_findings": [],
+  "score": 7,
+  "summary": "security lens over cache-bug-T2 (26 product path(s), b1e1ac0..0fd156c, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The selected change has a verified, deterministic availability regression in the database-backed inline runtime. No credential exposure or other concrete security defect is demonstrated by the supplied diff, but the turn hang is independently sufficient to block shipment.",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/runtime",
+      "summary": "[P1] Prevent the database-backed inline turn from hanging in the new preflight path (apps/core/src/runtime/group-agent-runner.ts:403): Recorded database-backed verification shows the inline-agent runtime remains in `running` for the full 20-second timeout, while the same test passes 8/8 when `group-agent-runner.ts` is restored to the baseline and the other ceiling changes remain."
+    }
+  ],
   "non_blocking_findings": [],
-  "recommendation": "approve",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -20,6 +26,7 @@
     "apps/core/src/runtime/agent-spawn-host.ts",
     "apps/core/src/runtime/group-agent-runner-context-ceiling.ts",
     "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
     "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
     "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
     "apps/core/test/integration/settings-desired-state-limits.integration.test.ts",
@@ -34,13 +41,6 @@
     "docs/memory/provider-session-ceiling-operations.md"
   ],
   "skills_used": [],
-  "aspect": "security",
-  "review_run_id": "cf6351c4b5a8b7f251761271d281dd29ea163319dd39ecfe3d860dbf657766a4",
-  "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
-  "branch_diff_digest": "2c9112002ebb4b8fb1aba85d17900c8f057439a81d5f6c2d01def8ae86076bc3",
-  "residual_risks": [],
-  "recorded_at": "2026-09-12T16:17:09+00:00",
-  "commit": "9d1d42d6c84cdaf5c4cfc386d8f9717cbdcbf229",
   "rejected_findings": [
     {
       "finding": {
@@ -54,5 +54,12 @@
       "rejected_by": "orchestrator",
       "task_id": "cache-bug-T2"
     }
-  ]
+  ],
+  "aspect": "security",
+  "review_run_id": "f14cbf029b9b7611d705aafb85261cd3be0827f933cd0000ffcb9f814d409a99",
+  "brief_sha256": "8a7aa25eb004ef626b91019a5adca554e3989903738d5658cb91ca0e3864c741",
+  "branch_diff_digest": "ea3aa1e0c9543529c4270fe525cd705883a15a5b41aebf22a5caf1ba0fa1d61d",
+  "residual_risks": [],
+  "recorded_at": "2026-09-12T19:07:10+00:00",
+  "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234"
 }

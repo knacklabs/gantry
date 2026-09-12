@@ -1,11 +1,22 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 10,
-  "summary": "quality lens over cache-bug-T2 (25 product path(s), b1e1ac0..9d1d42d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. T2-AC1 is incomplete because the mark-raising path accepts and prioritizes `contextUsage` rather than requiring usage and using T1's model-visible token calculation. The remaining visible contracts are implemented, and no compatibility leftovers are visible.\nVERDICT T2-AC1: partial \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49 accepts contextUsage without reported usage\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:4 clamps at the PostgreSQL integer limit\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:309 performs the selected-row ceiling preflight\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 re-reads without hydration and conditionally reuses memory\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:552 covers healthy resume behavior\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap through the settings pipeline\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110 binds the discriminated provider-session event payloads\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:112 adds the optional retired-reference sink\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:1 supplies the operator procedure and extracted SQL\nVERDICT T2-AC10: implemented \u2014 apps/core/test/unit/runtime/group-processing.test.ts:3540 leaves the pinned behavior intact; recorded verification is green\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:35 exercises the public PUT/GET round trip\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274 tracks the newly persisted identifier for the first mark",
-  "blocking_findings": [],
+  "score": 7,
+  "summary": "quality lens over cache-bug-T2 (26 product path(s), b1e1ac0..0fd156c, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The feature contracts are substantially implemented, but the deterministic database-backed live-turn hang is blocking and makes the patch incorrect despite the recorded default verification pass.\nVERDICT T2-AC1: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:659\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:19\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:237\nVERDICT T2-AC5: partial \u2014 apps/core/src/runtime/group-agent-runner.ts:403; the recorded database-backed healthy inline turn does not complete\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:70\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:115\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:7\nVERDICT T2-AC10: implemented \u2014 .factory/review-briefs/cache-bug-T2.quality.md:1\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:31\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274\nLEFTOVERS: none visible in the supplied diff.",
+  "blocking_findings": [
+    {
+      "category": "regression",
+      "area": "apps/core/src/runtime",
+      "summary": "[P1] Restore completion of database-backed inline turns (apps/core/src/runtime/group-agent-runner.ts:403): The recorded PostgreSQL-backed inline runtime test deterministically remains in `running` until its 20-second timeout on this runner path."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria",
+      "summary": "T2-AC5: S6 no regression for healthy sessions: an under-cap or unmarked session resumes with its memory block and snapshot, and these four pinned tests stay green and UNTOUCHED \u2014 apps/core/test/unit/runtime/group-processing.test.ts \"passes hydrated memory context with provider session resume id\", apps/core/test/unit/runner/agent-runner-ipc.test.ts live-turn persist/resume, apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts memory+prompt user message, and apps/core/test/unit/adapters/deepagents-memory-context.test.ts."
+    }
+  ],
   "non_blocking_findings": [],
-  "recommendation": "approve",
+  "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -20,6 +31,7 @@
     "apps/core/src/runtime/agent-spawn-host.ts",
     "apps/core/src/runtime/group-agent-runner-context-ceiling.ts",
     "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
     "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
     "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
     "apps/core/test/integration/settings-desired-state-limits.integration.test.ts",
@@ -37,63 +49,63 @@
   "contract_verdicts": [
     {
       "contract_id": "T2-AC1",
-      "verdict": "partial",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49 accepts contextUsage without reported usage"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:659"
     },
     {
       "contract_id": "T2-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:4 clamps at the PostgreSQL integer limit"
+      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:19"
     },
     {
       "contract_id": "T2-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:309 performs the selected-row ceiling preflight"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355"
     },
     {
       "contract_id": "T2-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 re-reads without hydration and conditionally reuses memory"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:237"
     },
     {
       "contract_id": "T2-AC5",
-      "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:552 covers healthy resume behavior"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:403; the recorded database-backed healthy inline turn does not complete"
     },
     {
       "contract_id": "T2-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap through the settings pipeline"
+      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:70"
     },
     {
       "contract_id": "T2-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/events/events.ts:110 binds the discriminated provider-session event payloads"
+      "evidence": "apps/core/src/domain/events/events.ts:110"
     },
     {
       "contract_id": "T2-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:112 adds the optional retired-reference sink"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:115"
     },
     {
       "contract_id": "T2-AC9",
       "verdict": "implemented",
-      "evidence": "docs/memory/provider-session-ceiling-operations.md:1 supplies the operator procedure and extracted SQL"
+      "evidence": "docs/memory/provider-session-ceiling-operations.md:7"
     },
     {
       "contract_id": "T2-AC10",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:3540 leaves the pinned behavior intact; recorded verification is green"
+      "evidence": ".factory/review-briefs/cache-bug-T2.quality.md:1"
     },
     {
       "contract_id": "T2-AC11",
       "verdict": "implemented",
-      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:35 exercises the public PUT/GET round trip"
+      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:31"
     },
     {
       "contract_id": "T2-AC12",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274 tracks the newly persisted identifier for the first mark"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274"
     },
     {
       "contract_id": "T1-AC1",
@@ -146,13 +158,6 @@
       "evidence": "shipped under cache-bug-T1 at its own per-task seal (stage done); unchanged by this task's diff"
     }
   ],
-  "aspect": "quality",
-  "review_run_id": "cf6351c4b5a8b7f251761271d281dd29ea163319dd39ecfe3d860dbf657766a4",
-  "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
-  "branch_diff_digest": "2c9112002ebb4b8fb1aba85d17900c8f057439a81d5f6c2d01def8ae86076bc3",
-  "residual_risks": [],
-  "recorded_at": "2026-09-12T16:17:09+00:00",
-  "commit": "9d1d42d6c84cdaf5c4cfc386d8f9717cbdcbf229",
   "rejected_findings": [
     {
       "finding": {
@@ -178,5 +183,12 @@
       "rejected_by": "orchestrator",
       "task_id": "cache-bug-T2"
     }
-  ]
+  ],
+  "aspect": "quality",
+  "review_run_id": "f14cbf029b9b7611d705aafb85261cd3be0827f933cd0000ffcb9f814d409a99",
+  "brief_sha256": "8a7aa25eb004ef626b91019a5adca554e3989903738d5658cb91ca0e3864c741",
+  "branch_diff_digest": "ea3aa1e0c9543529c4270fe525cd705883a15a5b41aebf22a5caf1ba0fa1d61d",
+  "residual_risks": [],
+  "recorded_at": "2026-09-12T19:07:08+00:00",
+  "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234"
 }
