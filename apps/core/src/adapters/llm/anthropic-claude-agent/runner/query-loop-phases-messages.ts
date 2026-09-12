@@ -1,6 +1,7 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { normalizeModelUsage } from '../../../../shared/model-usage.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
+import { QueryFailure } from './query-failure.exception.js';
 import { assertRequiredMcpServerReady } from './mcp-server-validation.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
@@ -252,9 +253,26 @@ export async function handleResultMessage(
       context.sawStructuredTextSinceLastResult;
     const canUseResultFallback =
       !emittedVisibleText && !context.sawAssistantContentSinceLastResult;
+    const usage = normalizeModelUsage({
+      message,
+      fallbackModel: context.configuredModel,
+    });
     const resultFailure = sdkResultFailureMessage(message);
     if (resultFailure) {
-      throw new Error(resultFailure);
+      throw new QueryFailure(
+        resultFailure,
+        usage
+          ? {
+              usage,
+              usageEventId: usageEventIdForMessage(
+                message,
+                context.newSessionId ?? context.agentInput.sessionId,
+                context.resultCount,
+                context.queryRunId,
+              ),
+            }
+          : undefined,
+      );
     }
     if (canUseResultFallback && textResult) {
       context.firstVisibleOutputMs ??= context.firstResultMs;
@@ -264,10 +282,6 @@ export async function handleResultMessage(
       `Result #${context.resultCount}: subtype=${message.subtype}${loggedResultText ? ` text=${loggedResultText.slice(0, 200)}` : ''}`,
     );
     logUsage(message);
-    const usage = normalizeModelUsage({
-      message,
-      fallbackModel: context.configuredModel,
-    });
     const contextUsagePromise = readContextUsage(context.sdkQuery!);
     const nudgeDeliveredThisTurn =
       context.agentInput.isScheduledJob &&

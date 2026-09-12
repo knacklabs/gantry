@@ -1,0 +1,1 @@
+{"event": "stage-measured", "generated_by": "implementer", "at": "2026-09-10T16:44:01+00:00", "story": "cache-bug", "detail": "cache-bug-T1: cache-bug-T1 required test 'fingerprint change and missing-session retry retire through retireProviderSession' was not present in the fresh JUnit report (exact id or id-prefix); recorded on the stage \u2014 the run itself passed."}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T12:12:33+00:00", "story": "cache-bug", "detail": "S-0096-4b71: Ruling: the authoritative stage state is ./forge stage list in this worktree, which shows cache-bug-T1 ACTIVE ([>]) and T2/T3 pending; the delegated brief's write grant is correct. The root .factory/r"}

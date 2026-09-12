@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0164-f02d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "D-0082 and D-0084: correct the approved cache-bug story plan and the confirmed spec, which both still say expireProviderSession becomes the atomic fenced transition and prescribe blocking full npm run lint. Decision 0159 \u00a74 keeps compaction-delta on expireProviderSession and introduces retireProviderSession for the three switched callers; the settled lint ruling is lint:changed blocking with full lint advisory. Scheduled by Ravi for after T1 merges and before T2 starts; T1 merged as PR 501. Two documents.",
+  "started_at": "2026-09-11T02:38:09+00:00",
+  "completed_at": "2026-09-11T02:39:18+00:00",
+  "files": []
+}

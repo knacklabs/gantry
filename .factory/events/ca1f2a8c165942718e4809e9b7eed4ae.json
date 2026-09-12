@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T12:16:04+00:00", "story": "cache-bug", "detail": "S-0097-5e06: Ruling: run NO forge commands inside the sandbox. The story run pointer is git-local under the main repo .git/worktrees/<name>/forge/, outside this worktree, so forge next in the sandbox falls back to"}

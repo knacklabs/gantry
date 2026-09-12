@@ -185,8 +185,6 @@ import type {
 import { readScheduledJobHeartbeat } from '@core/runtime/agent-spawn-scheduled-idle.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { runJobAgentWithFailover } from '@core/jobs/execution-failover.js';
-import { createInlineAgentTaskLifecycle } from '@core/app/bootstrap/inline-agent-task-lifecycle.js';
-import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { createPostgresIntegrationRuntime } from '../harness/postgres-integration-runtime.js';
 import { hasPostgresIntegrationDatabase } from '../harness/postgres-integration-runtime.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
@@ -412,9 +410,9 @@ function configureProviderMocks(): void {
         session_id: 'claude-inline-session',
       };
       if (options.outputFormat) {
-        const initialPrompt = await (prompt as AsyncIterable<unknown>)
-          [Symbol.asyncIterator]()
-          .next();
+        const promptIterable = prompt as AsyncIterable<unknown>;
+        const initialPrompt =
+          await promptIterable[Symbol.asyncIterator]().next();
         const structuredAttempt = structuredAttemptPrompts.claude.push(
           JSON.stringify(initialPrompt.value),
         );
@@ -1375,13 +1373,23 @@ maybeDescribe('inline session turns through the control API', () => {
     }
     expect(mcpCalls).toEqual([{ value: 'claude' }, { value: 'openai' }]);
     expect(gatewayCalls).toContain('/openai/mock');
-    expect(channelEffects.outbound.map(({ text }) => text)).toEqual(
-      expect.arrayContaining([
-        'Claude core message',
-        'OpenAI core message',
-        '{"lane":"first"}',
-        '{"lane":"second"}',
-      ]),
+    // Outbound delivery is asynchronous and lands AFTER the run row flips to
+    // 'completed', which is all the vi.waitFor above waits for. Asserting
+    // straight after that read caught the second lane's message only most of
+    // the time — it passed twice and failed on the third run of identical
+    // code. Wait for the thing actually being asserted.
+    await vi.waitFor(
+      () => {
+        expect(channelEffects.outbound.map(({ text }) => text)).toEqual(
+          expect.arrayContaining([
+            'Claude core message',
+            'OpenAI core message',
+            '{"lane":"first"}',
+            '{"lane":"second"}',
+          ]),
+        );
+      },
+      { timeout: 20_000, interval: 50 },
     );
     expect(channelEffects.userQuestions).toHaveLength(2);
     expect(channelEffects.permissionRequests).toHaveLength(2);

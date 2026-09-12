@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T11:48:20+00:00", "story": "cache-bug", "detail": "S-0093-5c24: Ruling (same as S-0083 on ASKFLOOR-1): Postgres integration leaves run on the HOST, never in the sandbox. The orchestrator ran apps/core/test/integration/provider-session-context-high-water-mark.postg"}

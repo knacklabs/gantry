@@ -18016,7 +18016,8 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
         ([verdict("C1")], "C2"),
         ([verdict("C1"), verdict("UNKNOWN")], "unknown contract id"),
         ([verdict("C1"), verdict("C1")], "duplicate contract id"),
-        ([verdict("C1", "almost"), verdict("C2")], "implemented, partial, or missing"),
+        ([verdict("C1", "almost"), verdict("C2")],
+         "implemented, partial, missing, or unverified"),
         ([verdict("C1", evidence=""), verdict("C2")], "evidence"),
     ]
     for contract_verdicts, expected in refused:
@@ -18034,6 +18035,26 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
         "category": "plan-contract-partial",
         "area": "plan.md#first",
         "summary": "C1: first statement",
+    }]
+
+    # `unverified` is not the reviewer asserting a defect — it says no pass
+    # attested the contract, which a chunked review produces whenever a
+    # contract's implementation spans slices. It must be VISIBLE but must not
+    # block, or the task-proof gate is unpassable for any task big enough to
+    # chunk.
+    unverified = [verdict("C1", "unverified", "no pass judged it"),
+                  verdict("C2")]
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                    stdin=json.dumps(review_payload(
+                        contract_verdicts=unverified)))
+    assert code == 0, out
+    quality = json.loads(
+        (story_state(repo) / "reviews" / "quality.json").read_text())
+    assert quality["blocking_findings"] == []
+    assert quality["non_blocking_findings"] == [{
+        "category": "plan-contract-unverified",
+        "area": "plan.md#first",
+        "summary": "C1 was not attested by any review pass: first statement",
     }]
 
     code, out = run(repo, "record_review_from_json.py", "--aspect", "performance",

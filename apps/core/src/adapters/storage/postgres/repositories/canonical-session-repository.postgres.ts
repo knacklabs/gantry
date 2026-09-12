@@ -5,7 +5,6 @@ import {
   type CanonicalExecutor,
   type CanonicalDb,
   agentIdForFolder,
-  conversationIdForJid,
   json,
   jsonb,
   PostgresCanonicalGraphRepository,
@@ -31,9 +30,18 @@ import {
   type ProviderSessionMaintenanceFinishInput,
   type ProviderSessionMaintenanceInput,
 } from './canonical-session-repository-helpers.postgres.js';
+import {
+  raiseProviderSessionContextHighWaterMark,
+  resetProviderSessionScope,
+  retireProviderSession,
+  type ProviderSessionContextHighWaterMarkInput,
+  type ResetScopeInput,
+  type RetireProviderSessionInput,
+} from './canonical-session-repository-context-mark.postgres.js';
 import { assertSafeProviderSessionId } from '../../../../domain/sessions/provider-session-id.js';
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
+import type { RetiredProviderSessionReference } from '../../../../domain/sessions/provider-session-measurement.js';
 export { buildCurrentScopeResetMatcher, makeOwnedAgentSessionScopeKey };
 export class PostgresCanonicalSessionRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
@@ -78,6 +86,8 @@ export class PostgresCanonicalSessionRepository {
         externalSessionId: pgSchema.providerSessionsPostgres.externalSessionId,
         metadataJson: pgSchema.providerSessionsPostgres.metadataJson,
         status: pgSchema.providerSessionsPostgres.status,
+        contextHighWaterMark:
+          pgSchema.providerSessionsPostgres.contextHighWaterMark,
       })
       .from(pgSchema.providerSessionsPostgres)
       .where(
@@ -591,6 +601,18 @@ export class PostgresCanonicalSessionRepository {
   ): Promise<void> {
     await expireProviderSession(this.db, input);
   }
+
+  async raiseProviderSessionContextHighWaterMark(
+    input: ProviderSessionContextHighWaterMarkInput,
+  ): Promise<boolean> {
+    return raiseProviderSessionContextHighWaterMark(this.db, input);
+  }
+
+  async retireProviderSession(
+    input: RetireProviderSessionInput,
+  ): Promise<RetiredProviderSessionReference | undefined> {
+    return retireProviderSession(this.db, input);
+  }
   async markProviderSessionMaintenance(
     input: ProviderSessionMaintenanceInput,
   ): Promise<boolean> {
@@ -614,75 +636,14 @@ export class PostgresCanonicalSessionRepository {
     );
   }
 
-  async resetScope(input: {
-    appId?: string;
-    scopeKey: string;
-    chatJid?: string;
-    threadId?: string | null;
-    agentId?: string;
-  }): Promise<void> {
-    const matcher = buildCurrentScopeResetMatcher(input.scopeKey);
-    const predicates = [
-      eq(pgSchema.agentSessionsPostgres.scopeKey, matcher.currentScopeExact),
-    ];
-    if (matcher.currentScopeDescendantLike) {
-      predicates.push(
-        sql`${pgSchema.agentSessionsPostgres.scopeKey} LIKE ${matcher.currentScopeDescendantLike} ESCAPE '\\'`,
-      );
-    }
-    const appId = resolveSessionAppId({
-      appId: input.appId,
-      chatJid: input.chatJid,
-    });
-    await this.db.transaction(async (tx) => {
-      const explicitAgentId = input.agentId?.trim();
-      let ownerAgentId: string | undefined = explicitAgentId || undefined;
-      if (!ownerAgentId && input.chatJid) {
-        if (appId === CANONICAL_APP_ID) {
-          ownerAgentId = await this.findBoundAgentId(
-            {
-              appId,
-              conversationId: conversationIdForJid(input.chatJid),
-              threadId: threadIdFor(input.chatJid, input.threadId),
-            },
-            tx,
-          );
-        } else {
-          ownerAgentId = (
-            await findControlSessionForChatJid(tx, appId, input.chatJid)
-          )?.agentId;
-        }
-      }
-      const rows = await tx
-        .select({ id: pgSchema.agentSessionsPostgres.id })
-        .from(pgSchema.agentSessionsPostgres)
-        .where(
-          and(
-            eq(pgSchema.agentSessionsPostgres.appId, appId),
-            or(...predicates),
-            ...(ownerAgentId
-              ? [eq(pgSchema.agentSessionsPostgres.agentId, ownerAgentId)]
-              : []),
-          ),
-        )
-        .for('update');
-      const sessionIds = rows.map((row) => row.id);
-      if (sessionIds.length === 0) return;
-      await tx
-        .delete(pgSchema.providerSessionsPostgres)
-        .where(
-          inArray(pgSchema.providerSessionsPostgres.agentSessionId, sessionIds),
-        );
-      await tx
-        .update(pgSchema.agentSessionsPostgres)
-        .set({
-          latestProviderSessionId: null,
-          status: 'active',
-          resetAt: sql`now()`,
-          updatedAt: sql`now()`,
-        })
-        .where(inArray(pgSchema.agentSessionsPostgres.id, sessionIds));
-    });
+  async resetScope(
+    input: ResetScopeInput,
+  ): Promise<readonly RetiredProviderSessionReference[]> {
+    return resetProviderSessionScope(
+      this.db,
+      input,
+      this.findBoundAgentId.bind(this),
+    );
   }
   async deleteWorkspaceFolder(agentFolder: string): Promise<void> {
     const escapedAgentFolder = escapeLikePattern(agentFolder);

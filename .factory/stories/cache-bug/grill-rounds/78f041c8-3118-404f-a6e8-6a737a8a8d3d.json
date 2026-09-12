@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The 900,001 saturation is coupled to the cap setting's maximum (20,000-900,000), not to any model's context window (~1M on the deployed model). So a real mark can exceed it, and if the cap range is ever widened above 900,000 a clipped mark silently stops exceeding the cap \u2014 retirement quietly stops firing. The only genuine problem was the Postgres integer overflow above 2,147,483,647. How should the clamp be defined?",
+      "options": [
+        "Clamp at the integer max, 2,147,483,647 (Recommended)",
+        "Widen the column to bigint",
+        "Keep 900,001 but enforce the coupling"
+      ],
+      "chosen": "Clamp at the integer max, 2,147,483,647 (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T12:42:51.402937+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

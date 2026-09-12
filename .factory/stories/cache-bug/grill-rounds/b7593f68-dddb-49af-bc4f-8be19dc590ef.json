@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "PR 501's code is green (ci, image, scaffold, hook gates all pass). Only pr-contract fails, because check_task_proof counts per-contract verdicts that no single review chunk can confirm \u2014 the brief makes every pass verdict every contract, so each pass guesses about code outside its slice. My merge fix stops blindness outvoting a real verdict, but can't create a verdict when no pass gives one. I've spent three cycles here. How do you want to close it?",
+      "options": [
+        "Fix the brief: verdict only what you see (Recommended)",
+        "Make the gate ignore diagnostic verdicts",
+        "Merge 501 despite pr-contract, fix the gate after"
+      ],
+      "chosen": "Fix the brief: verdict only what you see (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T17:48:16.618131+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

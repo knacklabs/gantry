@@ -86,6 +86,7 @@ export const providerSessionsPostgres = pgTable(
     metadataJson: jsonb('metadata_json')
       .notNull()
       .default(sql`'{}'::jsonb`),
+    contextHighWaterMark: integer('context_high_water_mark'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

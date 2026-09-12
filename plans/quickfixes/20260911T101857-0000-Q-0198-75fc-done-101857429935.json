@@ -1,0 +1,10 @@
+{
+  "event": "done",
+  "id": "Q-0198-75fc",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Requirements-gate amendments. Ravi's four decisions: discriminated retirement-event payload (cap/mark required only for reason=ceiling); agentSessionId added to each retired reference with one event per row, amending 0159; cleanup drains after the full primary-plus-fallback delivery attempt settles, in a finally around both /new acknowledgements; the stored high-water mark saturates at 900,001 rather than overflowing the integer column. Plus four repo-settled fixes: the spec must defer to 0158's contextUsage.totalTokens-first measurement, the settled R1-R7 requirements must appear in the spec, the raise contract must state that an equal or lower observation reports no change, and the runtime-components/session-resume cold-start contradiction must be resolved.",
+  "started_at": "2026-09-11T10:17:11+00:00",
+  "completed_at": "2026-09-11T10:18:57+00:00",
+  "files": []
+}

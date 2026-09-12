@@ -214,7 +214,12 @@ function signPayload(payload) {
 
 async function waitForQuestionRequest(ipcDir) {
   const requestDir = path.join(ipcDir, 'user-questions');
-  const deadline = Date.now() + 1000;
+  // A spawned runner has to boot before it can write this request, so the
+  // budget must cover process startup, not just the write. One second held
+  // only while the machine was idle; under full-suite load it is the kind of
+  // wait that fails and reads as a product bug. The loop still exits the
+  // moment the file appears, so a passing run costs nothing extra.
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (fs.existsSync(requestDir)) {
       const files = fs.readdirSync(requestDir).filter((file) => file.endsWith('.json'));

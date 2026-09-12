@@ -1,0 +1,12 @@
+{
+  "topic": "per-task ceremony lives in the task worktree",
+  "lesson": "Run ./forge task start <id> FIRST, set ./forge ceremony target to the new worktree, then author the task plan, release the task cold read, take the human round, task approve, stage start and delegate \u2014 all inside that worktree. Doing plan/grill/approve in the main checkout first re-stales the task grill and approval against the worktree's tree and drops the newest AskUserQuestion ledger records from the mirror (cache-bug-T1, 2026-09-09).",
+  "source": ".factory/stories/cache-bug/grills/tasks/cache-bug-T1.json",
+  "applies_to": [
+    ".factory/stories/**/task-plans/**",
+    ".factory/stories/**/grills/tasks/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T11:20:31+00:00"
+}

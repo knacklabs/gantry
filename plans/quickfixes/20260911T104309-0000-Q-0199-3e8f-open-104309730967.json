@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0199-3e8f",
+  "profile": "degraded",
+  "reason": "PR 505's lint gate failed on pre-existing errors in inline-agent-runtime.integration.test.ts. My vi.waitFor fix pulled that file into the diff, so lint:changed now reports its two unused imports and a no-unexpected-multiline violation. D-0081's rule is that debt the diff touches gets fixed; this is that case. One file.",
+  "started_at": "2026-09-11T10:43:09+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

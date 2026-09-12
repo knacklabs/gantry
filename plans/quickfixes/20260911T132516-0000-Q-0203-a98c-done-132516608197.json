@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0203-a98c",
+  "profile": "quickfix",
+  "reason": "Repair the stage-seal data that re-recording the cache-bug decomposition destroyed. write_skeleton recovers prior stage state only from the ephemeral .git/forge/stages.json, which forge close deletes by design once a story ships, so adding T4 rewrote every surviving task pending and dropped cache-bug-T1's base_sha, task_sha256, measured budget, local_review_stamp, review_fix_count and host_window for a task already merged in #501. The same empty read skipped the prior-issue archival branch, so the .factory/stages.json mirror flipped from ASKFLOOR-1 to cache-bug and took ASKFLOOR-1-T1/T2a/T2b/T3a/T3b/T3c/T4 with it. Restores T1's committed record verbatim, archives the seven lost ASKFLOOR-1 records into the per-task layout, rebuilds the mirror and authority from those records, and adopts T1 as shipped via the supported forge task reconcile against merge commit 681250bd. Also lands the T4 decomposition rebind and the D-0083/D-0085 resolutions. The generic harness fix goes upstream to symphony-forge separately.",
+  "started_at": "2026-09-11T13:25:11+00:00",
+  "completed_at": "2026-09-11T13:25:16+00:00",
+  "files": []
+}

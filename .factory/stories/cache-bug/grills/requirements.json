@@ -1,0 +1,83 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "issue": "cache-bug",
+  "summary": "Requirements gate re-read after T1 shipped and after the spec was corrected: the previous pass was stale against the product-tree digest. Eight findings \u2014 four decisions put to Ravi (discriminated retirement payload, agentSessionId correlation amending 0159, cleanup after the full delivery attempt settles, saturation at 900,001) and four settled from the repository. Amended once; frontier closed.",
+  "gaps": [
+    "The previous requirements pass was stale against the product-tree digest and could not support a current gate claim.",
+    "The settled R1-R7 requirements lived only in the plan and were absent from the spec that governs the story.",
+    "'Reports whether a row changed' did not define an equal or lower observation, which the implementation answers by returning false only when the mark does not rise.",
+    "The retirement event payload required contextHighWaterMark and cap for reasons that are not caused by a cap check, and /new's references did not carry those values at all.",
+    "The /new retirement event required sessionId, but the reset returned no owning agent-session id, so correlation depended on a boundary lookup that can fail while the reset succeeds.",
+    "'After the reply path is unblocked' was undefined against fallback delivery, which happens after runAgent returns, and a rejected /new acknowledgement could skip cleanup entirely.",
+    "The high-water contract accepted any non-negative integer while the column is a Postgres integer, so a large cumulative measurement would fail at SQL and leave the session unmarked and resumable."
+  ],
+  "contradictions": [
+    "The spec made derived modelVisibleInputTokens the measurement while accepted decision 0158 \u00a72 requires contextUsage.totalTokens first and the derived figure only as fallback.",
+    "docs/architecture/runtime-components.md said a cold start injects durable Gantry memory only, contradicting session-resume.md's stored-handle resume and the retirement path that depends on it."
+  ],
+  "resolutions": [
+    "Superseded by this record, bound to the amended spec and the current product tree.",
+    "R1-R7 written into the spec as a Settled requirements section, sourced from the requirements record so they bind every task rather than only the plan's readers.",
+    "The spec now states that 'changed' means the mark ROSE: an equal or lower observation reports no change, and a caller must not read false as a lost fence.",
+    "Ravi: the payload is DISCRIMINATED on reason \u2014 providerSessionHash and executionProviderId always, contextHighWaterMark and cap only for reason=ceiling, since they are causal evidence that does not exist for the other reasons.",
+    "Ravi: agentSessionId is carried on each retired reference out of the same committed read, and /new publishes one event per retired row using it; decision 0159 \u00a73 amended accordingly with the reason recorded in place.",
+    "Ravi: cleanup drains after the COMPLETE primary-plus-fallback delivery attempt settles, success or failure, never blocking or throwing through delivery, with finally around both /new acknowledgements so a rejected send cannot skip it.",
+    "Ravi: the stored mark is CLAMPED at 2,147,483,647, the Postgres integer maximum. An earlier answer used 900,001 (one above the largest configurable cap), which coupled a policy range to a storage limit \u2014 a real mark can exceed it on a ~1M-context model, and widening the cap range past 900,000 would leave a clipped mark failing to exceed the cap, silently ending retirement. The column limit removes the coupling and keeps every meaningful magnitude; model.usage still holds the exact figure.",
+    "The spec now defers to 0158 \u00a72: contextUsage.totalTokens is the observed value when reported, with modelVisibleInputTokens as the documented fallback.",
+    "runtime-components.md now states that a cold start resumes the stored provider-session handle when present and resumable, names session-resume.md as canon for the resume contract, and explains that retirement exists because of that resume (R7)."
+  ],
+  "open_items": [],
+  "questions_asked": 5,
+  "rounds": [
+    {
+      "question": "The spec lists `contextHighWaterMark` and `cap` on every `session.provider.retired` event, but only ceiling retirement is caused by a cap check \u2014 fingerprint, missing-session and /new retirement are not, and /new's retired references don't even carry those values. How should the payload be shaped?",
+      "options": [
+        "Discriminated payload: require for ceiling only (Recommended)",
+        "Nullable for the other reasons",
+        "Populate for every reason"
+      ],
+      "chosen": "Discriminated payload: require for ceiling only (Recommended)"
+    },
+    {
+      "question": "The spec requires the /new retirement event to carry `sessionId`, but decision 0159 and the implemented reset return only providerSessionId, externalSessionId and executionProviderId. The active /new path's separate boundary lookup can fail while the reset still succeeds, so the producer cannot reliably attribute every retirement. How should correlation work?",
+      "options": [
+        "Add agentSessionId to the retired reference (Recommended)",
+        "Use the boundary lookup, tolerate gaps",
+        "Omit sessionId from /new events"
+      ],
+      "chosen": "Add agentSessionId to the retired reference (Recommended)"
+    },
+    {
+      "question": "The plan says cleanup drains 'after the reply path is unblocked', but fallback delivery happens after runAgent returns \u2014 so a drain at the end of runAgent can precede or delay the fallback reply. Both /new handlers can also skip cleanup entirely if their acknowledgement send rejects. When should cleanup actually run?",
+      "options": [
+        "After the full delivery attempt settles, in a finally (Recommended)",
+        "Only after successful delivery",
+        "After the primary callback, as planned"
+      ],
+      "chosen": "After the full delivery attempt settles, in a finally (Recommended)"
+    },
+    {
+      "question": "The high-water mark accepts any non-negative integer, but the Postgres column is `integer`, capping at 2,147,483,647. A larger cumulative run measurement is valid under the written contract yet fails at SQL \u2014 leaving the session unmarked and therefore resumable, which defeats the retirement it was supposed to trigger. The cap setting's own maximum is 900,000.",
+      "options": [
+        "Saturate the stored mark at 900,001 (Recommended)",
+        "Widen the column to bigint",
+        "Reject measurements above the integer range"
+      ],
+      "chosen": "Saturate the stored mark at 900,001 (Recommended)"
+    },
+    {
+      "question": "Closing round for the cache-bug requirements gate. Your four decisions are applied to the spec and to decision 0159: the retirement event payload is discriminated on reason so cap and mark appear only for ceiling; each retired reference now carries agentSessionId so /new publishes one event per row from the same committed read instead of a lookup that can fail; cleanup drains after the full primary-plus-fallback delivery attempt settles, wrapped in finally around both /new acknowledgements; and the stored mark saturates at 900,001 rather than overflowing the integer column. Four more were repo-settled: the spec now defers to 0158's contextUsage.totalTokens-first measurement (an earlier draft made the derived figure primary, which would have violated the accepted decision); the settled R1-R7 requirements now live in the spec rather than only in the plan; the raise contract states that an equal or lower observation reports no change, so false is not read as a lost fence; and runtime-components.md is aligned with session-resume.md, which had claimed a cold start injects memory only. Any remaining gap before I record the pass?",
+      "options": [
+        "No remaining gap, record it (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, record it (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "e77dfad492ce22029410a40e8173706b21df4bb72e7f0017a4260fd163586cac",
+  "recorded_at": "2026-09-11T12:44:48+00:00",
+  "commit": "17cbeb9992b1a4438192239a1029ba0669962260"
+}

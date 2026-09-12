@@ -1,0 +1,58 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "cache-bug",
+  "summary": "Plan gate, single cold read: 14 findings against a plan that had drifted from the merged code. Ravi chose to REWRITE the T2/T3 half against verified current code rather than patch a fourth time, and to give the settings contract its own T4. Every structural claim in the rewrite carries file:line evidence, after an earlier round propagated a repository fact that proved false. Amended once; frontier closed.",
+  "gaps": [
+    "The 900,001 saturation rule was absent and unowned: the column is a Postgres integer and assertProviderSessionContextHighWaterMark validates only non-negative integers, so a large observation fails at SQL and leaves an over-cap session resumable \u2014 and T1, which owns that code, is sealed.",
+    "Decision 0159's four-field retired reference was not applied: the type and both producers carry three fields, so /new cannot publish one event per retired row with the owning sessionId.",
+    "Cleanup drained at the end of runAgent, the one boundary the spec rejects: fallback delivery runs after runAgent returns, and no task owned group-processing.ts where that boundary lives.",
+    "T3 could not wire the idle /new path within its scope: clearCurrentSession is declared void and its handler and supplier discard the result, none of which were in T3's write scope.",
+    "R6 specified only the winning-generation branch, so an implementation could satisfy the plan while leaking a stale session's memory after a concurrent reset.",
+    "The changed /v1/settings/desired-state payload had no DTO or OpenAPI owner, while the route accepts settings?: unknown and the registry does not document that path.",
+    "'Typed event payloads' was not an enforcing design: RuntimeEventPublishInput carries payload: unknown, so interfaces in events.ts bind nothing to eventType.",
+    "T1's declared write scope still omitted the inline lanes, stream-normalizer-partial-usage.ts and query-failure.exception.ts that actually shipped.",
+    "The SQL-recipe proof could pass while the published recipe rotted, because the plan did not require the test to execute SQL extracted from the document."
+  ],
+  "contradictions": [
+    "The plan claimed T1 carries only provider-granularity data and T2 must widen the host-to-runner contract, but the host already projects effectiveModelEntry.modelRoute.id into GANTRY_DEEPAGENTS_MODEL_PROVIDER, the runner reads it and passes it as input.provider, so usage.modelRoute already carries the resolved route.",
+    "S9 assigned all retirement-event behaviour to T2 while the decomposition gave /new publication to T3, so T2 could not finish S9 and T3 had no criterion-bound obligation.",
+    "The plan said 'sequential in one story worktree', contradicting the mandatory per-task branch and sibling-worktree lifecycle in WORKFLOW.md and AGENTS.md.",
+    "The recorded decomposition still encoded the rejected parallel graph, placing T2 and T3 in one build wave while the plan declared T3 dependent on T2.",
+    "The plan's own approval was stale: its previous grill predated the binding requirements gate, whose four decisions the plan had not absorbed."
+  ],
+  "resolutions": [
+    "Ravi: the stored mark is CLAMPED at 2,147,483,647, the Postgres integer maximum. An earlier answer used 900,001 (one above the largest configurable cap), which coupled a policy range to a storage limit \u2014 a real mark can exceed it on a ~1M-context model, and widening the cap range past 900,000 would leave a clipped mark failing to exceed the cap, silently ending retirement. The column limit removes the coupling and keeps every meaningful magnitude; model.usage still holds the exact figure.",
+    "T3 owns adding agentSessionId and propagating the widened type through the ops port and both facades; the reset query already filters on that column, so the query change is trivial and the propagation is the real cost.",
+    "T3 owns group-processing.ts and drains after the COMPLETE primary-plus-fallback attempt settles, with the runAgent/finalisation line numbers recorded so the boundary is not re-litigated.",
+    "T3's scope now includes session-commands.ts, group-processing-session-command-handlers.ts, group-processing-types.ts and runtime-app.ts, and the plan states this is a command-surface contract change rather than wiring.",
+    "R6 now requires BOTH branches with regression coverage: reuse on a matching generation, discard and rehydrate on a mismatch, because 0078's guarantee is per turn.",
+    "New task T4 owns the typed request and response DTO and the OpenAPI registry entry, separated deliberately because it is a public HTTP contract with its own canon requirements.",
+    "T2's contract states that the publish input must change, or publication must go through a typed helper, for reason-discrimination to be compile-time safe; the reviewer checks that a wrong payload fails to compile.",
+    "T1's declared scope completed with the files that shipped, so the plan matches the merged work.",
+    "The recipe proof now requires executing SQL extracted from the document or a shared artifact, never a copy pasted into the test.",
+    "Withdrawn as false after tracing the assignment chain: D-0083 resolved as withdrawn and lesson 157 ledgered correcting lesson 155. T2's scope states plainly that the route is already correct and needs no work.",
+    "S9 split between T2 (event types, ceiling/fingerprint/missing publication) and T3 (the /new publication), with the reason recorded: the types and the handlers live in different tasks.",
+    "Replaced with the real lifecycle \u2014 T1 -> T2 -> T3 -> T4, each in its own task branch and sibling worktree cut by forge task start, merging before the next begins.",
+    "The decomposition rebinds to the sequential graph immediately after the plan is re-approved; recorded as the next action rather than left implicit.",
+    "This record supersedes the stale pass and is bound to the rewritten plan body, which absorbed the requirements gate's four decisions."
+  ],
+  "open_items": [],
+  "questions_asked": 2,
+  "rounds": [
+    {
+      "question": "The clamp correction changed the plan body, so the approval you just gave no longer binds to it (approved digest b669160f, live f6e0cfef). The only substantive change since you approved is the one you decided: the clamp is now the Postgres integer maximum 2,147,483,647 rather than 900,001, with both documents recording why the cap-relative figure was wrong \u2014 it coupled a policy range to a storage limit and would have silently ended retirement if the cap range were ever widened. Nothing else in the plan moved. Re-approve so I can rebind the decomposition and start T2?",
+      "options": [
+        "Re-approve as Ravi (Recommended)",
+        "Show me the diff first",
+        "Something else needs fixing first"
+      ],
+      "chosen": "Re-approve as Ravi (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "f6e0cfeff437291974f8a56186bc8cb9cee3bb7f5bdb5b60ccd8e6407b533289",
+  "recorded_at": "2026-09-11T12:45:10+00:00",
+  "commit": "17cbeb9992b1a4438192239a1029ba0669962260"
+}

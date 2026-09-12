@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Requirements gate closing question. The single cold read found seven implementation-shaping gaps (null-safe generation fence, one cumulative partial-usage payload on errors, explicit cache read/write booleans per route with the resolved route carried, /new returning retired references after commit, host-published events with a sanitised error, non-hydrating lost-race re-read per 0078, and aligning two architecture pages with session-resume.md). All seven are answered by the repository. Because the confirmed spec cannot be re-saved without a fresh spec-gate read and that gate's read cap is used up, they become binding plan requirements R1 to R7 rather than spec edits. Any remaining gap before I record the requirements gate and author the plan?",
+      "options": [
+        "No remaining gap, record and plan (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, record and plan (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T09:05:00.909454+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

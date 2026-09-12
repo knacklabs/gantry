@@ -79,6 +79,8 @@ function automaticPrefixCache(
     prompt: {
       mode: 'openai_automatic_prefix',
       automatic: true,
+      cacheReadsIncludedInInput: true,
+      cacheWritesIncludedInInput: true,
       ...(options.promptCacheKey ? { promptCacheKey: true } : {}),
       requestControl: 'provider_automatic_prefix',
       ttlOptions: [],
@@ -102,6 +104,8 @@ const NO_CACHE_SUPPORT: ModelProviderCacheSupport = {
   prompt: {
     mode: 'none',
     automatic: false,
+    cacheReadsIncludedInInput: true,
+    cacheWritesIncludedInInput: true,
     requestControl: 'none',
     ttlOptions: [],
     minimumTokenThresholds: [],

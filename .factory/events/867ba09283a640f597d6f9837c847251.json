@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-09T12:14:33+00:00", "story": "cache-bug", "detail": "cache-bug-T1 brief grants active write access, but ./forge next reports its task worktree stage is pending and requires forge delegate before writes."}

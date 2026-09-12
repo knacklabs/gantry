@@ -1,0 +1,31 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Round 2 finding: the one-off rollout invalidation command is a migration/cleanup command, which accepted decision 0003 (early stage, no back-compat) explicitly rejects. How do we handle existing oversized sessions?",
+      "options": [
+        "Drop the command, rely on unmeasured-means-no-resume (Recommended)",
+        "Keep the command, record a 0003 exception"
+      ],
+      "chosen": "Drop the command, rely on unmeasured-means-no-resume (Recommended)"
+    },
+    {
+      "question": "Round 2 finding: Claude's normalised inputTokens excludes cache read/write tokens and is aggregated per run, so it cannot supply the largest single model-call context. What should the ceiling measure?",
+      "options": [
+        "New per-request model-visible input maximum (Recommended)",
+        "Aggregate per-run billable input"
+      ],
+      "chosen": "New per-request model-visible input maximum (Recommended)"
+    },
+    {
+      "question": "Confirm the five defaults: scope is every persistent interactive provider session on any channel, jobs excluded; a session without a valid versioned measurement is not resumable, and measurements persist even from failed turns; effective cap is the lower of the global setting (valid range 20,000 to 900,000, applies on next resume) and the runtime-known safe model capacity, unknown capacity does not resume; DeepAgents checkpoint reclamation runs in one shared expiry operation for every expiry reason, never blocks a reply, leaves the session expired if cleanup fails and emits retry evidence; the observability query is operator-only, joins runtime_events to agent_runs to provider_sessions, and shows hashed identifiers by default.",
+      "options": [
+        "Confirm all five (Recommended)",
+        "Change something"
+      ],
+      "chosen": "Confirm all five (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T07:55:01.369860+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

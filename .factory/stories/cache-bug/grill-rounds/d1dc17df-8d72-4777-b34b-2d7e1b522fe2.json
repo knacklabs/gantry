@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Round 19: the engine complied with the new brief and omitted verdicts for contracts its slice couldn't judge. But `_contract_verdicts` fails an omission closed to `partial`, and record_review_from_json.py turns every partial into a BLOCKING finding \u2014 so 'no pass could judge this' is recorded identically to 'this contract is defective'. That conflation is the actual bug, in the recorder rather than the merge logic I patched three times. PR 501's code remains green on CI. Four cycles spent here \u2014 how do you want to close it?",
+      "options": [
+        "Merge 501 now, fix the recorder next (Recommended)",
+        "Fix the recorder first, then merge",
+        "Narrow T1's contract set instead"
+      ],
+      "chosen": "Merge 501 now, fix the recorder next (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T17:59:14.982366+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

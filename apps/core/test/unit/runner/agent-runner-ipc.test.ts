@@ -15,6 +15,14 @@ import { stripShellCommandEnvPrefix } from '@core/runtime/ipc-shell-command-pref
 const RUNNER_IPC_CHILD_TIMEOUT_MS = 90_000;
 const RUNNER_IPC_TEST_TIMEOUT_MS = 100_000;
 const SLOW_RUNNER_IPC_TEST_TIMEOUT_MS = 120_000;
+// How long the emitted fake SDK waits for a spawned runner to write its
+// permission-request file. The budget has to cover process startup, not just
+// the write: at one second this passed in isolation every time and failed only
+// inside the full suite, after ~9000 preceding tests — a load-dependent flake
+// that reads as a product bug. Still an order of magnitude under the 100s test
+// timeout, so a genuine hang still aborts with the helper's own message rather
+// than vitest's generic one.
+const IPC_REQUEST_WAIT_MS = 30_000;
 // The heartbeat test observes a real 15s heartbeat interval after a cold tsx
 // runner boot, so it needs a wider per-spawn budget than the default child
 // runner timeout and a matching vitest timeout above it.
@@ -276,7 +284,9 @@ let hostPermissionResponseCount = 0;
 async function respondToNextPermissionRequest() {
   const requestDir = path.join(process.env.GANTRY_IPC_DIR, 'permission-requests');
   const responseDir = path.join(process.env.GANTRY_IPC_DIR, 'permission-responses');
-  const deadline = Date.now() + 1000;
+  // Interpolated at write time, not referenced: this function is emitted into
+  // the fake SDK module, where the test file's own constants are out of scope.
+  const deadline = Date.now() + ${IPC_REQUEST_WAIT_MS};
   let request;
   while (Date.now() < deadline) {
     if (fs.existsSync(requestDir)) {
@@ -774,6 +784,23 @@ export async function* query({ prompt, options }) {
         fs.writeFileSync(path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'), '');
       }, 20);
     }
+    return;
+  }
+  if (process.env.TEST_ERRORED_RESULT_WITH_USAGE === '1') {
+    yield {
+      type: 'result',
+      subtype: 'error_during_execution',
+      errors: ['Provider unavailable.'],
+      request_id: 'usage-event-1',
+      modelUsage: {
+        'claude-sonnet-4-6': {
+          inputTokens: 1000,
+          outputTokens: 12,
+          cacheReadInputTokens: 270000,
+          cacheCreationInputTokens: 500,
+        },
+      },
+    };
     return;
   }
   if (process.env.TEST_COMPACT_BOUNDARY === '1') {
@@ -3169,6 +3196,40 @@ describe('agent-runner IPC lifecycle', () => {
           decisionClassification: 'user_reject',
         }),
       );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+});
+
+describe('claude runner', () => {
+  it(
+    'writes the QueryFailure usage on the single error frame',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput(),
+        { TEST_ERRORED_RESULT_WITH_USAGE: '1' },
+        RUNNER_IPC_TEST_TIMEOUT_MS,
+      );
+
+      expect(result.exitCode, result.stderr).toBe(1);
+      const errorFrames = readRunnerOutputs(result.stdout).filter(
+        (output) => output.status === 'error',
+      );
+      expect(errorFrames).toEqual([
+        expect.objectContaining({
+          error: 'Provider unavailable.',
+          usageEventId: 'usage-event-1',
+          usage: expect.objectContaining({
+            inputTokens: 1000,
+            outputTokens: 12,
+            cacheReadTokens: 270000,
+            cacheWriteTokens: 500,
+          }),
+        }),
+      ]);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

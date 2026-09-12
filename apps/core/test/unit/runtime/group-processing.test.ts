@@ -142,6 +142,8 @@ vi.mock('@core/session/session-commands.js', () => ({
 const { createGroupProcessor } =
   await import('@core/runtime/group-processing.js');
 const turnCleanup = await import('@core/runtime/group-active-turn-cleanup.js');
+const { prepareCompactionDeltaReplay } =
+  await import('@core/runtime/group-agent-runner-compaction-delta.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
   await import('@core/runtime/session-resume-runtime.js');
 const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
@@ -297,6 +299,7 @@ function makeDeps(
     getFirstThreadMessages: vi.fn().mockResolvedValue([]),
     getLatestThreadMessages: vi.fn().mockResolvedValue([]),
     expireProviderSession: vi.fn(),
+    retireProviderSession: vi.fn(),
     setSession: vi.fn(),
     updateAgentRunProviderMetadata: vi.fn().mockResolvedValue(undefined),
   } as unknown as GroupProcessingDeps['opsRepository'];
@@ -3528,302 +3531,351 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('expires provider session resume when runtime access projection changes', async () => {
-      const agentOutput: AgentOutput = {
-        status: 'success',
-        result: 'fresh reply',
-        newSessionId: 'claude-session-fresh',
-      };
-      const group = makeGroup({ requiresTrigger: false });
-      const { deps } = setupHappyPath({ group, agentOutput });
-      (deps.opsRepository as any).getAgentTurnContext = vi
-        .fn()
-        .mockResolvedValue({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
+    describe('fingerprint change and missing-session retry retire through retireProviderSession', () => {
+      it('expires provider session resume when runtime access projection changes', async () => {
+        const agentOutput: AgentOutput = {
+          status: 'success',
+          result: 'fresh reply',
+          newSessionId: 'claude-session-fresh',
+        };
+        const group = makeGroup({ requiresTrigger: false });
+        const { deps } = setupHappyPath({ group, agentOutput });
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue({
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:1',
+            providerSessionId: 'provider-session:old',
+            externalSessionId: 'claude-session-old',
+            providerSessionAccessFingerprint:
+              'provider-session-access:v1:stale',
+          });
+        (deps.opsRepository as any).createSessionAgentRun = vi
+          .fn()
+          .mockResolvedValue('agent-run:message-1');
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('group1@g.us');
+
+        expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:old',
+          agentSessionId: 'agent-session:1',
+          provider: 'anthropic:claude-agent-sdk',
           externalSessionId: 'claude-session-old',
-          providerSessionAccessFingerprint: 'provider-session-access:v1:stale',
+          expectedAgentSessionResetAt: null,
         });
-      (deps.opsRepository as any).createSessionAgentRun = vi
-        .fn()
-        .mockResolvedValue('agent-run:message-1');
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:old',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-old',
-      });
-      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
-      expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
-        agentSessionId: 'agent-session:1',
-        executionProviderId: 'anthropic:claude-agent-sdk',
-        providerSessionId: undefined,
-        cause: 'message',
-      });
-      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
-        group.folder,
-        'claude-session-fresh',
-        null,
-        expect.objectContaining({
-          expectedAgentSessionId: 'agent-session:1',
-          accessFingerprint: expect.stringMatching(
-            /^provider-session-access:v2:/,
-          ),
-        }),
-      );
-      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
-        expect.objectContaining({
-          providerSessionAccessFingerprint: expect.stringMatching(
-            /^provider-session-access:v2:/,
-          ),
-          capabilityCatalog: expect.objectContaining({
-            schemaVersion: 1,
-            digest: expect.any(String),
+        expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+        expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
+          agentSessionId: 'agent-session:1',
+          executionProviderId: 'anthropic:claude-agent-sdk',
+          providerSessionId: undefined,
+          cause: 'message',
+        });
+        expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+          group.folder,
+          'claude-session-fresh',
+          null,
+          expect.objectContaining({
+            expectedAgentSessionId: 'agent-session:1',
+            accessFingerprint: expect.stringMatching(
+              /^provider-session-access:v2:/,
+            ),
           }),
-        }),
-      );
-    });
+        );
+        expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+          expect.objectContaining({
+            providerSessionAccessFingerprint: expect.stringMatching(
+              /^provider-session-access:v2:/,
+            ),
+            capabilityCatalog: expect.objectContaining({
+              schemaVersion: 1,
+              digest: expect.any(String),
+            }),
+          }),
+        );
+      });
 
-    it('expires a full-preset provider session when the agent becomes locked', async () => {
-      const group = makeGroup({ requiresTrigger: false });
-      const { deps } = setupHappyPath({ group });
-      deps.getAgentLockStatus = vi.fn(() => 'locked');
-      (deps.opsRepository as any).getAgentTurnContext = vi
-        .fn()
-        .mockResolvedValue({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
+      it('expires a full-preset provider session when the agent becomes locked', async () => {
+        const group = makeGroup({ requiresTrigger: false });
+        const { deps } = setupHappyPath({ group });
+        deps.getAgentLockStatus = vi.fn(() => 'locked');
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue({
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:1',
+            providerSessionId: 'provider-session:full',
+            externalSessionId: 'claude-session-full',
+            providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('group1@g.us');
+
+        expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:full',
+          agentSessionId: 'agent-session:1',
+          provider: 'anthropic:claude-agent-sdk',
           externalSessionId: 'claude-session-full',
-          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          expectedAgentSessionResetAt: null,
         });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:full',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-full',
+        expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+        expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+          expect.objectContaining({
+            providerSessionAccessFingerprint: expect.stringMatching(
+              /^provider-session-access:v2:/,
+            ),
+          }),
+        );
       });
-      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
-      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
-        expect.objectContaining({
-          providerSessionAccessFingerprint: expect.stringMatching(
-            /^provider-session-access:v2:/,
+
+      it('expires a missing provider session and retries the turn without resume', async () => {
+        const group = makeGroup({ requiresTrigger: false });
+        const { deps, channel } = setupHappyPath({ group });
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue({
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:1',
+            providerSessionId: 'provider-session:1',
+            externalSessionId: 'claude-session-stale',
+            providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          });
+        (deps.opsRepository as any).createSessionAgentRun = vi
+          .fn()
+          .mockResolvedValue('agent-run:message-1');
+
+        mockSpawnAgent.mockImplementationOnce(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            onOutput?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            const output: AgentOutput = {
+              status: 'error',
+              result: null,
+              error: 'No conversation found with session ID: stale',
+            };
+            await onOutput?.(output);
+            return output;
+          },
+        );
+        mockSpawnAgent.mockImplementationOnce(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            onOutput?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            const output: AgentOutput = {
+              status: 'success',
+              result: 'fresh reply',
+              newSessionId: 'claude-session-fresh',
+            };
+            await onOutput?.(output);
+            return output;
+          },
+        );
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+        expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+        expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+          sessionId: 'claude-session-stale',
+        });
+        expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+        expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
+          providerSessionId: 'provider-session:1',
+          agentSessionId: 'agent-session:1',
+          provider: 'anthropic:claude-agent-sdk',
+          externalSessionId: 'claude-session-stale',
+          expectedAgentSessionResetAt: null,
+        });
+        expect(
+          deps.opsRepository.updateAgentRunProviderMetadata,
+        ).toHaveBeenCalledWith({
+          runId: 'agent-run:message-1',
+          providerSessionId: null,
+        });
+        expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+          group.folder,
+          'claude-session-fresh',
+          null,
+          expect.objectContaining({
+            expectedAgentSessionId: 'agent-session:1',
+          }),
+        );
+        const progressTexts = (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.map((call) => call[1]);
+        expect(progressTexts).not.toContain('I hit an issue.');
+      });
+
+      it('uses the selected execution adapter to classify missing provider sessions', async () => {
+        const group = makeGroup({ requiresTrigger: false });
+        const otherAdapter = {
+          id: 'test:other-agent-sdk',
+          isMissingProviderSessionError: vi.fn(() => false),
+          prepare: vi.fn(),
+        };
+        const selectedAdapter = {
+          id: 'anthropic:claude-agent-sdk',
+          isMissingProviderSessionError: vi.fn((error: string | undefined) =>
+            /\bNo conversation found with session ID\b/i.test(error ?? ''),
           ),
-        }),
-      );
-    });
+          prepare: vi.fn(),
+        };
+        const { deps } = setupHappyPath({ group });
+        deps.executionAdapter = undefined;
+        deps.executionAdapters = createAgentExecutionAdapterRegistry([
+          otherAdapter,
+          selectedAdapter,
+        ]);
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue({
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:1',
+            providerSessionId: 'provider-session:1',
+            externalSessionId: 'claude-session-stale',
+          });
+        (deps.opsRepository as any).createSessionAgentRun = vi
+          .fn()
+          .mockResolvedValue('agent-run:message-1');
 
-    it('expires a missing provider session and retries the turn without resume', async () => {
-      const group = makeGroup({ requiresTrigger: false });
-      const { deps, channel } = setupHappyPath({ group });
-      (deps.opsRepository as any).getAgentTurnContext = vi
-        .fn()
-        .mockResolvedValue({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
+        mockSpawnAgent.mockImplementationOnce(async () => ({
+          status: 'error',
+          result: null,
+          error: 'No conversation found with session ID: stale',
+        }));
+        mockSpawnAgent.mockImplementationOnce(async () => ({
+          status: 'success',
+          result: 'fresh reply',
+          newSessionId: 'claude-session-fresh',
+        }));
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+        expect(
+          selectedAdapter.isMissingProviderSessionError,
+        ).toHaveBeenCalledWith('No conversation found with session ID: stale');
+        expect(
+          otherAdapter.isMissingProviderSessionError,
+        ).not.toHaveBeenCalled();
+        expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+        expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:1',
+          agentSessionId: 'agent-session:1',
+          provider: 'anthropic:claude-agent-sdk',
           externalSessionId: 'claude-session-stale',
-          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          expectedAgentSessionResetAt: null,
         });
-      (deps.opsRepository as any).createSessionAgentRun = vi
-        .fn()
-        .mockResolvedValue('agent-run:message-1');
-
-      mockSpawnAgent.mockImplementationOnce(
-        async (
-          _group: ConversationRoute,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          const output: AgentOutput = {
-            status: 'error',
-            result: null,
-            error: 'No conversation found with session ID: stale',
-          };
-          await onOutput?.(output);
-          return output;
-        },
-      );
-      mockSpawnAgent.mockImplementationOnce(
-        async (
-          _group: ConversationRoute,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          const output: AgentOutput = {
-            status: 'success',
-            result: 'fresh reply',
-            newSessionId: 'claude-session-fresh',
-          };
-          await onOutput?.(output);
-          return output;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
-
-      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
-      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: 'claude-session-stale',
       });
-      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-stale',
-      });
-      expect(
-        deps.opsRepository.updateAgentRunProviderMetadata,
-      ).toHaveBeenCalledWith({
-        runId: 'agent-run:message-1',
-        providerSessionId: null,
-      });
-      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
-        group.folder,
-        'claude-session-fresh',
-        null,
-        expect.objectContaining({
-          expectedAgentSessionId: 'agent-session:1',
-        }),
-      );
-      const progressTexts = (
-        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls.map((call) => call[1]);
-      expect(progressTexts).not.toContain('I hit an issue.');
-    });
 
-    it('uses the selected execution adapter to classify missing provider sessions', async () => {
-      const group = makeGroup({ requiresTrigger: false });
-      const otherAdapter = {
-        id: 'test:other-agent-sdk',
-        isMissingProviderSessionError: vi.fn(() => false),
-        prepare: vi.fn(),
-      };
-      const selectedAdapter = {
-        id: 'anthropic:claude-agent-sdk',
-        isMissingProviderSessionError: vi.fn((error: string | undefined) =>
-          /\bNo conversation found with session ID\b/i.test(error ?? ''),
-        ),
-        prepare: vi.fn(),
-      };
-      const { deps } = setupHappyPath({ group });
-      deps.executionAdapter = undefined;
-      deps.executionAdapters = createAgentExecutionAdapterRegistry([
-        otherAdapter,
-        selectedAdapter,
-      ]);
-      (deps.opsRepository as any).getAgentTurnContext = vi
-        .fn()
-        .mockResolvedValue({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
-          providerSessionId: 'provider-session:1',
-          externalSessionId: 'claude-session-stale',
-        });
-      (deps.opsRepository as any).createSessionAgentRun = vi
-        .fn()
-        .mockResolvedValue('agent-run:message-1');
+      it('falls back to runtime missing-session patterns when an adapter returns false', async () => {
+        const group = makeGroup({ requiresTrigger: false });
+        const selectedAdapter = {
+          id: 'anthropic:claude-agent-sdk',
+          isMissingProviderSessionError: vi.fn(() => false),
+          prepare: vi.fn(),
+        };
+        const { deps } = setupHappyPath({ group });
+        deps.executionAdapter = undefined;
+        deps.executionAdapters = createAgentExecutionAdapterRegistry([
+          selectedAdapter,
+        ]);
+        (deps.opsRepository as any).getAgentTurnContext = vi
+          .fn()
+          .mockResolvedValue({
+            appId: 'app:test',
+            agentId: 'agent:test',
+            agentSessionId: 'agent-session:1',
+            providerSessionId: 'provider-session:1',
+            externalSessionId: 'deepagents-session-stale',
+            providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          });
+        (deps.opsRepository as any).createSessionAgentRun = vi
+          .fn()
+          .mockResolvedValue('agent-run:message-1');
 
-      mockSpawnAgent.mockImplementationOnce(async () => ({
-        status: 'error',
-        result: null,
-        error: 'No conversation found with session ID: stale',
-      }));
-      mockSpawnAgent.mockImplementationOnce(async () => ({
-        status: 'success',
-        result: 'fresh reply',
-        newSessionId: 'claude-session-fresh',
-      }));
+        mockSpawnAgent.mockImplementationOnce(async () => ({
+          status: 'error',
+          result: null,
+          error:
+            'No DeepAgents session found with session ID: deepagents-session-stale',
+        }));
+        mockSpawnAgent.mockImplementationOnce(async () => ({
+          status: 'success',
+          result: 'fresh reply',
+          newSessionId: 'deepagents-session-fresh',
+        }));
 
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
 
-      expect(
-        selectedAdapter.isMissingProviderSessionError,
-      ).toHaveBeenCalledWith('No conversation found with session ID: stale');
-      expect(otherAdapter.isMissingProviderSessionError).not.toHaveBeenCalled();
-      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-stale',
-      });
-    });
-
-    it('falls back to runtime missing-session patterns when an adapter returns false', async () => {
-      const group = makeGroup({ requiresTrigger: false });
-      const selectedAdapter = {
-        id: 'anthropic:claude-agent-sdk',
-        isMissingProviderSessionError: vi.fn(() => false),
-        prepare: vi.fn(),
-      };
-      const { deps } = setupHappyPath({ group });
-      deps.executionAdapter = undefined;
-      deps.executionAdapters = createAgentExecutionAdapterRegistry([
-        selectedAdapter,
-      ]);
-      (deps.opsRepository as any).getAgentTurnContext = vi
-        .fn()
-        .mockResolvedValue({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
-          providerSessionId: 'provider-session:1',
-          externalSessionId: 'deepagents-session-stale',
-          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
-        });
-      (deps.opsRepository as any).createSessionAgentRun = vi
-        .fn()
-        .mockResolvedValue('agent-run:message-1');
-
-      mockSpawnAgent.mockImplementationOnce(async () => ({
-        status: 'error',
-        result: null,
-        error:
+        expect(
+          selectedAdapter.isMissingProviderSessionError,
+        ).toHaveBeenCalledWith(
           'No DeepAgents session found with session ID: deepagents-session-stale',
-      }));
-      mockSpawnAgent.mockImplementationOnce(async () => ({
-        status: 'success',
-        result: 'fresh reply',
-        newSessionId: 'deepagents-session-fresh',
-      }));
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
-
-      expect(
-        selectedAdapter.isMissingProviderSessionError,
-      ).toHaveBeenCalledWith(
-        'No DeepAgents session found with session ID: deepagents-session-stale',
-      );
-      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
-      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: 'deepagents-session-stale',
+        );
+        expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+        expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+          sessionId: 'deepagents-session-stale',
+        });
+        expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+        expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
+          providerSessionId: 'provider-session:1',
+          agentSessionId: 'agent-session:1',
+          provider: 'anthropic:claude-agent-sdk',
+          externalSessionId: 'deepagents-session-stale',
+          expectedAgentSessionResetAt: null,
+        });
       });
-      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
+    });
+
+    it('compaction-delta degradation still uses expireProviderSession', async () => {
+      const markProviderSessionDeltaReplay = vi.fn();
+      const expireProviderSession = vi.fn();
+      const turnContext = {
+        agentSessionId: 'agent-session:compaction',
+        agentSessionResetAt: null,
+        latestProviderSessionReady: true,
+        readyProviderSessionId: 'provider-session:ready',
+        readyExternalSessionId: 'external-session:ready',
+        compactionDeltaReplay: {
+          status: 'pending' as const,
+          lockedAt: new Date(0).toISOString(),
+        },
+      };
+
+      await prepareCompactionDeltaReplay({
+        turnContext,
+        loadTurnContext: vi.fn(async () => turnContext),
+        repository: {
+          markProviderSessionDeltaReplay,
+          expireProviderSession,
+        } as never,
+        executionProviderId: 'anthropic:claude-agent-sdk' as never,
+        group: makeGroup({ requiresTrigger: false }),
+        chatJid: 'group1@g.us',
+        threadId: null,
+      });
+
+      expect(markProviderSessionDeltaReplay).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'degraded' }),
+      );
+      expect(expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:ready',
+        agentSessionId: 'agent-session:compaction',
         provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'deepagents-session-stale',
+        externalSessionId: 'external-session:ready',
       });
     });
 

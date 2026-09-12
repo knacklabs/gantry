@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-09T11:45:26+00:00", "story": "cache-bug", "detail": "cache-bug-T1 Postgres integration verification is blocked: GANTRY_TEST_DATABASE_URL and any local Postgres server binary are unavailable in this worktree."}

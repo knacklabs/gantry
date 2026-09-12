@@ -389,14 +389,15 @@ export function createGroupAgentRunner(input: {
         currentAccessFingerprint,
       )
     ) {
-      if (ops().expireProviderSession) {
-        await ops().expireProviderSession?.({
-          providerSessionId: turnContext.providerSessionId,
-          agentSessionId: turnContext.agentSessionId,
-          provider: executionProviderId,
-          externalSessionId: turnContext.externalSessionId,
-        });
-      }
+      // Never optional: a fingerprint-invalid session must leave the
+      // resumable set through the fenced active->expired transition (0158).
+      await ops().retireProviderSession({
+        providerSessionId: turnContext.providerSessionId,
+        agentSessionId: turnContext.agentSessionId,
+        provider: executionProviderId,
+        externalSessionId: turnContext.externalSessionId,
+        expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
+      });
       latestProviderSessionId = undefined;
       resumeProviderSessionId = undefined;
       resumeExternalSessionId = undefined;
@@ -506,16 +507,16 @@ export function createGroupAgentRunner(input: {
         if (
           !turnContext?.providerSessionId ||
           !turnContext.agentSessionId ||
-          !turnContext.externalSessionId ||
-          !ops().expireProviderSession
+          !turnContext.externalSessionId
         ) {
           return false;
         }
-        await ops().expireProviderSession?.({
+        await ops().retireProviderSession({
           providerSessionId: turnContext.providerSessionId,
           agentSessionId: turnContext.agentSessionId,
           provider: executionProviderId,
           externalSessionId: turnContext.externalSessionId,
+          expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
         });
         latestProviderSessionId = undefined;
         await updateRunProviderMetadata({ providerSessionId: null });

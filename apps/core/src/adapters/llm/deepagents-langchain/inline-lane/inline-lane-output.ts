@@ -1,4 +1,20 @@
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import type { DeepAgentPartialUsage } from '../runner/stream-normalizer-partial-usage.js';
+
+export function partialUsageError(
+  partialUsage: DeepAgentPartialUsage,
+  newSessionId: string,
+): RunnerOutputFrame {
+  return {
+    status: 'error',
+    result: null,
+    error: partialUsage.message,
+    newSessionId,
+    usage: partialUsage.usage,
+    usageEventId: partialUsage.usageEventId,
+    contextUsage: partialUsage.contextUsage,
+  };
+}
 
 export function structuredOutputError(
   error: unknown,

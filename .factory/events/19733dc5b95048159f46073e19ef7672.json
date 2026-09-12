@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T11:29:23+00:00", "story": "cache-bug", "detail": "S-0092-9305: Ruling: no baseline file, no suppressions, no fixing the 82 pre-existing errors in this task. AC9 already says debt outside the diff becomes a deferral, so the GATE is diff-scoped: add an npm script l"}

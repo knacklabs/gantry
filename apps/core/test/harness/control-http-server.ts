@@ -84,7 +84,10 @@ export async function startTestControlServer(input: {
 }
 
 async function waitForControlPort(port: number): Promise<void> {
-  const deadline = Date.now() + 1000;
+  // Covers server startup on a loaded machine, not just the listen() call.
+  // One second was enough only while nothing else was running; it returns as
+  // soon as the port answers, so this costs a passing run nothing.
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     if (await canConnect(port)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-09T11:25:11+00:00", "story": "cache-bug", "detail": "S-0090-4b5a: Ruling: the contract (AC6) and decision 0159 \u00a74 win. The compaction-delta degradation path in group-agent-runner-compaction-delta.ts stays on the existing expireProviderSession helper (it operates on "}

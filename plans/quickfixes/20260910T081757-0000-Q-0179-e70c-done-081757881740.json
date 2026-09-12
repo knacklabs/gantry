@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0179-e70c",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "companion outage (five frozen Codex workers, 2026-09-09/10): cache-bug-T1 test-fixture follow-up to fix two \u2014 session-resume-runtime.test.ts fake repository must implement the now-required retireProviderSession; per Ravi (chat, 2026-09-10)",
+  "started_at": "2026-09-10T08:17:23+00:00",
+  "completed_at": "2026-09-10T08:17:57+00:00",
+  "files": [
+    "apps/core/test/unit/runtime/session-resume-runtime.test.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

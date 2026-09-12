@@ -1,0 +1,32 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Plan grill Q1: the compaction-delta replay path already marks a provider session degraded and then expires it when the delta is stale or too large. Decision 0159 wrongly says compaction paths reactivate. What is the contract for that path?",
+      "options": [
+        "Keep expiry, classify as uncovered (Recommended)",
+        "Make it a covered retirement path",
+        "Change it to keep the session"
+      ],
+      "chosen": "Keep expiry, classify as uncovered (Recommended)"
+    },
+    {
+      "question": "Do you accept decisions 0158 (retire after observed crossing; contextUsage.totalTokens preferred, derived usage fallback; typed column; global cap setting; no rollout) and 0159 (provider-neutral releaseSession port; /new returns retired references; covered paths ceiling, missing-session, fingerprint, /new; wording corrected per your answer above) so the plan can attest them?",
+      "options": [
+        "Accept both as Ravi (Recommended)",
+        "Accept with a different name or changes"
+      ],
+      "chosen": "Accept both as Ravi (Recommended)"
+    },
+    {
+      "question": "Closing question for the plan gate. The other repository-settled corrections will be folded in once: 12 spec criteria plus R1 to R7 mapped to tasks; T1 owns the compaction-delta caller, the service layer that discards resetScope's result, deep-agent-runner.ts, and a typed partial-usage carrier; T3 owns the whole release coordinator, the active /new path in runtime-services-active-new.ts, adapter-registry resolution, and post-reply timing; settings scope adds defaults, YAML renderer, revision document and tests, and the reader-version claim is corrected to what settings-revision-document.ts does today; events carry app and actor context, are best-effort, and get publish, query and projection tests per 0013; a code-owning task adds npm run lint to verify and CI; runtime-components.md and canonical-domain-model.md are named; the SQL recipe gets an executed Postgres test; the non-goal wording becomes no data migration or cleanup flow for pre-existing sessions. Any remaining gap before I amend once, record, and save the plan to the board?",
+      "options": [
+        "No remaining gap, amend and save (Recommended)",
+        "Yes, there is a gap"
+      ],
+      "chosen": "No remaining gap, amend and save (Recommended)"
+    }
+  ],
+  "at": "2026-09-09T09:22:32.137011+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

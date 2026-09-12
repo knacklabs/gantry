@@ -1,0 +1,43 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The spec lists `contextHighWaterMark` and `cap` on every `session.provider.retired` event, but only ceiling retirement is caused by a cap check \u2014 fingerprint, missing-session and /new retirement are not, and /new's retired references don't even carry those values. How should the payload be shaped?",
+      "options": [
+        "Discriminated payload: require for ceiling only (Recommended)",
+        "Nullable for the other reasons",
+        "Populate for every reason"
+      ],
+      "chosen": "Discriminated payload: require for ceiling only (Recommended)"
+    },
+    {
+      "question": "The spec requires the /new retirement event to carry `sessionId`, but decision 0159 and the implemented reset return only providerSessionId, externalSessionId and executionProviderId. The active /new path's separate boundary lookup can fail while the reset still succeeds, so the producer cannot reliably attribute every retirement. How should correlation work?",
+      "options": [
+        "Add agentSessionId to the retired reference (Recommended)",
+        "Use the boundary lookup, tolerate gaps",
+        "Omit sessionId from /new events"
+      ],
+      "chosen": "Add agentSessionId to the retired reference (Recommended)"
+    },
+    {
+      "question": "The plan says cleanup drains 'after the reply path is unblocked', but fallback delivery happens after runAgent returns \u2014 so a drain at the end of runAgent can precede or delay the fallback reply. Both /new handlers can also skip cleanup entirely if their acknowledgement send rejects. When should cleanup actually run?",
+      "options": [
+        "After the full delivery attempt settles, in a finally (Recommended)",
+        "Only after successful delivery",
+        "After the primary callback, as planned"
+      ],
+      "chosen": "After the full delivery attempt settles, in a finally (Recommended)"
+    },
+    {
+      "question": "The high-water mark accepts any non-negative integer, but the Postgres column is `integer`, capping at 2,147,483,647. A larger cumulative run measurement is valid under the written contract yet fails at SQL \u2014 leaving the session unmarked and therefore resumable, which defeats the retirement it was supposed to trigger. The cap setting's own maximum is 900,000.",
+      "options": [
+        "Saturate the stored mark at 900,001 (Recommended)",
+        "Widen the column to bigint",
+        "Reject measurements above the integer range"
+      ],
+      "chosen": "Saturate the stored mark at 900,001 (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T10:16:53.846139+00:00",
+  "session_id": "6d62173e-c47d-49d7-b292-9e47232c3309"
+}

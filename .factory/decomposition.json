@@ -1,0 +1,168 @@
+{
+  "project": "Gantry runner control port and single-host safety",
+  "doc_roots": [
+    "WORKFLOW.md",
+    "docs/FACTORY.md",
+    "docs/QUALITY.md",
+    "docs/architecture/codebase-refactor-principles.md",
+    "docs/architecture/current-verification-commands.md",
+    "docs/decisions/0001-agent-runtime-platform.md",
+    "/Users/dev/.codex/plans/myclaw+runner-control-single-host-safety+20260608-194141.md"
+  ],
+  "epics": [
+    {
+      "id": "E1",
+      "title": "Runner control port boundary",
+      "objective": "Wrap today's local filesystem runner-control protocol without changing behavior.",
+      "source_refs": [
+        "apps/core/src/runtime/ipc.ts",
+        "apps/core/src/runtime/continuation-input.ts",
+        "apps/core/src/runner/mcp/ipc.ts"
+      ]
+    },
+    {
+      "id": "E2",
+      "title": "Single-host safety posture",
+      "objective": "Keep local direct mode but require enforcing sandbox for production/remote and add explicit vertical queue caps.",
+      "source_refs": [
+        "apps/core/src/shared/security-posture.ts",
+        "apps/core/src/config/settings/runtime-settings-types.ts",
+        "apps/core/src/runtime/group-queue.ts"
+      ]
+    },
+    {
+      "id": "E3",
+      "title": "Local behavior regression proof",
+      "objective": "Prove jobs, live continuations, permissions, browser IPC, and local runner paths remain unchanged.",
+      "source_refs": [
+        "apps/core/test/unit/runtime",
+        "apps/core/test/unit/runner",
+        "apps/core/test/integration/permission-approval-ipc.integration.test.ts"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Add runner control port contracts and filesystem adapter",
+      "epic_id": "E1",
+      "objective": "Introduce RunnerControlPort and FilesystemRunnerControlPort while keeping auth parsing and handlers in current modules.",
+      "write_scope": [
+        "apps/core/src/runtime/runner-control-port.ts",
+        "apps/core/src/runtime/filesystem-runner-control-port.ts",
+        "apps/core/src/runtime/ipc.ts",
+        "apps/core/src/runtime/continuation-input.ts",
+        "apps/core/test/unit/runtime/runner-control-port.test.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Filesystem IPC layout, claim, archive, response, and continuation writes are available through FilesystemRunnerControlPort.",
+        "startIpcWatcher and GroupQueue continuation writes still use the same local filesystem paths.",
+        "DurableRunnerControlPort has no implementation or bootstrap wiring."
+      ],
+      "verify_commands": [
+        "npm run test:unit -- apps/core/test/unit/runtime/runner-control-port.test.ts apps/core/test/unit/runtime/group-queue.test.ts",
+        "python3 .codex/scripts/check_architecture.py"
+      ],
+      "required_tests": [
+        "adapter preserves pending-file filtering and trusted folder behavior",
+        "continuation input and close signal file names remain unchanged"
+      ],
+      "reviewer_focus": "Boundary is a thin adapter, no remote worker behavior, no auth logic moved into transport.",
+      "linear_parent": "CONTROL-01"
+    },
+    {
+      "id": "T2",
+      "title": "Enforce sandbox posture and add vertical queue caps",
+      "epic_id": "E2",
+      "objective": "Fail production/remote direct sandbox and add queue backlog caps defaulting to unchanged local behavior.",
+      "write_scope": [
+        "apps/core/src/shared/security-posture.ts",
+        "apps/core/src/config/preflight.ts",
+        "apps/core/src/config/settings/runtime-settings-types.ts",
+        "apps/core/src/config/settings/runtime-settings-defaults.ts",
+        "apps/core/src/config/settings/runtime-settings-parser.ts",
+        "apps/core/src/config/settings/runtime-settings-renderer.ts",
+        "apps/core/src/config/index.ts",
+        "apps/core/src/runtime/group-queue.ts",
+        "apps/core/test/unit/config/security-posture.test.ts",
+        "apps/core/test/unit/config/runtime-settings.test.ts",
+        "apps/core/test/unit/runtime/group-queue.test.ts"
+      ],
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Local dev may use direct sandbox.",
+        "Production or remote posture rejects direct sandbox.",
+        "Queue cap defaults of 0 preserve current local behavior.",
+        "Positive queue caps reject new backlog without rejecting duplicate running/queued task ids."
+      ],
+      "verify_commands": [
+        "npm run test:unit -- apps/core/test/unit/config/security-posture.test.ts apps/core/test/unit/config/runtime-settings.test.ts apps/core/test/unit/runtime/group-queue.test.ts"
+      ],
+      "required_tests": [
+        "production remote direct sandbox rejection",
+        "queue cap parse/render",
+        "queue pending task cap behavior"
+      ],
+      "reviewer_focus": "Fail-closed production posture, unchanged local defaults, no broad queue behavior rewrite.",
+      "linear_parent": "CONTROL-01"
+    },
+    {
+      "id": "T3",
+      "title": "Prove durable runner control is contract-only and local IPC still works",
+      "epic_id": "E3",
+      "objective": "Add architecture and focused local regression tests around runner control.",
+      "write_scope": [
+        "apps/core/test/unit/architecture/runner-control-port-contract.test.ts",
+        "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+        "apps/core/test/unit/runner/mcp-ipc.test.ts",
+        "apps/core/test/unit/runtime/ipc-auth-boundary.test.ts",
+        "apps/core/test/unit/runtime/ipc-browser-handler.test.ts",
+        "apps/core/test/integration/permission-approval-ipc.integration.test.ts"
+      ],
+      "dependencies": [
+        "T1",
+        "T2"
+      ],
+      "acceptance_criteria": [
+        "No DurableRunnerControlPort concrete implementation exists.",
+        "No remote worker runtime code exists.",
+        "Existing permission, browser, task, and continuation IPC tests pass locally."
+      ],
+      "verify_commands": [
+        "npm run test:unit -- apps/core/test/unit/architecture/runner-control-port-contract.test.ts apps/core/test/unit/runner/agent-runner-ipc.test.ts apps/core/test/unit/runner/mcp-ipc.test.ts apps/core/test/unit/runtime/ipc-auth-boundary.test.ts apps/core/test/unit/runtime/ipc-browser-handler.test.ts",
+        "npm run test:integration -- apps/core/test/integration/permission-approval-ipc.integration.test.ts"
+      ],
+      "required_tests": [
+        "contract-only durable port scan",
+        "existing local IPC regression suite"
+      ],
+      "reviewer_focus": "No accidental remote worker code, unchanged local behavior evidence.",
+      "linear_parent": "CONTROL-01"
+    }
+  ],
+  "build_waves": [
+    {
+      "wave": 1,
+      "tasks": [
+        "T1",
+        "T2"
+      ]
+    },
+    {
+      "wave": 2,
+      "tasks": [
+        "T3"
+      ]
+    }
+  ],
+  "linear_plan": {
+    "issue_key": "CONTROL-01",
+    "status": "recorded locally",
+    "tasks": [
+      "T1",
+      "T2",
+      "T3"
+    ]
+  }
+}

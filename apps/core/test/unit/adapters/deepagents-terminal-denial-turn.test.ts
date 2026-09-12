@@ -27,6 +27,7 @@ vi.mock('@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js', () => ({
 }));
 
 import { runDeepAgentTurn } from '@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js';
+import { DeepAgentPartialUsage } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer-partial-usage.js';
 import { deepAgentsDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import type { JobSetupAction } from '@core/domain/job-types.js';
 import {
@@ -104,29 +105,34 @@ describe('DeepAgents terminal permission denial', () => {
     });
     const emit = vi.fn();
 
-    await expect(
-      runDeepAgentTurn({
-        agentInput: {
-          prompt: 'Use denied_tool.',
-          workspaceFolder: '/tmp/workspace',
-          chatJid: 'conversation:test',
-          appId: 'default',
-          agentId: 'agent-1',
-          runId: 'run-1',
-          jobId: 'job-1',
-          isScheduledJob: true,
-          modelCredentialEnv: {
-            OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
-            OPENAI_API_KEY: 'gtw_test',
-          },
+    const rejection = await runDeepAgentTurn({
+      agentInput: {
+        prompt: 'Use denied_tool.',
+        workspaceFolder: '/tmp/workspace',
+        chatJid: 'conversation:test',
+        appId: 'default',
+        agentId: 'agent-1',
+        runId: 'run-1',
+        jobId: 'job-1',
+        isScheduledJob: true,
+        modelCredentialEnv: {
+          OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+          OPENAI_API_KEY: 'gtw_test',
         },
-        provider: 'openai',
-        modelId: 'gpt-5.5',
-        newSessionId: 'session-1',
-        includeMemoryContext: true,
-        emit,
-      }),
-    ).rejects.toThrow('Permission denied for mcp__gantry__browser_open.');
+      },
+      provider: 'openai',
+      modelId: 'gpt-5.5',
+      newSessionId: 'session-1',
+      includeMemoryContext: true,
+      emit,
+    }).catch((error: unknown) => error);
+    // The denial stays the terminal error AND keeps the usage the normaliser
+    // accumulated before the stream was cut (T1-AC2).
+    expect(rejection).toBeInstanceOf(DeepAgentPartialUsage);
+    expect((rejection as DeepAgentPartialUsage).message).toContain(
+      'Permission denied for mcp__gantry__browser_open.',
+    );
+    expect((rejection as DeepAgentPartialUsage).usageEventId).toBeTruthy();
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({
         runtimeEvents: [

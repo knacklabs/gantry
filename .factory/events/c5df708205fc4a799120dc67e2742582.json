@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-09T11:57:37+00:00", "story": "cache-bug", "detail": "Resolved S-0092 requires a package.json lint:changed script, but package.json is absent from cache-bug-T1's explicit write scope and the current .envrc/CI diff wires full npm run lint instead."}

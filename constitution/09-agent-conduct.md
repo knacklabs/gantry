@@ -21,9 +21,17 @@ If 200 lines could be 50, rewrite. The test: would a senior engineer call
 it overcomplicated? Then simplify. This applies to PLANS before it applies
 to code: the smallest plan that meets the acceptance criteria, every task
 traceable to a criterion, no "for later" phases — the plan grill hunts
-simpler shapes and fails over-built plans before implementation; autoreview's
-quality lens catches whatever slips through (never structure this
-constitution mandates).
+simpler shapes and fails over-built plans before implementation. It applies
+again to each TASK CONTRACT: the task grill asks whether the contract is
+simple enough and names the smaller shape, because a plan can be lean while a
+leaf task authored against it is not — a criterion tracing to nothing, a
+required test proving nothing new, a write scope wider than its criteria, a
+new abstraction where an existing utility fits, or a task grown too big to
+review in one pass, which is a signal to split rather than to raise the
+review budget. Added proof is not over-building: tests for criteria that
+exist, and files those criteria cannot be met without, are the work. After
+both gates, autoreview's quality lens catches whatever slips through (never
+structure this constitution mandates).
 
 ## 3. Surgical changes
 

@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0190-c8ad",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "P2 autoreview follow-up closing the last AC2 gap: when the graph answers the denial abort by ending its iterator normally, deep-agent-runner.ts:442 throws the bare denial and drops the usage normalizeDeepAgentStream already computed, so the single error frame carries an empty payload. Six-line fix wrapping the denial in DeepAgentPartialUsage with the returned terminalUsage/terminalContextUsage/usageEventId; one file, in scope.",
+  "started_at": "2026-09-10T11:55:57+00:00",
+  "completed_at": "2026-09-10T11:56:40+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts"
+  ],
+  "task_id": "cache-bug-T1",
+  "story": "cache-bug"
+}

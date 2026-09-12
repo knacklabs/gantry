@@ -1,0 +1,13 @@
+{
+  "topic": "cache-bug-T1 full unit lane: DeepAgents inline-lane regressions",
+  "lesson": "The partial-usage wrapper in the DeepAgents inline lane must PRESERVE the existing terminal error classification: apps/core/test/unit/adapters/deepagents-inline-lane.test.ts expects a graph recursion error to surface as the named max_turns error (/max_turns cap.*configured limit: N/) and a structured-output schema failure to keep error matching /structured output.*schema validation/i with structuredOutputValidationFailure: true; attaching usage to the error frame must not replace those messages with the raw 'recursion limit' / 'Failed to parse structured output' text. Run the FULL unit lane (npm run test:unit) before the final report, not only the required leaves; and run every gate on Node 24 (.nvmrc) \u2014 on Node 22 the sandbox truncation tests fail for unrelated reasons.",
+  "source": "verify.py run 2026-09-09 13:18 in the cache-bug-T1 worktree",
+  "applies_to": [
+    "apps/core/src/adapters/llm/deepagents-langchain/inline-lane/**",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/**",
+    "apps/core/test/unit/adapters/**"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-09T13:24:11+00:00"
+}

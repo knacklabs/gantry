@@ -1,0 +1,29 @@
+{
+  "aspect": "performance",
+  "score": 9,
+  "summary": "No blocking performance issues found. The tracked diff is limited to verification-time architecture gates, maps, exceptions, tests, docs, and small MCP description text changes; no runtime request-path logic changed.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "residual_risks": [
+    "Architecture checker timing was measured locally only.",
+    "Future large generated TypeScript outputs could increase CI check time because generated production directories are now scanned.",
+    "The direct-provider-send alias scanner can grow with very large files containing many local aliases."
+  ],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "Tracked git diff only",
+    ".codex/scripts/architecture_rules.py",
+    ".codex/scripts/check_architecture.py",
+    ".codex/architecture-map.json",
+    ".codex/architecture-exceptions.json",
+    ".codex/scripts/tests/test_check_architecture.py",
+    "apps/core/src/runner/mcp wording changes",
+    "AGENTS.md",
+    ".codex/AGENTS.md",
+    "docs/architecture/framework-boundaries.md",
+    "npm run check:architecture passed"
+  ],
+  "blocking": [],
+  "warnings": [],
+  "recorded_at": "2026-05-12T05:29:19+00:00"
+}
