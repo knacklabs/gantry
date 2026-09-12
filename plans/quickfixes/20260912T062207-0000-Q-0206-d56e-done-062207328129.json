@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0206-d56e",
+  "profile": "quickfix",
+  "reason": "MinIO deleted both minio/minio and minio/mc from Docker Hub, so every PR fails CI at 'Check runtime images' with 'pull access denied ... repository does not exist'. Repoint the fleet compose at the vendor's own quay.io registry; the manifest digests there are byte-identical to the ones already pinned, so the pin that actually guards content is unchanged.",
+  "started_at": "2026-09-12T06:21:27+00:00",
+  "completed_at": "2026-09-12T06:22:07+00:00",
+  "files": []
+}
