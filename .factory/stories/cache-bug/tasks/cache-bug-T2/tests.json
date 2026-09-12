@@ -1,5 +1,5 @@
 {
-  "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234",
+  "commit": "108beebf9ab343d5add639e2717a95e4dce2fa6b",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
@@ -26,7 +26,7 @@
       "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
       "apps/core/test/integration/inline-agent-runtime.integration.test.ts"
     ],
-    "pass_fail_summary": "CURRENT STATE: green. verify.py passes at 0fd156c1c with Postgres attached and VITEST_MAX_WORKERS=1; inline-agent-runtime.integration.test.ts passes 8/8, re-confirmed at HEAD after the fix.\n\nRESOLVED \u2014 a regression this task introduced and then fixed. T2 added getConfiguredProviderSessionMaxInputTokens to agent-spawn-host.ts (the accessor seam the approved plan prescribes) and the ceiling module imports it, but inline-agent-runtime.integration.test.ts mocks that module with a vi.mock FACTORY, which replaces the module wholesale. The factory did not export the new function, so the call resolved to undefined, threw a TypeError inside the awaited preflight, and the run never left status 'running'. FIX: the factory now exports it. No assertion, timeout or production guard was altered. Verified 8/8 twice after the fix and again at HEAD.\n\nHow it was attributed, for the record and no longer the current state: the stage baseline b1e1ac0b0 passed 8/8 twice while T2 failed 1/8 twice on the same test, env and machine, and reverting only group-agent-runner.ts made it pass \u2014 which located the cause in the runner. It was invisible to every earlier verify in this task because that lane skips without GANTRY_TEST_DATABASE_URL.\n\nSEPARATELY RESOLVED, not a regression: apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' failed once under full-suite load and passed 6/6 across three isolated runs on the identical commit. Load-correlated, outside this task's write scope, same class as deferral D-0085, not touched here and passing in the green run above.",
+    "pass_fail_summary": "Green at 108beebf9 with Postgres attached and VITEST_MAX_WORKERS=1. verify.py passes every phase: structural (format:check + check:architecture), typecheck, and the full test phase \u2014 unit 9,277 passed across 726 files, integration 562 passed / 6 skipped across 85 files. apps/core/test/integration/inline-agent-runtime.integration.test.ts passes 8/8, re-confirmed directly at this commit. No failing test remains in this task's scope.\n\nThe database is load-bearing for that statement: without GANTRY_TEST_DATABASE_URL the DB-gated lanes skip and only 14 integration files run instead of 85, so a green verify without it proves far less.\n\nOne test outside this task's scope is timing-sensitive under full-suite load on a contended machine \u2014 apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout'. It passed 6/6 across three isolated runs on the identical commit and passes in the green run above; it is deferral D-0085's class and is not touched here.\n\nDefects this task introduced and fixed during implementation are recorded in the branch commits and the PR body, not here \u2014 this artifact states what the gate proves about the delivered tree.",
     "remaining_gaps": [
       "apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' is timing-sensitive under full-suite load on a contended machine; outside this task's write scope and deferred, same class as D-0085.",
       "T2-AC1's wording is narrower than decision 0158 section 2 and reads as forbidding contextUsage.totalTokens, which caused autoreview to raise the same non-defect twice; rejected against 0158 and recorded as D-0092 for correction at T3's ceremony.",
@@ -42,8 +42,8 @@
       "A vi.mock factory for any module this task extended silently omits new exports and surfaces as a hung turn rather than a clear failure. The one instance is fixed; lesson 165 records the pattern so the next task that adds an export checks its factory mocks."
     ],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-12T19:08:28+00:00",
-    "commit": "0fd156c1c056d5b4b8f17531d495580d1c5b5234"
+    "recorded_at": "2026-09-12T19:19:09+00:00",
+    "commit": "108beebf9ab343d5add639e2717a95e4dce2fa6b"
   },
-  "updated_at": "2026-09-12T19:08:28+00:00"
+  "updated_at": "2026-09-12T19:19:09+00:00"
 }
