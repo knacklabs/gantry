@@ -1,0 +1,12 @@
+{
+  "topic": "the context high-water mark takes contextUsage.totalTokens FIRST, by decision",
+  "lesson": "Decision 0158 section 2 and docs/specs/cache-bug.md:73 both state the observed value is contextUsage.totalTokens WHEN THE RUN REPORTS IT, and modelVisibleInputTokens(usage) only when it does not. A review finding that asks for the mark to be computed exclusively from output.usage inverts that accepted precedence and is not a defect \u2014 the provider's own context snapshot is authoritative when present, and the possibility that it reads lower than the cache-inclusive input count is a tradeoff 0158 already accepted. Likewise, an output carrying only contextUsage HAS reported a measurement and must raise: T2-AC1's 'a run that reported no usage does not call the operation' means no measurement of either kind, which the implementation enforces by returning early when both are absent. Do not 'fix' the precedence; cite 0158 section 2.",
+  "source": "autoreview quality P2 on 7cb819cf9 + docs/decisions/0158-provider-session-context-ceiling.md:38-39",
+  "applies_to": [
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts",
+    "apps/core/src/shared/model-usage.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T15:47:07+00:00"
+}
