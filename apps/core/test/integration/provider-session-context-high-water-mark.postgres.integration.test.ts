@@ -116,6 +116,50 @@ maybeDescribe('provider session context high-water mark', () => {
     ).resolves.toMatchObject({ contextHighWaterMark: 100 });
   });
 
+  it('consumes the normalised mark so an oversized value never reaches SQL', async () => {
+    const session = await sessionContext('integer-clamp');
+
+    await expect(
+      runtime.sessionOps.raiseProviderSessionContextHighWaterMark(
+        measurementInput({
+          sessionId: session.sessionId,
+          context: session.context,
+          contextHighWaterMark: 2_147_483_648,
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    await expect(
+      runtime.service.db
+        .select({
+          contextHighWaterMark:
+            pgSchema.providerSessionsPostgres.contextHighWaterMark,
+        })
+        .from(pgSchema.providerSessionsPostgres)
+        .where(eq(pgSchema.providerSessionsPostgres.id, session.sessionId)),
+    ).resolves.toEqual([{ contextHighWaterMark: 2_147_483_647 }]);
+  });
+
+  it('inserts a provider session whose id equals its external session id', async () => {
+    const session = await sessionContext('matching-identifiers');
+
+    await expect(
+      runtime.service.db
+        .select({
+          id: pgSchema.providerSessionsPostgres.id,
+          externalSessionId:
+            pgSchema.providerSessionsPostgres.externalSessionId,
+        })
+        .from(pgSchema.providerSessionsPostgres)
+        .where(eq(pgSchema.providerSessionsPostgres.id, session.sessionId)),
+    ).resolves.toEqual([
+      {
+        id: session.sessionId,
+        externalSessionId: session.sessionId,
+      },
+    ]);
+  });
+
   it('raise rejects a stale owner and ignores non-resumable rows', async () => {
     const session = await sessionContext('stale-and-expired');
     const owned = measurementInput({

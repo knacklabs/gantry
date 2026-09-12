@@ -10,6 +10,7 @@ import {
   getRuntimeSettingsForConfig,
   getSelectedAgentHarness,
 } from '../config/index.js';
+import { DEFAULT_PROVIDER_SESSION_MAX_INPUT_TOKENS } from '../config/settings/runtime-settings-defaults.js';
 import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
 import { ConversationRoute } from '../domain/types.js';
@@ -77,6 +78,17 @@ export function getConfiguredAgentMaxRunTokens(
   agentFolder: string,
 ): number | undefined {
   return getRuntimeSettingsForConfig().agents?.[agentFolder]?.maxRunTokens;
+}
+
+export function getConfiguredProviderSessionMaxInputTokens(): number {
+  try {
+    return (
+      getRuntimeSettingsForConfig().limits?.providerSessionMaxInputTokens ??
+      DEFAULT_PROVIDER_SESSION_MAX_INPUT_TOKENS
+    );
+  } catch {
+    return DEFAULT_PROVIDER_SESSION_MAX_INPUT_TOKENS;
+  }
 }
 
 export function createConfiguredRunTokenBudget(agentFolder: string) {

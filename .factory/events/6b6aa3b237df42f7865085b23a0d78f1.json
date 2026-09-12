@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-11T17:40:18+00:00", "story": "cache-bug", "detail": "S-0113-561a: Granted, with the name you proposed: apps/core/src/runtime/group-agent-runner-context-ceiling.ts. Your measurement is right \u2014 group-agent-runner.ts was 773 lines at base against the 780 budget in scri"}

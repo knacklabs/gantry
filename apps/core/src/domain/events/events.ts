@@ -24,6 +24,9 @@ import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { RuntimeEventType } from './runtime-event-types.js';
 import type { PrincipalRef } from '../identity/principal-ref.js';
+import { systemPrincipal } from '../identity/principal-ref.js';
+import { sha256Hex } from '../../shared/stable-hash.js';
+import { RUNTIME_EVENT_TYPES } from './runtime-event-types.js';
 
 export type AgentRunId = BrandedId<'AgentRunId'>;
 
@@ -102,6 +105,67 @@ export interface RuntimeEventPublishInput {
   idempotencyKey?: string | null;
   payload: unknown;
   createdAt?: IsoTimestamp;
+}
+
+export type ProviderSessionHash = BrandedId<'ProviderSessionHash'>;
+
+interface ProviderSessionRetiredEventPayloadBase {
+  providerSessionHash: ProviderSessionHash;
+  executionProviderId: ExecutionProviderId;
+}
+
+export type ProviderSessionRetiredEventPayload =
+  | (ProviderSessionRetiredEventPayloadBase & {
+      reason: 'ceiling';
+      contextHighWaterMark: number;
+      cap: number;
+    })
+  | (ProviderSessionRetiredEventPayloadBase & {
+      reason: 'fingerprint' | 'missing' | 'new';
+      contextHighWaterMark?: never;
+      cap?: never;
+    });
+
+export interface ProviderSessionCleanupFailedEventPayload {
+  providerSessionHash: ProviderSessionHash;
+  executionProviderId: ExecutionProviderId;
+  error: string;
+  reason?: never;
+}
+
+export type ProviderSessionRuntimeEventPublishInput = Omit<
+  RuntimeEventPublishInput,
+  'eventType' | 'payload' | 'actor' | 'responseMode'
+> &
+  (
+    | {
+        eventType: typeof RUNTIME_EVENT_TYPES.SESSION_PROVIDER_RETIRED;
+        payload: ProviderSessionRetiredEventPayload;
+      }
+    | {
+        eventType: typeof RUNTIME_EVENT_TYPES.SESSION_PROVIDER_CLEANUP_FAILED;
+        payload: ProviderSessionCleanupFailedEventPayload;
+      }
+  );
+
+export function hashProviderSessionExternalId(
+  externalSessionId: string,
+): ProviderSessionHash {
+  return sha256Hex(externalSessionId) as ProviderSessionHash;
+}
+
+export async function publishProviderSessionRuntimeEvent(
+  publish:
+    | ((event: RuntimeEventPublishInput) => Promise<unknown> | void)
+    | undefined,
+  input: ProviderSessionRuntimeEventPublishInput,
+): Promise<void> {
+  if (!publish) return;
+  await publish({
+    ...input,
+    actor: systemPrincipal('runtime'),
+    responseMode: 'none',
+  });
 }
 
 export interface RuntimeEventFilter {

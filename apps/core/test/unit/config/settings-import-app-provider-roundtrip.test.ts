@@ -6,6 +6,8 @@ import {
   settingsToRevisionDocument,
 } from '@core/config/settings/settings-import-service.js';
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
+import { exportCurrentDesiredState } from '@core/config/settings/desired-state-current-export.js';
+import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 
 describe('settings revision app-provider round-trip', () => {
   afterEach(() => vi.unstubAllEnvs());
@@ -94,5 +96,49 @@ describe('settings revision app-provider round-trip', () => {
     );
     expect(validation.failure?.details ?? []).toEqual([]);
     expect(validation.ok).toBe(true);
+  });
+
+  it('round-trips provider_session_max_input_tokens through the revision document and the export', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.limits.providerSessionMaxInputTokens = 275_000;
+
+    const document = settingsToRevisionDocument(settings);
+    const restored = settingsFromRevisionDocument(document);
+    const exported = await exportCurrentDesiredState({
+      appId: 'default' as never,
+      settings: restored,
+      deps: {
+        ops: { getAllConversationRoutes: async () => ({}) },
+        repositories: {
+          agents: { listAgents: async () => [] },
+          tools: {
+            listAgentToolBindingsForAgents: async () => [],
+            listTools: async () => [],
+          },
+          skills: {
+            listAgentSkillBindingsForAgents: async () => [],
+            listSkills: async () => [],
+          },
+          mcpServers: { listAgentBindingsForAgents: async () => [] },
+        },
+      } as never,
+    });
+
+    expect(document.limits).toMatchObject({
+      provider_session_max_input_tokens: 275_000,
+    });
+    expect(restored.limits.providerSessionMaxInputTokens).toBe(275_000);
+    expect(exported.limits.providerSessionMaxInputTokens).toBe(275_000);
+  });
+
+  it('emits the limits block for a cap configured with no provider entries', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.limits.providerSessionMaxInputTokens = 325_000;
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+
+    expect(yaml).toContain(
+      'limits:\n  provider_session_max_input_tokens: 325000',
+    );
   });
 });

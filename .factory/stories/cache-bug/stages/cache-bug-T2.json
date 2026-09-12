@@ -1,5 +1,14 @@
 {
   "id": "cache-bug-T2",
   "title": "Ceiling policy, the cap setting, and event types",
-  "status": "pending"
+  "status": "active",
+  "started_at": "2026-09-11T17:17:21+00:00",
+  "base_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
+  "dirty_at_start": {
+    ".factory/stories/cache-bug/grills/tasks/cache-bug-T2.json": {
+      "digest": "5452a7b3da0638ff6a4d7063c87d1dee5aa03aa80e7a711b7201340f40d900d9",
+      "git": "1 .M N... 100644 100644 100644 869656abdb796f22a5aa0c9d34767c0591b4788e 869656abdb796f22a5aa0c9d34767c0591b4788e .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000100644 869656abdb796f22a5aa0c9d34767c0591b4788e 0\t.factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000H .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000"
+    }
+  },
+  "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c"
 }

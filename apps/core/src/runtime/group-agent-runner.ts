@@ -20,7 +20,6 @@ import {
 } from './session-resume-runtime.js';
 import { createRuntimeModelStatusAccess as createModelStatus } from './model-status-store.js';
 import { recordRuntimeModelUsage } from './model-status-output.js';
-import { providerSessionAccessFingerprintMatches } from './provider-session-access-fingerprint.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
@@ -53,7 +52,13 @@ import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-r
 import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import {
+  prepareProviderSessionContext,
+  raiseProviderSessionMarkFromOutput,
+  retireMissingProviderSession,
+} from './group-agent-runner-context-ceiling.js';
 import { resolveGroupAgentAccessContext } from './group-agent-access-context.js';
+import type { RetiredProviderSessionReference } from '../domain/sessions/provider-session-measurement.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
@@ -107,6 +112,7 @@ export function createGroupAgentRunner(input: {
       maintenanceCompaction?: boolean;
       responseSchema?: Record<string, unknown>;
       agentControls?: AgentControlOverrides;
+      readonly retiredProviderSessions?: RetiredProviderSessionReference[];
     },
   ): Promise<GroupAgentRunResult> {
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
@@ -168,7 +174,7 @@ export function createGroupAgentRunner(input: {
       threadId: sessionThreadId,
       maintenanceProviderSession: options?.maintenanceProviderSession,
     });
-    const turnContext = compactionDeltaReplay.turnContext;
+    let turnContext = compactionDeltaReplay.turnContext;
     const runtimeAppId = turnContext?.appId ?? turnAppId;
     const defaultRuntimeModel =
       group.agentConfig?.model ?? defaultInteractiveModel;
@@ -188,13 +194,17 @@ export function createGroupAgentRunner(input: {
     const runState: { runId?: string } = {};
     const liveRunFenced = !!options?.existingRunLeaseToken;
     let latestProviderSessionId =
-      turnContext?.externalSessionId?.trim() || undefined;
+      options?.maintenanceProviderSession?.externalSessionId.trim() ||
+      turnContext?.externalSessionId?.trim() ||
+      undefined;
     let resumeProviderSessionId =
       options?.maintenanceProviderSession?.providerSessionId ??
       turnContext?.providerSessionId;
     let resumeExternalSessionId =
       options?.maintenanceProviderSession?.externalSessionId ??
       turnContext?.externalSessionId;
+    let currentProviderSessionId = resumeProviderSessionId;
+    let providerSessionPersistenceAllowed = true;
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -232,6 +242,7 @@ export function createGroupAgentRunner(input: {
         output.providerSession?.externalSessionId ?? output.newSessionId
       )?.trim();
       if (
+        !providerSessionPersistenceAllowed ||
         !nextSessionId ||
         nextSessionId === latestProviderSessionId ||
         !turnContext?.agentSessionId ||
@@ -263,10 +274,19 @@ export function createGroupAgentRunner(input: {
         return;
       }
       latestProviderSessionId = nextSessionId;
+      currentProviderSessionId = nextSessionId;
       await updateRunProviderMetadata({ providerSessionId: nextSessionId });
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
       await persistProviderSessionFromOutput(output);
+      await raiseProviderSessionMarkFromOutput({
+        output,
+        repository: ops(),
+        turnContext,
+        executionProviderId,
+        providerSessionId: currentProviderSessionId,
+        externalSessionId: latestProviderSessionId,
+      });
       let normalizedUsageRuntimeEvent:
         | NonNullable<AgentOutput['runtimeEvents']>[number]
         | undefined;
@@ -381,35 +401,30 @@ export function createGroupAgentRunner(input: {
         threadId: sessionThreadId ?? undefined,
       },
     });
-    if (
-      turnContext?.providerSessionId &&
-      turnContext.externalSessionId &&
-      !providerSessionAccessFingerprintMatches(
-        turnContext.providerSessionAccessFingerprint,
-        currentAccessFingerprint,
-      )
-    ) {
-      // Never optional: a fingerprint-invalid session must leave the
-      // resumable set through the fenced active->expired transition (0158).
-      await ops().retireProviderSession({
-        providerSessionId: turnContext.providerSessionId,
-        agentSessionId: turnContext.agentSessionId,
-        provider: executionProviderId,
-        externalSessionId: turnContext.externalSessionId,
-        expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
-      });
-      latestProviderSessionId = undefined;
-      resumeProviderSessionId = undefined;
-      resumeExternalSessionId = undefined;
-      logger.warn(
-        {
-          group: group.name,
-          agentId: turnContext.agentId,
-          agentSessionId: turnContext.agentSessionId,
-        },
-        'Expired provider session because runtime access projection changed',
-      );
-    }
+    ({
+      turnContext,
+      latestProviderSessionId,
+      currentProviderSessionId,
+      resumeProviderSessionId,
+      resumeExternalSessionId,
+      providerSessionPersistenceAllowed,
+    } = await prepareProviderSessionContext({
+      turnContext,
+      latestProviderSessionId,
+      currentProviderSessionId,
+      resumeProviderSessionId,
+      resumeExternalSessionId,
+      maintenanceProviderSession: Boolean(options?.maintenanceProviderSession),
+      currentAccessFingerprint,
+      repository: ops(),
+      executionProviderId,
+      publish: deps.publishRuntimeEvent,
+      appId: runtimeAppId,
+      groupName: group.name,
+      loadTurnContext,
+      onRetired: (reference) =>
+        options?.retiredProviderSessions?.push(reference),
+    }));
     const surfacingScope = {
       appId: runtimeAppId,
       agentId:
@@ -501,31 +516,21 @@ export function createGroupAgentRunner(input: {
         turnContext,
       });
       if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
-      const expireTurnProviderSession = async (
-        reason: string,
-      ): Promise<boolean> => {
-        if (
-          !turnContext?.providerSessionId ||
-          !turnContext.agentSessionId ||
-          !turnContext.externalSessionId
-        ) {
-          return false;
-        }
-        await ops().retireProviderSession({
-          providerSessionId: turnContext.providerSessionId,
-          agentSessionId: turnContext.agentSessionId,
-          provider: executionProviderId,
-          externalSessionId: turnContext.externalSessionId,
-          expectedAgentSessionResetAt: turnContext.agentSessionResetAt ?? null,
+      const expireTurnProviderSession = (reason: string) =>
+        retireMissingProviderSession({
+          reason,
+          repository: ops(),
+          turnContext,
+          executionProviderId,
+          publish: deps.publishRuntimeEvent,
+          appId: runtimeAppId,
+          groupName: group.name,
+          runId: runState.runId,
+          onRetired: (reference) =>
+            options?.retiredProviderSessions?.push(reference),
+          clearRunProviderSession: () =>
+            updateRunProviderMetadata({ providerSessionId: null }),
         });
-        latestProviderSessionId = undefined;
-        await updateRunProviderMetadata({ providerSessionId: null });
-        logger.warn(
-          { group: group.name, reason: redactString(reason) },
-          'Expired stale provider session and retrying without resume',
-        );
-        return true;
-      };
       const invokeAgent = (agentInput: {
         memoryContextBlock?: string;
         resumeSessionId?: string;
@@ -628,6 +633,8 @@ export function createGroupAgentRunner(input: {
         missingProviderSession &&
         (await expireTurnProviderSession(output.error ?? 'missing session'))
       ) {
+        latestProviderSessionId = undefined;
+        currentProviderSessionId = undefined;
         resumeExternalSessionId = undefined;
         output = await invokeAgent({
           memoryContextBlock,

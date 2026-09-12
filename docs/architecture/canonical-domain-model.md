@@ -162,8 +162,10 @@ collide inside one conversation.
 `ProviderSession` stores provider-specific diagnostic or export state for an
 `AgentSession`. Claude session ids, response ids, and transcript pointers are
 not Gantry runtime continuation handles. Active chat continuation uses the live
-provider stream while it is running; fresh runs restore durable Gantry memory
-only.
+provider stream while it is running. Later runs may resume a provider session
+until its observed context high-water mark exceeds the configured ceiling;
+after retirement, the replacement run starts from Gantry's bounded durable
+memory.
 
 `AgentSessionSummary` is historical/observability state when present. It is not
 injected into runtime prompts and is not a replacement for provider-owned

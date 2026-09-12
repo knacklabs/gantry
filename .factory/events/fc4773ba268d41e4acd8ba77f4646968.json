@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-11T17:38:57+00:00", "story": "cache-bug", "detail": "Refinement to S-0112-a489: structural compliance needs two runtime paths, apps/core/src/runtime/agent-spawn-host.ts for the existing allowlisted settings getter and a new apps/core/src/runtime/group-a"}
