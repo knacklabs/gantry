@@ -1,17 +1,18 @@
 {
-  "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73",
+  "commit": "c5399a422ffa0836c6cdd84f409940e3e3bdb628",
   "automated": {
     "generated_by": "implementer",
     "status": "passed",
-    "summary": "cache-bug-T2 deterministic gate passed in the task worktree at ccd1004bb: format:check and check:architecture (structural), typecheck, and the full test phase (unit 9,275 and integration) via python3 factory/scripts/verify.py. The architecture check is load-bearing for this task: group-agent-runner.ts stood at 773 of its 780-line budget before T2 and reached 922 with the ceiling policy inlined, so the policy is extracted into group-agent-runner-context-ceiling.ts and the runner is back at 780 with check:architecture passing. db:migrations:check is clean \u2014 T2 adds no migration by contract.",
+    "summary": "cache-bug-T2 deterministic gate passed at c5399a422 WITH a real Postgres attached (GANTRY_TEST_DATABASE_URL against a throwaway pgvector:pg16 on 127.0.0.1:5433) and VITEST_MAX_WORKERS=1: structural (format:check + check:architecture), typecheck, and the full test phase \u2014 unit 9,277 passed across 726 files, integration 562 passed / 6 skipped across 85 files. The database matters: without GANTRY_TEST_DATABASE_URL the DB-gated integration lanes SKIP, and earlier verify runs in this task ran only 14 integration files instead of 85. db:migrations:check is clean (no migration by contract) and check:architecture passes, which is load-bearing here \u2014 the runner stood at 773 of its 780-line budget before T2 and hit 922 with the ceiling policy inlined, so the policy is extracted into group-agent-runner-context-ceiling.ts and the runner is back at 780.",
     "blocking_findings": [],
     "commands_run": [
-      "Node 24 (.nvmrc), Docker 28.1.1 up for the DB-gated lanes: python3 factory/scripts/verify.py \u2014 passed at ccd1004bb (structural, typecheck, tests)",
-      "Node 24: npm test \u2014 unit 9,275 passed (726 files), integration 14 passed / 75 skipped",
-      "Node 24: npm run typecheck \u2014 clean",
-      "Node 24: npm run db:migrations:check \u2014 'Everything's fine', no migration in this task",
-      "Node 24: npm run check:architecture \u2014 'Architecture checks passed' (the 780-line runner budget)",
-      "Node 24: npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts \u2014 6 passed, run three times, to prove the one full-suite failure was non-deterministic and not caused by this task"
+      "Node 24, Docker 28.1.1, GANTRY_TEST_DATABASE_URL=<throwaway pgvector:pg16 on 127.0.0.1:5433>, VITEST_MAX_WORKERS=1: python3 factory/scripts/verify.py \u2014 passed at c5399a422 (structural, typecheck, tests)",
+      "Node 24 + DB: npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts \u2014 2 passed (the S12 recipe leaf, executing SQL extracted from docs/memory/provider-session-ceiling-operations.md against the live schema)",
+      "Node 24 + DB: npx vitest run -c vitest.integration.config.ts apps/core/test/integration/inline-agent-runtime.integration.test.ts \u2014 8 passed, twice, after the regression fix",
+      "Node 24: npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts \u2014 18 passed",
+      "Node 24: npm run db:migrations:check \u2014 clean, no migration in this task",
+      "Node 24: npm run check:architecture \u2014 passes (the 780-line runner budget)",
+      "Attribution control for the regression: stage baseline b1e1ac0b0 passed 8/8 twice while T2 failed 1/8 twice on the same test, env and machine; reverting ONLY group-agent-runner.ts made it pass, locating the cause in the runner."
     ],
     "tests_added_or_updated": [
       "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
@@ -22,24 +23,27 @@
       "apps/core/test/unit/config/settings-import-service.test.ts",
       "apps/core/test/unit/domain/runtime-event-types.test.ts",
       "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
-      "apps/core/test/unit/sessions/provider-session-measurement.test.ts"
+      "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
+      "apps/core/test/integration/inline-agent-runtime.integration.test.ts"
     ],
-    "pass_fail_summary": "verify.py passed on Node 24 at ccd1004bb. One earlier verify run failed at the tests phase on apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts > 'kills a direct command process group on timeout', which expected a timeout-kill signal and got 'Async command did not reach its launch deadline'. Proven non-deterministic and load-correlated: that file passed 6/6 on three consecutive isolated runs on the identical commit, and the whole suite passed on a direct npm test. The file is in apps/core/test/unit/jobs/ and is outside this task's write scope, so it is not touched here \u2014 the same ruling as deferral D-0085 for three tests of the same class. Recorded as a deferral rather than fixed in-task.",
+    "pass_fail_summary": "Green at c5399a422 with the database attached. Two failures were resolved on the way, and the second was a real regression this task introduced rather than a flake.\n\n(1) async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' failed once under full-suite load and passed 6/6 across three isolated runs on the identical commit \u2014 load-correlated, outside this task's write scope, same class as deferral D-0085, not touched here.\n\n(2) inline-agent-runtime.integration.test.ts 'runs mocked Claude and OpenAI-compatible inline turns...' failed DETERMINISTICALLY on T2's code and passed at the stage baseline. The test mocks @core/runtime/agent-spawn-host.js with a vi.mock FACTORY, which replaces the module wholesale; T2 added getConfiguredProviderSessionMaxInputTokens there (the accessor seam the approved plan prescribes) and the factory did not export it, so the call threw a TypeError inside the awaited preflight and the run never left status 'running'. Fixed by completing the mock \u2014 no assertion or timeout was altered. It was invisible to every earlier verify because that lane skips without GANTRY_TEST_DATABASE_URL.",
     "remaining_gaps": [
-      "apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' is timing-sensitive and fails under full-suite load on a contended machine; outside this task's write scope, deferred rather than fixed here (same class as D-0085).",
-      "Full-repo ESLint retains its pre-existing errors outside this task's diff; the gate stays diff-scoped (lint:changed) until deferral D-0081's trigger fires."
+      "apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' is timing-sensitive under full-suite load on a contended machine; outside this task's write scope and deferred, same class as D-0085.",
+      "T2-AC1's wording is narrower than decision 0158 section 2 and reads as forbidding contextUsage.totalTokens, which caused autoreview to raise the same non-defect twice; rejected against 0158 and recorded as D-0092 for correction at T3's ceremony.",
+      "Full-repo ESLint retains its pre-existing errors outside this task's diff; the gate stays diff-scoped (lint:changed) until D-0081's trigger fires."
     ],
     "reviewed_scope": [
-      "cache-bug-T2: the limits.provider_session_max_input_tokens setting through the parser, types, defaults, revision document, fleet import (reader version 15 -> 16) and the canonical YAML renderer, which previously dropped a scalar-only cap; the ceiling preflight in group-agent-runner.ts placed after prepareCompactionDeltaReplay and the access-fingerprint check; the post-run raise; the overflow clamp normalised at the integer column's limit in the domain and consumed inside raiseProviderSessionContextHighWaterMark so no caller can bypass it; the R6 lost-race re-read with both the generation-match reuse and the mismatch rehydrate branches; session.provider.retired with a reason-discriminated payload and session.provider.cleanup_failed as a separate flat payload, published best-effort for ceiling, fingerprint and missing-session; the retired-reference sink on runAgent's options for T3 to drain; and the operator procedures with the observability recipe whose SQL a Postgres test extracts from the document and executes against the live schema."
+      "cache-bug-T2: the limits.provider_session_max_input_tokens setting through the parser, types, defaults, revision document, fleet import (reader version 15 -> 16) and the canonical YAML renderer, which previously dropped a scalar-only cap; the ceiling preflight in group-agent-runner.ts placed after prepareCompactionDeltaReplay and the access-fingerprint check; the POST-RUN mark raise, once per turn after invokeAgent settles rather than per streamed output; the overflow clamp normalised at the integer column's limit in the domain and consumed inside raiseProviderSessionContextHighWaterMark so no caller can bypass it; the lost-fence recovery shared between the ceiling and fingerprint paths and parameterised on restoreResumeIdentifiers, since decision 0158 makes a fingerprint-invalid session never resumable while a lost ceiling fence may resume from the re-read; session.provider.retired with a reason-discriminated payload and session.provider.cleanup_failed as a separate flat payload, published best-effort for ceiling, fingerprint and missing-session; the retired-reference sink on runAgent's options for T3 to drain; and the operator procedures whose observability SQL a Postgres test extracts from the document and executes against the live schema."
     ],
     "skills_used": [],
     "non_blocking_findings": [],
     "residual_risks": [
-      "The cap is enforced per run, not per model call, and is a single global token count rather than a fraction of each model's context window \u2014 both named non-goals of the confirmed spec and recorded as deferral D-0086."
+      "The cap is enforced per run and as a single global token count rather than per model call or as a fraction of each model's context window \u2014 both named non-goals of the confirmed spec, recorded as deferral D-0086.",
+      "A vi.mock factory for any module T2 extended will silently omit new exports and surface as a hang rather than a clear failure. This one is fixed; lesson 165 records the pattern."
     ],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-12T14:43:38+00:00",
-    "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73"
+    "recorded_at": "2026-09-12T19:00:55+00:00",
+    "commit": "c5399a422ffa0836c6cdd84f409940e3e3bdb628"
   },
-  "updated_at": "2026-09-12T14:43:38+00:00"
+  "updated_at": "2026-09-12T19:00:55+00:00"
 }
