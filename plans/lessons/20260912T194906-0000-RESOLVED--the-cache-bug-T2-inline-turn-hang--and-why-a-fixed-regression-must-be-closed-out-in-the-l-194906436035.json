@@ -1,0 +1,12 @@
+{
+  "topic": "RESOLVED: the cache-bug-T2 inline-turn hang, and why a fixed regression must be closed out in the ledger",
+  "lesson": "The T2 inline-turn hang described in the 2026-09-12T18:05 lesson is FIXED and verified: apps/core/test/integration/inline-agent-runtime.integration.test.ts passes 8/8 with GANTRY_TEST_DATABASE_URL attached, and verify.py is green at b88a287bd with 85 integration files running (unit 9,277 passed, integration 562 passed / 6 skipped). The cause was a vi.mock FACTORY for @core/runtime/agent-spawn-host.js that did not export the newly added getConfiguredProviderSessionMaxInputTokens, so the call threw inside the awaited preflight; completing the mock fixed it. group-agent-runner.ts:403 is NOT defective. The process rule, which cost three review rounds: autoreview reads the lesson ledger, the review briefs and this task's recorded evidence as CURRENT state. A lesson written to describe a live regression keeps re-reporting it after the fix, because the ledger is append-only and nothing marks it resolved. Write investigation lessons as durable RULES rather than incident reports, and when an incident lesson is unavoidable, close it with a resolving entry the moment the fix verifies.",
+  "source": "b88a287bd verify green; autoreview rounds on 108beebf9 and b88a287bd both citing the 18:05 lesson",
+  "applies_to": [
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T19:49:06+00:00"
+}

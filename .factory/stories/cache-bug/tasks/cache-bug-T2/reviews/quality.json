@@ -2,17 +2,17 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
   "score": 7,
-  "summary": "quality lens over cache-bug-T2 (26 product path(s), b1e1ac0..108beeb, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The requested ceiling, settings, event, handover, and documentation changes are largely present, but the verified database-backed inline-runtime hang is a blocking regression in the changed runner path.\nVERDICT T2-AC1: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:659 post-run raise and usage-free early return in apps/core/src/runtime/group-agent-runner-context-ceiling.ts:55\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:19 clamps at the PostgreSQL integer boundary after domain validation\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:345 implements selected-row ceiling retirement and next-resume behavior\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 performs non-hydrating re-read and generation-sensitive memory reuse/rehydration\nVERDICT T2-AC5: partial \u2014 apps/core/src/runtime/group-agent-runner.ts:403 is in the changed healthy-session path that remains stuck under the recorded database-backed integration test\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap and apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:30 emits scalar-only limits\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110 supplies discriminated payload typing and the three runner retirement sites publish through it\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:112 adds the optional typed retirement sink without widening the result union\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:7 contains the operational procedures, with extracted-SQL coverage in apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts:147\nVERDICT T2-AC10: implemented \u2014 recorded evidence reports verify.py, lint/build/typecheck, unit, and end-to-end checks green; the failing database-gated lane was skipped without its database URL\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:37 exercises the public PUT/GET round trip\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274 retains the newly persisted identifier for the first post-run mark, pinned by apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:517\nLEFTOVERS: none visible in the supplied diff.",
+  "summary": "quality lens over cache-bug-T2 (26 product path(s), b1e1ac0..b88a287, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The provider-session ceiling implementation is broadly present, but the verified database-backed inline-turn hang is a blocking runtime regression.\nVERDICT T2-AC1: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:659\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:20\nVERDICT T2-AC3: partial \u2014 apps/core/src/runtime/group-agent-runner.ts:403; the recorded Postgres integration regression never settles or delivers the reply\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:236\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:595\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:31\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:128\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:115\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:7\nVERDICT T2-AC10: implemented \u2014 .factory/review-briefs/cache-bug-T2.quality.md:recorded-evidence\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:36\nVERDICT T2-AC12: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:569\nLEFTOVERS: none visible in the supplied diff.",
   "blocking_findings": [
     {
       "category": "regression",
       "area": "apps/core/src/runtime",
-      "summary": "[P1] Restore completion of database-backed inline turns (apps/core/src/runtime/group-agent-runner.ts:403): The newly awaited provider-session preflight is on every turn path, and the recorded database-backed integration evidence shows that this patch leaves the inline agent run permanently in `running` until its 20-second timeout."
+      "summary": "[P1] Restore completion of database-backed inline turns (apps/core/src/runtime/group-agent-runner.ts:403): The recorded database-backed regression still fails deterministically: `inline-agent-runtime.integration.test.ts` remains at status `running` until its 20-second timeout, while the same test passes when only `group-agent-runner.ts` is reverted to the base revision."
     },
     {
       "category": "plan-contract-partial",
       "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria",
-      "summary": "T2-AC5: S6 no regression for healthy sessions: an under-cap or unmarked session resumes with its memory block and snapshot, and these four pinned tests stay green and UNTOUCHED \u2014 apps/core/test/unit/runtime/group-processing.test.ts \"passes hydrated memory context with provider session resume id\", apps/core/test/unit/runner/agent-runner-ipc.test.ts live-turn persist/resume, apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts memory+prompt user message, and apps/core/test/unit/adapters/deepagents-memory-context.test.ts."
+      "summary": "T2-AC3: S5 ceiling preflight: an over-cap session is not passed as the resume id; retirement returns the reference; the run proceeds fresh; the replacement handle is persisted; the reply is delivered; a run that CROSSES the cap mid-run is retired on the FOLLOWING resume, never mid-run; a `maintenance_compact` row is not retired; a `ready` row is promoted first (the preflight sits after prepareCompactionDeltaReplay and after the access-fingerprint check, and evaluates the mark on the SELECTED row only); a lost transition persists no replacement."
     }
   ],
   "non_blocking_findings": [],
@@ -50,62 +50,62 @@
     {
       "contract_id": "T2-AC1",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:659 post-run raise and usage-free early return in apps/core/src/runtime/group-agent-runner-context-ceiling.ts:55"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:659"
     },
     {
       "contract_id": "T2-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:19 clamps at the PostgreSQL integer boundary after domain validation"
+      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:20"
     },
     {
       "contract_id": "T2-AC3",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:345 implements selected-row ceiling retirement and next-resume behavior"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:403; the recorded Postgres integration regression never settles or delivers the reply"
     },
     {
       "contract_id": "T2-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 performs non-hydrating re-read and generation-sensitive memory reuse/rehydration"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:236"
     },
     {
       "contract_id": "T2-AC5",
-      "verdict": "partial",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:403 is in the changed healthy-session path that remains stuck under the recorded database-backed integration test"
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:595"
     },
     {
       "contract_id": "T2-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap and apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:30 emits scalar-only limits"
+      "evidence": "apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts:31"
     },
     {
       "contract_id": "T2-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/events/events.ts:110 supplies discriminated payload typing and the three runner retirement sites publish through it"
+      "evidence": "apps/core/src/domain/events/events.ts:128"
     },
     {
       "contract_id": "T2-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:112 adds the optional typed retirement sink without widening the result union"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:115"
     },
     {
       "contract_id": "T2-AC9",
       "verdict": "implemented",
-      "evidence": "docs/memory/provider-session-ceiling-operations.md:7 contains the operational procedures, with extracted-SQL coverage in apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts:147"
+      "evidence": "docs/memory/provider-session-ceiling-operations.md:7"
     },
     {
       "contract_id": "T2-AC10",
       "verdict": "implemented",
-      "evidence": "recorded evidence reports verify.py, lint/build/typecheck, unit, and end-to-end checks green; the failing database-gated lane was skipped without its database URL"
+      "evidence": ".factory/review-briefs/cache-bug-T2.quality.md:recorded-evidence"
     },
     {
       "contract_id": "T2-AC11",
       "verdict": "implemented",
-      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:37 exercises the public PUT/GET round trip"
+      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:36"
     },
     {
       "contract_id": "T2-AC12",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274 retains the newly persisted identifier for the first post-run mark, pinned by apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:517"
+      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:569"
     },
     {
       "contract_id": "T1-AC1",
@@ -185,10 +185,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "f14cbf029b9b7611d705aafb85261cd3be0827f933cd0000ffcb9f814d409a99",
+  "review_run_id": "273b683ef0323605c2e86b1e08c8fb366702f80097c8f69db206a1e633f670c3",
   "brief_sha256": "8a7aa25eb004ef626b91019a5adca554e3989903738d5658cb91ca0e3864c741",
-  "branch_diff_digest": "ea3aa1e0c9543529c4270fe525cd705883a15a5b41aebf22a5caf1ba0fa1d61d",
+  "branch_diff_digest": "82ef139a3c5a5fabaf38aa6fe8b4218448921a1d9d9507f4fa9fa3cff0da6a14",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T19:17:22+00:00",
-  "commit": "108beebf9ab343d5add639e2717a95e4dce2fa6b"
+  "recorded_at": "2026-09-12T19:48:00+00:00",
+  "commit": "b88a287bdbf90f1ee4cc552c1b4d9ca33ed4bae3"
 }

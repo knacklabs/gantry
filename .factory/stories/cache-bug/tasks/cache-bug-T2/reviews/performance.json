@@ -2,12 +2,12 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
   "score": 7,
-  "summary": "performance lens over cache-bug-T2 (26 product path(s), b1e1ac0..108beeb, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The database-backed evidence shows a deterministic production-path regression: inline agent turns no longer settle and remain marked running until timeout. The exact operation inside the changed runner path still requires isolation, but the file-level bisect and repeated baseline comparison make the regression actionable and blocking. No blocking compatibility leftovers are visible in the supplied diff.",
+  "summary": "performance lens over cache-bug-T2 (26 product path(s), b1e1ac0..b88a287, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The selected change introduces a verified database-backed runtime regression: inline agent turns can remain permanently marked as running and never return a reply. The remaining shown contracts appear implemented, but this P1 execution-path hang makes the patch unsafe to ship.",
   "blocking_findings": [
     {
       "category": "regression",
       "area": "apps/core/src/runtime",
-      "summary": "[P1] Prevent the new preflight path from leaving inline runs permanently running (apps/core/src/runtime/group-agent-runner.ts:403): With a real Postgres database, the recorded `inline-agent-runtime.integration.test.ts` run now deterministically remains in status `running` until its 20-second timeout; the same test passes 8/8 when only this runner file is restored to the baseline."
+      "summary": "[P1] Prevent provider-session preflight from hanging database-backed inline turns (apps/core/src/runtime/group-agent-runner.ts:403): The newly awaited provider-session preparation path leaves the database-backed inline runtime stuck with its agent run in `running` state until the 20-second test timeout, so the turn never completes or delivers a reply."
     }
   ],
   "non_blocking_findings": [],
@@ -42,10 +42,10 @@
   ],
   "skills_used": [],
   "aspect": "performance",
-  "review_run_id": "f14cbf029b9b7611d705aafb85261cd3be0827f933cd0000ffcb9f814d409a99",
+  "review_run_id": "273b683ef0323605c2e86b1e08c8fb366702f80097c8f69db206a1e633f670c3",
   "brief_sha256": "8a7aa25eb004ef626b91019a5adca554e3989903738d5658cb91ca0e3864c741",
-  "branch_diff_digest": "ea3aa1e0c9543529c4270fe525cd705883a15a5b41aebf22a5caf1ba0fa1d61d",
+  "branch_diff_digest": "82ef139a3c5a5fabaf38aa6fe8b4218448921a1d9d9507f4fa9fa3cff0da6a14",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T19:17:22+00:00",
-  "commit": "108beebf9ab343d5add639e2717a95e4dce2fa6b"
+  "recorded_at": "2026-09-12T19:48:00+00:00",
+  "commit": "b88a287bdbf90f1ee4cc552c1b4d9ca33ed4bae3"
 }
