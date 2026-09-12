@@ -1,0 +1,11 @@
+{
+  "topic": "rejected-review-finding-security",
+  "lesson": "Not a defect (0158): Same rejection as the P1 it maps to: T2-AC1 is satisfied under decision 0158 section 2, which makes contextUsage.totalTokens the observed value when the run reports it and modelVisibleInputTokens the fallback when it does not. AC1's sentence describes the S4 errored-run case, where no contextUsage exists and the usage-derived figure is the only measurement; its no-usage clause is honoured because the mark resolves to undefined only when both measurements are absent and the raise returns early. The criterion's wording is narrower than the decision it derives from \u2014 a defect in the text I authored, not in the implementation \u2014 and docs/decisions is authoritative over conflicting guidance per AGENTS.md. Correcting the criterion text is recorded as a deferral rather than done here, because amending acceptance_criteria changes the contract digest and would stale this task's grill and approval mid-stage. \u2014 raised as \"Derive the high-water mark exclusively from reported model usage (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49): This prioritizes `contextUsag\"",
+  "source": "review reject cache-bug-T2 security at 2026-09-12T16:19:06+00:00",
+  "applies_to": [
+    "apps/core/src/runtime/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T16:19:06+00:00"
+}

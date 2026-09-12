@@ -2,7 +2,7 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
   "score": 10,
-  "summary": "security lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff implements the provider-session ceiling, integer-boundary normalization, settings revision flow, typed and hashed retirement events, lost-race memory handling, and optional retired-reference collection without exposing raw provider session identifiers. No concrete P0\u2013P2 security or correctness defect is demonstrated by the available evidence, and no compatibility-only leftover is apparent.",
+  "summary": "security lens over cache-bug-T2 (25 product path(s), b1e1ac0..9d1d42d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The retirement, event-envelope, hashing, and settings changes show no concrete authentication, credential, injection, or raw-session-ID exposure defect in the supplied diff. However, the central post-run measurement path violates its explicit contract by substituting `contextUsage` for the required model-visible usage metric and by raising without reported usage, which can defeat the new context ceiling.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -35,10 +35,24 @@
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "review_run_id": "cf6351c4b5a8b7f251761271d281dd29ea163319dd39ecfe3d860dbf657766a4",
   "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
-  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
+  "branch_diff_digest": "2c9112002ebb4b8fb1aba85d17900c8f057439a81d5f6c2d01def8ae86076bc3",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T15:56:17+00:00",
-  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
+  "recorded_at": "2026-09-12T16:17:09+00:00",
+  "commit": "9d1d42d6c84cdaf5c4cfc386d8f9717cbdcbf229",
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/runtime",
+        "summary": "Derive the high-water mark exclusively from reported model usage (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49): This prioritizes `contextUsage.totalTokens` over `modelVisibleInputTokens(output.usage)` and even produces a mark when `output.usage` is absent."
+      },
+      "reason": "Same rejection as the P1 it maps to: T2-AC1 is satisfied under decision 0158 section 2, which makes contextUsage.totalTokens the observed value when the run reports it and modelVisibleInputTokens the fallback when it does not. AC1's sentence describes the S4 errored-run case, where no contextUsage exists and the usage-derived figure is the only measurement; its no-usage clause is honoured because the mark resolves to undefined only when both measurements are absent and the raise returns early. The criterion's wording is narrower than the decision it derives from \u2014 a defect in the text I authored, not in the implementation \u2014 and docs/decisions is authoritative over conflicting guidance per AGENTS.md. Correcting the criterion text is recorded as a deferral rather than done here, because amending acceptance_criteria changes the contract digest and would stale this task's grill and approval mid-stage.",
+      "cite": "0158",
+      "rejected_at": "2026-09-12T16:19:06+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T2"
+    }
+  ]
 }

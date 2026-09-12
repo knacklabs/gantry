@@ -1,23 +1,11 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 9,
-  "summary": "quality lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The change implements the requested ceiling, settings, events, handover, and documentation surfaces, but the lost-fingerprint recovery path can attribute usage to an unrelated concurrently refreshed provider session.\nVERDICT T2-AC1: partial \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260 retains an unused session as the post-run measurement target\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:3 clamps at the PostgreSQL integer boundary\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355 performs the selected-row ceiling preflight\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:246 performs the non-hydrating re-read and generation-aware memory recovery\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:548 covers healthy resumable sessions\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:70 parses and validates the cap through settings\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110 defines the discriminated typed publication family\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:115 adds the optional retired-reference sink\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:1 provides the operator runbook with tested SQL\nVERDICT T2-AC10: implemented \u2014 recorded verification evidence reports verify.py and automated tests passing\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:34 exercises the public PUT/GET round trip\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274 targets a newly persisted session's first mark",
-  "blocking_findings": [
-    {
-      "category": "plan-contract-partial",
-      "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria",
-      "summary": "T2-AC1: S4 post-run raise: a run that ends in error but reported usage raises the mark through raiseProviderSessionContextHighWaterMark with the model-visible input tokens T1 computes; a run that reported no usage does not call the operation at all (not with zero, not with undefined)."
-    }
-  ],
-  "non_blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "Do not charge a fresh run's usage to the concurrently refreshed session (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260): When a fingerprint retirement loses its fence, recovery passes `restoreResumeIdentifiers: false`, so the subsequent run deliberately starts without a resume ID and cannot persist its replacement."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "score": 10,
+  "summary": "quality lens over cache-bug-T2 (25 product path(s), b1e1ac0..9d1d42d, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. T2-AC1 is incomplete because the mark-raising path accepts and prioritizes `contextUsage` rather than requiring usage and using T1's model-visible token calculation. The remaining visible contracts are implemented, and no compatibility leftovers are visible.\nVERDICT T2-AC1: partial \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49 accepts contextUsage without reported usage\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:4 clamps at the PostgreSQL integer limit\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:309 performs the selected-row ceiling preflight\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 re-reads without hydration and conditionally reuses memory\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:552 covers healthy resume behavior\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap through the settings pipeline\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110 binds the discriminated provider-session event payloads\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:112 adds the optional retired-reference sink\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:1 supplies the operator procedure and extracted SQL\nVERDICT T2-AC10: implemented \u2014 apps/core/test/unit/runtime/group-processing.test.ts:3540 leaves the pinned behavior intact; recorded verification is green\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:35 exercises the public PUT/GET round trip\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274 tracks the newly persisted identifier for the first mark",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -50,62 +38,62 @@
     {
       "contract_id": "T2-AC1",
       "verdict": "partial",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260 retains an unused session as the post-run measurement target"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49 accepts contextUsage without reported usage"
     },
     {
       "contract_id": "T2-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:3 clamps at the PostgreSQL integer boundary"
+      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:4 clamps at the PostgreSQL integer limit"
     },
     {
       "contract_id": "T2-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355 performs the selected-row ceiling preflight"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:309 performs the selected-row ceiling preflight"
     },
     {
       "contract_id": "T2-AC4",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:246 performs the non-hydrating re-read and generation-aware memory recovery"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:229 re-reads without hydration and conditionally reuses memory"
     },
     {
       "contract_id": "T2-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:548 covers healthy resumable sessions"
+      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:552 covers healthy resume behavior"
     },
     {
       "contract_id": "T2-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:70 parses and validates the cap through settings"
+      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:75 validates the cap through the settings pipeline"
     },
     {
       "contract_id": "T2-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/events/events.ts:110 defines the discriminated typed publication family"
+      "evidence": "apps/core/src/domain/events/events.ts:110 binds the discriminated provider-session event payloads"
     },
     {
       "contract_id": "T2-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:115 adds the optional retired-reference sink"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:112 adds the optional retired-reference sink"
     },
     {
       "contract_id": "T2-AC9",
       "verdict": "implemented",
-      "evidence": "docs/memory/provider-session-ceiling-operations.md:1 provides the operator runbook with tested SQL"
+      "evidence": "docs/memory/provider-session-ceiling-operations.md:1 supplies the operator procedure and extracted SQL"
     },
     {
       "contract_id": "T2-AC10",
       "verdict": "implemented",
-      "evidence": "recorded verification evidence reports verify.py and automated tests passing"
+      "evidence": "apps/core/test/unit/runtime/group-processing.test.ts:3540 leaves the pinned behavior intact; recorded verification is green"
     },
     {
       "contract_id": "T2-AC11",
       "verdict": "implemented",
-      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:34 exercises the public PUT/GET round trip"
+      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:35 exercises the public PUT/GET round trip"
     },
     {
       "contract_id": "T2-AC12",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274 targets a newly persisted session's first mark"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274 tracks the newly persisted identifier for the first mark"
     },
     {
       "contract_id": "T1-AC1",
@@ -159,10 +147,36 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "review_run_id": "cf6351c4b5a8b7f251761271d281dd29ea163319dd39ecfe3d860dbf657766a4",
   "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
-  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
+  "branch_diff_digest": "2c9112002ebb4b8fb1aba85d17900c8f057439a81d5f6c2d01def8ae86076bc3",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T15:56:17+00:00",
-  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
+  "recorded_at": "2026-09-12T16:17:09+00:00",
+  "commit": "9d1d42d6c84cdaf5c4cfc386d8f9717cbdcbf229",
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/runtime",
+        "summary": "[P1] Require reported usage before raising the session mark (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49): `raiseProviderSessionMarkFromOutput` treats `contextUsage.totalTokens` as sufficient and prefers it over `modelVisibleInputTokens(output.usage)`."
+      },
+      "reason": "Decision 0158 section 2 states the observed value IS contextUsage.totalTokens when the run reports it, and modelVisibleInputTokens derived from normalised usage ONLY when it does not; the confirmed spec repeats it at docs/specs/cache-bug.md:73. The implementation follows that precedence exactly, and AGENTS.md makes docs/decisions authoritative over conflicting guidance, so inverting it would put the code in breach of an accepted decision. T2-AC1 does not require otherwise: its sentence describes the S4 errored-run case, where a run that died mid-turn has no contextUsage and the usage-derived figure is the only measurement available. It never forbids contextUsage; reading a prohibition into it is an inference rather than its text. AC1's second clause, that a run reporting no usage must not call the operation, is honoured \u2014 the mark resolves to undefined only when BOTH contextUsage and usage are absent, and the raise returns early on undefined, so the repository is never called without a measurement. An output carrying contextUsage HAS reported one. The reviewer's substantive worry, that a provider's own context snapshot could read lower than the cache-inclusive input count, is real but is the tradeoff 0158 section 2 weighed and accepted, on the grounds that the provider's snapshot is authoritative about its own context size; re-deciding it inside T2 would overturn an accepted decision through a review finding. For the record, AC1's wording is narrower than 0158 and invited this reading, which is a defect in the criterion I authored rather than in the code.",
+      "cite": "0158",
+      "rejected_at": "2026-09-12T16:18:46+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T2"
+    },
+    {
+      "finding": {
+        "category": "plan-contract-partial",
+        "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria",
+        "summary": "T2-AC1: S4 post-run raise: a run that ends in error but reported usage raises the mark through raiseProviderSessionContextHighWaterMark with the model-visible input tokens T1 computes; a run that reported no usage does not call the operation at all (not with zero, not with undefined)."
+      },
+      "reason": "Same rejection as the P1 it maps to: T2-AC1 is satisfied under decision 0158 section 2, which makes contextUsage.totalTokens the observed value when the run reports it and modelVisibleInputTokens the fallback when it does not. AC1's sentence describes the S4 errored-run case, where no contextUsage exists and the usage-derived figure is the only measurement; its no-usage clause is honoured because the mark resolves to undefined only when both measurements are absent and the raise returns early. The criterion's wording is narrower than the decision it derives from \u2014 a defect in the text I authored, not in the implementation \u2014 and docs/decisions is authoritative over conflicting guidance per AGENTS.md. Correcting the criterion text is recorded as a deferral rather than done here, because amending acceptance_criteria changes the contract digest and would stale this task's grill and approval mid-stage.",
+      "cite": "0158",
+      "rejected_at": "2026-09-12T16:19:06+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T2"
+    }
+  ]
 }

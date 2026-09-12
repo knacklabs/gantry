@@ -1,0 +1,11 @@
+{
+  "topic": "rejected-review-finding-quality",
+  "lesson": "Not a defect (0158): Decision 0158 section 2 states the observed value IS contextUsage.totalTokens when the run reports it, and modelVisibleInputTokens derived from normalised usage ONLY when it does not; the confirmed spec repeats it at docs/specs/cache-bug.md:73. The implementation follows that precedence exactly, and AGENTS.md makes docs/decisions authoritative over conflicting guidance, so inverting it would put the code in breach of an accepted decision. T2-AC1 does not require otherwise: its sentence describes the S4 errored-run case, where a run that died mid-turn has no contextUsage and the usage-derived figure is the only measurement available. It never forbids contextUsage; reading a prohibition into it is an inference rather than its text. AC1's second clause, that a run reporting no usage must not call the operation, is honoured \u2014 the mark resolves to undefined only when BOTH contextUsage and usage are absent, and the raise returns early on undefined, so the repository is never called without a measurement. An output carrying contextUsage HAS reported one. The reviewer's substantive worry, that a provider's own context snapshot could read lower than the cache-inclusive input count, is real but is the tradeoff 0158 section 2 weighed and accepted, on the grounds that the provider's snapshot is authoritative about its own context size; re-deciding it inside T2 would overturn an accepted decision through a review finding. For the record, AC1's wording is narrower than 0158 and invited this reading, which is a defect in the criterion I authored rather than in the code. \u2014 raised as \"[P1] Require reported usage before raising the session mark (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49): `raiseProviderSessionMarkFromOutpu\"",
+  "source": "review reject cache-bug-T2 quality at 2026-09-12T16:18:46+00:00",
+  "applies_to": [
+    "apps/core/src/runtime/**"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T16:18:46+00:00"
+}

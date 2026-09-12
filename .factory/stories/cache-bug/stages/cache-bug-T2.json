@@ -14,10 +14,10 @@
   "local_review_stamp": {
     "stage_id": "cache-bug-T2",
     "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c",
-    "brief_sha256": "bb928f3621acb015db324f67e97499c29403454f09d19f98e33e69175dd29ec4",
+    "brief_sha256": "63664f4f6c80c06504a734e0805a5b2a376e8496991e6afc5ffc37bd0615b0e0",
     "base_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
-    "product_tree_digest": "d6c53f17cb186dceb34728753bb3511eaf7d9f85efb6e959d3a5c75901a887fb",
-    "recorded_at": "2026-09-12T15:56:17+00:00",
+    "product_tree_digest": "88ba65d388cb5a1cc40362e1833a703d1e1349bd655b1d3757a48be0685c329a",
+    "recorded_at": "2026-09-12T16:19:07+00:00",
     "generated_by": "autoreview",
     "lenses": [
       "quality",

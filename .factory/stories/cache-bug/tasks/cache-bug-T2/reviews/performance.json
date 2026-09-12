@@ -1,17 +1,11 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 9,
-  "summary": "performance lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The lost-fingerprint recovery path can persist usage measurements against a provider session that the run deliberately did not resume. This corrupts the high-water mark and can trigger avoidable provider-session retirement and recreation. No blocking compatibility leftovers or credential exposures are shown in the bundle.",
+  "score": 10,
+  "summary": "performance lens over cache-bug-T2 (25 product path(s), b1e1ac0..9d1d42d, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff shows no actionable P0\u2013P2 performance defect. The cap is read once per turn, ceiling checks operate only on the selected session, lost-race rehydration is bounded, and no N+1 or unbounded hot-path work is introduced. The diff also contains no compatibility-only wrappers, aliases, re-exports, or legacy branches.",
   "blocking_findings": [],
-  "non_blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "Do not attribute fresh-run usage to a non-resumed session (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:276): When a fingerprint retirement loses its fence, the caller sets `restoreResumeIdentifiers` to false and therefore starts the provider run fresh, but this helper still returns the refreshed row as `currentProviderSessionId` (and its external id as `latestProviderSessionId`)."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -41,10 +35,10 @@
   ],
   "skills_used": [],
   "aspect": "performance",
-  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "review_run_id": "cf6351c4b5a8b7f251761271d281dd29ea163319dd39ecfe3d860dbf657766a4",
   "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
-  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
+  "branch_diff_digest": "2c9112002ebb4b8fb1aba85d17900c8f057439a81d5f6c2d01def8ae86076bc3",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T15:56:17+00:00",
-  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
+  "recorded_at": "2026-09-12T16:17:09+00:00",
+  "commit": "9d1d42d6c84cdaf5c4cfc386d8f9717cbdcbf229"
 }
