@@ -233,6 +233,34 @@ export interface ProviderSessionCeilingPreflightResult {
   providerSessionPersistenceAllowed: boolean;
 }
 
+async function recoverLostProviderSessionRetirement(input: {
+  turnContext: AgentTurnContext;
+  loadTurnContext: (
+    promoteReadyProviderSession: boolean,
+    hydrateMemory?: boolean,
+  ) => Promise<AgentTurnContext | undefined>;
+}): Promise<ProviderSessionCeilingPreflightResult> {
+  const refreshed = await input.loadTurnContext(false, false);
+  const nextContext =
+    refreshed &&
+    refreshed.agentSessionId === input.turnContext.agentSessionId &&
+    (refreshed.agentSessionResetAt ?? null) ===
+      (input.turnContext.agentSessionResetAt ?? null)
+      ? {
+          ...refreshed,
+          memoryContextBlock: input.turnContext.memoryContextBlock,
+        }
+      : await input.loadTurnContext(false, true);
+  return {
+    turnContext: nextContext,
+    latestProviderSessionId: nextContext?.externalSessionId?.trim(),
+    currentProviderSessionId: nextContext?.providerSessionId,
+    resumeProviderSessionId: nextContext?.providerSessionId,
+    resumeExternalSessionId: nextContext?.externalSessionId,
+    providerSessionPersistenceAllowed: false,
+  };
+}
+
 export async function prepareProviderSessionContext(input: {
   turnContext: AgentTurnContext | undefined;
   latestProviderSessionId: string | undefined;
@@ -262,7 +290,7 @@ export async function prepareProviderSessionContext(input: {
       input.currentAccessFingerprint,
     )
   ) {
-    await retireProviderSessionWithEvent({
+    const retired = await retireProviderSessionWithEvent({
       repository: input.repository,
       executionProviderId: input.executionProviderId,
       publish: input.publish,
@@ -271,6 +299,12 @@ export async function prepareProviderSessionContext(input: {
       retirement: { reason: 'fingerprint', turnContext },
       onRetired: input.onRetired,
     });
+    if (!retired) {
+      return recoverLostProviderSessionRetirement({
+        turnContext,
+        loadTurnContext: input.loadTurnContext,
+      });
+    }
     logger.warn(
       {
         group: input.groupName,
@@ -363,20 +397,8 @@ export async function applyProviderSessionCeilingPreflight(input: {
     };
   }
 
-  const refreshed = await input.loadTurnContext(false, false);
-  const nextContext =
-    refreshed &&
-    refreshed.agentSessionId === turnContext.agentSessionId &&
-    (refreshed.agentSessionResetAt ?? null) ===
-      (turnContext.agentSessionResetAt ?? null)
-      ? { ...refreshed, memoryContextBlock: turnContext.memoryContextBlock }
-      : await input.loadTurnContext(false, true);
-  return {
-    turnContext: nextContext,
-    latestProviderSessionId: nextContext?.externalSessionId?.trim(),
-    currentProviderSessionId: nextContext?.providerSessionId,
-    resumeProviderSessionId: nextContext?.providerSessionId,
-    resumeExternalSessionId: nextContext?.externalSessionId,
-    providerSessionPersistenceAllowed: false,
-  };
+  return recoverLostProviderSessionRetirement({
+    turnContext,
+    loadTurnContext: input.loadTurnContext,
+  });
 }

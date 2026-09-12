@@ -330,6 +330,63 @@ describe('group agent runner provider-session context ceiling', () => {
     expect(getAgentTurnContext.mock.calls[3][0].hydrateMemory).toBe(true);
   });
 
+  it('reuses carried memory when fingerprint retirement loses and the generation matches', async () => {
+    const getAgentTurnContext = vi.fn(async (request) => {
+      const call = getAgentTurnContext.mock.calls.length;
+      if (call >= 3 && request.hydrateMemory === false) {
+        return context({ memoryContextBlock: 'must-not-replace-carried' });
+      }
+      return context({ providerSessionAccessFingerprint: 'changed' });
+    });
+    const test = fixture({
+      getAgentTurnContext,
+      retireProviderSession: vi.fn(async () => undefined),
+      attempts: [
+        [{ status: 'success', result: 'reply', newSessionId: 'replacement' }],
+      ],
+    });
+    await test.invoke();
+    expect(test.runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      '>carried<',
+    );
+    expect(test.setSession).not.toHaveBeenCalled();
+    expect(
+      getAgentTurnContext.mock.calls.filter(
+        ([request]) => request.hydrateMemory !== false,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('rehydrates memory when fingerprint retirement loses and the generation changes', async () => {
+    const getAgentTurnContext = vi.fn(async (request) => {
+      const call = getAgentTurnContext.mock.calls.length;
+      if (call === 3 && request.hydrateMemory === false) {
+        return context({ agentSessionResetAt: '2026-09-11T01:00:00.000Z' });
+      }
+      if (call === 4 && request.hydrateMemory === true) {
+        return context({
+          agentSessionResetAt: '2026-09-11T01:00:00.000Z',
+          memoryContextBlock:
+            '<gantry_memory_context>rehydrated</gantry_memory_context>',
+        });
+      }
+      return context({ providerSessionAccessFingerprint: 'changed' });
+    });
+    const test = fixture({
+      getAgentTurnContext,
+      retireProviderSession: vi.fn(async () => undefined),
+      attempts: [
+        [{ status: 'success', result: 'reply', newSessionId: 'replacement' }],
+      ],
+    });
+    await test.invoke();
+    expect(test.runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      '>rehydrated<',
+    );
+    expect(test.setSession).not.toHaveBeenCalled();
+    expect(getAgentTurnContext.mock.calls.at(-1)?.[0].hydrateMemory).toBe(true);
+  });
+
   it('publishes the ceiling retirement at preflight with the agent session id and no run id', async () => {
     const test = fixture({
       getAgentTurnContext: vi.fn(async () =>

@@ -1,0 +1,45 @@
+{
+  "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "cache-bug-T2 deterministic gate passed in the task worktree at ccd1004bb: format:check and check:architecture (structural), typecheck, and the full test phase (unit 9,275 and integration) via python3 factory/scripts/verify.py. The architecture check is load-bearing for this task: group-agent-runner.ts stood at 773 of its 780-line budget before T2 and reached 922 with the ceiling policy inlined, so the policy is extracted into group-agent-runner-context-ceiling.ts and the runner is back at 780 with check:architecture passing. db:migrations:check is clean \u2014 T2 adds no migration by contract.",
+    "blocking_findings": [],
+    "commands_run": [
+      "Node 24 (.nvmrc), Docker 28.1.1 up for the DB-gated lanes: python3 factory/scripts/verify.py \u2014 passed at ccd1004bb (structural, typecheck, tests)",
+      "Node 24: npm test \u2014 unit 9,275 passed (726 files), integration 14 passed / 75 skipped",
+      "Node 24: npm run typecheck \u2014 clean",
+      "Node 24: npm run db:migrations:check \u2014 'Everything's fine', no migration in this task",
+      "Node 24: npm run check:architecture \u2014 'Architecture checks passed' (the 780-line runner budget)",
+      "Node 24: npx vitest run -c vitest.unit.config.ts apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts \u2014 6 passed, run three times, to prove the one full-suite failure was non-deterministic and not caused by this task"
+    ],
+    "tests_added_or_updated": [
+      "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
+      "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+      "apps/core/test/integration/settings-desired-state-limits.integration.test.ts",
+      "apps/core/test/unit/config/runtime-limits-settings.test.ts",
+      "apps/core/test/unit/config/settings-import-app-provider-roundtrip.test.ts",
+      "apps/core/test/unit/config/settings-import-service.test.ts",
+      "apps/core/test/unit/domain/runtime-event-types.test.ts",
+      "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+      "apps/core/test/unit/sessions/provider-session-measurement.test.ts"
+    ],
+    "pass_fail_summary": "verify.py passed on Node 24 at ccd1004bb. One earlier verify run failed at the tests phase on apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts > 'kills a direct command process group on timeout', which expected a timeout-kill signal and got 'Async command did not reach its launch deadline'. Proven non-deterministic and load-correlated: that file passed 6/6 on three consecutive isolated runs on the identical commit, and the whole suite passed on a direct npm test. The file is in apps/core/test/unit/jobs/ and is outside this task's write scope, so it is not touched here \u2014 the same ruling as deferral D-0085 for three tests of the same class. Recorded as a deferral rather than fixed in-task.",
+    "remaining_gaps": [
+      "apps/core/test/unit/jobs/async-command-sandbox-runner.test.ts 'kills a direct command process group on timeout' is timing-sensitive and fails under full-suite load on a contended machine; outside this task's write scope, deferred rather than fixed here (same class as D-0085).",
+      "Full-repo ESLint retains its pre-existing errors outside this task's diff; the gate stays diff-scoped (lint:changed) until deferral D-0081's trigger fires."
+    ],
+    "reviewed_scope": [
+      "cache-bug-T2: the limits.provider_session_max_input_tokens setting through the parser, types, defaults, revision document, fleet import (reader version 15 -> 16) and the canonical YAML renderer, which previously dropped a scalar-only cap; the ceiling preflight in group-agent-runner.ts placed after prepareCompactionDeltaReplay and the access-fingerprint check; the post-run raise; the overflow clamp normalised at the integer column's limit in the domain and consumed inside raiseProviderSessionContextHighWaterMark so no caller can bypass it; the R6 lost-race re-read with both the generation-match reuse and the mismatch rehydrate branches; session.provider.retired with a reason-discriminated payload and session.provider.cleanup_failed as a separate flat payload, published best-effort for ceiling, fingerprint and missing-session; the retired-reference sink on runAgent's options for T3 to drain; and the operator procedures with the observability recipe whose SQL a Postgres test extracts from the document and executes against the live schema."
+    ],
+    "skills_used": [],
+    "non_blocking_findings": [],
+    "residual_risks": [
+      "The cap is enforced per run, not per model call, and is a single global token count rather than a fraction of each model's context window \u2014 both named non-goals of the confirmed spec and recorded as deferral D-0086."
+    ],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-12T14:43:38+00:00",
+    "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73"
+  },
+  "updated_at": "2026-09-12T14:43:38+00:00"
+}

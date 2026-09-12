@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-12T14:54:44+00:00", "story": "cache-bug", "detail": "Closing the blocking T2 review finding requires editing apps/core/src/runtime/group-agent-runner-context-ceiling.ts, but the supplied brief's write scope does not include that file even though the com"}
