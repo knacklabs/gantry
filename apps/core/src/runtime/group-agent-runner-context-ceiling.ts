@@ -236,6 +236,8 @@ export interface ProviderSessionCeilingPreflightResult {
 async function recoverLostProviderSessionRetirement(input: {
   turnContext: AgentTurnContext;
   restoreResumeIdentifiers: boolean;
+  currentAccessFingerprint: string;
+  cap: number;
   loadTurnContext: (
     promoteReadyProviderSession: boolean,
     hydrateMemory?: boolean,
@@ -252,18 +254,28 @@ async function recoverLostProviderSessionRetirement(input: {
           memoryContextBlock: input.turnContext.memoryContextBlock,
         }
       : await input.loadTurnContext(false, true);
+  const resumeIdentifiersEligible =
+    input.restoreResumeIdentifiers &&
+    Boolean(nextContext?.providerSessionId) &&
+    Boolean(nextContext?.externalSessionId) &&
+    providerSessionAccessFingerprintMatches(
+      nextContext?.providerSessionAccessFingerprint,
+      input.currentAccessFingerprint,
+    ) &&
+    (typeof nextContext?.contextHighWaterMark !== 'number' ||
+      nextContext.contextHighWaterMark <= input.cap);
   return {
     turnContext: nextContext,
-    latestProviderSessionId: input.restoreResumeIdentifiers
+    latestProviderSessionId: resumeIdentifiersEligible
       ? nextContext?.externalSessionId?.trim()
       : undefined,
-    currentProviderSessionId: input.restoreResumeIdentifiers
+    currentProviderSessionId: resumeIdentifiersEligible
       ? nextContext?.providerSessionId
       : undefined,
-    resumeProviderSessionId: input.restoreResumeIdentifiers
+    resumeProviderSessionId: resumeIdentifiersEligible
       ? nextContext?.providerSessionId
       : undefined,
-    resumeExternalSessionId: input.restoreResumeIdentifiers
+    resumeExternalSessionId: resumeIdentifiersEligible
       ? nextContext?.externalSessionId
       : undefined,
     providerSessionPersistenceAllowed: false,
@@ -312,6 +324,8 @@ export async function prepareProviderSessionContext(input: {
       return recoverLostProviderSessionRetirement({
         turnContext,
         restoreResumeIdentifiers: false,
+        currentAccessFingerprint: input.currentAccessFingerprint,
+        cap,
         loadTurnContext: input.loadTurnContext,
       });
     }
@@ -337,6 +351,7 @@ export async function prepareProviderSessionContext(input: {
     (await applyProviderSessionCeilingPreflight({
       turnContext,
       cap,
+      currentAccessFingerprint: input.currentAccessFingerprint,
       maintenanceProviderSession: input.maintenanceProviderSession,
       repository: input.repository,
       executionProviderId: input.executionProviderId,
@@ -359,6 +374,7 @@ export async function prepareProviderSessionContext(input: {
 export async function applyProviderSessionCeilingPreflight(input: {
   turnContext: AgentTurnContext | undefined;
   cap: number;
+  currentAccessFingerprint: string;
   maintenanceProviderSession: boolean;
   repository: GroupProcessingRepository;
   executionProviderId: ExecutionProviderId;
@@ -410,6 +426,8 @@ export async function applyProviderSessionCeilingPreflight(input: {
   return recoverLostProviderSessionRetirement({
     turnContext,
     restoreResumeIdentifiers: true,
+    currentAccessFingerprint: input.currentAccessFingerprint,
+    cap: input.cap,
     loadTurnContext: input.loadTurnContext,
   });
 }

@@ -336,6 +336,53 @@ describe('group agent runner provider-session context ceiling', () => {
     expect(getAgentTurnContext.mock.calls[3][0].hydrateMemory).toBe(true);
   });
 
+  it('does not restore a refreshed session with a changed access fingerprint', async () => {
+    const getAgentTurnContext = vi.fn(async (request) => {
+      const call = getAgentTurnContext.mock.calls.length;
+      if (call >= 3 && request.hydrateMemory === false) {
+        return context({
+          providerSessionAccessFingerprint: 'changed',
+          contextHighWaterMark: 10_000,
+        });
+      }
+      return context({ contextHighWaterMark: CAP + 1 });
+    });
+    const test = fixture({
+      getAgentTurnContext,
+      retireProviderSession: vi.fn(async () => undefined),
+      attempts: [
+        [{ status: 'success', result: 'reply', newSessionId: 'replacement' }],
+      ],
+    });
+
+    await test.invoke();
+
+    expect(test.runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+    expect(test.setSession).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a refreshed session that remains over the cap', async () => {
+    const getAgentTurnContext = vi.fn(async (request) => {
+      const call = getAgentTurnContext.mock.calls.length;
+      if (call >= 3 && request.hydrateMemory === false) {
+        return context({ contextHighWaterMark: CAP + 2 });
+      }
+      return context({ contextHighWaterMark: CAP + 1 });
+    });
+    const test = fixture({
+      getAgentTurnContext,
+      retireProviderSession: vi.fn(async () => undefined),
+      attempts: [
+        [{ status: 'success', result: 'reply', newSessionId: 'replacement' }],
+      ],
+    });
+
+    await test.invoke();
+
+    expect(test.runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+    expect(test.setSession).not.toHaveBeenCalled();
+  });
+
   it('reuses carried memory when fingerprint retirement loses and the generation matches', async () => {
     const getAgentTurnContext = vi.fn(async (request) => {
       const call = getAgentTurnContext.mock.calls.length;
