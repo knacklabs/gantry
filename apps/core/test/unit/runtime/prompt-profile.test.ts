@@ -12,7 +12,6 @@ import type {
   FileArtifactWriteInput,
 } from '@core/domain/ports/file-artifact-store.js';
 import {
-  capabilityGuidancePrompt,
   DEFAULT_PROMPT_SECTION_BUDGETS,
   LOCKED_OPERATING_GUIDANCE_BLOCK,
   OPERATING_GUIDANCE_BLOCK,
@@ -1049,7 +1048,7 @@ describe('PromptProfileService', () => {
   });
 
   it('enforces budget caps for sections and total output', async () => {
-    const { store, service } = createService();
+    const { store } = createService();
     await writePromptArtifact(store, 'team/SOUL.md', 's'.repeat(8000));
     await writePromptArtifact(store, 'team/AGENTS.md', 't'.repeat(8000));
 
