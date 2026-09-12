@@ -412,7 +412,8 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
       .spyOn(String.prototype, 'localeCompare')
       .mockImplementation(function (this: string, other: string) {
         const left = String(this);
-        if (/[^\x00-\x7f]/.test(left) || /[^\x00-\x7f]/.test(other)) {
+        const nonAscii = (s: string) => [...s].some((c) => c.charCodeAt(0) > 0x7f);
+        if (nonAscii(left) || nonAscii(other)) {
           throw new Error('catalog ordering must not use localeCompare');
         }
         return nativeLocaleCompare.call(left, other);

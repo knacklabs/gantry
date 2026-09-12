@@ -52,7 +52,7 @@
     "docs/decisions/0120-local-cli-structured-invocation.md",
     "docs/decisions/0129-skill-action-capability-rules.md",
     "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
-    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
+    "docs/decisions/0161-granted-capabilities-must-be-discoverable.md",
     "docs/architecture/tool-awareness-plan.md",
     "factory/prompts/planner.md",
     "plans/roadmap.json",

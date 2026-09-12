@@ -413,7 +413,7 @@ These questions were put to the human and answered. Two obligations:
 
 ## Context
 
-Spec: `docs/specs/granted-capability-is-visible.md` (confirmed). Decision 0158
+Spec: `docs/specs/granted-capability-is-visible.md` (confirmed). Decision 0161
 (accepted) settles the direction: discovery is the defect, argv validation stays
 the enforcement boundary.
 
@@ -434,7 +434,7 @@ succeeded through it. The missing element is knowledge, not exposure.
 ## Owner rulings
 
 - Do not remove capabilities. The reviewed argv template STAYS the enforcement
-  boundary; 0120 and 0130 stand unamended (0158).
+  boundary; 0120 and 0130 stand unamended (0161).
 - Catalog overflow: every grant always renders its name and id; details degrade
   past a ceiling; the overflow is recorded.
 - Reviewed argument shapes render exactly as reviewed, the owner having been shown

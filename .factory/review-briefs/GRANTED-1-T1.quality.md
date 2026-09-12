@@ -87,7 +87,7 @@ The following are accepted: the story plan's decisions and rulings, and the cont
 
 #### Story plan — Owner rulings
 
-- The reviewed argv template STAYS the enforcement boundary (0158); 0120 and 0130
+- The reviewed argv template STAYS the enforcement boundary (0161); 0120 and 0130
   stand unamended.
 - Reviewed argument shapes render exactly as reviewed. The owner was shown the
   tradeoff twice: a template may contain a fixed operand such as a config path,

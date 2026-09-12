@@ -449,7 +449,7 @@ its renderer drops the stable reference and can collapse ready entries into a
 "+N more" summary (`.../agent-prompt-capability-guidance.ts:241`), so a granted
 capability can be hidden by overflow or rendered without a usable call shape.
 
-Decision 0158 settles the direction: discovery is the defect, and argv validation
+Decision 0161 settles the direction: discovery is the defect, and argv validation
 remains the enforcement boundary. Decisions 0120 and 0130 stand unamended, so
 this story adds no classifier-derived or cached allow to `capability_run` and
 does not relax the reviewed template. Freeing the call shape is recorded in 0158

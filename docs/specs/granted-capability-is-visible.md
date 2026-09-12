@@ -50,7 +50,7 @@ and its renderer drops the stable reference and can collapse ready entries into 
 summary count (`apps/core/src/application/agents/agent-prompt-capability-guidance.ts:241`),
 so a grant can be hidden by overflow or rendered without a usable call shape.
 
-Decision 0158 settles the direction: discovery is the defect, and argv validation
+Decision 0161 settles the direction: discovery is the defect, and argv validation
 remains the enforcement boundary. Decisions 0120 and 0130 stand unamended, so
 nothing here adds a classifier-derived or cached allow to `capability_run` or
 relaxes a reviewed template. Decision 0109's ordering consequence was amended so
@@ -181,5 +181,5 @@ argv with no shell, size and NUL limits, and the sandboxed executor all stay as
 
 Document reading and editing, including slice reads, exact-span replacement,
 revision fencing and the persisted job owner, move to their own spec. Relaxing
-argv validation stays future direction, gated by decision 0158 on a replacement
+argv validation stays future direction, gated by decision 0161 on a replacement
 boundary that must supersede 0120 and 0130 explicitly.

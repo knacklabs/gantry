@@ -138,7 +138,7 @@ decisions_reviewed:
   - 0155-default-allow-gantry-tools-interactive-auto
   - 0156-ai-employee-console-resumable-deployment
   - 0157-jobs-use-the-chat-permission-ladder
-  - 0158-granted-capabilities-must-be-discoverable
+  - 0161-granted-capabilities-must-be-discoverable
 ---
 
 # GRANTED-1 — A granted capability is visible to the agent that holds it
@@ -180,7 +180,7 @@ extending the catalog to the DeepAgents lane, which is follow-up.
 
 ## Owner rulings
 
-- The reviewed argv template STAYS the enforcement boundary (0158); 0120 and 0130
+- The reviewed argv template STAYS the enforcement boundary (0161); 0120 and 0130
   stand unamended.
 - Reviewed argument shapes render exactly as reviewed. The owner was shown the
   tradeoff twice: a template may contain a fixed operand such as a config path,

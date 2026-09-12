@@ -473,7 +473,7 @@ The dispatcher was always reachable (`shared/admin-mcp-tools.ts:96`, filtered at
 succeeded through it. The missing element is knowledge, not exposure.
 
 Spec `docs/specs/granted-capability-is-visible.md`; plan
-`plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md`; decision 0158.
+`plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md`; decision 0161.
 
 ## The two capability sets
 

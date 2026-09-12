@@ -6,7 +6,7 @@
   "task_id": "GRANTED-1-T1",
   "summary": "Three task reads. The first returned seven findings, all resolved. The second returned six, whose largest was that the governing spec and decision were absent from this worktree; that is fixed by folding those records into the task branch, and the other five are corrected at the seams. The third died mid-verification on the upstream Codex remote-compaction 404 without raising a defect, its closing note being that the contract is internally consistent, its criteria and plan contracts match, and its declared paths exist. The gate then refused further reads and its escalation path did not reopen them, so the owner ruled the pass be recorded on this evidence. A fourth round followed the implementer's scope-change signal: the owner ruled argument redaction out of scope, so the contract returned to sixteen files and the accepted exposure is ledgered as A-0071. A fifth round corrected the descriptor model itself after the implementer showed the dispatcher is local-CLI only. A sixth round followed the three-lens review: scope widened by one file so a blocking compatibility-re-export finding could be fixed. A seventh round amended C9 after three review rounds proved it unsatisfiable in a unit test.",
   "gaps": [
-    "The governing spec and decision 0158 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
+    "The governing spec and decision 0161 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
     "The lane mapping read the worker-or-inline runtime flag, which is a different axis from the execution engine, so it could be undefined or select the wrong engine and could not prove the other lane unchanged.",
     "Hard overflow could not emit its diagnostic: the existing startup publisher runs immediately before runner execution and is never reached once the spawn aborts, and neither spawn source nor a spawn test was in scope.",
     "The recorded verify command named a suite root that does not exist; the catalog test lives under test/unit/application.",
@@ -22,7 +22,7 @@
     "The contract cited a governing spec and decision that did not exist in the tree an implementer would work in."
   ],
   "resolutions": [
-    "The spec, decision 0158 and the 0109 and 0153 amendments are merged into the task branch, so the worktree contains every artifact the contract cites. The documentation-only pull request was closed because the contract check requires each pull request to complete a work record, which a docs change does not.",
+    "The spec, decision 0161 and the 0109 and 0153 amendments are merged into the task branch, so the worktree contains every artifact the contract cites. The documentation-only pull request was closed because the contract check requires each pull request to complete a work record, which a docs change does not.",
     "The mapping now takes the engine already resolved from the model at both prompt-compile call sites, agent-spawn.ts:179 before the compile at :219 and agent-spawn-host.ts:161 before the compile at :179, with a deepagents non-regression test on each path.",
     "Overflow aborts the spawn and publishes capability_catalog_overflow at the abort point; both spawn sources and their tests are in scope, with a required leaf on each path.",
     "The verify command now names apps/core/test/unit/application.",
@@ -72,7 +72,7 @@
     ".factory/stories/GRANTED-1/decomposition.json",
     "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
     "docs/specs/granted-capability-is-visible.md",
-    "docs/decisions/0158-granted-capabilities-must-be-discoverable.md",
+    "docs/decisions/0161-granted-capabilities-must-be-discoverable.md",
     "apps/core/src/shared/semantic-capabilities.ts",
     "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
     "apps/core/src/application/agents/prompt-profile-service.ts",
@@ -85,7 +85,7 @@
   ],
   "citations": [
     {
-      "finding": "The governing spec and decision 0158 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
+      "finding": "The governing spec and decision 0161 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
       "source": "docs/specs/granted-capability-is-visible.md"
     },
     {
