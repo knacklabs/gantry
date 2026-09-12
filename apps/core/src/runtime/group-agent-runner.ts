@@ -279,14 +279,6 @@ export function createGroupAgentRunner(input: {
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
       await persistProviderSessionFromOutput(output);
-      await raiseProviderSessionMarkFromOutput({
-        output,
-        repository: ops(),
-        turnContext,
-        executionProviderId,
-        providerSessionId: currentProviderSessionId,
-        externalSessionId: latestProviderSessionId,
-      });
       let normalizedUsageRuntimeEvent:
         | NonNullable<AgentOutput['runtimeEvents']>[number]
         | undefined;
@@ -666,6 +658,14 @@ export function createGroupAgentRunner(input: {
         },
         log: (message) =>
           logger.warn({ group: group.name }, redactString(message)),
+      });
+      await raiseProviderSessionMarkFromOutput({
+        output,
+        repository: ops(),
+        turnContext,
+        executionProviderId,
+        providerSessionId: currentProviderSessionId,
+        externalSessionId: latestProviderSessionId,
       });
       await forwardRuntimeEvents({
         output,

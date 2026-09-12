@@ -164,10 +164,16 @@ describe('group agent runner provider-session context ceiling', () => {
   it('raises the mark from a usage-bearing errored run and skips the raise without usage', async () => {
     const usage = fixture({
       attempts: [
-        [{ status: 'error', result: null, error: 'boom', usage: USAGE }],
+        [
+          { status: 'success', result: 'partial', usage: USAGE },
+          { status: 'error', result: null, error: 'boom', usage: USAGE },
+        ],
       ],
     });
     await expect(usage.invoke()).resolves.toBe('error');
+    expect(
+      usage.raiseProviderSessionContextHighWaterMark,
+    ).toHaveBeenCalledOnce();
     expect(usage.raiseProviderSessionContextHighWaterMark).toHaveBeenCalledWith(
       expect.objectContaining({ contextHighWaterMark: 271_500 }),
     );
