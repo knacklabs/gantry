@@ -306,11 +306,13 @@
         "S5 ceiling preflight: an over-cap session is not passed as the resume id; retirement returns the reference; the run proceeds fresh; the replacement handle is persisted; the reply is delivered; a run that CROSSES the cap mid-run is retired on the FOLLOWING resume, never mid-run; a `maintenance_compact` row is not retired; a `ready` row is promoted first (the preflight sits after prepareCompactionDeltaReplay and after the access-fingerprint check, and evaluates the mark on the SELECTED row only); a lost transition persists no replacement.",
         "R6 lost-race re-read, BOTH branches: on a lost ceiling transition the turn context is re-read with `hydrateMemory: false`, and the carried memory block is reused ONLY when the agent session id and the null-normalised `reset_at` generation both still match. On a mismatch the carried block is DISCARDED and memory rehydrated, because decision 0078's exactly-once hydration is per turn and a mismatch means a concurrent reset. Both branches carry regression coverage \u2014 a match-only implementation would leak a retired session's memory into the replacement.",
         "S6 no regression for healthy sessions: an under-cap or unmarked session resumes with its memory block and snapshot, and these four pinned tests stay green and UNTOUCHED \u2014 apps/core/test/unit/runtime/group-processing.test.ts \"passes hydrated memory context with provider session resume id\", apps/core/test/unit/runner/agent-runner-ipc.test.ts live-turn persist/resume, apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts memory+prompt user message, and apps/core/test/unit/adapters/deepagents-memory-context.test.ts.",
-        "S7 the cap setting: `limits.provider_session_max_input_tokens` parses beside the existing per-provider entries in runtime-settings-limits-parser.ts (which today accepts only `<providerId>.requests_per_minute`), defaults to 150,000, rejects values outside 20,000-900,000 with a PATH-LEVEL error, round-trips through the revision document and the desired-state export, is applied from a new revision by a current worker, and a worker below the bumped reader version holds its prior revision and alerts. CURRENT_SETTINGS_READER_VERSION goes 15 -> 16 (settings-fleet-import.ts:71).",
-        "S9 event TYPES and the three non-`/new` publications, with R5's envelope: `session.provider.retired` and `session.provider.cleanup_failed` are registered runtime event types with payloads DISCRIMINATED on `reason` in {ceiling, fingerprint, missing, new} \u2014 `providerSessionHash` (full lowercase hex SHA-256 of the raw external session id) and `executionProviderId` always, `contextHighWaterMark` and `cap` ONLY for `reason = ceiling`. RuntimeEventPublishInput carries `payload: unknown` (domain/events/events.ts:103), so a standalone interface binds nothing: the publish input is narrowed for these families, or they publish through a typed helper that narrows it, such that a wrong payload for a `reason` FAILS TO COMPILE. T2 publishes ceiling and fingerprint at preflight with `sessionId = agentSessionId` and no run id, and missing-session after the failed attempt with THAT attempt's `runId`. Publication is best-effort: a failure never suppresses the reply. Publish, query and projection tests. No event family here carries a `version` field, so these follow that convention. T2 does NOT publish the `/new` event \u2014 T3 owns both `/new` handlers.",
+        "S7 the cap setting: `limits.provider_session_max_input_tokens` parses beside the existing per-provider entries in runtime-settings-limits-parser.ts (which today accepts only `<providerId>.requests_per_minute`), defaults to 150,000, rejects values outside 20,000-900,000 with a PATH-LEVEL error, round-trips through the revision document and the desired-state export, is applied from a new revision by a current worker, and a worker below the bumped reader version holds its prior revision and alerts. CURRENT_SETTINGS_READER_VERSION goes 15 -> 16 (settings-fleet-import.ts:71). The canonical YAML renderer must emit the block for a scalar-only cap: renderLimitsSettingsYaml (runtime-settings-optional-blocks-renderer.ts:27) returns early when `limits.providers` is empty, so a cap configured without any per-provider entry is silently dropped from settings.yaml and does not survive a round-trip.",
+        "S9 event TYPES and the three non-`/new` publications, with R5's envelope: `session.provider.retired` and `session.provider.cleanup_failed` are registered runtime event types. ONLY `session.provider.retired` carries a payload DISCRIMINATED on `reason` in {ceiling, fingerprint, missing, new} \u2014 `providerSessionHash` (full lowercase hex SHA-256 of the raw external session id) and `executionProviderId` always, `contextHighWaterMark` and `cap` ONLY for `reason = ceiling`. `session.provider.cleanup_failed` is a SEPARATE, flat payload type `{providerSessionHash, executionProviderId, error}` (spec:215) and is NOT reason-discriminated; conflating the two was a defect in the first draft of this criterion. RuntimeEventPublishInput carries `payload: unknown` (domain/events/events.ts:103) with six or more consumers across app/bootstrap/, so a standalone interface binds nothing: these families publish through a typed helper that narrows the payload, such that a wrong payload for a `reason` FAILS TO COMPILE. T2 publishes all three of ceiling and fingerprint at preflight with `sessionId = agentSessionId` and no run id, and missing-session after the failed attempt with THAT attempt's `runId` \u2014 each with its own test, fingerprint included. Publication is best-effort in the sense the spec states and no stronger: a publication FAILURE never suppresses the reply. Proof covers publish, query AND projection for both families. T2 does NOT publish the `/new` event \u2014 T3 owns both `/new` handlers.",
         "The retired-reference handover to T3: `GroupAgentRunResult` is the bare union 'success' | 'error' | 'stopped' (group-agent-runner.ts:59) and widening it would edit group-processing-types.ts:81, which T3 owns. So T2 adds an OPTIONAL typed sink to runAgent's options object \u2014 a `readonly RetiredProviderSessionReference[]` collector \u2014 and each of its three retirement sites (ceiling preflight, access-fingerprint at :394, missing-session at :514) pushes the reference retirement now returns, in retirement order. Absent sink is a no-op that cannot throw. T3 supplies the sink and drains it in group-processing.ts after the complete primary-plus-fallback delivery attempt settles. T2 does not touch group-processing.ts, group-processing-types.ts or group-processing-session-command-handlers.ts.",
         "S12 and R7 operator documentation: docs/memory/provider-session-ceiling-operations.md holds the pre-deploy reset with its stop condition, the orphan scan, and the observability recipe. The recipe SQL is EXTRACTED FROM THE DOCUMENT by the test and executed against the current schema by a Postgres integration test, so the document cannot drift from the schema silently. R7: docs/architecture/canonical-domain-model.md:165 no longer states that fresh runs restore durable Gantry memory only (runtime-components.md was already corrected).",
-        "S10 and S11: the scheduled-job tests are untouched and green, and `python3 factory/scripts/verify.py` is green including the diff-scoped `npm run lint:changed`."
+        "S10 and S11: the scheduled-job tests are untouched and green, and `python3 factory/scripts/verify.py` is green including the diff-scoped `npm run lint:changed`.",
+        "The public desired-state payload: the approved plan classes T2's API impact as CHANGED and assigns T2 a control-API round trip \u2014 PUT a document carrying `limits.provider_session_max_input_tokens` to `/v1/settings/desired-state`, GET it back, and assert the value survives the public surface. The plan states this is the only proof the field is reachable through the API whose payload shape it changes, so it is T2's and not deferrable to T4; T4 still owns the typed request/response DTO and the OpenAPI registry entry. No route SOURCE change in T2 \u2014 the existing untyped route already returns the revised document.",
+        "The FIRST mark on a fresh or replacement session: the post-run raise must record a mark for a session created or replaced during this turn, not only for one that was resumed. `setSession` returns `Promise<boolean | void>` (domain/repositories/ops-repo.ts:441) and yields no ids, so the runner raises using the `nextSessionId` it just persisted as BOTH the internal provider-session id and the external session id. That is correct because the Postgres adapter inserts `id: sessionId` AND `externalSessionId: sessionId` (canonical-session-repository.postgres.ts:498,501) \u2014 an adapter detail the port never promised, so T2 pins it with a test asserting the invariant, plus a test that a fresh session's first turn records a mark. Ravi's ruling at the T2 task grill (2026-09-11), chosen over a non-hydrating context re-read (more robust but an extra query per fresh session) and over leaving the first mark NULL (which would let one long first turn take an extra oversized resume)."
       ],
       "plan_contracts": [
         {
@@ -321,7 +323,7 @@
         {
           "id": "T2-AC2",
           "statement": "THE OVERFLOW CLAMP: the stored mark is clamped at 2,147,483,647 \u2014 the limit of the `integer` column at schema/sessions.ts:89 \u2014 in domain/sessions/provider-session-measurement.ts, at the domain boundary and not in SQL. The constant derives from the column type, NOT from the limits parser's 900,000 maximum: a real mark can exceed 900,001 on a ~1M-context model, and coupling the two would let a widened cap range leave a clipped mark unable to exceed the cap, silently ending retirement for exactly the sessions the ceiling targets. Covered at the boundary: 2,147,483,647 stores unchanged, above it clamps, and a negative or non-integer still raises ProviderSessionMeasurementError.",
-          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#task-decomposition"
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
         },
         {
           "id": "T2-AC3",
@@ -331,7 +333,7 @@
         {
           "id": "T2-AC4",
           "statement": "R6 lost-race re-read, BOTH branches: on a lost ceiling transition the turn context is re-read with `hydrateMemory: false`, and the carried memory block is reused ONLY when the agent session id and the null-normalised `reset_at` generation both still match. On a mismatch the carried block is DISCARDED and memory rehydrated, because decision 0078's exactly-once hydration is per turn and a mismatch means a concurrent reset. Both branches carry regression coverage \u2014 a match-only implementation would leak a retired session's memory into the replacement.",
-          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#task-decomposition"
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
         },
         {
           "id": "T2-AC5",
@@ -340,18 +342,18 @@
         },
         {
           "id": "T2-AC6",
-          "statement": "S7 the cap setting: `limits.provider_session_max_input_tokens` parses beside the existing per-provider entries in runtime-settings-limits-parser.ts (which today accepts only `<providerId>.requests_per_minute`), defaults to 150,000, rejects values outside 20,000-900,000 with a PATH-LEVEL error, round-trips through the revision document and the desired-state export, is applied from a new revision by a current worker, and a worker below the bumped reader version holds its prior revision and alerts. CURRENT_SETTINGS_READER_VERSION goes 15 -> 16 (settings-fleet-import.ts:71).",
+          "statement": "S7 the cap setting: `limits.provider_session_max_input_tokens` parses beside the existing per-provider entries in runtime-settings-limits-parser.ts (which today accepts only `<providerId>.requests_per_minute`), defaults to 150,000, rejects values outside 20,000-900,000 with a PATH-LEVEL error, round-trips through the revision document and the desired-state export, is applied from a new revision by a current worker, and a worker below the bumped reader version holds its prior revision and alerts. CURRENT_SETTINGS_READER_VERSION goes 15 -> 16 (settings-fleet-import.ts:71). The canonical YAML renderer must emit the block for a scalar-only cap: renderLimitsSettingsYaml (runtime-settings-optional-blocks-renderer.ts:27) returns early when `limits.providers` is empty, so a cap configured without any per-provider entry is silently dropped from settings.yaml and does not survive a round-trip.",
           "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
         },
         {
           "id": "T2-AC7",
-          "statement": "S9 event TYPES and the three non-`/new` publications, with R5's envelope: `session.provider.retired` and `session.provider.cleanup_failed` are registered runtime event types with payloads DISCRIMINATED on `reason` in {ceiling, fingerprint, missing, new} \u2014 `providerSessionHash` (full lowercase hex SHA-256 of the raw external session id) and `executionProviderId` always, `contextHighWaterMark` and `cap` ONLY for `reason = ceiling`. RuntimeEventPublishInput carries `payload: unknown` (domain/events/events.ts:103), so a standalone interface binds nothing: the publish input is narrowed for these families, or they publish through a typed helper that narrows it, such that a wrong payload for a `reason` FAILS TO COMPILE. T2 publishes ceiling and fingerprint at preflight with `sessionId = agentSessionId` and no run id, and missing-session after the failed attempt with THAT attempt's `runId`. Publication is best-effort: a failure never suppresses the reply. Publish, query and projection tests. No event family here carries a `version` field, so these follow that convention. T2 does NOT publish the `/new` event \u2014 T3 owns both `/new` handlers.",
+          "statement": "S9 event TYPES and the three non-`/new` publications, with R5's envelope: `session.provider.retired` and `session.provider.cleanup_failed` are registered runtime event types. ONLY `session.provider.retired` carries a payload DISCRIMINATED on `reason` in {ceiling, fingerprint, missing, new} \u2014 `providerSessionHash` (full lowercase hex SHA-256 of the raw external session id) and `executionProviderId` always, `contextHighWaterMark` and `cap` ONLY for `reason = ceiling`. `session.provider.cleanup_failed` is a SEPARATE, flat payload type `{providerSessionHash, executionProviderId, error}` (spec:215) and is NOT reason-discriminated; conflating the two was a defect in the first draft of this criterion. RuntimeEventPublishInput carries `payload: unknown` (domain/events/events.ts:103) with six or more consumers across app/bootstrap/, so a standalone interface binds nothing: these families publish through a typed helper that narrows the payload, such that a wrong payload for a `reason` FAILS TO COMPILE. T2 publishes all three of ceiling and fingerprint at preflight with `sessionId = agentSessionId` and no run id, and missing-session after the failed attempt with THAT attempt's `runId` \u2014 each with its own test, fingerprint included. Publication is best-effort in the sense the spec states and no stronger: a publication FAILURE never suppresses the reply. Proof covers publish, query AND projection for both families. T2 does NOT publish the `/new` event \u2014 T3 owns both `/new` handlers.",
           "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
         },
         {
           "id": "T2-AC8",
           "statement": "The retired-reference handover to T3: `GroupAgentRunResult` is the bare union 'success' | 'error' | 'stopped' (group-agent-runner.ts:59) and widening it would edit group-processing-types.ts:81, which T3 owns. So T2 adds an OPTIONAL typed sink to runAgent's options object \u2014 a `readonly RetiredProviderSessionReference[]` collector \u2014 and each of its three retirement sites (ceiling preflight, access-fingerprint at :394, missing-session at :514) pushes the reference retirement now returns, in retirement order. Absent sink is a no-op that cannot throw. T3 supplies the sink and drains it in group-processing.ts after the complete primary-plus-fallback delivery attempt settles. T2 does not touch group-processing.ts, group-processing-types.ts or group-processing-session-command-handlers.ts.",
-          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#task-decomposition"
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
         },
         {
           "id": "T2-AC9",
@@ -362,6 +364,16 @@
           "id": "T2-AC10",
           "statement": "S10 and S11: the scheduled-job tests are untouched and green, and `python3 factory/scripts/verify.py` is green including the diff-scoped `npm run lint:changed`.",
           "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
+        },
+        {
+          "id": "T2-AC11",
+          "statement": "The public desired-state payload: the approved plan classes T2's API impact as CHANGED and assigns T2 a control-API round trip \u2014 PUT a document carrying `limits.provider_session_max_input_tokens` to `/v1/settings/desired-state`, GET it back, and assert the value survives the public surface. The plan states this is the only proof the field is reachable through the API whose payload shape it changes, so it is T2's and not deferrable to T4; T4 still owns the typed request/response DTO and the OpenAPI registry entry. No route SOURCE change in T2 \u2014 the existing untyped route already returns the revised document.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#verify-plan"
+        },
+        {
+          "id": "T2-AC12",
+          "statement": "The FIRST mark on a fresh or replacement session: the post-run raise must record a mark for a session created or replaced during this turn, not only for one that was resumed. `setSession` returns `Promise<boolean | void>` (domain/repositories/ops-repo.ts:441) and yields no ids, so the runner raises using the `nextSessionId` it just persisted as BOTH the internal provider-session id and the external session id. That is correct because the Postgres adapter inserts `id: sessionId` AND `externalSessionId: sessionId` (canonical-session-repository.postgres.ts:498,501) \u2014 an adapter detail the port never promised, so T2 pins it with a test asserting the invariant, plus a test that a fresh session's first turn records a mark. Ravi's ruling at the T2 task grill (2026-09-11), chosen over a non-hydrating context re-read (more robust but an extra query per fresh session) and over leaving the first mark NULL (which would let one long first turn take an extra oversized resume).",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#task-decomposition"
         }
       ],
       "required_tests": [
@@ -474,6 +486,51 @@
           "id": "executes the observability recipe extracted from the operations document",
           "path": "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "consumes the normalised mark so an oversized value never reaches SQL",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "emits the limits block for a cap configured with no provider entries",
+          "path": "apps/core/test/unit/config/settings-import-app-provider-roundtrip.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "applies a revision carrying the cap at reader version 16",
+          "path": "apps/core/test/unit/config/settings-import-service.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "publishes the fingerprint retirement at preflight with no run id",
+          "path": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "types session.provider.cleanup_failed as a flat payload without a reason",
+          "path": "apps/core/test/unit/domain/runtime-event-types.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "queries and projects both retirement event families",
+          "path": "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "round-trips the cap through PUT and GET on /v1/settings/desired-state",
+          "path": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "inserts a provider session whose id equals its external session id",
+          "path": "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "records a mark on a fresh session's first turn",
+          "path": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
         }
       ],
       "verify_commands": [
@@ -496,13 +553,15 @@
         "apps/core/src/domain/events/events.ts",
         "docs/memory/provider-session-ceiling-operations.md",
         "docs/architecture/canonical-domain-model.md",
+        "apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts",
+        "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
         "apps/core/test"
       ],
-      "reviewer_focus": "Load-bearing canon: pnp-coding-standards-modular-monolith.md (typed constants over literals, domain error types, policy out of data access) and 0025-settings-authority.md (the cap is settings-owned, read through the revision pipeline, never an env var). Task-specific seams, in the order they are most likely to be got wrong: (1) the clamp constant derives from the `integer` column's limit, NOT from the limits parser's 900,000 maximum \u2014 a reviewer who sees 900,001 or any expression over the cap bounds must reject it, because that coupling silently ends retirement when the cap range widens; (2) the clamp is at the domain boundary, not in SQL; (3) the preflight sits after prepareCompactionDeltaReplay and after the fingerprint check and reads the cap ONCE per turn, evaluating the mark on the selected row only; (4) BOTH R6 branches are proven \u2014 a match-only re-read leaks a retired session's memory; (5) the event payload discrimination actually fails to compile when a `reason` carries the wrong fields, which RuntimeEventPublishInput's `payload: unknown` does not give for free; (6) publication is best-effort and never on the reply's critical path; (7) the retired-reference sink is an optional options field, so T3's files stay untouched and an absent sink cannot throw; (8) the observability SQL is extracted from the operations document rather than duplicated in the test.",
+      "reviewer_focus": "Load-bearing canon: pnp-coding-standards-modular-monolith.md (typed constants over literals, domain error types, policy out of data access) and 0025-settings-authority.md (the cap is settings-owned, read through the revision pipeline, never an env var). Task-specific seams, in the order they are most likely to be got wrong: (1) the clamp constant derives from the `integer` column's limit, NOT from the limits parser's 900,000 maximum \u2014 a reviewer who sees 900,001 or any expression over the cap bounds must reject it, because that coupling silently ends retirement when the cap range widens; (2) the clamp is at the domain boundary, not in SQL; (3) the preflight sits after prepareCompactionDeltaReplay and after the fingerprint check and reads the cap ONCE per turn, evaluating the mark on the selected row only; (4) BOTH R6 branches are proven \u2014 a match-only re-read leaks a retired session's memory; (5) the event payload discrimination actually fails to compile when a `reason` carries the wrong fields, which RuntimeEventPublishInput's `payload: unknown` does not give for free; (6) publication is best-effort exactly as the spec states \u2014 a FAILURE never suppresses the reply; do not demand more than that, the approved criterion makes no latency promise; (7) the retired-reference sink is an optional options field, so T3's files stay untouched and an absent sink cannot throw; (8) the observability SQL is extracted from the operations document rather than duplicated in the test.",
       "review_budget": {
-        "max_changed_files": 30,
-        "max_changed_lines": 3000,
-        "reason": "No generated artifact this time: T1 carried the drizzle snapshot, and T2 adds no migration. Estimated from the seams \u2014 the settings pipeline touches seven files for one key plus the reader-version bump, group-agent-runner.ts takes the preflight, the post-run raise, the three publications and the sink, and the two event families plus the narrowed publish contract are small. The 22 required leaves and the documentation carry most of the line count."
+        "max_changed_files": 34,
+        "max_changed_lines": 3600,
+        "reason": "No generated artifact this time: T1 carried the drizzle snapshot, and T2 adds no migration. Estimated from the seams \u2014 the settings pipeline touches seven files for one key plus the reader-version bump, group-agent-runner.ts takes the preflight, the post-run raise, the three publications and the sink, and the two event families plus the narrowed publish contract are small. The 22 required leaves and the documentation carry most of the line count. Raised at the task grill: two files joined the write scope (the canonical YAML renderer and the repository helper that must consume the normalised mark) and nine required leaves were added, including the desired-state round trip the approved plan assigns to T2."
       }
     },
     {
@@ -510,7 +569,7 @@
       "title": "Adapter release port and post-reply coordinator",
       "epic_id": "cache-bug",
       "user_facing": false,
-      "objective": "Reclaim DeepAgents checkpoint state for retired sessions: add releaseSession to the adapter contract, implement it in the DeepAgents adapter with deleteThread, and add the host coordinator that runs after the reply for ceiling, fingerprint, missing-session and both /new paths, sanitising errors and publishing cleanup_failed. Runs in parallel with T2 (graph amendment approved by Ravi in chat, 2026-09-09): T3 implements releaseRetiredProviderSessions in a new runtime module plus the adapter port and both /new handlers, consuming T1's retired-reference type; it never edits group-agent-runner.ts or runtime-event-types.ts, which T2 owns.",
+      "objective": "Reclaim DeepAgents checkpoint state for retired sessions: add releaseSession to the adapter contract, implement it in the DeepAgents adapter with deleteThread, and add the host coordinator that runs after the reply for ceiling, fingerprint, missing-session and both /new paths, sanitising errors and publishing cleanup_failed. Runs AFTER T2 \u2014 the graph is sequential (T1 -> T2 -> T3 -> T4) and T3 depends on the event types and the retired-reference sink T2 introduces. An earlier parallel-graph amendment was superseded by the sequential ruling; this objective still carried it.",
       "dependencies": [
         "cache-bug-T2"
       ],
@@ -555,5 +614,5 @@
     ]
   ],
   "plan_sha256": "f6e0cfeff437291974f8a56186bc8cb9cee3bb7f5bdb5b60ccd8e6407b533289",
-  "commit": "1dc4f660b6a1ed5364aa533929a33e95765265ba"
+  "commit": "f1e7af51d0b652c62b931ff0868f44b228e85c46"
 }
