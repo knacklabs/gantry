@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-12T15:22:15+00:00", "story": "cache-bug", "detail": "S-0117-3dbd: Correct contradiction, and you have found a stale MOCK, not a conflicting requirement. Fix the mock.\n\nRead what that test asserts: retireProviderSession called, no sessionId on the spawn options, crea"}

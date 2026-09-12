@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-12T15:21:24+00:00", "story": "cache-bug", "detail": "Fingerprint regression apps/core/test/unit/runtime/group-processing.test.ts 'expires provider session resume when runtime access projection changes' leaves retireProviderSession as vi.fn() returning u"}

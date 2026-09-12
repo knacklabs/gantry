@@ -3540,6 +3540,12 @@ describe('createGroupProcessor', () => {
         };
         const group = makeGroup({ requiresTrigger: false });
         const { deps } = setupHappyPath({ group, agentOutput });
+        (deps.opsRepository.retireProviderSession as ReturnType<typeof vi.fn>)
+          .mockResolvedValue({
+            providerSessionId: 'provider-session:old',
+            externalSessionId: 'claude-session-old',
+            executionProviderId: 'anthropic:claude-agent-sdk',
+          });
         (deps.opsRepository as any).getAgentTurnContext = vi
           .fn()
           .mockResolvedValue({
@@ -3599,6 +3605,12 @@ describe('createGroupProcessor', () => {
       it('expires a full-preset provider session when the agent becomes locked', async () => {
         const group = makeGroup({ requiresTrigger: false });
         const { deps } = setupHappyPath({ group });
+        (deps.opsRepository.retireProviderSession as ReturnType<typeof vi.fn>)
+          .mockResolvedValue({
+            providerSessionId: 'provider-session:full',
+            externalSessionId: 'claude-session-full',
+            executionProviderId: 'anthropic:claude-agent-sdk',
+          });
         deps.getAgentLockStatus = vi.fn(() => 'locked');
         (deps.opsRepository as any).getAgentTurnContext = vi
           .fn()

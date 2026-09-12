@@ -972,7 +972,16 @@ PONYTAIL_BRIEF = (
 
 def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
                   story: str) -> str:
-    scope = task.get("write_scope") or []
+    # Scope amendments belong in the brief. `stage amend-scope` records paths
+    # that `stage done` then honours through `amended_scope_paths`, so a brief
+    # built from `write_scope` alone hands a fix round a scope the gate has
+    # already widened: the file the worker must edit is blessed by the gate and
+    # absent from its instructions at the same time, and it correctly refuses.
+    # One task cost five scope signals to this before the union was added.
+    from forge_cli.stages import amended_scope_paths
+    scope = list(task.get("write_scope") or [])
+    scope += [path for path in amended_scope_paths(base, str(task.get("id") or ""))
+              if path not in scope]
     try:
         max_files, max_lines, _reason = review_budget(task)
     except ValueError as exc:

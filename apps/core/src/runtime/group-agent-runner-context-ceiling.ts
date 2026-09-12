@@ -235,6 +235,7 @@ export interface ProviderSessionCeilingPreflightResult {
 
 async function recoverLostProviderSessionRetirement(input: {
   turnContext: AgentTurnContext;
+  restoreResumeIdentifiers: boolean;
   loadTurnContext: (
     promoteReadyProviderSession: boolean,
     hydrateMemory?: boolean,
@@ -255,8 +256,12 @@ async function recoverLostProviderSessionRetirement(input: {
     turnContext: nextContext,
     latestProviderSessionId: nextContext?.externalSessionId?.trim(),
     currentProviderSessionId: nextContext?.providerSessionId,
-    resumeProviderSessionId: nextContext?.providerSessionId,
-    resumeExternalSessionId: nextContext?.externalSessionId,
+    resumeProviderSessionId: input.restoreResumeIdentifiers
+      ? nextContext?.providerSessionId
+      : undefined,
+    resumeExternalSessionId: input.restoreResumeIdentifiers
+      ? nextContext?.externalSessionId
+      : undefined,
     providerSessionPersistenceAllowed: false,
   };
 }
@@ -302,6 +307,7 @@ export async function prepareProviderSessionContext(input: {
     if (!retired) {
       return recoverLostProviderSessionRetirement({
         turnContext,
+        restoreResumeIdentifiers: false,
         loadTurnContext: input.loadTurnContext,
       });
     }
@@ -399,6 +405,7 @@ export async function applyProviderSessionCeilingPreflight(input: {
 
   return recoverLostProviderSessionRetirement({
     turnContext,
+    restoreResumeIdentifiers: true,
     loadTurnContext: input.loadTurnContext,
   });
 }

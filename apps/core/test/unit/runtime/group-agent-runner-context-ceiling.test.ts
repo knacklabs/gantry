@@ -349,6 +349,7 @@ describe('group agent runner provider-session context ceiling', () => {
     expect(test.runAgent.mock.calls[0][1].memoryContextBlock).toContain(
       '>carried<',
     );
+    expect(test.runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     expect(test.setSession).not.toHaveBeenCalled();
     expect(
       getAgentTurnContext.mock.calls.filter(
@@ -383,6 +384,7 @@ describe('group agent runner provider-session context ceiling', () => {
     expect(test.runAgent.mock.calls[0][1].memoryContextBlock).toContain(
       '>rehydrated<',
     );
+    expect(test.runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     expect(test.setSession).not.toHaveBeenCalled();
     expect(getAgentTurnContext.mock.calls.at(-1)?.[0].hydrateMemory).toBe(true);
   });
