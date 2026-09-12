@@ -342,7 +342,14 @@ describe('group agent runner provider-session context ceiling', () => {
       getAgentTurnContext,
       retireProviderSession: vi.fn(async () => undefined),
       attempts: [
-        [{ status: 'success', result: 'reply', newSessionId: 'replacement' }],
+        [
+          {
+            status: 'success',
+            result: 'reply',
+            newSessionId: 'replacement',
+            usage: USAGE,
+          },
+        ],
       ],
     });
     await test.invoke();
@@ -351,6 +358,9 @@ describe('group agent runner provider-session context ceiling', () => {
     );
     expect(test.runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     expect(test.setSession).not.toHaveBeenCalled();
+    expect(
+      test.raiseProviderSessionContextHighWaterMark,
+    ).not.toHaveBeenCalled();
     expect(
       getAgentTurnContext.mock.calls.filter(
         ([request]) => request.hydrateMemory !== false,

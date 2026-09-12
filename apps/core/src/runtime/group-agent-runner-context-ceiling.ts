@@ -254,8 +254,12 @@ async function recoverLostProviderSessionRetirement(input: {
       : await input.loadTurnContext(false, true);
   return {
     turnContext: nextContext,
-    latestProviderSessionId: nextContext?.externalSessionId?.trim(),
-    currentProviderSessionId: nextContext?.providerSessionId,
+    latestProviderSessionId: input.restoreResumeIdentifiers
+      ? nextContext?.externalSessionId?.trim()
+      : undefined,
+    currentProviderSessionId: input.restoreResumeIdentifiers
+      ? nextContext?.providerSessionId
+      : undefined,
     resumeProviderSessionId: input.restoreResumeIdentifiers
       ? nextContext?.providerSessionId
       : undefined,

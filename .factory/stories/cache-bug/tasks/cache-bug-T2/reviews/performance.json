@@ -1,11 +1,17 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 10,
-  "summary": "performance lens over cache-bug-T2 (24 product path(s), b1e1ac0..ccd1004, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. No actionable P0\u2013P2 defects are demonstrated by the supplied diff. The ceiling preflight avoids extra reads on the normal path, bounds stored marks at the domain boundary, reads the configured cap once per turn, and limits additional database work to the required post-usage mark update. Lost-transition re-reads occur only on the race path. The diff also contains no compatibility wrappers, aliases, deprecated branches, or other blocking leftovers.",
+  "score": 9,
+  "summary": "performance lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The lost-fingerprint recovery path can persist usage measurements against a provider session that the run deliberately did not resume. This corrupts the high-water mark and can trigger avoidable provider-session retirement and recreation. No blocking compatibility leftovers or credential exposures are shown in the bundle.",
   "blocking_findings": [],
-  "non_blocking_findings": [],
-  "recommendation": "approve",
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/runtime",
+      "summary": "Do not attribute fresh-run usage to a non-resumed session (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:276): When a fingerprint retirement loses its fence, the caller sets `restoreResumeIdentifiers` to false and therefore starts the provider run fresh, but this helper still returns the refreshed row as `currentProviderSessionId` (and its external id as `latestProviderSessionId`)."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -28,16 +34,17 @@
     "apps/core/test/unit/config/settings-import-service.test.ts",
     "apps/core/test/unit/domain/runtime-event-types.test.ts",
     "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
     "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
     "docs/architecture/canonical-domain-model.md",
     "docs/memory/provider-session-ceiling-operations.md"
   ],
   "skills_used": [],
   "aspect": "performance",
-  "review_run_id": "2ccc79b75ea8a8c675ea9f6035c4d569cc50c1b6712e6d66fc42d2f6a23789f4",
-  "brief_sha256": "133b71d7a2d09c48408ea2494f655931a23458c48f19d6103ff96d1a616cf7b3",
-  "branch_diff_digest": "e1eda8e5369db790871c5b15b87f9acff11596a260309ee561503fbfbad7538b",
+  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
+  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T14:51:43+00:00",
-  "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73"
+  "recorded_at": "2026-09-12T15:56:17+00:00",
+  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
 }

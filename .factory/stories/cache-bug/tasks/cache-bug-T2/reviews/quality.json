@@ -1,22 +1,23 @@
 {
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
-  "score": 7,
-  "summary": "quality lens over cache-bug-T2 (24 product path(s), b1e1ac0..ccd1004, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. The ceiling path and most related contracts are implemented, but the fingerprint retirement path omits the required lost-race handling and can carry stale memory across a concurrent reset.\nVERDICT T2-AC1: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:278\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:4\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:331\nVERDICT T2-AC4: partial \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:273 ignores a lost fingerprint transition instead of applying both R6 reread branches\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:474\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:31\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:112\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:112\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:7\nVERDICT T2-AC10: implemented \u2014 .factory/review-briefs/cache-bug-T2.quality.md:1 recorded verification is green and the pinned files are untouched\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:33\nVERDICT T2-AC12: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:454",
+  "score": 9,
+  "summary": "quality lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The change implements the requested ceiling, settings, events, handover, and documentation surfaces, but the lost-fingerprint recovery path can attribute usage to an unrelated concurrently refreshed provider session.\nVERDICT T2-AC1: partial \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260 retains an unused session as the post-run measurement target\nVERDICT T2-AC2: implemented \u2014 apps/core/src/domain/sessions/provider-session-measurement.ts:3 clamps at the PostgreSQL integer boundary\nVERDICT T2-AC3: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355 performs the selected-row ceiling preflight\nVERDICT T2-AC4: implemented \u2014 apps/core/src/runtime/group-agent-runner-context-ceiling.ts:246 performs the non-hydrating re-read and generation-aware memory recovery\nVERDICT T2-AC5: implemented \u2014 apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:548 covers healthy resumable sessions\nVERDICT T2-AC6: implemented \u2014 apps/core/src/config/settings/runtime-settings-limits-parser.ts:70 parses and validates the cap through settings\nVERDICT T2-AC7: implemented \u2014 apps/core/src/domain/events/events.ts:110 defines the discriminated typed publication family\nVERDICT T2-AC8: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:115 adds the optional retired-reference sink\nVERDICT T2-AC9: implemented \u2014 docs/memory/provider-session-ceiling-operations.md:1 provides the operator runbook with tested SQL\nVERDICT T2-AC10: implemented \u2014 recorded verification evidence reports verify.py and automated tests passing\nVERDICT T2-AC11: implemented \u2014 apps/core/test/integration/settings-desired-state-limits.integration.test.ts:34 exercises the public PUT/GET round trip\nVERDICT T2-AC12: implemented \u2014 apps/core/src/runtime/group-agent-runner.ts:274 targets a newly persisted session's first mark",
   "blocking_findings": [
-    {
-      "category": "bug",
-      "area": "apps/core/src/runtime",
-      "summary": "[P1] Apply the lost-race reread when fingerprint retirement loses its fence (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:273): The fingerprint preflight awaits `retireProviderSessionWithEvent` but ignores its `undefined` result and unconditionally clears the resume identifiers while retaining the original `turnContext` and enabling replacement persistence."
-    },
     {
       "category": "plan-contract-partial",
       "area": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria",
-      "summary": "T2-AC4: R6 lost-race re-read, BOTH branches: on a lost ceiling transition the turn context is re-read with `hydrateMemory: false`, and the carried memory block is reused ONLY when the agent session id and the null-normalised `reset_at` generation both still match. On a mismatch the carried block is DISCARDED and memory rehydrated, because decision 0078's exactly-once hydration is per turn and a mismatch means a concurrent reset. Both branches carry regression coverage \u2014 a match-only implementation would leak a retired session's memory into the replacement."
+      "summary": "T2-AC1: S4 post-run raise: a run that ends in error but reported usage raises the mark through raiseProviderSessionContextHighWaterMark with the model-visible input tokens T1 computes; a run that reported no usage does not call the operation at all (not with zero, not with undefined)."
     }
   ],
-  "non_blocking_findings": [],
-  "recommendation": "request-changes",
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/runtime",
+      "summary": "Do not charge a fresh run's usage to the concurrently refreshed session (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260): When a fingerprint retirement loses its fence, recovery passes `restoreResumeIdentifiers: false`, so the subsequent run deliberately starts without a resume ID and cannot persist its replacement."
+    }
+  ],
+  "recommendation": "approve-with-caveats",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
     "apps/core/src/config/settings/runtime-settings-defaults.ts",
@@ -39,6 +40,7 @@
     "apps/core/test/unit/config/settings-import-service.test.ts",
     "apps/core/test/unit/domain/runtime-event-types.test.ts",
     "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
     "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
     "docs/architecture/canonical-domain-model.md",
     "docs/memory/provider-session-ceiling-operations.md"
@@ -47,63 +49,63 @@
   "contract_verdicts": [
     {
       "contract_id": "T2-AC1",
-      "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:278"
+      "verdict": "partial",
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:260 retains an unused session as the post-run measurement target"
     },
     {
       "contract_id": "T2-AC2",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:4"
+      "evidence": "apps/core/src/domain/sessions/provider-session-measurement.ts:3 clamps at the PostgreSQL integer boundary"
     },
     {
       "contract_id": "T2-AC3",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:331"
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:355 performs the selected-row ceiling preflight"
     },
     {
       "contract_id": "T2-AC4",
-      "verdict": "partial",
-      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:273 ignores a lost fingerprint transition instead of applying both R6 reread branches"
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/group-agent-runner-context-ceiling.ts:246 performs the non-hydrating re-read and generation-aware memory recovery"
     },
     {
       "contract_id": "T2-AC5",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:474"
+      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:548 covers healthy resumable sessions"
     },
     {
       "contract_id": "T2-AC6",
       "verdict": "implemented",
-      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:31"
+      "evidence": "apps/core/src/config/settings/runtime-settings-limits-parser.ts:70 parses and validates the cap through settings"
     },
     {
       "contract_id": "T2-AC7",
       "verdict": "implemented",
-      "evidence": "apps/core/src/domain/events/events.ts:112"
+      "evidence": "apps/core/src/domain/events/events.ts:110 defines the discriminated typed publication family"
     },
     {
       "contract_id": "T2-AC8",
       "verdict": "implemented",
-      "evidence": "apps/core/src/runtime/group-agent-runner.ts:112"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:115 adds the optional retired-reference sink"
     },
     {
       "contract_id": "T2-AC9",
       "verdict": "implemented",
-      "evidence": "docs/memory/provider-session-ceiling-operations.md:7"
+      "evidence": "docs/memory/provider-session-ceiling-operations.md:1 provides the operator runbook with tested SQL"
     },
     {
       "contract_id": "T2-AC10",
       "verdict": "implemented",
-      "evidence": ".factory/review-briefs/cache-bug-T2.quality.md:1 recorded verification is green and the pinned files are untouched"
+      "evidence": "recorded verification evidence reports verify.py and automated tests passing"
     },
     {
       "contract_id": "T2-AC11",
       "verdict": "implemented",
-      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:33"
+      "evidence": "apps/core/test/integration/settings-desired-state-limits.integration.test.ts:34 exercises the public PUT/GET round trip"
     },
     {
       "contract_id": "T2-AC12",
       "verdict": "implemented",
-      "evidence": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts:454"
+      "evidence": "apps/core/src/runtime/group-agent-runner.ts:274 targets a newly persisted session's first mark"
     },
     {
       "contract_id": "T1-AC1",
@@ -157,10 +159,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "2ccc79b75ea8a8c675ea9f6035c4d569cc50c1b6712e6d66fc42d2f6a23789f4",
-  "brief_sha256": "133b71d7a2d09c48408ea2494f655931a23458c48f19d6103ff96d1a616cf7b3",
-  "branch_diff_digest": "e1eda8e5369db790871c5b15b87f9acff11596a260309ee561503fbfbad7538b",
+  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
+  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T14:51:43+00:00",
-  "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73"
+  "recorded_at": "2026-09-12T15:56:17+00:00",
+  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
 }

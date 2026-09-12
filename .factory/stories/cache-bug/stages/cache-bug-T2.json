@@ -10,5 +10,19 @@
       "git": "1 .M N... 100644 100644 100644 869656abdb796f22a5aa0c9d34767c0591b4788e 869656abdb796f22a5aa0c9d34767c0591b4788e .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000100644 869656abdb796f22a5aa0c9d34767c0591b4788e 0\t.factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000H .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000"
     }
   },
-  "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c"
+  "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c",
+  "local_review_stamp": {
+    "stage_id": "cache-bug-T2",
+    "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c",
+    "brief_sha256": "bb928f3621acb015db324f67e97499c29403454f09d19f98e33e69175dd29ec4",
+    "base_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
+    "product_tree_digest": "d6c53f17cb186dceb34728753bb3511eaf7d9f85efb6e959d3a5c75901a887fb",
+    "recorded_at": "2026-09-12T15:56:17+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  }
 }

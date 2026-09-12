@@ -2,7 +2,7 @@
   "generated_by": "autoreview",
   "task_id": "cache-bug-T2",
   "score": 10,
-  "summary": "security lens over cache-bug-T2 (24 product path(s), b1e1ac0..ccd1004, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff shows no actionable P0\u2013P2 security or correctness defects. Provider-session identifiers are hashed before publication, retirement events use constrained payload types and best-effort delivery, ceiling retirement is generation-fenced, lost ceiling races re-read context without leaking carried memory across reset generations, settings remain revision-owned and range-validated, and no compatibility leftovers or apparent credentials are introduced.",
+  "summary": "security lens over cache-bug-T2 (25 product path(s), b1e1ac0..12f56c5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff implements the provider-session ceiling, integer-boundary normalization, settings revision flow, typed and hashed retirement events, lost-race memory handling, and optional retired-reference collection without exposing raw provider session identifiers. No concrete P0\u2013P2 security or correctness defect is demonstrated by the available evidence, and no compatibility-only leftover is apparent.",
   "blocking_findings": [],
   "non_blocking_findings": [],
   "recommendation": "approve",
@@ -28,16 +28,17 @@
     "apps/core/test/unit/config/settings-import-service.test.ts",
     "apps/core/test/unit/domain/runtime-event-types.test.ts",
     "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
     "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
     "docs/architecture/canonical-domain-model.md",
     "docs/memory/provider-session-ceiling-operations.md"
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "2ccc79b75ea8a8c675ea9f6035c4d569cc50c1b6712e6d66fc42d2f6a23789f4",
-  "brief_sha256": "133b71d7a2d09c48408ea2494f655931a23458c48f19d6103ff96d1a616cf7b3",
-  "branch_diff_digest": "e1eda8e5369db790871c5b15b87f9acff11596a260309ee561503fbfbad7538b",
+  "review_run_id": "54c499b62fd866e7dd119cf8653f9d4434e7ff24da4ec9666504ef665591d533",
+  "brief_sha256": "f4f251572c8c9de6775d4d22cff40690fca5c928602f557f29f905d78d7d047a",
+  "branch_diff_digest": "cfd9804bf6c08a028a25091a82e41c04914733c5a1bee375ebf0303cf2bf3758",
   "residual_risks": [],
-  "recorded_at": "2026-09-12T14:51:44+00:00",
-  "commit": "ccd1004bb2760e276790f747f1c9aa1bed768d73"
+  "recorded_at": "2026-09-12T15:56:17+00:00",
+  "commit": "12f56c5d4a62b33800629d4a9975b91b7e3635d5"
 }
