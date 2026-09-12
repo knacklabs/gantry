@@ -921,33 +921,6 @@
     padding: 0 .3rem;
   }
   .flow-note { font-size: .68rem; color: var(--quiet); margin-top: .5rem; }
-  .task-progress { margin: 0 0 .9rem; }
-  .tp-head {
-    display: flex; align-items: baseline; gap: .4rem;
-    font-size: .74rem; color: var(--quiet);
-  }
-  .tp-head b { font-size: .78rem; color: var(--ink); flex: none; }
-  .tp-head b.bad { color: var(--bad, #b4442e); }
-  .tp-head > span { flex: 1 1 auto; min-width: 0; }
-  .tp-pct { font-family: var(--mono); font-size: .7rem; margin-left: auto; flex: none; }
-  .tp-bar {
-    display: flex; gap: 2px; margin-top: .35rem;
-    height: .3rem; border-radius: 999px; overflow: hidden;
-  }
-  .tp-bar .seg { flex: 1; position: relative; background: var(--rule); }
-  .tp-bar .seg:first-child { border-radius: 999px 0 0 999px; }
-  .tp-bar .seg:last-child { border-radius: 0 999px 999px 0; }
-  .tp-bar .seg.done { background: var(--shipped); }
-  .tp-bar .seg.blocked { background: var(--bad, #b4442e); }
-  .tp-bar .seg.now { background: color-mix(in srgb, var(--build) 26%, transparent); }
-  .tp-bar .seg.now > i {
-    position: absolute; inset: 0 auto 0 0; display: block;
-    background: var(--build); border-radius: inherit;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .tp-bar .seg.now > i { animation: tp-pulse 1.8s ease-in-out infinite; }
-  }
-  @keyframes tp-pulse { 50% { opacity: .5; } }
   .task-plan { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .5rem .7rem; }
   .task-plan p { font-family: var(--serif); line-height: 1.55; margin: .2rem 0; }
   .task-proof div { line-height: 1.6; }
@@ -3710,72 +3683,12 @@ function tabBar(detail) {
        <button type="button" class="raw" data-raw="1" aria-selected="${drawer.raw}">raw json</button>`;
 }
 
-// Where this ONE task actually is, above its plan. The plan says what was
-// meant to happen; without this the board could not say whether anything was
-// still happening -- a companion that died an hour ago read exactly like one
-// taking a while. Scoped to the selected task on purpose: a global banner
-// would report on tasks nobody is looking at.
-//
-// One line and one bar, deliberately. The step names live in the segment
-// tooltips: spelling all seven out under the bar turned a status line into a
-// second table, and the only step worth naming is the one in flight.
-function taskProgress(task) {
-  const p = task.progress;
-  if (!p || !(p.steps || []).length) return "";
-  const steps = p.steps;
-  const live = p.live || null;
-  const dead = live && live.status === "dead";
-
-  // Steps actually finished -- NOT how far along the pipeline the task got.
-  // A task can ship with a step skipped (that is exactly the review gap this
-  // release closes), and reading to the furthest done step would report that
-  // as 100%. The grey segment between green ones says which step was missed.
-  const pct = Math.round(
-    (steps.filter(s => s.state === "done").length / steps.length) * 100);
-  // The step in flight fills from work actually written, so a long
-  // implementation step is not one dead block.
-  const frac = live && live.files_limit
-    ? Math.min(1, (live.files || 0) / live.files_limit) : 0;
-  const segs = steps.map(s =>
-    `<span class="seg ${esc(s.state)}"
-       title="${esc(s.label)}${s.note ? ` \u2014 ${esc(s.note)}` : ""}"
-       >${s.state === "now" && frac
-          ? `<i style="width:${esc(String(Math.round(frac * 100)))}%"></i>` : ""}</span>`)
-    .join("");
-
-  let line;
-  if (dead) {
-    line = `<b class="bad">Codex crashed</b><span>pid ${esc(String(live.pid))} is gone,
-      nothing is coming \u2014 re-run <code>./forge delegate ${esc(task.id)}</code></span>`;
-  } else {
-    const bits = [];
-    if (live) {
-      const idle = live.idle_minutes;
-      bits.push(live.phase || live.summary || "Codex working");
-      if (typeof idle === "number") bits.push(idle < 1 ? "moving" : `quiet ${Math.round(idle)}m`);
-      if (live.files_limit) bits.push(`${live.files || 0}/${live.files_limit} files`);
-    } else if (p.headline) {
-      bits.push(p.headline);
-    }
-    line = `<b>${esc(p.current || "Nothing in flight")}</b>${
-      bits.length ? `<span>${esc(bits.join(" \u00b7 "))}</span>` : ""}`;
-  }
-
-  return `<div class="task-progress${p.stalled ? " stalled" : ""}">
-      <div class="tp-head">${line}<span class="tp-pct">${esc(String(pct))}%</span></div>
-      <div class="tp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-           aria-valuenow="${esc(String(pct))}"
-           aria-label="${esc(task.id || "task")} progress: ${esc(p.current || "")}">${segs}</div>
-    </div>`;
-}
-
 function taskPlanContent(detail) {
   const tasks = (detail.tasks || []).filter(t => t.plan_state === "clean");
   const active = tasks.find(t => t.id === drawer.taskPlan) || tasks[0];
   if (!active) return `<p class="quiet">No grill-clean task plan to show yet.</p>`;
   drawer.taskPlan = active.id;
-  return `${taskProgress(active)}${
-    active.plan_path ? openFile(active.plan_path) : ""}${md(active.plan || "")}`;
+  return `${active.plan_path ? openFile(active.plan_path) : ""}${md(active.plan || "")}`;
 }
 
 function liveStory(key) {
@@ -3783,10 +3696,18 @@ function liveStory(key) {
   return list.find(s => s.key === key) || null;
 }
 
-function paintDrawer() {
+// The markup last painted. Every poll re-fetches the story and repainted the
+// whole panel whenever any byte of it changed -- and something always changed
+// while a task was in flight -- so the body was rebuilt under the reader and
+// scrolled back to the top every few seconds. A refresh that would paint the
+// same markup now does nothing; one that paints different markup keeps the
+// body's scroll position. Opening a story or switching a tab still starts
+// at the top.
+let paintedDrawer = "";
+function paintDrawer({keepScroll = false} = {}) {
   const panel = $("drawer");
   panel.classList.toggle("wide", drawer.wide);
-  panel.innerHTML = `<div class="panel-head">
+  const html = `<div class="panel-head">
       ${drawer.wide
         ? `<button class="ghost" type="button" data-narrow="1">‹ Back</button>`
         : `<span class="panel-eyebrow">Story</span>`}
@@ -3794,6 +3715,12 @@ function paintDrawer() {
       <button class="ghost" type="button" data-close="1">Close ✕</button>
     </div>
     <div class="panel-body">${drawerBody()}</div>`;
+  if (keepScroll && html === paintedDrawer) return;
+  const before = panel.querySelector(".panel-body");
+  const scrollTop = keepScroll && before ? before.scrollTop : 0;
+  paintedDrawer = html;
+  panel.innerHTML = html;
+  if (scrollTop) panel.querySelector(".panel-body").scrollTop = scrollTop;
   if (!panel.querySelector("#drawer-title")) {
     panel.querySelector(".panel-eyebrow").id = "drawer-title";
   }
@@ -3842,9 +3769,14 @@ function drawerIsHot() {
   });
 }
 
+// poll() awaits the state request but fires this one and moves on, so a
+// story slower than the poll interval used to stack requests on the server.
+let drawerFetching = false;
 async function refreshDrawer(key) {
+  if (drawerFetching) return;
   if (!drawerIsHot() && ++drawerTicks % 5) return;
   drawerTicks = 0;
+  drawerFetching = true;
   try {
     const res = await fetch(`/api/story/${encodeURIComponent(key)}`, {cache: "no-store"});
     const detail = await res.json();
@@ -3853,8 +3785,9 @@ async function refreshDrawer(key) {
     if (sig === drawerSig) return;
     drawerSig = sig;
     drawer.detail = detail;
-    paintDrawer();
+    paintDrawer({keepScroll: true});
   } catch { /* the tick already shows staleness */ }
+  finally { drawerFetching = false; }
 }
 
 async function openDrawer(key, fromEl) {
@@ -3983,7 +3916,8 @@ function tick() {
   // would send someone to restart a server that is working fine.
   if (document.hidden) { el.classList.remove("stale"); label.textContent = "paused"; return; }
   const secs = Math.round((Date.now() - lastOk) / 1000);
-  const stale = secs > (stateIsHot(lastState) ? 15 : 45);
+  // Two missed polls plus slack, at either cadence.
+  const stale = secs > (stateIsHot(lastState) ? 30 : 45);
   el.classList.toggle("stale", stale);
   label.textContent = stale ? `stale ${secs}s — is \`./forge board\` still running?` : "live";
 }
@@ -4032,7 +3966,11 @@ poll().then(() => { if (deepLink()) followHash(); });
 // a background tab that nobody was reading. Cadence follows what is actually
 // happening instead: full rate only while something is in flight, idle
 // otherwise, and nothing at all while the tab is hidden.
-const POLL_LIVE = 4000, POLL_IDLE = 20000;
+// Every 10 s while something is moving, 20 s otherwise. 4 s was more than a
+// human reads and more than the server could answer on a busy repo: a story
+// drawer that took longer than one interval started its next request before
+// the last returned.
+const POLL_LIVE = 10000, POLL_IDLE = 20000;
 
 function stateIsHot(state) {
   const s = state || {};

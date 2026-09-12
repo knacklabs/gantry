@@ -208,6 +208,28 @@ def main() -> None:
     p_task_pr_ready.add_argument("id", help="task id")
     p_task_pr_ready.add_argument("--repo")
     p_task_pr_ready.set_defaults(func=tasks_mod.cmd_task_pr_ready)
+    from forge_cli import close as close_mod
+    p_task_close = task_sub.add_parser(
+        "close",
+        help="one command from a built task to its open PR: proof, review "
+             "(only if the diff moved), measure, stage done, seal. Re-run "
+             "after any fix; it repeats only what the new diff needs",
+    )
+    p_task_close.add_argument("id", help="task id")
+    p_task_close.add_argument(
+        "--engine", default="codex",
+        help="autoreview engine (default: codex -- the review is Codex's, 0011)")
+    p_task_close.add_argument(
+        "--max-priority", default="P2", choices=["P0", "P1", "P2", "P3"],
+        help="lowest review priority to report (default: P2)")
+    p_task_close.add_argument(
+        "--skill", help="path to the autoreview helper (default: $AUTOREVIEW "
+                        "or ~/.codex/skills/autoreview/scripts/autoreview)")
+    p_task_close.add_argument(
+        "--sequential", action="store_true",
+        help="run the three review lenses one at a time instead of together")
+    p_task_close.add_argument("--repo")
+    p_task_close.set_defaults(func=close_mod.cmd_task_close)
     p_task_reopen = task_sub.add_parser(
         "reopen",
         help="reopen a done-but-unshipped task (move the frontier back to it)",
@@ -223,8 +245,8 @@ def main() -> None:
         "--review-fix", action="store_true",
         help="reopen a done stage for review fixes only: it goes back to active "
              "with its base, contract and plan approval intact and only the "
-             "stage-local review stamp dropped — delegate the fixes, restamp, "
-             "`stage done`, `review` again",
+             "stage-local review stamp dropped. `task close` does this itself "
+             "when a done stage's diff has moved; this is the explicit verb",
     )
     p_task_reopen.add_argument("--repo")
     p_task_reopen.set_defaults(func=tasks_mod.cmd_task_reopen)
@@ -609,6 +631,10 @@ def main() -> None:
     p_review.add_argument(
         "--skill", help="path to the autoreview helper (default: $AUTOREVIEW "
                         "or ~/.codex/skills/autoreview/scripts/autoreview)")
+    p_review.add_argument(
+        "--sequential", action="store_true",
+        help="run the three lenses one at a time instead of together (the "
+             "default runs them concurrently; FORGE_REVIEW_SEQUENTIAL=1 too)")
     p_review.add_argument(
         "--reject", metavar="MATCH",
         help="do not run: move the one recorded blocking finding of --lens whose "

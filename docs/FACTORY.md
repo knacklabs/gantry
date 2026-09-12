@@ -143,8 +143,9 @@ pass the digest-bound task grill, save the plan-mode result at
 `forge stage start <id>`, then `forge delegate <id>`. Do not guess later-task
 execution detail. `forge next` routes this loop one action at a time.
 
-Each stage closes in this order: implement and test, local autoreview of the
-uncommitted diff, commit, then `forge stage done <id>`. After every stage is
+Each stage closes with one command: implement, commit, then `forge task
+close <id>` — proof, the three-lens review only if the diff moved, measure,
+stage done, marker, push and PR, in that order. After every stage is
 done, close out the story in this order: one branch autoreview, deterministic
 verify, functional check when `user_facing`, outcome recording, then
 `pr_ready.py`.

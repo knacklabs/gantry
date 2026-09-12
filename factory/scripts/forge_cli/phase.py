@@ -146,7 +146,7 @@ def _board_handoff(base: Path) -> str:
     from .board import DEFAULT_PORT, already_serving
     url = f"http://127.0.0.1:{DEFAULT_PORT}/"
     try:
-        live = already_serving(DEFAULT_PORT)
+        live = already_serving(DEFAULT_PORT, base)
     except Exception:
         live = False
     return (f"The board is running at {url}." if live

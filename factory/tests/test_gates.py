@@ -52,7 +52,7 @@ sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
 from factory_lib import (
     branch_diff_digest, grounding_digest, plan_body_digest,
     plan_digest_without_assumptions,
-    product_tree_digest, require_task_grill,
+    product_delta_digest, product_tree_digest, require_task_grill,
     task_frontier_state, task_rows,
 )
 from grill_gates import GATES
@@ -3693,6 +3693,7 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
     assert len(commands(repo, ".codex/hooks.json")) == 3
     config = repo / ".codex" / "config.toml"
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
+    assert "network_access = true" in config.read_text().splitlines()  # 0068
     assert (repo / "forge.cmd").is_file()
     attributes = repo / ".gitattributes"
     assert "forge text eol=lf" in attributes.read_text().splitlines()
@@ -3724,6 +3725,7 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
     assert len(commands(repo, ".claude/settings.json")) == 6
     assert len(commands(repo, ".codex/hooks.json")) == 3
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
+    assert "network_access = true" in config.read_text().splitlines()  # 0068
     assert (repo / "forge.cmd").is_file()
     assert "forge text eol=lf" in attributes.read_text().splitlines()
     assert all(
@@ -9139,8 +9141,8 @@ def test_roadmap_gate_workflow_shape():
     assert re.search(r"^  push:\s*$", workflow, re.MULTILINE)
     assert "  pr-contract:" in workflow
     assert "  coverage:" in workflow
-    assert workflow.count("- uses: actions/checkout@v4") == 2
-    assert workflow.count("- uses: actions/setup-python@v5") == 2
+    assert workflow.count("- uses: actions/checkout@v7") == 2
+    assert workflow.count("- uses: actions/setup-python@v7") == 2
     assert workflow.count("python-version: '3.11'") == 2
     assert workflow.count("id: arm") == 2
     assert workflow.count("constitution/VENDORED_FROM") == 2
@@ -13355,12 +13357,13 @@ def test_stage_local_stamp_is_a_stages_token_not_a_fourth_review(repo, tmp_path)
     )
     stamp = mirror["stages"][0]["local_review_stamp"]
     assert protected["stages"][0]["local_review_stamp"] == stamp
+    # The stamp is about the DIFF the review read: base and delta, nothing
+    # else. Contract text, brief text and the tree are not in it, so none of
+    # them can stale a review of unchanged code.
     assert stamp == {
         "stage_id": "T1",
-        "task_sha256": task_digest(STAGE_TASK),
-        "brief_sha256": brief_sha256,
         "base_sha": mirror["stages"][0]["base_sha"],
-        "product_tree_digest": product_tree_digest(repo),
+        "delta_id": product_delta_digest(repo, mirror["stages"][0]["base_sha"]),
         "recorded_at": stamp["recorded_at"],
         "generated_by": "autoreview",
     }
@@ -14223,7 +14226,14 @@ def test_proof_reaps_spawn_when_process_identity_probe_fails(
     assert spawned["stderr"].errors == "replace"
 
 
-def test_stage_done_reloads_launch_after_proof_commands(repo, tmp_path):
+def test_stage_done_ignores_a_brief_rewritten_by_proof_commands(repo, tmp_path):
+    """The launch attests that Codex wrote inside THIS stage; the brief's
+    bytes are not part of that. Binding the launch to the brief digest meant a
+    re-composed brief (any contract re-record) orphaned every launch and the
+    only way back was a Codex run that changed nothing. A proof command that
+    rewrites the brief therefore changes nothing the seal depends on -- and
+    every input the launch binding still has lives in protected authority,
+    which a proof command may not touch (that refusal is tested separately)."""
     command = ("python3 -c \"from pathlib import Path; "
                "p=Path('.factory/briefs/T1.md'); "
                "p.write_text(p.read_text() + 'changed')\"")
@@ -14232,7 +14242,8 @@ def test_stage_done_reloads_launch_after_proof_commands(repo, tmp_path):
     write_in_scope(repo, "src/core.py")
     stamp_and_commit(repo, "src/core.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
-    assert code != 0 and "no successful write launch" in out
+    assert code == 0, out
+    assert measured_stage(repo)["status"] == "done"
 
 
 def test_stage_start_gates_on_dependencies_not_list_order(repo, tmp_path):
@@ -15177,6 +15188,8 @@ def test_delegate_brief_carries_criteria_and_scope(repo, tmp_path):
     assert "src/" in brief                          # write scope
     assert "src/existing_helper.py" in brief        # existing modules
     assert "test_slice" in brief                    # required tests
+    assert "Before you report: run every required test" in brief  # 0068
+    assert "A test you did not run is not reported as passing" in brief
     assert "the retry path" in brief                # reviewer focus
     assert "Implementer contract" in brief          # the prompt, inlined
     assert "Then return." in brief
@@ -17582,7 +17595,7 @@ def test_session_start_injects_project_memory_plan_and_quickfix(repo, tmp_path):
     assert "OPEN QUICKFIX" in context and "adjust cutoff" in context
 
 
-def test_board_serves_live_lifecycle_state(repo, tmp_path):
+def test_board_serves_live_lifecycle_state(repo, tmp_path, monkeypatch):
     sign_off(repo)
     ensure_story(repo, "ENG-1", "Invoices")
     intake(repo)
@@ -17597,7 +17610,12 @@ def test_board_serves_live_lifecycle_state(repo, tmp_path):
     run(repo, "forge.py", "quickfix", "start", "board fixture")
 
     sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
+    import factory_lib
     from forge_cli.board import make_server
+    # make_server puts this process in board mode (fetch window, git memos);
+    # restore CLI mode for every test that runs after this one.
+    monkeypatch.setattr(factory_lib, "MARKER_FETCH_TTL", factory_lib.MARKER_FETCH_TTL)
+    monkeypatch.setattr(factory_lib, "BOARD_MEMO", factory_lib.BOARD_MEMO)
     server = make_server(repo, 0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -18016,8 +18034,7 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
         ([verdict("C1")], "C2"),
         ([verdict("C1"), verdict("UNKNOWN")], "unknown contract id"),
         ([verdict("C1"), verdict("C1")], "duplicate contract id"),
-        ([verdict("C1", "almost"), verdict("C2")],
-         "implemented, partial, missing, or unverified"),
+        ([verdict("C1", "almost"), verdict("C2")], "implemented, partial, or missing"),
         ([verdict("C1", evidence=""), verdict("C2")], "evidence"),
     ]
     for contract_verdicts, expected in refused:
@@ -18035,26 +18052,6 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
         "category": "plan-contract-partial",
         "area": "plan.md#first",
         "summary": "C1: first statement",
-    }]
-
-    # `unverified` is not the reviewer asserting a defect — it says no pass
-    # attested the contract, which a chunked review produces whenever a
-    # contract's implementation spans slices. It must be VISIBLE but must not
-    # block, or the task-proof gate is unpassable for any task big enough to
-    # chunk.
-    unverified = [verdict("C1", "unverified", "no pass judged it"),
-                  verdict("C2")]
-    code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
-                    stdin=json.dumps(review_payload(
-                        contract_verdicts=unverified)))
-    assert code == 0, out
-    quality = json.loads(
-        (story_state(repo) / "reviews" / "quality.json").read_text())
-    assert quality["blocking_findings"] == []
-    assert quality["non_blocking_findings"] == [{
-        "category": "plan-contract-unverified",
-        "area": "plan.md#first",
-        "summary": "C1 was not attested by any review pass: first statement",
     }]
 
     code, out = run(repo, "record_review_from_json.py", "--aspect", "performance",
@@ -19449,18 +19446,20 @@ def test_vendored_client_extends_workflow_prefixes(repo, tmp_path):
     assert out_of_scope(source, ["WORKFLOW.md"], ["apps/api"]) == ["WORKFLOW.md"]
 
 
-def test_rerecord_active_task_contract_change_warns_and_clears_stamp(
+def test_rerecord_active_task_measurement_change_keeps_stamp_and_says_so(
         repo, tmp_path):
-    """Amending an active task's execution contract is allowed, but its grill
-    and plan approval are now stale — surface that AT CHANGE TIME and drop the
-    now-stale local review stamp instead of silently deferring to close."""
+    """Widening write_scope changes how the work is MEASURED, not what it is.
+    The review stamp binds to the diff, which did not move, so it stands; the
+    recorder says nothing needs re-grilling. Before: the stamp was dropped and
+    a full re-grill + re-approval demanded for zero code change."""
     start_stage(repo, tmp_path, STAGE_TASK)
     write_in_scope(repo, "src/core.py")
     git(repo, "add", "src/core.py")
     code, out = record_stage_local(repo)
     assert code == 0, out
     before = json.loads((repo / ".factory" / "stages.json").read_text())
-    assert before["stages"][0].get("local_review_stamp")
+    stamp = before["stages"][0].get("local_review_stamp")
+    assert stamp
 
     amended = {**STAGE_TASK, "write_scope": ["src/", "lib/"]}
     code, out = run(
@@ -19468,14 +19467,45 @@ def test_rerecord_active_task_contract_change_warns_and_clears_stamp(
         stdin=json.dumps({**DECOMP, "tasks": [amended]}),
     )
     assert code == 0, out
-    assert "NOTE: T1 execution contract changed" in out
-    assert "STALE" in out
-    assert "record_grill_from_json.py --gate task --task T1" in out
-    assert "WARNING: T1 was already implemented/reviewed" in out
+    assert "changed only in how the work is MEASURED" in out
+    assert "nothing to re-grill or re-approve" in out
+    assert "STALE" not in out
 
     after = json.loads((repo / ".factory" / "stages.json").read_text())
     assert after["stages"][0]["status"] == "active"
-    assert "local_review_stamp" not in after["stages"][0]
+    assert after["stages"][0]["local_review_stamp"] == stamp
+
+
+def test_rerecord_active_task_grounding_change_warns_but_keeps_stamp(
+        repo, tmp_path):
+    """Changing an acceptance criterion changes what the work IS: the grill
+    and the approval are stale and the recorder says so at change time. The
+    review stamp still stands -- the diff did not move -- so the re-review is
+    owed only when the code changes to meet the new criterion."""
+    start_stage(repo, tmp_path, STAGE_TASK)
+    write_in_scope(repo, "src/core.py")
+    git(repo, "add", "src/core.py")
+    code, out = record_stage_local(repo)
+    assert code == 0, out
+
+    amended = {**STAGE_TASK,
+               "acceptance_criteria": ["the slice runs green", "and audits"],
+               "plan_contracts": STAGE_TASK["plan_contracts"] + [{
+                   "id": "C2", "statement": "and audits",
+                   "source": "plans/active/TEST-1-test-plan.md#acceptance-criteria"}]}
+    code, out = run(
+        repo, "record_decomposition_from_json.py",
+        stdin=json.dumps({**DECOMP, "tasks": [amended]}),
+    )
+    assert code == 0, out
+    assert "NOTE: T1 execution contract changed in what the work IS" in out
+    assert "STALE" in out
+    assert "record_grill_from_json.py --gate task --task T1" in out
+    assert "WARNING: T1 was already implemented/reviewed" in out
+    assert "The review stamp, if any, stands" in out
+
+    after = json.loads((repo / ".factory" / "stages.json").read_text())
+    assert after["stages"][0].get("local_review_stamp")
 
 
 # --- fix/per-task-user-facing-skills ------------------------------------------
@@ -19758,3 +19788,43 @@ def test_the_gate_graph_has_no_cycles(repo):
     lib = (HARNESS / "factory" / "scripts" / "factory_lib.py").read_text(
         encoding="utf-8")
     assert "def require_closeout_order" in lib
+
+
+def test_already_serving_only_matches_a_board_for_this_repo(tmp_path,
+                                                            monkeypatch):
+    """A board on another checkout is not this repo's board.
+
+    The probe used to answer "is ANY board up", so a board open elsewhere made
+    `forge board` hand you that other repo's board and `forge next` claim a
+    board for a repo that had none — and it left this suite failing on any
+    machine that happened to have a board running.
+    """
+    import io
+    import json as _json
+    import urllib.request
+
+    from forge_cli import board
+
+    mine = tmp_path / "mine"
+    theirs = tmp_path / "theirs"
+    mine.mkdir()
+    theirs.mkdir()
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def serving(root):
+        def _open(url, timeout=None):
+            return _Resp(_json.dumps({"root": str(root)}).encode())
+        return _open
+
+    monkeypatch.setattr(urllib.request, "urlopen", serving(theirs))
+    assert board.already_serving(8765, mine) is False
+    assert board.already_serving(8765, theirs) is True
+    # No root supplied keeps the old "any board" answer for callers that only
+    # want to know whether the port is taken.
+    assert board.already_serving(8765) is True

@@ -1579,6 +1579,14 @@ def cmd_doctor(args: argparse.Namespace) -> None:
               f"[fix ] refreshing the autoreview skill (upstream {upstream_sha[:12]}) ...")
         _autoreview_install(home, upstream_sha)
         ok, detail = _autoreview_status(home, upstream_sha)
+    if autoreview.is_dir():
+        # Whether `forge review` may run the three lenses together (it
+        # reads the installed skill each time; this row says so up front).
+        from .review import lenses_may_run_together
+        together, why = lenses_may_run_together(
+            autoreview / "scripts" / "autoreview")
+        detail += ("; parallel review on" if together
+                   else f"; parallel review OFF until fixed: {why}")
 
     checks.append(_check(
         "autoreview skill",

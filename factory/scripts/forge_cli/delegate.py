@@ -970,9 +970,75 @@ PONYTAIL_BRIEF = (
 )
 
 
+# The worker can run its own tests (decision 0068); nothing asked it to. It
+# reported "host verification remains required" in 22 of 31 runs and the
+# fix loop paid a round trip per finding.
+BEFORE_YOU_REPORT = (
+    "\n\nBefore you report: run every required test and every verify command "
+    "above from this worktree, and paste each command's summary line into your "
+    "report. A test you did not run is not reported as passing. If a command "
+    "cannot run here, name the command, quote its error, and say what you "
+    "verified instead."
+)
+
+
+def _review_findings_section(base: Path, task: dict, story: str) -> str:
+    """The task's recorded review findings, handed to the implementer.
+
+    There was no channel: after `forge review` blocked, the coordinator
+    hand-copied findings into notes, and one fix launch made zero edits
+    because its brief said nothing about them (WF-1 T2, gap G4). The recorded
+    artifacts are the findings; the brief now carries them verbatim.
+    """
+    from factory_lib import load_json, proof_path
+    task_id = str(task.get("id") or "")
+    if not story or not task_id:
+        return ""
+    blocking: list[tuple[str, dict]] = []
+    caveats: list[tuple[str, dict]] = []
+    for lens in ("quality", "performance", "security"):
+        artifact = load_json(
+            proof_path(base, story, f"reviews/{lens}.json", task_id=task_id),
+            default={})
+        if not isinstance(artifact, dict):
+            continue
+        if artifact.get("task_id") not in (None, task_id):
+            continue
+        blocking += [(lens, f) for f in artifact.get("blocking_findings") or []
+                     if isinstance(f, dict)]
+        caveats += [(lens, f) for f in artifact.get("non_blocking_findings") or []
+                    if isinstance(f, dict)]
+    if not blocking and not caveats:
+        return ""
+
+    def line(lens: str, finding: dict) -> str:
+        where = finding.get("area")
+        return (f"- [{lens}] {finding.get('category', '')}: {finding.get('summary', '')}"
+                + (f" ({where})" if where else ""))
+
+    parts = []
+    if blocking:
+        parts.append(
+            "These are the review's BLOCKING findings on this task's current "
+            "diff. This launch exists to close them; the seal refuses until a "
+            "review records none. Fix each, or say in a signal why it is not a "
+            "defect.\n\n" + "\n".join(line(*item) for item in blocking))
+    if caveats:
+        parts.append(
+            "Non-blocking follow-ups (fix only when cheap and in scope; "
+            "otherwise they stay recorded for `forge defer`):\n\n"
+            + "\n".join(line(*item) for item in caveats))
+    return _section("Review findings to fix (recorded by `forge review`)",
+                    "\n\n".join(parts))
+
+
 def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
                   story: str) -> str:
-    scope = task.get("write_scope") or []
+    # Contract scope plus every measured amendment: what `stage done` will
+    # actually accept. The grill and the review brief read the same union.
+    from .stages import effective_scope
+    scope = effective_scope(base, str(task.get("id") or ""),
+                            task.get("write_scope") or [])
     try:
         max_files, max_lines, _reason = review_budget(task)
     except ValueError as exc:
@@ -1024,14 +1090,16 @@ def compose_brief(base: Path, task: dict, *, write: bool, user_facing: bool,
         + ("\n\nThe implementer writes and records the tests; a declared test that "
            "does not exist or whose exact command fails refuses the stage."
            if task.get("required_tests") else ""))
-    body += _section("Verify commands (they will be run when the stage closes)",
-                     "\n".join(f"- `{c}`" for c in task.get("verify_commands") or []))
+    body += _section("Verify commands (run them yourself; they run again when the stage closes)",
+                     "\n".join(f"- `{c}`" for c in task.get("verify_commands") or [])
+                     + BEFORE_YOU_REPORT)
     reviewer_focus = task.get("reviewer_focus", "")
     if isinstance(reviewer_focus, list):
         # The decomposition records reviewer_focus as a LIST (the stage-start
         # gate requires it non-empty); render it like the other list sections.
         reviewer_focus = "\n".join(f"- {item}" for item in reviewer_focus)
     body += _section("Reviewer focus", reviewer_focus)
+    body += _review_findings_section(base, task, story)
     decisions = [r for r in decision_records(base) if r["status"] == "accepted"]
     body += _section("Active decisions — binding", "\n".join(
         f"- {r['id']}: {r['title']}" for r in decisions))

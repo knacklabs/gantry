@@ -18,6 +18,14 @@ personality = "pragmatic"
 sandbox_mode = "workspace-write"
 web_search = "cached"
 
+# The commands the worker runs may reach the network (decision 0068): the
+# package registry and the local database, so a task can install what it
+# declares and run the tests it writes. Writes stay confined to the worktree.
+# On Windows this is what routes each command to the CodexSandboxOnline
+# account; the offline account cannot reach even 127.0.0.1.
+[sandbox_workspace_write]
+network_access = true
+
 [features]
 codex_hooks = true
 multi_agent = true

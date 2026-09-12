@@ -663,20 +663,6 @@ GATED_PHASES = (
     "pr-ready",
 )
 root = repo_root()
-# Hotfix (vendored; upstream symphony-forge): a file-tool write into a SIBLING
-# worktree must be governed and claimed by THAT checkout's lock and mode
-# window, not the session cwd's. Without this, an Edit/Write whose target lies
-# outside the cwd root is neither locked nor counted against a degraded window.
-if tool_name in EDIT_TOOLS:
-    _edit_target = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-    if _edit_target and Path(_edit_target).is_absolute():
-        _target = Path(_edit_target).resolve()
-        try:
-            _target.relative_to(root.resolve())
-        except ValueError:
-            _alt = next((p for p in _target.parents if (p / ".git").exists()), None)
-            if _alt is not None and (_alt / "factory" / "scripts").is_dir():
-                root = _alt
 unmerged = _unmerged_paths(root)
 recovery = _git_recovery(command, root, unmerged) if unmerged else None
 if recovery is True:
