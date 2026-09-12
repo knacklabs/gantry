@@ -58,11 +58,8 @@ Testing has no separate agent: the implementer writes and records the tests.
 ## Reasoning Defaults
 
 - planning / decomposition / architecture reconciliation: `high`
-- code exploration: `gpt-5.6-luna` @ `max` (`/codex:rescue`, read-only)
-- implementation: `gpt-5.6-sol` @ `medium` (raise to `high`/`xhigh` for
-  migrations, cross-domain or security work). The pin that actually runs lives
-  in `harness.yaml`, which `delegate.py` reads; the model in
-  `.codex/config.toml` is shadowed by `~/.codex` and never reaches the CLI.
+- code exploration: `gpt-5.6-sol` @ `low` (`/codex:rescue`, read-only)
+- implementation: `gpt-5.6-sol` @ `medium` (raise for migrations/cross-domain/security)
 - review and testing agents: explicit per-agent overrides
 
 Do not default the entire repo to `high` reasoning for every task.
