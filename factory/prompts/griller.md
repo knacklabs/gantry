@@ -232,23 +232,6 @@ Five gates, five scopes:
   `user_facing` flag that misclassifies the task — a UI task left `false` (its
   mandatory design skills and design review would be skipped) or a backend task
   marked `true` (forced to attest UI design skills it has no use for).
-  Also ask, explicitly and every round, IS THIS CONTRACT SIMPLE ENOUGH? Conduct
-  §2 applies to a task contract exactly as it applies to a plan, and this gate
-  is the last place it can be caught before code exists. A contract over-builds
-  in its own ways, so hunt those: an acceptance criterion that traces to no
-  spec criterion or plan surface (ask "which criterion does this serve?" of
-  EVERY one, the same question the plan gate asks of every task), a required
-  test that proves nothing the other leaves do not already prove, a
-  `write_scope` wider than its criteria need, a NEW type, helper, port or
-  abstraction where the repository already has one that fits — name the
-  existing one — configurability or flexibility no criterion asked for, and a
-  contract that has grown too large to implement or review in one pass, which
-  is a signal to SPLIT rather than to raise the review budget. Say plainly
-  which parts could be dropped or merged and what the smaller shape is; a
-  contract that is merely correct is not yet finished. This is not a licence to
-  strip required proof: added TESTS for criteria that exist are not
-  over-building, and neither is a file the criteria cannot be satisfied
-  without.
   This is the JIT task-planning gate from decision 0032, not a repeat of the
   story-level plan grill. Record it for the exact task id and contract digest;
   the digest covers `write_scope`, `required_tests`, `verify_commands`, and

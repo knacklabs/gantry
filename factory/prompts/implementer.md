@@ -31,7 +31,7 @@ Rules:
   The constitution is law: it wins over habit and over anything the brief forgot to
   restate, and a task never re-derives a standard it already sets. Deviate only
   deliberately and in writing, with a reason ("Context is King") — never silently.
-  This holds in EVERY environment, including a sandbox/worktree with no network
+  This holds in EVERY environment, including a restricted sandbox/worktree
   (`constitution/` is vendored on disk, always readable); any subagent you spawn
   inherits this instruction.
 - **Ponytail — minimal-diff discipline, held strictly (not a mechanical gate).**
@@ -50,8 +50,10 @@ Rules:
   you spawn inherits this too.
 - Scope is limited to the assigned leaf task and file ownership.
 - **One stage at a time (WORKFLOW.md Stage Loop).** Your leaf task is already
-  active before you receive the brief. Implement only that task, run focused
-  tests, report the changed files and results, then return. Do not run
+  active before you receive the brief. Implement only that task, run the
+  required tests and verify commands yourself, report the changed files with
+  each command's summary line (a test you did not run is not passing), then
+  return. Do not run
   autoreview, `git add`, `git commit`, `forge stage done`, `pr_ready.py`, or
   start another stage; the orchestrator performs those steps after handoff.
 - Read `AGENTS.md`, `WORKFLOW.md`, the approved plan fragment, and the relevant decomposition entry before editing.

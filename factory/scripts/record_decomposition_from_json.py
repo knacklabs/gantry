@@ -15,6 +15,8 @@ from factory_lib import (
     run_state_path,
     read_stdin_utf8, validate_payload,
     ready_task_ids,
+    IN_STAGE_GROUNDING_FIELDS, MEASUREMENT_CONTRACT_FIELDS,
+    refresh_task_plan_contract,
 )
 from forge_cli.doctor import unrunnable_reason
 from forge_cli.stages import review_budget
@@ -457,20 +459,24 @@ with delegation_exclusion(
                 "before changing the task list."
             )
         if stage.get("status") == "active":
-            # Amending an active (in-flight) task's execution contract is
-            # allowed, but its task grill and plan approval are now stale. Make
-            # that explicit AT CHANGE TIME and drop the stale review stamp so the
-            # requirement can't be silently deferred to delegate/close.
+            # Amending an active (in-flight) task's contract is allowed. What
+            # that stales depends on WHICH fields moved: the grounding fields
+            # (what the work is) stale the grill and the approval; the
+            # measurement fields (scope, tests, verify) stale nothing -- they
+            # are enforced by `stage done` measuring and running them. The
+            # review stamp is never touched here: it binds to the product
+            # diff, and a contract edit changes no product byte.
             prior = prior_tasks.get(task_id)
-            changed = (
-                prior is not None
-                and _full_contract_digest(prior) != _full_contract_digest(new)
-            )
-            if changed:
-                was_reviewed = bool(stage.get("local_review_stamp"))
-                if stage.pop("local_review_stamp", None) is not None:
-                    stages_dirty = True
-                changed_active.append((task_id, was_reviewed))
+            if prior is not None and _full_contract_digest(prior) != _full_contract_digest(new):
+                grounding_moved = any(
+                    prior.get(field) != new.get(field)
+                    for field in IN_STAGE_GROUNDING_FIELDS)
+                measurement_moved = any(
+                    prior.get(field) != new.get(field)
+                    for field in MEASUREMENT_CONTRACT_FIELDS)
+                changed_active.append(
+                    (task_id, bool(stage.get("local_review_stamp")),
+                     grounding_moved, measurement_moved))
             continue
         if stage.get("status") == "done":
             prior = prior_tasks.get(task_id)
@@ -508,15 +514,34 @@ with delegation_exclusion(
                 )
     if backfilled_stage_digest or stages_dirty:
         write_stages(root, stages_data)
-    for task_id, was_reviewed in changed_active:
-        print(
-            f"\nNOTE: {task_id} execution contract changed. Its task grill and plan "
-            "approval are now STALE and do NOT carry to the amended plan.\n"
-            "Re-grill and re-approve BEFORE the next delegate or stage close:\n"
-            f"  python3 factory/scripts/record_grill_from_json.py --gate task --task {task_id}\n"
-            f"  ./forge task approve {task_id} --by \"<name>\"\n"
-        )
-        if was_reviewed:
+    # The saved task plans carry a rendered copy of their contract. Re-render
+    # so the copy can never lag the record it is rendered from.
+    for task_id, new in current_tasks.items():
+        try:
+            refresh_task_plan_contract(root, task_id, new)
+        except Exception:
+            pass
+    for task_id, was_reviewed, grounding_moved, measurement_moved in changed_active:
+        if grounding_moved:
+            print(
+                f"\nNOTE: {task_id} execution contract changed in what the work IS "
+                "(objective, acceptance criteria, plan contracts or user_facing). "
+                "Its task grill and plan approval are now STALE and do NOT carry "
+                "to the amended plan.\n"
+                "Re-grill and re-approve BEFORE the next delegate or stage close:\n"
+                f"  python3 factory/scripts/record_grill_from_json.py --gate task --task {task_id}\n"
+                f"  ./forge task approve {task_id} --by \"<name>\"\n"
+                "The review stamp, if any, stands: it binds to the product diff, "
+                "which this did not change.\n"
+            )
+        elif measurement_moved:
+            print(
+                f"\nNOTE: {task_id} contract changed only in how the work is MEASURED "
+                "(write scope, required tests or verify commands). Recorded; "
+                "nothing to re-grill or re-approve -- `stage done` measures and "
+                "runs these. The review stamp and the delegate launch stand.\n"
+            )
+        if was_reviewed and grounding_moved:
             print(
                 f"WARNING: {task_id} was already implemented/reviewed. Approving the amended "
                 "plan now post-dates the work — approval is meant to precede implementation. "

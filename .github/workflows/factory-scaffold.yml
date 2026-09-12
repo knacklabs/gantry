@@ -9,7 +9,7 @@ jobs:
   scaffold-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # This workflow is VENDORED into every client repo, so each step has to be
       # true in both places. The checks below are: they lint whatever repo they
       # find. The last two are not — they exercise the harness's own machinery
@@ -26,9 +26,14 @@ jobs:
             echo "is_harness=true" >> "$GITHUB_OUTPUT"
             echo "Harness repo — running harness self-tests."
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+      # The companion launch (and every test that exercises it) needs node on
+      # PATH. A hosted image ships one; a self-hosted runner promises nothing.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - name: Check scaffold files
         run: python3 factory/scripts/check_factory_scaffold.py
       - name: Check AGENTS hygiene
@@ -85,7 +90,7 @@ jobs:
   windows-hook-gates:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Identify harness vs vendored client
         id: repo_kind
         shell: pwsh
@@ -95,7 +100,7 @@ jobs:
           } else {
             "is_harness=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.repo_kind.outputs.is_harness == 'true'
         with:
           python-version: '3.11'

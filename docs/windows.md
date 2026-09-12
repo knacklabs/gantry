@@ -32,6 +32,20 @@ An explicitly unelevated sandbox is deferred. The companion does not expose an
 unelevated sandbox option, and Forge does not change user-global Codex
 configuration to simulate one. Run Forge from a normal, unelevated prompt.
 
+The worker's commands run as a separate local account (`CodexSandboxOnline`
+once decision 0068 applies; `CodexSandboxOffline` before it). Codex grants
+that account read access to the whole disk, but Windows ACLs still deny it
+the user profile root (`C:\Users\<you>`) and per-user caches such as
+`%LOCALAPPDATA%\node\corepack` and `%LOCALAPPDATA%\pnpm\store`. Seen
+on a client: Vitest's esbuild config loader walked up from the worktree and
+died with `Cannot read directory "../../../../../..": Access is denied`, and
+`pnpm` failed with `EPERM` before starting because Corepack could not open
+its cache. Forge does not change ACLs. Two remedies were seen to work on that
+client: declare test commands as `node_modules\.bin\vitest ... --configLoader
+runner` (the runner loader does not walk parent folders, and the local binary
+avoids Corepack), or have an administrator grant the two sandbox accounts read
+access to the profile root and those two cache folders.
+
 ## Encoding
 
 Forge repository text and machine-consumed text use explicit UTF-8 on every
