@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0208-800b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "One-word style fix: the effective_scope import I just added uses the absolute form while delegate.py line 46 and symphony-forge origin/main both use the relative 'from .stages import'. Matching the file's convention keeps the upcoming harness re-vendor a clean no-op on this line instead of a conflict.",
+  "started_at": "2026-09-12T15:44:22+00:00",
+  "completed_at": "2026-09-12T15:44:39+00:00",
+  "files": [],
+  "task_id": "cache-bug-T2",
+  "story": "cache-bug"
+}

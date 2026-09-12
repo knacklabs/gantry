@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0209-d9a8",
+  "profile": "degraded",
+  "reason": "Trim my 5-line comment on the compose_brief scope union to upstream's 1-line version so the line is byte-identical to symphony-forge origin/main. The point of switching to effective_scope was to stop carrying a divergent local implementation; a divergent comment on the same line still conflicts on re-vendor for no behavioural gain, and the five-signal history belongs in the commit message rather than the source.",
+  "started_at": "2026-09-12T15:45:04+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T2",
+  "story": "cache-bug"
+}

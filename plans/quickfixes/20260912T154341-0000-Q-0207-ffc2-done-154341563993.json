@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0207-ffc2",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Replace my local compose_brief scope union with the canonical effective_scope() call that symphony-forge main already uses. My version reimplemented the union from amended_scope_paths; effective_scope is the single function stage done and out_of_scope read, so calling it makes the brief agree with the gate by construction instead of by duplication. The underlying defect is already fixed upstream \u2014 myclaw is running a stale vendored harness \u2014 so this aligns the local copy rather than inventing a second implementation.",
+  "started_at": "2026-09-12T15:43:22+00:00",
+  "completed_at": "2026-09-12T15:43:41+00:00",
+  "files": [],
+  "task_id": "cache-bug-T2",
+  "story": "cache-bug"
+}
