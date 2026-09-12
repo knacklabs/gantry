@@ -9,6 +9,7 @@ import re
 import stat
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -838,6 +839,25 @@ def task_evidence_path(
         root, key, f"tasks/{task_id}/{name}", for_write=for_write)
 
 
+def proof_read_path(root: Path, key: str | None, name: str) -> Path:
+    """Where a READER finds proof: the task's copy when a task owns the run and
+    has recorded one, the story's otherwise.
+
+    `proof_path` answers where a WRITER puts proof, and per-task runs put it
+    under the task. Readers that resolved story-only therefore missed proof the
+    recorders had just written — the review gate, the board, the phase summary,
+    the stage rows and the review brief all did. The fallback keeps story-level
+    runs and older stories working unchanged, which is what makes this a
+    completion of the per-task move rather than a flag day.
+    """
+    task_id = active_task_id(root)
+    if task_id and key:
+        scoped = task_evidence_path(root, key, task_id, name)
+        if scoped.is_file():
+            return scoped
+    return evidence_path(root, key, name)
+
+
 def task_marker_path(key: str, task_id: str) -> Path:
     """Return the committed marker shared by task start and task closeout."""
     for label, value in (("story key", key), ("task id", task_id)):
@@ -929,29 +949,103 @@ def _resolve_trunk_branch(root: Path) -> str:
 # a few seconds of staleness on "has this marker landed yet" costs a read-only
 # dashboard nothing.
 MARKER_FETCH_TTL = 0.0
-_TRUNK_FETCH_AT: dict[tuple[str, str], float] = {}
+_TRUNK_FETCH_AT: dict[tuple[str, str], tuple[float, bool]] = {}
+# Two locks, so a request never waits on the network when it need not: the
+# state lock guards the dict for a lookup; the run lock serialises the fetch
+# itself (two fetches of one ref at once race on FETCH_HEAD and the ref lock).
+_TRUNK_FETCH_STATE = threading.Lock()
+_TRUNK_FETCH_RUN = threading.Lock()
+# A failed fetch is reused for at most this long, whatever the window: a board
+# polling an offline remote does not wait on it every poll, and still sees the
+# network come back within one poll.
+_TRUNK_FETCH_FAILURE_TTL = 10.0
+
+# Set by the board server only (make_server). A board re-derives the same git
+# facts on every request; with this on, a fact whose inputs are files git
+# rewrites whenever the answer can change is reused until those files change.
+# Every CLI process leaves it off, so the gates keep asking git directly.
+BOARD_MEMO = False
+
+
+def _board_memo(namespace: str, stamp: tuple, compute):
+    if not BOARD_MEMO:
+        return compute()
+    from forge_cli import fscache
+
+    return fscache.cached(namespace, stamp, compute)
+
+
+def _git_dirs(root: Path) -> tuple[Path, Path] | None:
+    """(this worktree's git dir, the shared common dir), or None outside git."""
+    try:
+        git_dir = git_control_dir(root).parent
+    except SystemExit:
+        return None
+    common = (git_dir.parent.parent
+              if git_dir.parent.name == "worktrees" else git_dir)
+    return git_dir, common
+
+
+def _trunk_fetch_window(key: tuple[str, str], ttl: float) -> bool | None:
+    if ttl <= 0.0:
+        return None
+    with _TRUNK_FETCH_STATE:
+        last = _TRUNK_FETCH_AT.get(key)
+    if last is None:
+        return None
+    at, ok = last
+    valid = ttl if ok else min(ttl, _TRUNK_FETCH_FAILURE_TTL)
+    return ok if time.monotonic() - at < valid else None
 
 
 def fetch_trunk(root: Path, trunk: str, *, ttl: float = 0.0) -> bool:
     """Fetch ``origin/<trunk>`` and report whether it should now be present.
 
-    Factored out so the board fetches the trunk ONCE per render (before checking
-    every task's marker) instead of once per task, while the CLI frontier and
-    ship gates keep fetching live per check. With ``ttl > 0`` a fetch made within
-    the last ``ttl`` seconds is reused instead of hitting the network again."""
-    cache_key = (str(root), trunk)
-    if ttl > 0.0:
-        last = _TRUNK_FETCH_AT.get(cache_key)
-        if last is not None and (time.monotonic() - last) < ttl:
-            return True
+    With ``ttl > 0`` a fetch made within the last ``ttl`` seconds is reused
+    instead of hitting the network again. The board process raises
+    ``MARKER_FETCH_TTL``, and that floor applies to EVERY fetch made in that
+    process: the per-render one in ``task_rows`` and the ones ``forge next``
+    makes through ``task_marker_on_main``, which used to go around the window
+    and pay a network round trip (2.7 s on a real remote) per marker check.
+    A call that finds a fetch inside its window never waits on one in flight.
+    Every CLI process leaves the TTL at zero and stays live.
+    """
+    ttl = max(ttl, MARKER_FETCH_TTL)
+    key = (str(root), trunk)
+    reused = _trunk_fetch_window(key, ttl)
+    if reused is not None:
+        return reused
+    with _TRUNK_FETCH_RUN:
+        # Another caller may have fetched while this one waited for the lock.
+        reused = _trunk_fetch_window(key, ttl)
+        if reused is not None:
+            return reused
+        ok = _fetch_trunk_now(root, trunk)
+        with _TRUNK_FETCH_STATE:
+            _TRUNK_FETCH_AT[key] = (time.monotonic(), ok)
+        return ok
+
+
+def _fetch_trunk_now(root: Path, trunk: str) -> bool:
     fetch = subprocess.run(
         ["git", "fetch", "origin", trunk], cwd=root, capture_output=True,
         text=True, env=clean_git_env(), encoding="utf-8", errors="surrogateescape",
     )
-    if fetch.returncode != 0:
-        return False
-    _TRUNK_FETCH_AT[cache_key] = time.monotonic()
-    return True
+    return fetch.returncode == 0
+
+
+def refresh_trunk(root: Path, trunk: str) -> bool:
+    """Fetch now, whatever the window says, and start a fresh window.
+
+    For a refresher on its own clock (the board's). Requests that find the
+    previous fetch still inside its window do not wait for this one.
+    """
+    key = (str(root), trunk)
+    with _TRUNK_FETCH_RUN:
+        ok = _fetch_trunk_now(root, trunk)
+        with _TRUNK_FETCH_STATE:
+            _TRUNK_FETCH_AT[key] = (time.monotonic(), ok)
+        return ok
 
 
 def task_marker_on_main(
@@ -975,24 +1069,52 @@ def task_marker_on_main(
         # every caller. `forge next` and the board read this on repos that have
         # no origin (they never crash); the per-task ship gate re-checks live.
         return False
-    present = subprocess.run(
-        ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
-        cwd=root, capture_output=True, text=True, env=clean_git_env(),
-        encoding="utf-8", errors="surrogateescape",
-    )
-    return present.returncode == 0
+
+    def ask() -> bool:
+        present = subprocess.run(
+            ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
+            cwd=root, capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8", errors="surrogateescape",
+        )
+        return present.returncode == 0
+
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return ask()
+    from forge_cli import fscache
+
+    # Fixed by where origin/<trunk> points; git rewrites the loose ref or
+    # packed-refs whenever that moves. `forge next` asks this for every
+    # shipped task on each recompute (17 checks on one repo).
+    common = dirs[1]
+    stamp = (fscache.file_stamp(common / "refs" / "remotes" / "origin" / trunk),
+             fscache.file_stamp(common / "packed-refs"))
+    return _board_memo(f"board:marker:{common}:{trunk}:{marker.as_posix()}",
+                       stamp, ask)
 
 
 def _has_origin(root: Path) -> bool:
     """Whether an `origin` remote is configured (cheap; no network). Marker-on-
     trunk per-task routing only applies when there is a trunk to ship a PR to;
     without an origin the frontier keeps its stage-status behaviour."""
-    result = subprocess.run(
-        ["git", "remote", "get-url", "origin"], cwd=root,
-        capture_output=True, text=True, env=clean_git_env(),
-        encoding="utf-8",
-    )
-    return result.returncode == 0
+    def ask() -> bool:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"], cwd=root,
+            capture_output=True, text=True, env=clean_git_env(),
+            encoding="utf-8",
+        )
+        return result.returncode == 0
+
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return ask()
+    from forge_cli import fscache
+
+    # Remotes live in config; a worktree-scoped config can add one too.
+    git_dir, common = dirs
+    stamp = (fscache.file_stamp(common / "config"),
+             fscache.file_stamp(git_dir / "config.worktree"))
+    return _board_memo(f"board:has_origin:{git_dir}", stamp, ask)
 
 
 def _windows_reparse_point(path: Path) -> bool:
@@ -1825,6 +1947,24 @@ def task_digest(task: dict) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+CONTRACT_BLOCK_START = "<!-- forge:contract -->"
+CONTRACT_BLOCK_END = "<!-- /forge:contract -->"
+_CONTRACT_BLOCK = re.compile(
+    rb"\n?" + re.escape(CONTRACT_BLOCK_START.encode()) + rb".*?"
+    + re.escape(CONTRACT_BLOCK_END.encode()) + rb"\n?", re.DOTALL)
+
+
+def strip_derived_sections(text: bytes) -> bytes:
+    """Drop the harness-rendered contract block before hashing a plan.
+
+    The block is rendered FROM the recorded decomposition (see
+    `render_task_contract_block`), so it cannot drift from the contract and
+    is not something a human authored or a grill judged. Hashing it made a
+    scope widening -- which re-renders the block -- stale the plan approval.
+    """
+    return _CONTRACT_BLOCK.sub(b"\n", text)
+
+
 def plan_digest_without_assumptions(path: Path) -> str:
     """The plan digest every grill and approval binds to: the authored BODY,
     without the frontmatter block and without implementation-time appendices.
@@ -1850,6 +1990,7 @@ def plan_body_digest(path: Path) -> str:
     """
     raw = path.read_bytes()
     normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    normalised = strip_derived_sections(normalised)
     frontmatter = re.match(br"\A---\n(.*?)\n---\n", normalised, re.DOTALL)
     body = normalised[frontmatter.end():] if frontmatter else normalised
     # Authored frontmatter (decisions_reviewed, ...) is part of what was
@@ -1860,12 +2001,97 @@ def plan_body_digest(path: Path) -> str:
         if not re.match(PLAN_SAVE_OWNED_FIELDS, line)
     )
     approved_body = body.partition(b"\n## Implementation Assumptions")[0]
+    # Trailing newlines are normalised because `strip_derived_sections`
+    # substitutes a newline for the contract block, and the block is appended
+    # after one. Removing it therefore leaves one MORE trailing newline than
+    # the file carried before the block existed, so the first render of the
+    # block changed this digest and `task approve` refused with "the plan
+    # CHANGED" against byte-identical authored text.
+    approved_body = approved_body.rstrip(b"\n") + b"\n"
     return hashlib.sha256(authored + b"\n---\n" + approved_body).hexdigest()
 
 
 # Frontmatter keys `plan save` writes itself (plus saved:/updated: stamps):
 # harness bookkeeping, never something a grill read.
 PLAN_SAVE_OWNED_FIELDS = rb"(issue|title|status|saved|updated|story):"
+
+
+def render_task_contract_block(task: dict, amendments: dict | None = None) -> str:
+    """The recorded contract, rendered for a reader of the task plan.
+
+    Written once, in the decomposition; rendered here; never hand-copied. The
+    plan used to carry its own copy of the criteria and the file list, held
+    equal to the contract by a Codex cold read -- five of T2's six "blockers"
+    were that copy drifting. A rendered block cannot drift.
+    """
+    lines = [CONTRACT_BLOCK_START,
+             "## Contract (recorded)", "",
+             "Rendered by the harness from the recorded decomposition; edit the "
+             "decomposition, not this block. It is excluded from the plan's "
+             "approval and grill digests, so a re-render never stales either.", ""]
+    objective = str(task.get("objective") or "").strip()
+    if objective:
+        lines += ["**Objective.** " + objective, ""]
+    criteria = [str(c) for c in task.get("acceptance_criteria") or []]
+    lines += ["**Acceptance criteria**", ""]
+    lines += [f"- {c}" for c in criteria] or ["- (none recorded)"]
+    lines.append("")
+    scope = [str(p) for p in task.get("write_scope") or []]
+    lines += ["**Write scope** (what `stage done` measures the diff against)", ""]
+    lines += [f"- {p}" for p in scope] or ["- (none recorded)"]
+    added = (amendments or {}).get("added_paths") or []
+    if added:
+        reasons = {}
+        for entry in (amendments or {}).get("amendments") or []:
+            for path in entry.get("added_paths") or []:
+                reasons.setdefault(path, str(entry.get("reason") or ""))
+        lines += ["", "**Scope amendments** (measured paths the scope did not name, "
+                  "recorded with `forge stage amend-scope`)", ""]
+        lines += [f"- {p}" + (f" -- {reasons[p]}" if reasons.get(p) else "")
+                  for p in added]
+    lines.append("")
+    tests = task.get("required_tests") or []
+    lines += ["**Required tests** (run by `stage done`)", ""]
+    lines += [f"- `{t.get('id')}` -- `{t.get('command')}` ({t.get('path')})"
+              for t in tests if isinstance(t, dict)] or ["- (none recorded)"]
+    lines.append("")
+    verify = [str(v) for v in task.get("verify_commands") or []]
+    lines += ["**Verify commands**", ""]
+    lines += [f"- `{v}`" for v in verify] or ["- (none recorded)"]
+    budget = task.get("review_budget") or {}
+    if isinstance(budget, dict) and budget:
+        lines += ["", f"**Review budget.** {budget.get('max_changed_files')} files / "
+                  f"{budget.get('max_changed_lines')} lines"
+                  + (f" -- {budget.get('reason')}" if budget.get("reason") else "")]
+    lines += [CONTRACT_BLOCK_END]
+    return "\n".join(lines) + "\n"
+
+
+def refresh_task_plan_contract(root: Path, task_id: str, task: dict) -> bool:
+    """Re-render the contract block inside the saved task plan, if there is one.
+
+    Called wherever the contract or its amendments move: the decomposition
+    recorder, `task plan save`, `stage amend-scope`. Returns True when the
+    file changed. The block sits before `## Implementation Assumptions` when
+    that appendix exists, else at the end.
+    """
+    from forge_cli.stages import scope_amendments_path
+    story = _active_story_key(root)
+    path = evidence_path(root, story, f"task-plans/{task_id}.md", for_write=True)
+    if not path.is_file():
+        return False
+    amendments = (load_json(scope_amendments_path(root), default={})
+                  .get("tasks", {}).get(task_id))
+    block = render_task_contract_block(task, amendments if isinstance(amendments, dict) else None)
+    text = path.read_text(encoding="utf-8")
+    stripped = strip_derived_sections(text.encode("utf-8")).decode("utf-8")
+    head, marker, tail = stripped.partition("\n## Implementation Assumptions")
+    head = head.rstrip("\n") + "\n\n"
+    rebuilt = head + block + (("\n" + marker.lstrip("\n") + tail) if marker else "")
+    if rebuilt == text:
+        return False
+    path.write_text(rebuilt, encoding="utf-8")
+    return True
 
 
 def approved_plan_digest(
@@ -1916,9 +2142,85 @@ def harness_owned_prefixes() -> tuple[str, ...]:
     return tuple(sorted(set(WORKFLOW_PATHS) | set(HARNESS_PREFIXES)))
 
 
+def product_excluded_prefixes(root: Path) -> tuple[str, ...]:
+    """The ONE definition of "not product": the workflow ledgers, plans,
+    decision records, and in a vendored client the harness machinery.
+
+    Four lists used to answer this question -- the stage measure, the review
+    scope, the stamp's tree digest and the grill's grounding -- and they
+    disagreed: a decision record was not a scope stray but did stale the
+    review stamp. Every closeout check now asks this function, so a path is
+    product for all of them or for none.
+    """
+    from forge_cli.stages import measure_prefixes
+    return measure_prefixes(root)
+
+
+def product_delta_digest(root: Path, base_sha: str, head: str = "") -> str:
+    """Hash of the product diff this task's branch made since `base_sha`.
+
+    This is what a review reads and what a seal ships, so it is what the
+    review stamp binds to -- and nothing else. Contract text, brief text,
+    decision records and evidence commits change none of these bytes, so
+    none of them can stale a review any more. Two different diffs can leave
+    the tree in the same state; a tree digest could not tell them apart, this
+    can.
+
+    Base -> INDEX, not base -> HEAD: the reviewed tree is stamped while it is
+    staged and committed afterwards, and the digest must not move at that
+    commit. `stage done` requires a clean index at close, so there it equals
+    base -> HEAD. Paths are the branch's own commits (`committed_paths`,
+    first-parent) plus what is staged, so a trunk merge received mid-stage
+    is not attributed to the stage.
+    """
+    from forge_cli.stages import _git, committed_paths
+    head = head or head_sha(root) or ""
+    empty = hashlib.sha256(b"").hexdigest()
+    if not base_sha or not head:
+        return empty
+    excluded = product_excluded_prefixes(root)
+    # The lossless git helper the stage measure uses (encoding-hygiene
+    # allowlisted); a bare call here failed the hygiene gate.
+    staged_raw = _git(root, "diff", "--cached", "--name-only", "-z", base_sha)
+    paths = {path for path in staged_raw.split("\0") if path}
+    if base_sha != head:
+        paths |= committed_paths(root, base_sha, head)
+    ordered = sorted(path for path in paths if not path.startswith(excluded))
+    if not ordered:
+        return empty
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "--no-ext-diff", "--cached", base_sha,
+         "--", *ordered],
+        cwd=root, capture_output=True, env=clean_git_env(),
+    )
+    if diff.returncode != 0:
+        raise SystemExit("cannot derive the product delta digest: git diff failed")
+    return hashlib.sha256(diff.stdout).hexdigest()
+
 def product_tree_digest(root: Path, treeish: str = "",
                         exclude: tuple[str, ...] = (".factory/", "plans/")) -> str:
     """Hash product blobs from the index, or from a named historical tree."""
+    dirs = _git_dirs(root) if BOARD_MEMO else None
+    if dirs is None:
+        return _product_tree_digest_now(root, treeish, exclude)
+    from forge_cli import fscache
+
+    git_dir, common = dirs
+    if treeish:
+        # An object id names the same tree forever; a ref name can move.
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", treeish):
+            return _product_tree_digest_now(root, treeish, exclude)
+        namespace, stamp = f"board:tree:{common}:{treeish}:{exclude}", ()
+    else:
+        # `ls-files --stage` reads this worktree's index and nothing else.
+        namespace = f"board:index-tree:{git_dir}:{exclude}"
+        stamp = (fscache.file_stamp(git_dir / "index"),)
+    return _board_memo(namespace, stamp,
+                       lambda: _product_tree_digest_now(root, treeish, exclude))
+
+
+def _product_tree_digest_now(root: Path, treeish: str,
+                             exclude: tuple[str, ...]) -> str:
     git_args = (["ls-tree", "-r", "-z", treeish]
                 if treeish else ["ls-files", "--stage", "-z"])
     proc = subprocess.run(
@@ -1968,6 +2270,21 @@ GROUNDING_CONTRACT_FIELDS = (
     "verify_commands",
     "user_facing",
 )
+# Once the stage is OPEN, three of those fields stop being what the work IS
+# and become how the work is MEASURED: `write_scope` is enforced by measuring
+# the diff, `required_tests` and `verify_commands` by running them. Each has a
+# mechanical gate that can actually check it; a cold reader can only guess at
+# them. Widening scope or fixing a test command mid-stage therefore changes
+# nothing the grill judged, and re-grilling on it re-asked a question whose
+# answer had not changed (T2: a scope widening cost a 21-minute re-grill, a
+# plan rewrite and a human re-approval for zero code change).
+IN_STAGE_GROUNDING_FIELDS = (
+    "objective",
+    "acceptance_criteria",
+    "plan_contracts",
+    "user_facing",
+)
+MEASUREMENT_CONTRACT_FIELDS = ("write_scope", "required_tests", "verify_commands")
 # Deliberately NOT grounded: `review_budget` and `reviewer_focus` are
 # bookkeeping for the reviewer, and `title`/`id`/`epic_id` are labels. Raising
 # a file-count ceiling used to invalidate the grill and force a full re-grill
@@ -1985,7 +2302,8 @@ def task_in_stage(root: Path, task_id: str) -> bool:
 
 
 def grounding_digest(root: Path, task: dict, *, treeish: str = "",
-                     in_stage: bool = False) -> str:
+                     in_stage: bool = False,
+                     fields: tuple[str, ...] | None = None) -> str:
     """Bind a task grill to what the work IS: the substantive contract, the
     approved plan, and — only before the stage opens — the product tree."""
     decomposition = load_json(protected_decomposition_state_path(root), default={})
@@ -2010,8 +2328,10 @@ def grounding_digest(root: Path, task: dict, *, treeish: str = "",
             f"cannot derive the task grounding digest: approved plan {plan_file!r} "
             "does not exist"
         )
+    if fields is None:
+        fields = IN_STAGE_GROUNDING_FIELDS if in_stage else GROUNDING_CONTRACT_FIELDS
     body = {
-        "contract": {field: task.get(field) for field in GROUNDING_CONTRACT_FIELDS},
+        "contract": {field: task.get(field) for field in fields},
         "plan_sha256": plan_digest_without_assumptions(plan),
     }
     # The product tree is part of the grounding only until the stage opens.
@@ -2080,6 +2400,13 @@ def grounding_matches(root: Path, task: dict, recorded: str, *,
                                     in_stage=in_stage):
         return True
     if in_stage:
+        # Recorded in-stage under the previous rule, which still grounded the
+        # three measurement fields. Those fields have not moved if this
+        # matches, so the record is as good as one made today.
+        if recorded == grounding_digest(root, task, treeish=treeish,
+                                        in_stage=True,
+                                        fields=GROUNDING_CONTRACT_FIELDS):
+            return True
         # Stamped BEFORE the stage opened, so the tree was part of it. The
         # stage pinned that same tree as its baseline, so measuring against
         # the baseline reproduces exactly what was recorded. Without this the

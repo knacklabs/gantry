@@ -1,6 +1,11 @@
 {
-  "issue": "cache-bug",
+  "issue": "GRANTED-1",
   "stages": [
+    {
+      "id": "GRANTED-1-T1",
+      "title": "The scheduled run is told which capabilities it holds",
+      "status": "pending"
+    },
     {
       "id": "cache-bug-T1",
       "title": "Measurement, storage, and the quality gate",

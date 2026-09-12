@@ -1,0 +1,93 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "GRANTED-1-T1",
+  "score": 10,
+  "summary": "quality lens over GRANTED-1-T1 (17 product path(s), b740f8c..f9357d1, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. VERDICT GRANTED-1-C1: implemented \u2014 apps/core/src/jobs/execution-phases-run.ts:240 scheduled execution constructs and carries the filtered catalog\nVERDICT GRANTED-1-C2: implemented \u2014 apps/core/test/unit/jobs/execution-phases-run.test.ts:158 proves an app-active capability granted to another person is not ready\nVERDICT GRANTED-1-C3: implemented \u2014 apps/core/test/unit/runtime/prompt-profile.test.ts:404 asserts the exact rendered identity and invocation guidance\nVERDICT GRANTED-1-C4: implemented \u2014 apps/core/src/application/agents/agent-prompt-capability-catalog.ts:157 rejects legacy mcp_tool bindings and projects the supported binding kinds\nVERDICT GRANTED-1-C5: implemented \u2014 apps/core/test/unit/runtime/agent-spawn-prompt.test.ts:132 covers Anthropic projection with tool search and the DeepAgents omission\nVERDICT GRANTED-1-C6: implemented \u2014 apps/core/src/application/agents/agent-prompt-capability-guidance.ts:158 defines the fixed shedding sequence while retaining every compact grant line\nVERDICT GRANTED-1-C7: implemented \u2014 apps/core/src/runtime/agent-spawn-prompt.ts:131 publishes the overflow diagnostic at the abort point and rethrows\nVERDICT GRANTED-1-C8: implemented \u2014 apps/core/src/application/agents/prompt-profile-service.ts:531 reserves the catalog through both section and total-budget compilation\nVERDICT GRANTED-1-C9: implemented \u2014 apps/core/test/unit/runner/capability-catalog-replay.test.ts:63 materializes the production catalog and exercises the production dispatcher registration from its descriptor\nVERDICT GRANTED-1-C10: implemented \u2014 apps/core/test/unit/runner/mcp/locked-introspection.test.ts:227 pins removal of duplicate runtime guidance and the unchanged dispatcher schema, risk, and enforcement registrations\nVERDICT GRANTED-1-C11: implemented \u2014 apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts:135 verifies reviewed arguments remain while executable paths, hashes, and adapter references are absent\nLEFTOVERS: clean \u2014 the compatibility re-export and superseded runtime-context guidance are removed, with no replacement shim retained.\nNo actionable P0\u2013P2 defect is demonstrated by the supplied diff and recorded verification evidence.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/application/agents/agent-profile-service.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/runner/mcp/context.ts",
+    "apps/core/src/runner/mcp/tools/capability-run.ts",
+    "apps/core/src/runtime/agent-spawn-host.ts",
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/runtime/agent-spawn.ts",
+    "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+    "apps/core/test/unit/jobs/execution-phases-run.test.ts",
+    "apps/core/test/unit/runner/capability-catalog-replay.test.ts",
+    "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
+    "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
+    "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
+    "apps/core/test/unit/runtime/prompt-profile.test.ts"
+  ],
+  "skills_used": [],
+  "contract_verdicts": [
+    {
+      "contract_id": "GRANTED-1-C1",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/jobs/execution-phases-run.ts:240 scheduled execution constructs and carries the filtered catalog"
+    },
+    {
+      "contract_id": "GRANTED-1-C2",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/jobs/execution-phases-run.test.ts:158 proves an app-active capability granted to another person is not ready"
+    },
+    {
+      "contract_id": "GRANTED-1-C3",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/prompt-profile.test.ts:404 asserts the exact rendered identity and invocation guidance"
+    },
+    {
+      "contract_id": "GRANTED-1-C4",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/agents/agent-prompt-capability-catalog.ts:157 rejects legacy mcp_tool bindings and projects the supported binding kinds"
+    },
+    {
+      "contract_id": "GRANTED-1-C5",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts:132 covers Anthropic projection with tool search and the DeepAgents omission"
+    },
+    {
+      "contract_id": "GRANTED-1-C6",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/agents/agent-prompt-capability-guidance.ts:158 defines the fixed shedding sequence while retaining every compact grant line"
+    },
+    {
+      "contract_id": "GRANTED-1-C7",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/runtime/agent-spawn-prompt.ts:131 publishes the overflow diagnostic at the abort point and rethrows"
+    },
+    {
+      "contract_id": "GRANTED-1-C8",
+      "verdict": "implemented",
+      "evidence": "apps/core/src/application/agents/prompt-profile-service.ts:531 reserves the catalog through both section and total-budget compilation"
+    },
+    {
+      "contract_id": "GRANTED-1-C9",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runner/capability-catalog-replay.test.ts:63 materializes the production catalog and exercises the production dispatcher registration from its descriptor"
+    },
+    {
+      "contract_id": "GRANTED-1-C10",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/runner/mcp/locked-introspection.test.ts:227 pins removal of duplicate runtime guidance and the unchanged dispatcher schema, risk, and enforcement registrations"
+    },
+    {
+      "contract_id": "GRANTED-1-C11",
+      "verdict": "implemented",
+      "evidence": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts:135 verifies reviewed arguments remain while executable paths, hashes, and adapter references are absent"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "7d07bb41d944a36b7fe7592d3b99e4cc9ca771de83c4a9aab56c8463e7e8a475",
+  "brief_sha256": "7120110e98dced84c2e156ae72b736d49161a6077ba8cdc6011ad19f2aabcda6",
+  "branch_diff_digest": "3596635c03bfcfc3dc2162790fbe950805e81a9ded99913ed043794fd17b295c",
+  "residual_risks": [],
+  "recorded_at": "2026-09-11T14:55:10+00:00",
+  "commit": "f9357d17a729f0464205da9f61ddad29cee5ea22"
+}

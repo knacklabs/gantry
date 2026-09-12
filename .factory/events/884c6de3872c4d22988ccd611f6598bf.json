@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-10T18:18:45+00:00", "story": "GRANTED-1", "detail": "GRANTED-1-T1 declares apps/core/test/unit/jobs/execution-phases-run.test.ts already exists and must be extended, but the file is absent in this worktree; creating it would contradict the explicit do-n"}

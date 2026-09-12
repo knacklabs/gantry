@@ -98,7 +98,6 @@ import {
   buildRunnerSandboxSpawnInput,
   buildBaseRunnerEnv,
   buildAndLogRunnerRuntimeDetails,
-  type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 import {
   prepareAgentSpawn,
@@ -176,8 +175,7 @@ async function spawnAgentWithContext(
     agentSettings,
     group.agentConfig?.permissionMode,
   );
-  const agentEngine = resolvedModel.value.agentEngine;
-  const effectiveModel = resolvedModel.value.runnerModel;
+  const { agentEngine, runnerModel: effectiveModel } = resolvedModel.value;
   const preSpawnAdmissionError = hostStartup.measure(
     'preSpawnAdmissionMs',
     () =>
@@ -222,6 +220,7 @@ async function spawnAgentWithContext(
     appId: input.appId || 'default',
     accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
     mcpInventoryToolsMounted: true,
+    agentEngine,
     modelIdentity: {
       alias: resolvedModel.value.modelEntry.displayName,
       modelId: resolvedModel.value.runnerModel,
@@ -233,6 +232,7 @@ async function spawnAgentWithContext(
         getRuntimeStorage().repositories,
       ),
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
+    publishRuntimeEvent: options?.publishRuntimeEvent,
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),
   });
   const { runnerInput, browserIpcEnabled, trustedToolPolicyRules } =

@@ -13,7 +13,7 @@ import {
   type FailoverAdvanceDetails,
 } from '../runtime/failover-candidate-loop.js';
 // prettier-ignore
-import { loadAgentAccessSnapshot, resolveTurnSemanticCapabilitiesFromSnapshot, resolveTurnSelectedMcpServerIdsFromSnapshot, resolveTurnSelectedSkillContextFromSnapshot, resolveTurnToolPolicyFromSnapshot } from '../runtime/group-run-context.js';
+import { loadAgentAccessSnapshot, resolveTurnPromptCapabilityCatalogFromSnapshot, resolveTurnSemanticCapabilitiesFromSnapshot, resolveTurnSelectedMcpServerIdsFromSnapshot, resolveTurnSelectedSkillContextFromSnapshot, resolveTurnToolPolicyFromSnapshot } from '../runtime/group-run-context.js';
 // prettier-ignore
 import { buildRuntimeRunOptions, completeSuccessfulRuntimeSessionRun, createRuntimeUserVisibleResultAccumulator, failRuntimeSessionRun as failSessionRun } from '../runtime/session-resume-runtime.js';
 import { accumulateModelUsage } from '../shared/model-usage.js';
@@ -144,7 +144,6 @@ export async function runActiveJobAgent(
     }
   }
 }
-
 async function prepareActiveJobAgent(
   context: ActiveJobRunContext,
 ): Promise<void> {
@@ -241,6 +240,8 @@ async function invokeActiveJobAgent(
   const { currentJob, deps, runId } = context;
   const execution = context.execution!;
   const preparation = context.agentPreparation!;
+  // prettier-ignore
+  const capabilityCatalog = preparation.accessSnapshot ? resolveTurnPromptCapabilityCatalogFromSnapshot(preparation.accessSnapshot, resolveTurnToolPolicyFromSnapshot(preparation.accessSnapshot, currentJob.execution_context?.personId).semanticCapabilities, preparation.toolPolicy.effectiveAllowedTools) : undefined;
   const runOptions = buildRuntimeRunOptions({
     timeoutMs: context.timeoutMs!,
     signal: context.runLeaseAbort!.signal,
@@ -315,6 +316,7 @@ async function invokeActiveJobAgent(
       selectedSkillDisplays: preparation.selectedSkillContext.displays,
       attachedMcpSourceIds: preparation.attachedMcpSourceIds,
       semanticCapabilities: preparation.semanticCapabilities,
+      ...(capabilityCatalog ? { capabilityCatalog } : {}),
     },
     onProcess: (proc, runHandle) => {
       void context.updateRunProviderMetadata!({ providerRunId: runHandle });

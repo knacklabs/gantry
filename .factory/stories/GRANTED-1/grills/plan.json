@@ -1,0 +1,110 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "issue": "GRANTED-1",
+  "summary": "Plan re-read after the split returned eight findings. Seven are resolved in plan v5, including a real security correction to which capability set the catalog is built from; the eighth, how the two runtimes name tools, was an owner choice and is settled as a neutral reference each lane translates. Recorded against the saved plan file rather than the draft, which differs only by the factory frontmatter that plan save adds. Re-recorded after the hard-overflow rule was folded into the plan.",
+  "gaps": [
+    "The artifact could not pass plan save: no decisions_reviewed frontmatter and missing the required Problem, Scope / Non-goals and Acceptance Criteria sections, with Surface Impact omitting CLI/ops, UI and docs.",
+    "The roadmap criterion required descriptors for five binding kinds while the confirmed spec correctly names four usable kinds, leaving the story unsatisfiable.",
+    "The plan forbade any path in a descriptor while the spec permits a reviewed fixed operand to render verbatim, so either implementation strips approved shapes or the security claim is false.",
+    "user_facing true is wrong for a backend and prompt task, and saying no functional check is needed cannot override what that flag mandates.",
+    "'Build from the access snapshot' is too vague at a security boundary: the job has a person-filtered capability set and a broader snapshot-derived one, and the wrong choice advertises an ungranted capability as ready.",
+    "The plan hard-codes one runtime's tool name while the two lanes name tools differently, and the proof checked only one lane.",
+    "The overflow guarantee has no end-to-end owner: compilation truncates at both the section budget and the total prompt budget, and the existing callback cannot emit the required startup event.",
+    "The live check was weakened to two tool families while the spec requires zero pre-success failures of any tool.",
+    "The plan had no behaviour for the hard-overflow case where even the compact name-and-id list exceeds the total prompt budget."
+  ],
+  "contradictions": [
+    "The plan forbade paths in descriptors while the confirmed spec permits a reviewed fixed operand to render verbatim."
+  ],
+  "resolutions": [
+    "Plan v5 adds the frontmatter with every active decision reviewed and all nine required sections, with Surface Impact covering runtime, data, MCP/API, CLI/ops, UI, docs, security and tests.",
+    "The roadmap criterion is corrected to four usable binding kinds, matching the confirmed spec.",
+    "Plan v5 prohibits executable paths, hashes and credentials specifically, and permits reviewed argument operands per the owner ruling; criterion 12 asserts all three against a binding carrying each.",
+    "Plan v5 sets user_facing false, since no screen, component or styling changes, and states that in Surface Impact.",
+    "Owner-independent correction: the plan now feeds the person-filtered inheritedToolPolicy.semanticCapabilities from execution-phases-run.ts:183, not the broader snapshot set, with criterion 2 asserting a capability active for the app but ungranted to the acting person never appears as ready.",
+    "Owner ruled: the catalog carries a neutral tool reference and each lane translates it. Criterion 5 asserts the Anthropic mapping against the real projection and asserts the DeepAgents entry absent, so the gap is explicit rather than silent.",
+    "Plan v5 exempts the capability section from total-budget truncation below its compact representation, asserts the guarantee end to end through prompt compilation rather than the renderer alone, and defines a startup event payload of counts and shedding stage with no capability content.",
+    "The live criterion is restored to zero pre-success failures of any tool, matching the spec.",
+    "Owner ruled fail closed; plan criterion 6b now requires the run to fail before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts."
+  ],
+  "open_items": [
+    "Extending the catalog to the DeepAgents lane is follow-up work with its own proof; its absence from the mapping is asserted so the gap is explicit.",
+    "The document edit contract and decisions 0108 and 0114 remain in the superseded draft awaiting their own spec."
+  ],
+  "questions_asked": 1,
+  "rounds": [
+    {
+      "question": "Two follow-ups came out of this work. Queue them on the roadmap now?",
+      "options": [
+        "The document edit spec (Recommended)",
+        "The second runtime's catalog (Recommended)",
+        "Neither, leave them out"
+      ],
+      "chosen": "The document edit spec (Recommended), The second runtime's catalog (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "inspected_refs": [
+    "docs/specs/granted-capability-is-visible.md",
+    "docs/decisions/0109-semantic-capability-job-dependencies.md",
+    "docs/decisions/0120-local-cli-structured-invocation.md",
+    "docs/decisions/0129-skill-action-capability-rules.md",
+    "docs/decisions/0130-capsafe-capability-run-dispatch-only.md",
+    "docs/decisions/0161-granted-capabilities-must-be-discoverable.md",
+    "docs/architecture/tool-awareness-plan.md",
+    "factory/prompts/planner.md",
+    "plans/roadmap.json",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/src/runtime/group-run-context.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts",
+    "apps/core/src/runner/mcp/context.ts",
+    "apps/core/src/runner/mcp/tools/capability-run.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The artifact could not pass plan save: no decisions_reviewed frontmatter and missing the required Problem, Scope / Non-goals and Acceptance Criteria sections, with Surface Impact omitting CLI/ops, UI and docs.",
+      "ref": "factory/scripts/forge_cli/plans.py"
+    },
+    {
+      "finding": "The roadmap criterion required descriptors for five binding kinds while the confirmed spec correctly names four usable kinds, leaving the story unsatisfiable.",
+      "ref": "plans/roadmap.json"
+    },
+    {
+      "finding": "The plan forbade any path in a descriptor while the spec permits a reviewed fixed operand to render verbatim, so either implementation strips approved shapes or the security claim is false.",
+      "ref": "docs/specs/granted-capability-is-visible.md"
+    },
+    {
+      "finding": "user_facing true is wrong for a backend and prompt task, and saying no functional check is needed cannot override what that flag mandates.",
+      "ref": "factory/prompts/planner.md"
+    },
+    {
+      "finding": "'Build from the access snapshot' is too vague at a security boundary: the job has a person-filtered capability set and a broader snapshot-derived one, and the wrong choice advertises an ungranted capability as ready.",
+      "ref": "apps/core/src/jobs/execution-phases-run.ts"
+    },
+    {
+      "finding": "The plan hard-codes one runtime's tool name while the two lanes name tools differently, and the proof checked only one lane.",
+      "ref": "apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts"
+    },
+    {
+      "finding": "The overflow guarantee has no end-to-end owner: compilation truncates at both the section budget and the total prompt budget, and the existing callback cannot emit the required startup event.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    },
+    {
+      "finding": "The live check was weakened to two tool families while the spec requires zero pre-success failures of any tool.",
+      "ref": "docs/specs/granted-capability-is-visible.md"
+    },
+    {
+      "finding": "The plan had no behaviour for the hard-overflow case where even the compact name-and-id list exceeds the total prompt budget.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    }
+  ],
+  "input_sha256": "86c9af9b78c7b6fdb830332a50810bb1bc12c1bbed6cb36e480206cd18e6b570",
+  "recorded_at": "2026-09-10T16:13:48+00:00",
+  "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
+}

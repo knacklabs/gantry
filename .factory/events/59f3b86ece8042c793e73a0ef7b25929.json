@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-11T11:20:39+00:00", "story": "GRANTED-1", "detail": "S-0104-4a36: Scope widened: apps/core/src/application/agents/agent-profile-service.ts is now in the recorded write scope, budget raised to 17 files. Context so you do not over-read the finding: that re-export is P"}

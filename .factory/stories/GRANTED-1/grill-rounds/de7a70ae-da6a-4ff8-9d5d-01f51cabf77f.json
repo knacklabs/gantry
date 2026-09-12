@@ -1,0 +1,17 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Which of the four loop causes should the simplification task cover?",
+      "options": [
+        "Dependency-scoped staleness (Recommended)",
+        "Drop the per-recording question (Recommended)",
+        "Tool failures must not consume budget",
+        "Preflight reports every unmet prerequisite"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-11T09:02:58.368690+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

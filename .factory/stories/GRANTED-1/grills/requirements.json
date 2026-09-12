@@ -1,0 +1,44 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "issue": "GRANTED-1",
+  "summary": "Requirements re-read on the stable tree returned one finding, the hard-overflow edge, settled fail closed by the owner. The owner also confirmed the story stays a single task and queued both follow-ups on the roadmap.",
+  "gaps": [
+    "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Owner ruled fail closed: the spec and plan now state that when the compact list cannot fit, the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts, and acceptance criterion 4b asserts it."
+  ],
+  "open_items": [
+    "Owner queued the document edit spec on the roadmap as follow-up; it currently exists only as a superseded draft.",
+    "Owner queued the second runtime's catalog on the roadmap as follow-up; this story asserts its absence so the gap cannot drift silently."
+  ],
+  "questions_asked": 1,
+  "rounds": [
+    {
+      "question": "The story is one task of about thirteen files. Keep it whole or split it?",
+      "options": [
+        "Keep it as one task (Recommended)",
+        "Split plumbing from rendering"
+      ],
+      "chosen": "Keep it as one task (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "inspected_refs": [
+    "docs/specs/granted-capability-is-visible.md",
+    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
+    "apps/core/src/application/agents/prompt-profile-service.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    }
+  ],
+  "input_sha256": "3135246afa020ae433a36d31592275d203a6d207ae5b682ed67a8e3be0858ce6",
+  "recorded_at": "2026-09-10T16:13:36+00:00",
+  "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
+}

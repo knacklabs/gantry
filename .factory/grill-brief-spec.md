@@ -1,4 +1,4 @@
-# Cold-read grill — gate: spec — spec cache-bug.md
+# Cold-read grill — gate: spec — spec agents-can-use-what-they-are-granted.md
 
 You did NOT write what follows. Read it cold, as an adversary trying to break the handover, never as its author defending it. You are READ-ONLY: return findings, change nothing.
 
@@ -11,23 +11,13 @@ name: grilling
 description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.
 ---
 
-Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
+Interview me relentlessly about every aspect of this until we reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
-Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled — the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.
+Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
 
-Each question should be formatted like so:
+If a *fact* can be found by exploring the environment (filesystem, tools, etc.), look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
 
-```
-❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
-
-➡️ <your recommended answer>
-```
-
-Each round the user answers reshapes the tree — settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
-
-Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it — don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report — ask the rest of the frontier now. The _decisions_ are the user's — put each to them and wait.
-
-The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
+Do not act on it until I confirm we have reached a shared understanding.
 
 
 ## Harness grill contract
@@ -60,10 +50,15 @@ defending it.
 
 RELEASE IT THROUGH THE HARNESS. `./forge grill run --gate <gate>` composes the cold-read brief (this contract plus the artifact) and releases Codex through the SAME ledgered launcher a delegation uses: the pid is recorded before the wait, so a grill whose launcher is killed still shows up in `forge codex status` instead of vanishing. It is read-only, so it takes no delegation lock and can never satisfy `stage done`. Recording the gate stays yours — the cold read only returns findings.
 
-The read-only Codex cold-reader LOADS and RUNS the `grill-me` skill (Matt
-Pocock's, installed into `~/.codex/skills/grill-me` by `./forge doctor --fix`)
-to structure its interrogation; this contract is the harness-side floor, the
-skill is the technique. In Claude, the `/grill-me` skill satisfies the same.
+The technique is Matt Pocock's `grilling` skill — the design tree, the
+frontier, numbered questions with recommended answers. `doctor --fix` installs
+it into BOTH runtimes, and `./forge grill run` also inlines it into the brief,
+so a reader reaches it whether or not its runtime resolves skills. This
+contract is the harness-side floor; `grilling` is the technique.
+
+`grill-me` is the HUMAN entry point — you type `/grill-me` and it redirects to
+`grilling`. It carries `disable-model-invocation: true`, so no model invokes it
+and none should be told to.
 
 WHICH RUNTIME CAN RECORD WHICH GATE — get this wrong and you will chase a
 refusal you cannot satisfy. ALL SIX gates match the AskUserQuestion ledger and
@@ -92,22 +87,61 @@ authored the plan, the independent cold-read pass is MANDATORY, not optional: on
 EVERY round release a fresh READ-ONLY Codex pass with
 `./forge grill run --gate <gate> [--task <id>]` that reads the plan/contract
 cold and returns findings — never a
-Claude sub-agent, never grill your own work inline — then carry ONLY those
+Claude sub-agent, never grill your own work inline — then carry ALL of those
 findings into your own AskUserQuestion rounds (the recorder rejects rounds not in
-the ledger, so the top-level session must still ask). Loop Codex grill → your
-AskUserQuestion rounds → answers → Codex grill again, until a round is clean AND
-the plan is stable; only then, approve exactly once. Read cold, as an adversary
-who did not write it. (EVERY gate is ledger-matched — signoff and epics no
+the ledger, so the top-level session must still ask). Read cold, as an adversary
+who did not write it.
+
+ONE COLD READ PER GATE — put every question to the human INSIDE it. The old
+shape was Codex grill → your rounds → amend → Codex grill AGAIN, looping until
+clean. That loop cannot converge: a fresh reader has no memory of what the last
+one found, so it returns a DIFFERENT frontier rather than a shorter one, and the
+artifact you amended to close round one becomes round two's input. Stories
+reached eleven, twenty-six and forty rounds that way; the last cost six hours.
+`forge grill run` now REFUSES a second unconstrained read on a gate that has
+already been read since its last recorded pass.
+
+So the WHOLE grill is:
+
+1. `./forge grill run --gate <gate>` — one cold read. WATCH it.
+2. Clean? Record the pass and approve. Nothing else happens.
+3. Otherwise resolve every finding the REPOSITORY answers yourself — open the
+   file and settle it. Take to the human only what the repository cannot
+   answer: a decision nobody has made, a priority, a tradeoff between two
+   workable shapes. Put those through AskUserQuestion with your recommended
+   answer first, all of them, now. There is no later round to save the hard
+   ones for, and a finding is not a menu.
+4. Amend the artifact ONCE, to what they decided.
+5. Record the pass against the AMENDED version, then approve exactly once.
+
+The price is stated plainly, twice over: nothing independent re-reads the
+amended version, and a gap this reader misses is not caught by a second reader
+at this gate. Both surface at the next gate, or in review. That is the trade
+for ending a loop that was costing whole days.
+
+If the human's answers changed the artifact's SHAPE — a component dropped, a
+different approach chosen — the amended artifact is not the one that was read
+in any useful sense. Say so and read again: `./forge grill run --gate <gate>
+--reread "<what changed shape>"`. It is a choice with a recorded reason, not a
+way around the rule, and the five-read cap still backstops it. (EVERY gate is ledger-matched — signoff and epics no
 longer excepted — so no gate can be recorded by a read-only Codex grill alone:
 the top-level session asks the round and records it.)
 
-FRESH CONTEXT, NOT FRESH READING. Every round is a NEW read-only Codex session —
-that independence is the whole point, and it is why the reader has no memory of
-what it already blessed. It does NOT mean re-deriving the plan from scratch every
-round: after the FIRST round, hand the fresh reader the plan AND what changed
-since the last round (the resolutions you just folded in, and which sections they
-touched), and tell it to concentrate there while still refusing anything it can
-see is wrong elsewhere. Same cold judgement, a fraction of the tokens.
+FRESH CONTEXT, AND THE ANSWERS SO FAR. Every round is a NEW read-only Codex
+session — that independence is the whole point. But a reader that knows nothing
+of the earlier rounds does not re-find the same gaps, it finds DIFFERENT ones,
+so the rounds never shrink and the grill has no natural end. `./forge grill run`
+therefore carries every question already put to the human and the answer they
+chose, read from the ledger the recorder validates against.
+
+That gives the reader two obligations: do not re-raise settled questions, and
+CHECK EACH ANSWER — that the artifact honours it, and that it contradicts no
+other answer, accepted decision or constitution rule. An answer can be wrong, or
+right and never applied; saying so is part of the read.
+
+Do NOT tell the reader where to concentrate. A cold read is worth having because
+it is unconstrained, and steering it toward the diff is how the thing nobody
+looked at survives every round. More information, no direction.
 
 END EVERY ROUND WITH AN EXPLICIT CONVERGENCE VERDICT, on its own line, so the
 coordinator never has to guess whether to grill again or approve:
@@ -116,10 +150,10 @@ coordinator never has to guess whether to grill again or approve:
 - `NOT CONVERGED — <the specific reason: open gaps, a contradiction, or the plan
   changed after the last clean round>`
 
-Converged means BOTH: this round is clean AND the plan did not change after the
-round that made it clean. A clean round on a plan you have just edited is not
-convergence — it is an unreviewed edit. Only `CONVERGED` authorises asking the
-human for approval, and approval happens exactly once.
+`CONVERGED` on the cold read means there is nothing to amend: record and
+approve. `NOT CONVERGED` does NOT mean read again — it means resolve what the
+repository answers, put the rest to the human, amend once, and record the pass
+against the amended version. Approval happens exactly once.
 
 Five gates, five scopes:
 
@@ -204,8 +238,12 @@ Five gates, five scopes:
   is the hard refusal point. Interrogate the next leaf task's just-authored
   contract in the re-recorded decomposition against the approved story plan,
   active decisions, and the actual repository state left by completed prior
-  stages. Hunt: assumed files or APIs that prior work did not produce, stale
-  or over-broad `write_scope`, acceptance criteria not served by the proposed
+  stages. Hunt: assumed files or APIs that prior work did not produce, a
+  `write_scope` whose AREAS miss where the work must land or reach into areas
+  the task has no business in (scope is directory prefixes plus named new
+  files — a missing existing file under a declared prefix, a drifted line
+  number or a renamed module is a NON-BLOCKING note, never a blocking finding;
+  `stage done` measures the exact paths), acceptance criteria not served by the proposed
   work, a task that OWNS a plan `## Surface Impact` surface but whose
   `write_scope`/`required_tests` do not actually PRODUCE it (owns the API row but
   builds only domain services with no HTTP controllers/DTOs/routes; owns the UI
@@ -321,233 +359,375 @@ downstream implementation inherits whatever you let through.
 
 
 
-## The artifact under interrogation (spec cache-bug.md)
+## Already answered on this story — verify, do not re-ask
+
+These questions were put to the human and answered. Two obligations:
+
+1. Do NOT raise them again as open questions. They are settled.
+2. DO check each answer still holds — that the artifact actually honours it, and that it does not contradict another answer, an accepted decision, or the constitution. An answer can be wrong, or right and never applied. Saying so is part of this read.
+
+- Q: SELF-1 — when an AI employee proposes a change to itself, what is the default for a new agent?
+  A: Review-only by default; owner opts specific classes into auto-apply (Recommended)
+- Q: INCIDENT-1 — what does `freeze` do to work already in flight?
+  A: Soft by default: no new runs or tool calls, in-flight turns finish; `--hard` cancels immediately (Recommended)
+- Q: ADMIN-ALERT-1 — where do admin alerts go in V1.0?
+  A: One Teams/Slack conversation only (Recommended)
+- Q: OPS-DR-1 — where do backups go?
+  A: S3-compatible bucket or local path, operator's choice (Recommended)
+- Q: LIFECYCLE-1 — default retention when the operator sets nothing?
+  A: Messages 90 days, memory until offboarding, audit 400 days minimum (Recommended)
+- Q: INTRO-1 — when does the intro card post in a channel?
+  A: Once, on install, plus on first @mention by any new person (Recommended)
+- Q: REVISION-1 — who can restore a prior persona/access revision?
+  A: Owner for persona; administrator for access (Recommended)
+- Q: Anything else to settle before I confirm these eleven specs and open the PR?
+  A: No — confirm and open the PR (Recommended)
+- Q: If the job card itself can't be created for a request (DB down, no group route), what should the run get?
+  A: Deny the tool call with a plain reason (Recommended)
+- Q: Anything else to settle for JOBPERM-2 before I confirm the spec and plan it?
+  A: No — confirm and plan (Recommended)
+- Q: Should attaching a skill remain separate from authorizing its declared actions?
+  A: Keep separate (Recommended)
+- Q: The independent cold read found no contradictions. Is the current Skills UI spec ready to confirm?
+  A: Confirm spec (Recommended)
+- Q: Should re-enabling a disabled provider preserve omitted stored fields through the existing sparse PATCH flow?
+  A: Preserve via PATCH (Recommended)
+- Q: Should first setup prevent saving or constructing a request until a multi-method provider’s authentication method is explicitly selected?
+  A: Require selection (Recommended)
+- Q: Before the plan goes to the board, what happens to the held pull request 500?
+  A: Land it now as a stopgap (Recommended)
+- Q: If an agent's granted capabilities will not fit the prompt section, what should it see?
+  A: Names always, details degrade (Recommended)
+
+## The artifact under interrogation (spec agents-can-use-what-they-are-granted.md)
 
 ---
-slug: cache-bug
-title: cache-bug — Retire oversized provider sessions across runner restarts
+slug: agents-can-use-what-they-are-granted
+title: Agents can use what they are granted
 status: draft
-saved: 2026-09-09T08:20:16+00:00
+saved: 2026-09-10T12:38:10+00:00
 ---
 
-# cache-bug — Retire oversized provider sessions across runner restarts
+# Agents can use what they are granted
 
 ## Why
 
-Every persistent interactive runner start does two things at once: it resumes
-the persisted provider session (which already holds every earlier user,
-assistant and tool turn) AND it appends a freshly reconstructed briefing (up to
-12,000 characters of durable memory plus up to 16,000 bytes of recent channel /
-active thread context) as a new user turn. The per-turn briefing is a pinned
-guarantee (decision 0089: every provider turn sees the channel block plus the
-thread window; decision 0078: memory hydrates once per turn, with its
-session-fence rehydration fallback) and stays as is. What is NOT bounded is
-the transcript those briefings accumulate in: nothing expires a provider
-session by age, turn count or size — the idle timeout only closes the runner's
-stdin, and compaction fires only on explicit `/compact` or when the SDK
-reaches the model's context window.
+Granting an agent access is not the same as making that access usable. Two
+surfaces grant something and then leave the agent unable to use it. They look
+like separate bugs and share a shape: what the agent was given is not present in
+the form the agent actually works in.
 
-Production evidence (Slack): a one-word turn ("yes") read roughly 270k cached
-input tokens on each of two model calls inside one execution (pre-tool and
-post-tool), about 541k tokens for the turn. Prompt caching discounts the
-repeated prefix; it does not remove it from the context window, stop stale
-duplicate briefings reaching the model, or protect against cache misses.
+**Capabilities: the grant is invisible.** The KnackLabs lead-maintenance job
+holds a reviewed grant for `google.sheets.values.get`, a semantic capability
+bound to a local CLI. In seven consecutive runs the agent opened every run by
+burning failed calls before its first successful sheet read, in a fixed order: an
+MCP server that does not exist, a tool that does not exist, then arguments
+outside the reviewed template. The job prompt (3,513 characters) never mentions
+that machinery.
 
-Both execution adapters are affected, differently:
+Only the third failure is a template mismatch. The first two are the model
+reaching for shapes it knows because it cannot see the one it has. That run
+carried 62 allowed tools but 11 available, with tool search in automatic mode
+(`apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-search-decision.ts:88`).
+Commit 97ded3746 added a per-capability block to the runner's runtime capability
+context (`apps/core/src/runner/mcp/context.ts:412`), not the system prompt. It
+deployed and changed nothing.
 
-- Claude Agent SDK: model-visible context grows linearly until SDK autocompact
-  at the context window (≈1M on the deployed model). Cost and latency grow.
-- DeepAgents / LangChain: the library summarises at ~85% of a known window, so
-  model-visible history is bounded, but the LangGraph Postgres checkpoint keeps
-  the raw state, so checkpoint tables and checkpoint load latency grow instead.
-  No application path owns checkpoint deletion.
+The reason is now located. A scheduled run never receives a capability catalog at
+all. `capabilityCatalog` is populated only on the chat path
+(`apps/core/src/runtime/group-agent-access-context.ts:44`, consumed at
+`apps/core/src/runtime/group-agent-runner.ts:365`); the scheduled job path loads
+the access snapshot and semantic capabilities but omits the field from its spawn
+input (`apps/core/src/jobs/execution-phases-run.ts:179` and `:287`), and prompt
+compilation renders only a catalog supplied on that input
+(`apps/core/src/runtime/agent-spawn-prompt.ts:87`). The job agent is therefore
+told nothing about the capabilities it holds, and guesses.
 
-Scheduled jobs already run non-persistent sessions on both adapters and are
-out of scope. The runner is channel-neutral, so this applies to every channel
-that holds a persistent interactive session, not only Slack.
+Even on the chat path the catalog would be insufficient: its entry shape carries
+no invocation data (`apps/core/src/application/agents/agent-prompt-capability-catalog.ts:23`),
+its renderer drops the stable reference and can collapse ready entries into a
+"+N more" summary (`.../agent-prompt-capability-guidance.ts:241`), so a granted
+capability can be hidden by overflow or rendered without a usable call shape.
 
-Discovery: read-only Codex run `task-mttrhe3o-xh5mh1` (2026-09-09), plus the
-Claude-adapter trace in `apps/core/src/runtime/group-agent-runner.ts`,
-`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts`
-and `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts`.
+Decision 0161 settles the direction: discovery is the defect, and argv validation
+remains the enforcement boundary. Decisions 0120 and 0130 stand unamended, so
+this story adds no classifier-derived or cached allow to `capability_run` and
+does not relax the reviewed template. Freeing the call shape is recorded in 0158
+as direction gated on a replacement boundary, and is out of scope here.
 
-Grill resolutions (spec gate, 2026-09-09), four rounds:
-- Keep 0089 and 0078 unchanged; contain growth with a session-size ceiling
-  only (a delta snapshot on resume is parked).
-- MINIMAL scope: the ceiling uses per-run usage the adapters already report,
-  corrected for provider cache semantics (round 4 showed
-  `totalBillableInputTokens` subtracts cache reads and would never catch the
-  270k case). No per-request seam, no model-capacity clause, no retry system.
-- This is a **retire-after-observed-crossing** rule, not a hard bound: one
-  turn can overshoot the cap before retirement. The title says "retire", not
-  "bound", on purpose.
-- Threshold is one global revisioned runtime setting per decision 0025.
-- DeepAgents checkpoint rows are reclaimed by a host-owned cleanup on the
-  named expiry paths only; orphans are an operator procedure.
-- Pre-existing sessions are retired by a manual pre-deploy reset run by the
-  deployment owner (decisions 0003 and 0112): no shipped command, no lazy
-  retirement, and a deployment stop condition.
-- Observability is two named runtime events plus an operator-only query with
-  hashed identifiers.
-- Roadmap card: the acceptance criteria captured on `cache-bug` at intake
-  predate grill convergence. The harness does not edit an active card's
-  criteria, so once confirmed and linked, THIS spec is the story's authority
-  and those intake criteria are superseded by the acceptance criteria below.
+**Documents: the grant is only usable whole.** `scheduler_update_job` replaces a
+job prompt wholesale. The flattened 600-character read (GitHub #447) is already
+fixed on a held branch
+(`apps/core/src/runner/mcp/tools/scheduler-formatters.ts:138`). Three defects
+that fix did not touch remain:
+
+- **The read is redacted, so it is unsafe as an edit source.** Redaction is not
+  identity: it rewrites `Bearer <token>` to `bearer [REDACTED_SECRET]` and
+  `password: x` to `password=[REDACTED_SECRET]`
+  (`apps/core/src/shared/sensitive-material.ts:132`). An exact-match edit built
+  from a redacted read can fail to match or write the marker over a real value.
+- **There is no compare-and-swap.** Job update input carries no expected version
+  (`apps/core/src/application/jobs/job-management-types.ts:265`), the update
+  service loads then writes (`.../job-management-update.ts:41`), and the
+  repository updates by id alone
+  (`apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts:261`),
+  so two writers clobber each other silently. Decision 0108 defines
+  `definition_revision` but it is not built: the jobs schema has no such column
+  (`apps/core/src/adapters/storage/postgres/schema/jobs.ts:20`). Completing 0108
+  is therefore owned scope here, not a dependency to assume, and it supplies the
+  single revision this contract fences on. No second token is introduced.
+- **The one existing edit-by-substring primitive is wrong.** The `FileEdit`
+  facade calls `current.replace(...)`
+  (`apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts:485`),
+  replacing the first match with no uniqueness check.
+
+**Editing a job is attended work.** Decision 0106 holds that an unattended
+scheduled run may inspect the scheduler but never mutate it, and requires both
+halves of its protection: the mutation tools are absent from scheduled tool
+surfaces, and the host rejects any mutation whose signed provenance names a
+scheduled source (`apps/core/src/jobs/ipc-scheduler-mutation-authority.ts:18`).
+Both halves apply to the write tools, through the mechanisms that already
+implement them rather than by assertion. `document_view` is a read and joins
+decision 0106's explicit scheduled read surface, which this story extends by
+naming it there. `document_str_replace` and `document_insert` join the shared
+mutation classification the scheduled tool selector removes
+(`apps/core/src/shared/admin-mcp-tools.ts:32`, applied at
+`apps/core/src/runner/gantry-mcp-tool-surface.ts:152`), and their host handlers
+call the same provenance guard
+(`apps/core/src/jobs/ipc-scheduler-mutation-authority.ts:6`). `document_view` is a
+read and stays available to a scheduled run.
 
 ## Behaviour
 
-1. **Model-visible input per run.** The host derives
-   `modelVisibleInputTokens` from the existing normalised usage of a run:
-   - providers whose cache-read field is additive to the input count
-     (Anthropic: `input_tokens` + `cache_read_input_tokens` +
-     `cache_creation_input_tokens`): `inputTokens + cacheReadTokens +
-     cacheWriteTokens`;
-   - providers whose cached tokens are a subset of the input count
-     (OpenAI-compatible: `prompt_tokens_details.cached_tokens` ⊆
-     `prompt_tokens`): `inputTokens`;
-   - providers without cache accounting: `inputTokens`.
-   The provider registry entry that already names the cache usage fields
-   gains one boolean, `cacheReadsIncludedInInput`, so the host never guesses.
-   Because the Claude normaliser aggregates a run's model calls, the figure
-   is per run, which over-approximates a single call's context; that is
-   accepted for a retirement trigger. The billing fields and
-   `totalBillableInputTokens` are unchanged.
-2. **Per-session high-water mark, atomic and fenced.** A new repository
-   operation `raiseProviderSessionContextHighWaterMark({ providerSessionId,
-   agentSessionId, agentSessionResetAt, value })` performs one SQL update on
-   the row matching that id, that agent session ownership, and a resumable
-   status, setting `metadata_json.contextHighWaterMark` to
-   `GREATEST(existing, value)` with `jsonb_set` so other metadata is
-   preserved, and returns whether a row was updated. A non-integer or
-   negative `value` is rejected before SQL; a missing existing key is treated
-   as 0. It is called after any run (including an errored run) whose output
-   carries a usage report; runs without usage do not call it. The turn
-   context projection returns `contextHighWaterMark` alongside the existing
-   provider-session fields.
-3. **Retire on resume when over the cap.** Before resuming, if the projected
-   high-water mark exceeds the cap, the host retires the session via
-   behaviour 5 and starts a fresh session from the ordinary bounded briefing.
-   The user-facing turn still completes. Sessions at or under the cap, and
-   sessions with no stored mark, resume exactly as today. The preflight adds
-   no hydration beyond what 0078 already specifies. Allowed overshoot: the
-   one run that first exceeds the cap; a test pins that the *next* resume
-   retires it.
-4. **Cap setting.** Canonical desired-state path
-   `limits.provider_session_max_input_tokens` (global; sibling of the existing
-   `limits.providers.<id>.requests_per_minute`), parsed by the limits parser,
-   validated as an integer in 20,000–900,000 with default 150,000 when
-   absent, rendered by the existing settings exporter, importable and
-   exportable through the same YAML/control-API surfaces as the rest of
-   `limits`, distributed through `settings_revisions`. A worker applies the
-   revision it currently holds; a lowered value takes effect on the next
-   resume evaluated by a worker that has loaded that revision (0025 skew
-   contract). No environment variable, no per-agent override.
-5. **Atomic retirement returning the retired reference.**
-   `expireProviderSession` (and the ceiling path that calls it) becomes one
-   atomic resumable→expired transition, fenced by agent-session ownership,
-   returning the retired `{ providerSessionId, externalSessionId,
-   executionProviderId }` or nothing if no row transitioned. Covered
-   expiry paths: ceiling (new), missing-session, access-fingerprint change.
-   `/new` is covered too: its deletion first selects the scoped
-   provider-session references it is about to delete and hands them to
-   cleanup. Explicitly NOT covered (retention stated): normal handle
-   replacement, which deletes the prior row without cleanup — for DeepAgents
-   the thread id is stable across runs so replacement is rare; agent and
-   workspace removal cascades; compaction failure and cancellation paths,
-   which today reactivate the session and promise continuity to the user and
-   keep doing so. Orphans from the uncovered paths are the operator
-   procedure in behaviour 7.
-6. **Host-owned DeepAgents checkpoint cleanup.** A host service (not an
-   adapter method) receives the retired reference from behaviour 5; when
-   `executionProviderId` is DeepAgents it deletes that exact thread's rows
-   from `checkpoints`, `checkpoint_blobs` and `checkpoint_writes` using the
-   host's runtime Postgres storage and the adapter's exported schema
-   derivation (`deepAgentsCheckpointSchema(postgresSchema)`, the same one
-   `prepare()` uses). It runs only from a non-empty retirement result, is
-   idempotent, runs after the reply path is unblocked, and on failure emits
-   the cleanup-failed event of behaviour 9 and leaves the session expired.
-   For every other provider it is a no-op.
-7. **Briefing, jobs, and operator procedures.** Every turn still receives
-   the memory block and channel/thread snapshot exactly as 0089 and 0078
-   require. Scheduled jobs are untouched. `docs/memory/` records:
-   (a) the deployment owner's pre-deploy reset — drain live traffic, stop
-   workers, delete all resumable `provider_sessions` rows for interactive
-   scopes and truncate the DeepAgents checkpoint tables, verify zero
-   resumable rows, and only then deploy; deploying with resumable rows
-   present is a stop condition because those sessions carry no mark and will
-   resume normally; (b) the orphan reclamation procedure driven by
-   cleanup-failed events and the uncovered paths in behaviour 5.
-8. **Observability events.** Two registered runtime event types:
-   `session.provider.retired` (payload: `reason` ∈ {ceiling, missing,
-   fingerprint, new}, `providerSessionHash`, `executionProviderId`,
-   `contextHighWaterMark`, `cap`, `scopeKeyHash`) emitted at preflight before
-   any run row exists, and `session.provider.cleanup_failed` (payload:
-   `providerSessionHash`, `executionProviderId`, `error`). Hashes are the
-   first 16 hex characters of SHA-256 over the raw identifier; the same
-   function serves the query below. Events are correlated by
-   `providerSessionHash` plus `agentSessionId`.
-9. **Observability recipe.** An operator-only read-only SQL recipe in
-   `docs/memory/`: per provider session (hashed), the stored mark and the
-   per-run `model.usage` series via `agent_runs` LEFT JOIN `runtime_events`
-   ordered by `agent_runs.started_at`, unioned with `session.provider.retired`
-   events by hash; plus DeepAgents checkpoint-table row counts per hashed
-   thread id in the derived checkpoint schema.
+**A granted capability is visible before the first attempt.** A scheduled run
+receives a capability catalog built from the same access snapshot the chat path
+uses, carried on its spawn input and rendered by the same compiler. For every
+granted capability the catalog carries the stable capability id and the invocation
+descriptor its binding kind can support, as a closed union: a local CLI binding
+carries the dispatcher tool and its reviewed argument patterns; an MCP pattern
+binding carries the tool-name pattern the model may call; a tool-rule binding
+carries the tool name; an adapter binding carries the dispatcher tool and the
+capability id, because its reference is opaque and must never be rendered. Kinds
+that have no argument schema carry the reachable tool identity and say so, rather
+than an invented shape.
+
+A granted capability is never invisible. The guidance section budget is computed
+from the granted set rather than fixed, up to a stated ceiling. Non-granted
+material is dropped first, then descriptions are truncated, then granted entries
+render in compact id-plus-descriptor form. Past the ceiling every granted id still
+renders without its descriptor, and the render records an overflow diagnostic. A
+grant is never reduced to a count and never omitted. That descriptor is
+present in the initial materialization the model receives, before its first
+attempt, independently of whether tool search has loaded anything else. Enforcement is
+untouched: argv validation, executable identity, structured argv with no shell,
+size and NUL limits, and the existing sandboxed executor all stay exactly as 0120
+and 0130 define them. The per-capability block added by 97ded3746 is removed, and the dispatcher's
+description text is updated to point at the catalog instead of the deleted block.
+Its input schema, risk classification and host enforcement are unchanged and
+pinned by test.
+
+**Documents are read in slices and edited in place.** The contract is a property
+of documents, not of a surface. Version one binds exactly one document store, the
+scheduled-job prompt; further surfaces are deferred, and binding one later means
+registering a store, not writing another tool. Authority-bearing documents are
+excluded by construction: an agent may never edit what determines its own access.
+
+The tools, adopting the `memory_20250818` command shape:
+
+- `document_view { document_ref, view_range? }` — `view_range` is `[start, end]`,
+  1-indexed and inclusive over lines, `-1` as the end meaning end of document.
+  Omitted means the whole document. A start below 1, a start past the line count,
+  or a start greater than the end is an error naming the document's bounds. An
+  empty document has zero lines and returns empty content with its revision.
+  Returns the requested lines, the document's `revision`, and its total line
+  count.
+- `document_str_replace { document_ref, old_str, new_str, expected_revision }` —
+  replaces one exact span and returns the new revision.
+- `document_insert { document_ref, insert_line, insert_text, expected_revision }`
+  — inserts after the given 1-indexed line; `0` prepends and is the only valid
+  insertion point in an empty document; a line past the last is an error naming
+  the bounds. Returns the new revision.
+
+Every mutation returns the revision it produced, so an agent can chain edits
+without re-reading.
+
+`document_ref` is an opaque store key of the form `job:<jobId>#prompt`, never a
+filesystem path and never itself a source of authority. It is discovered from the
+job read that already returns the job, so an agent never constructs one blind.
+
+Authority is resolved host-side, and read and write are separate. Reading a
+document requires the job read authority a caller already has. Writing requires
+write authority over the job, resolved against the persisted canonical owner
+decision 0114 defines, never from a conversation JID or workspace; the existing
+conversation-derived helper
+(`apps/core/src/application/jobs/job-management-access.ts:9`) is not reused. 0114
+is not built either: the jobs schema carries no owner discriminant, so completing
+it, migration included, is owned scope here alongside 0108.
+
+Acting-person resolution follows decision 0118 and distinguishes two cases. A job
+whose owner is a shared group authorizes an attended write by an acting person the
+host records as a member of that group. A lookup that fails to resolve is not
+shared scope and fails closed. Uniqueness is counted over the whole stored
+document, never over the returned slice.
+
+The write tools are high-risk and ask in normal auto mode, per decision 0107,
+rather than inheriting a default classification.
+
+**Failure is loud, literal, and leaves the document untouched.** Absent expected
+text returns ``No replacement was performed, old_str did not appear verbatim in
+{document_ref}.`` Ambiguous expected text returns ``No replacement was performed.
+Multiple occurrences of old_str in lines: {line_numbers}. Please ensure it is
+unique.`` A stale revision returns ``No write was performed. {document_ref} is at
+revision {actual}; the edit expected {expected}.`` No error echoes the submitted
+text back.
+
+**Concurrent edits cannot silently lose work.** A write is one conditional
+persistence operation matching document identity and `expected_revision`,
+incrementing the revision inside the same transaction, and returning the actual
+revision on conflict without writing. The existing whole-document update takes the
+same optional `expected_revision`: supplied and stale, it is refused with the
+actual revision so the caller can re-read and retry; omitted, it behaves as today
+and is fenced only by the run-level rules decision 0108 defines. Every successful
+write returns the revision it produced.
+
+**Secrets never round-trip and never leak through probing.** Reads stay redacted,
+and redaction preserves line coordinates: a replacement marker occupies the same
+number of lines as the span it replaces, so a range read and the stored document
+agree on line numbers even when a secret spans lines.
+
+An edit is refused when its expected text overlaps a protected span in the stored
+text, detected against the stored text rather than by scanning the request for
+markers. That refusal is indistinguishable from the ordinary not-found result:
+both return the same literal string, so a caller cannot use the difference as an
+oracle for whether a guessed secret is present. Repeated failed replacements on
+one document are rate-limited.
+
+Replacement text reaches the document store verbatim, because a prompt may
+legitimately contain a credential and corrupting it would be worse than the
+truncation this story replaces. Everywhere else it is redacted at ingress: the
+permission record, the tool transcript and the audit row each carry the redacted
+projection, written before the request is persisted anywhere. The protected
+document store is the single exemption, and it is named as such.
+
+Where expected text matches both a protected span and a public one, the protected
+match is never counted or reported. The public matches alone determine the result,
+so a caller learns nothing about the protected span from the count, the line
+numbers, or which error came back.
+
+**Existing authority is preserved.** Where a surface gates writes behind review or
+approval, the edit contract routes through that gate rather than around it.
 
 ## Acceptance criteria
 
-1. Unit tests: `modelVisibleInputTokens` for an Anthropic usage of 1,000
-   input / 270,000 cache read / 500 cache write is 271,500; for an
-   OpenAI-compatible usage of 1,000 input / 800 cached is 1,000; billing
-   fields unchanged.
-2. Repository tests (Postgres): the raise operation keeps the larger value,
-   preserves other metadata keys, rejects a stale owner, ignores non-resumable
-   rows, rejects invalid values before SQL, and reports whether a row changed.
-3. Unit tests (host): a usage-bearing errored run raises the mark; a run
-   with no usage does not call the operation.
-4. Unit test: a session with a mark over the cap is not passed as the resume
-   id; retirement returns the reference; the run proceeds without resume; the
-   replacement handle is persisted; the reply is delivered. A session whose
-   run crosses the cap is retired on the following resume, not mid-run.
-5. Unit test: a session at or under the cap, or with no mark, resumes and
-   still carries the memory block and snapshot. Existing tests pinning that
-   (`group-processing.test.ts` "passes hydrated memory context with provider
-   session resume id", `agent-runner-ipc.test.ts` live-turn persist/resume,
-   `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user
-   message, `deepagents-memory-context.test.ts`) stay green and untouched.
-6. Settings tests: `limits.provider_session_max_input_tokens` parses,
-   defaults to 150,000 when absent, rejects values outside 20,000–900,000
-   with a path-level error, round-trips through export, and is applied from
-   a new revision by a worker that loads it.
-7. Postgres integration test (DeepAgents, using the existing
-   `deepagents-checkpoint.postgres.integration.test.ts` harness and its
-   isolated schema fixture): for ceiling, missing-session, fingerprint and
-   `/new` paths, the retired thread's rows are removed from all three tables
-   and other threads' rows remain; a second call is a no-op; a simulated
-   deletion failure leaves the session expired, the reply delivered, and a
-   `session.provider.cleanup_failed` event recorded; an expiry that does not
-   win the transition performs no cleanup.
-8. Unit test: `session.provider.retired` is emitted with the specified
-   payload before any run row exists and is not dropped by event forwarding.
-9. Scheduled-job tests are untouched and green.
-10. `verify.py` green.
-11. Both operator procedures and the observability recipe exist in
-    `docs/memory/`, and the query runs against the current schema.
+Runtime scope is the Anthropic worker lane the KnackLabs job runs on; other lanes
+are deferred. Document scope is the scheduled-job prompt.
 
-## Non-goals
+1. A scheduled run's spawn input carries a capability catalog built from its
+   access snapshot, proven by a hermetic test over the real job execution path
+   asserting the field is populated where it is absent today
+   (`execution-phases-run.ts:287`).
+1b. The initial model-visible materialization for that scheduled run contains, for
+   a granted capability, its stable capability id and a complete invocation
+   descriptor, asserted against the exact rendered text, including when the run's
+   available-tool count is below its allowed-tool count.
+1c. Overflow never hides a grant: with a granted set exceeding the default budget,
+   non-granted material is dropped first and every grant still renders with its
+   descriptor; past the stated ceiling every granted id still renders without its
+   descriptor and an overflow diagnostic is recorded. No grant is ever reduced to
+   a count or omitted. Proven for local-CLI, MCP-pattern, tool-rule and adapter
+   bindings.
+2. A deterministic replay harness drives the runner adapter with a named recorded
+   fixture and a stub that selects tools only from the materialization it is
+   given, with no live model call. Its first capability attempt is a well-formed
+   dispatcher call with no preceding call to a non-existent MCP server or tool.
+   The test carries a negative control: with the descriptor removed from the
+   materialization, the same harness fails to produce that call, proving the
+   descriptor is what causes it.
+3. Enforcement is unchanged: hermetic tests assert that a template mismatch is
+   still refused, that no classifier-derived or cached allow reaches
+   `capability_run`, and that executable identity, structured argv, size and NUL
+   limits still apply. The existing proofs for 0120 and 0130 stay green.
+4. The per-capability block added by 97ded3746 no longer exists, and the generic
+   dispatcher tool and its contract are unchanged.
+5. Live smoke, stated separately from the hermetic proofs and explicitly not a
+   merge gate: five consecutive runs of job
+   `job-knacklabs-lead-maintenance-43527c192a6e` on the deployed runtime,
+   triggered serially with no retry between them. Each run must contain at least
+   one successful capability invocation, and zero `tool.activity` rows with phase
+   `failure` for tools `capability_run` or `mcp_call_tool` before it. Evidence is
+   the per-run event query and the run's tool-search diagnostic, retained in
+   redacted form on the story.
+6. Jobs carry `definition_revision` per decision 0108: a migration adds it, every
+   operator-meaningful definition write increments it, runs record the revision
+   they claimed, and finalization fences on it. Proven by the tests 0108 names.
+6b. Jobs carry the persisted discriminated owner decision 0114 requires, migration
+   included, and the conversation-derived access helper is no longer the
+   authorization source for any document operation.
+7. `document_view` returns a requested inclusive line range, the revision, and the
+   line count, proven against a prompt over 3,000 characters containing blank
+   lines and leading whitespace. An omitted range returns the whole document, an
+   out-of-bounds or inverted range errors naming the bounds, and an empty document
+   returns empty content with its revision.
+7b. `document_insert` inserts after a given line, prepends at line zero, is the
+   only write valid on an empty document at line zero, errors past the last line,
+   and returns the new revision. Every successful mutation returns its revision.
+8. `document_str_replace` replaces one exact span and leaves every other byte
+   identical, proven against the same document.
+9. Absent expected text returns the literal not-found string and the document is
+   unchanged.
+10. Expected text occurring more than once returns the literal not-unique string
+    naming the matching line numbers, counted over the whole document, and the
+    document is unchanged.
+11. A write carrying a stale revision is refused with the literal stale string and
+    the actual revision and writes nothing, proven by two concurrent writers where
+    the loser errors and the winner's text survives. The persistence operation is
+    one conditional statement matching document identity and expected revision and
+    incrementing it in the same transaction, asserted at the repository level. The
+    whole-document update accepts the same optional expected revision and is
+    fenced by it, proven by a test that races the two paths and asserts the
+    loser's retry succeeds after re-reading.
+12. An edit whose expected text overlaps a protected span returns a response
+    byte-identical to the not-found response, proven by a test comparing both
+    responses; repeated failures on one document are rate-limited; and no error,
+    transcript, permission record or audit row contains unredacted bytes, while
+    the document store itself holds the text verbatim.
+12b. Expected text matching both a protected span and a public one reports only
+    the public matches, proven by a test asserting the count and line numbers
+    exclude the protected occurrence.
+12c. More than ten failed replacements on one document from one caller within a
+    minute return the rate-limit error, and the window expiring restores service.
+13. Redaction preserves line coordinates, proven against a document containing a
+    multi-line secret where a range read and the stored document agree on line
+    numbers.
+14. `document_str_replace` and `document_insert` are absent from scheduled tool
+    surfaces, and a forged scheduled provenance is rejected by the host. Both are
+    tested, per decision 0106.
+15. Read and write authority are separate: a caller with job read authority can
+    view a document, and only a caller with write authority can change it, proven
+    by a scheduled run that can view and cannot write. Write authority is checked
+    against the canonical owner (0114) and acting person (0118). A caller without
+    write authority is refused,
+    an authority-bearing document cannot be addressed at all, a known-absent
+    acting person resolves as shared-group scope and permits an attended edit from
+    that group, and a failed lookup fails closed. All four cases are tested.
+16. The first-match-only replacement at `gantry-facade-tools.ts:485` is corrected
+    to refuse an ambiguous match rather than silently editing the first one. That
+    facade edits arbitrary workspace files and is out of the bound document scope,
+    so it is fixed in place and not migrated to this contract; binding workspace
+    files as a document store is explicitly deferred.
+17. Focused proof by name: the scheduler tool suite, the capability invocation
+    suite, the tool-search decision suite, the capability guidance suite, the
+    permission ladder suites, the job revision fencing suite and the new
+    document-contract suite. `npm run typecheck`, `npm run lint`,
+    `npm run format:check`, `npm run check:architecture` and `verify.py` green.
 
-- Changing what a turn's briefing contains (0089, 0078) or its limits. A
-  delta snapshot on resume is parked: revisit if retirement alone leaves
-  turns too expensive.
-- A per-model-request context measurement or a model-capacity-aware cap
-  (parked; revisit if the per-run figure proves too coarse).
-- A hard mid-run bound; this rule retires after an observed crossing.
-- Replacing cross-process resume with briefing-only reconstruction.
-- Any shipped migration, cleanup, or lazy-retirement behaviour for
-  pre-existing state (0003, 0112).
-- Cleanup on handle replacement, agent/workspace removal cascades, or
-  compaction failure paths; and any durable cleanup retry system.
-- Fixing the DeepAgents usage normaliser's largest-not-summed billing
-  accounting (separate defect; recorded as a deferral).
+## Notes
+
+Decision 0153's clauses excluding the classifier from autonomous runs were
+amended on 2026-09-10 to match 0157, which supersedes 0121 and puts jobs on the
+chat ladder; what survives is the learned-decision projection running before the
+ladder. Ladder behaviour is cited from 0043 and 0157. Decision 0156 is the
+console deployment decision and is not a ladder citation.
 
 
 ## What to return

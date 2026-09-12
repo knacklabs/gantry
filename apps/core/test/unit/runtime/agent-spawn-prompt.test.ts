@@ -5,8 +5,17 @@ import type { AgentInput } from '@core/runtime/agent-spawn-types.js';
 import '@core/channels/register-builtins.js';
 import {
   compileSpawnSystemPrompt,
+  publishCapabilityCatalogOverflowDiagnostic,
   resolveSpawnPromptAccessPreset,
 } from '@core/runtime/agent-spawn-prompt.js';
+import { CapabilityCatalogOverflowError } from '@core/application/agents/agent-prompt-capability-guidance.js';
+import {
+  DEEPAGENTS_ENGINE,
+  DEFAULT_AGENT_ENGINE,
+  type AgentEngine,
+} from '@core/shared/agent-engine.js';
+import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
+import { decideClaudeSdkToolSearch } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-search-decision.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -40,6 +49,7 @@ function compile(overrides: {
   agentInput?: Partial<AgentInput>;
   accessPreset?: 'full' | 'locked';
   mcpInventoryToolsMounted?: boolean;
+  agentEngine?: AgentEngine;
   resolveRoleSnapshot?: (agentId: string) => Promise<{
     displayName: string;
     prompt: string;
@@ -51,6 +61,7 @@ function compile(overrides: {
     appId: 'default',
     accessPreset: overrides.accessPreset ?? 'full',
     mcpInventoryToolsMounted: overrides.mcpInventoryToolsMounted ?? true,
+    agentEngine: overrides.agentEngine ?? DEFAULT_AGENT_ENGINE,
     modelIdentity: {
       alias: 'Fable 5',
       modelId: 'claude-fable-5',
@@ -121,7 +132,7 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).not.toContain('New user messages may arrive mid-run');
   });
 
-  it('threads the resolved capability catalog into the compiled profile', async () => {
+  it('the resolved engine from the worker path selects the Anthropic tool name', async () => {
     // Model behavioral-corpus coverage is intentionally deferred to the
     // separate evaluation; this unit test pins only prompt projection.
     const prompt = await compile({
@@ -136,6 +147,14 @@ describe('compileSpawnSystemPrompt', () => {
               displayName: 'Team calendar',
               description: 'Find availability and manage events.',
               category: 'Calendar',
+              invocations: [
+                {
+                  kind: 'local_cli',
+                  toolRef: 'capability_run',
+                  capabilityId: 'calendar.manage',
+                  argumentPatterns: ['["events","list"]'],
+                },
+              ],
             },
           ],
           installedSkills: [],
@@ -147,6 +166,132 @@ describe('compileSpawnSystemPrompt', () => {
     expect(prompt).toContain('# Capability catalog');
     expect(prompt).toContain('Calendar · Team calendar');
     expect(prompt).toContain('Find availability and manage events.');
+    expect(prompt).toContain('mcp__gantry__capability_run');
+    expect(prompt).toContain('["events","list"]');
+    expect(prompt).toContain('mcp_search_tools');
+    const projection = composeAgentCapabilities({
+      mcpServerPath: '/tmp/gantry-mcp.js',
+      chatJid: 'tg:1001',
+      workspaceFolder: '/tmp',
+      configuredAllowedTools: ['mcp__gantry__capability_run'],
+    });
+    expect(projection.gantryOwnedTools).toContain(
+      'mcp__gantry__capability_run',
+    );
+    expect(
+      decideClaudeSdkToolSearch({
+        sdkEnv: {},
+        availableTools: projection.availableTools,
+        allowedTools: projection.allowedTools,
+        disallowedTools: projection.disallowedTools,
+        mcpServers: projection.mcpServers,
+      }).enableToolSearch,
+    ).toBe('auto:10');
+  });
+
+  it('a deepagents engine renders no tool name and leaves guidance unchanged', async () => {
+    const readyAction = {
+      kind: 'reviewed_capability' as const,
+      stableRef: 'calendar.manage',
+      displayName: 'Team calendar',
+      description: 'Find availability and manage events.',
+      category: 'Calendar',
+    };
+    const catalog = {
+      schemaVersion: 1 as const,
+      digest: 'catalog:deepagents',
+      readyActions: [
+        {
+          ...readyAction,
+          invocations: [
+            {
+              kind: 'local_cli' as const,
+              toolRef: 'capability_run' as const,
+              capabilityId: 'calendar.manage',
+              argumentPatterns: ['["events","list"]'],
+            },
+          ],
+        },
+      ],
+      installedSkills: [],
+      connectedMcpSources: [],
+    };
+
+    const withDescriptor = await compile({
+      agentEngine: DEEPAGENTS_ENGINE,
+      agentInput: { capabilityCatalog: catalog },
+    });
+    const withoutDescriptor = await compile({
+      agentEngine: DEEPAGENTS_ENGINE,
+      agentInput: {
+        capabilityCatalog: { ...catalog, readyActions: [readyAction] },
+      },
+    });
+
+    expect(withDescriptor).toBe(withoutDescriptor);
+    expect(withDescriptor).not.toContain('capability_run');
+  });
+
+  it('hard overflow aborts the spawn and publishes capability_catalog_overflow before any provider call', async () => {
+    const publishRuntimeEvent = vi.fn();
+    const providerCall = vi.fn();
+    const readyActions = Array.from({ length: 600 }, (_, index) => ({
+      kind: 'reviewed_capability' as const,
+      stableRef: `capability.${index}.${'x'.repeat(60)}`,
+      displayName: `Capability ${index}`,
+      description: 'Ready.',
+      category: 'Operations',
+    }));
+    let overflow: CapabilityCatalogOverflowError | undefined;
+
+    try {
+      await compile({
+        agentInput: {
+          capabilityCatalog: {
+            schemaVersion: 1,
+            digest: 'catalog:overflow',
+            readyActions,
+            installedSkills: [],
+            connectedMcpSources: [],
+          },
+        },
+      });
+      providerCall();
+    } catch (error) {
+      expect(error).toBeInstanceOf(CapabilityCatalogOverflowError);
+      overflow = error as CapabilityCatalogOverflowError;
+    }
+
+    await publishCapabilityCatalogOverflowDiagnostic({
+      error: overflow!,
+      agentInput: {
+        ...agentInput,
+        appId: 'app-one',
+        agentId: 'agent-one',
+        runId: 'run-one',
+        jobId: 'job-one',
+      },
+      appId: 'app-one',
+      publishRuntimeEvent,
+    });
+
+    expect(publishRuntimeEvent).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: {
+          provider: 'host',
+          diagnostic: 'capability_catalog_overflow',
+          conversationJid: 'tg:1001',
+          grantedCount: 600,
+          renderableCount: expect.any(Number),
+          sheddingStage: 'compact_overflow',
+        },
+      }),
+    );
+    expect(providerCall).not.toHaveBeenCalled();
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      'capability.0',
+    );
   });
 
   it('uses the saved role snapshot for the runtime agent', async () => {

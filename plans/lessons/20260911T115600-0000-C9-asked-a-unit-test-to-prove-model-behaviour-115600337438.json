@@ -1,0 +1,11 @@
+{
+  "topic": "C9 asked a unit test to prove model behaviour",
+  "lesson": "GRANTED-1-C9 required a replay to make the dispatcher call FIRST, but choosing a tool is the model's act; with no model in a unit test something must do the selecting, so every implementation of it was judged synthetic. The criterion is amended to what is provable and still meaningful: the materialization is built through the production path, contains the descriptor, the real dispatcher registration accepts exactly the descriptor's values, and removing the descriptor leaves nothing to call. First-call ordering is evidenced by the live run instead. Do not re-raise the selection conditional as a defect.",
+  "source": ".factory/stories/GRANTED-1/tasks/GRANTED-1-T1/reviews/quality.json",
+  "applies_to": [
+    "apps/core/test/unit/runner/capability-catalog-replay.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-11T11:56:00+00:00"
+}

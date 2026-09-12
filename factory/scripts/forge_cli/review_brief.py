@@ -9,6 +9,7 @@ from pathlib import Path
 from factory_lib import (
     branch_diff_digest, load_json, now_iso, protected_decomposition_state_path,
     repo_root, run_state_path, safe_factory_write_bytes,
+    proof_read_path,
 )
 
 
@@ -91,7 +92,7 @@ def _evidence_section(base: Path) -> list[str]:
     if not isinstance(story, str) or not story:
         return []
     lines: list[str] = []
-    verify = load_json(evidence_path(base, story, "verify.json"), default={})
+    verify = load_json(proof_read_path(base, story, "verify.json"), default={})
     if verify:
         ok = "ok" if verify.get("ok") is True else "FAILED"
         commit = str(verify.get("commit", ""))[:12]
@@ -100,7 +101,7 @@ def _evidence_section(base: Path) -> list[str]:
             if isinstance(result, dict) and result.get("command"):
                 code = result.get("exit_code")
                 lines.append(f"  - `{result['command']}` -> exit {code}")
-    tests = load_json(evidence_path(base, story, "tests.json"), default={})
+    tests = load_json(proof_read_path(base, story, "tests.json"), default={})
     automated = (tests or {}).get("automated")
     if isinstance(automated, dict):
         lines.append(f"- automated tests: {automated.get('status', 'unknown')}")
@@ -142,9 +143,36 @@ def _task_section(task: dict, base: Path | None = None) -> list[str]:
         "",
     ])
     if base is not None:
+        lines.extend(_amendments_section(base, task))
         lines.extend(_settled_section(base, task))
         lines.extend(_lessons_section(base, task))
         lines.extend(_evidence_section(base))
+    return lines
+
+
+def _amendments_section(base: Path, task: dict) -> list[str]:
+    """Paths the stage touched outside its declared scope, with the reason
+    recorded for each. A widening no longer re-grills the plan; the diff
+    review is where it is judged, so the reviewer must see it, not just the
+    stage record."""
+    from .stages import scope_amendments_path
+    from factory_lib import load_json
+    entry = (load_json(scope_amendments_path(base), default={})
+             .get("tasks", {}).get(str(task.get("id") or "")))
+    if not isinstance(entry, dict) or not entry.get("added_paths"):
+        return []
+    reasons: dict[str, str] = {}
+    for amendment in entry.get("amendments") or []:
+        for path in amendment.get("added_paths") or []:
+            reasons.setdefault(path, str(amendment.get("reason") or ""))
+    lines = ["### Scope amendments", "",
+             "These paths were changed outside the declared write scope and "
+             "recorded with a reason. Judge each: does the reason hold, and does "
+             "the change belong to this task? A path that does not belong is a "
+             "blocking finding.", ""]
+    lines += [f"- `{path}` -- {reasons.get(path) or '(no reason recorded)'}"
+              for path in entry["added_paths"]]
+    lines.append("")
     return lines
 
 

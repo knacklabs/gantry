@@ -14,6 +14,7 @@ function semanticCapability(input: {
   category?: string;
   accountLabel?: string;
   version?: string;
+  implementationBindings?: SemanticCapabilityDefinition['implementationBindings'];
 }): SemanticCapabilityDefinition {
   return {
     capabilityId: input.capabilityId,
@@ -25,7 +26,7 @@ function semanticCapability(input: {
     can: input.description ?? `Use ${input.capabilityId}.`,
     cannot: 'Grant additional authority.',
     credentialSource: 'none',
-    implementationBindings: [{ kind: 'adapter', adapterRef: 'test' }],
+    implementationBindings: input.implementationBindings ?? [],
   };
 }
 
@@ -132,6 +133,125 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
     expect(catalog.readyActions).toHaveLength(93);
     expect(catalog.installedSkills).toEqual([]);
     expect(catalog.connectedMcpSources).toEqual([]);
+  });
+
+  it('a descriptor is produced for each usable binding kind', () => {
+    const catalog = resolveAgentPromptCapabilityCatalog({
+      appId: 'app-one',
+      agentId: 'agent-one',
+      readySemanticCapabilities: [
+        semanticCapability({
+          capabilityId: 'sheets.values.read',
+          implementationBindings: [
+            {
+              kind: 'local_cli',
+              executablePath: '/opt/private/gws',
+              executableHash: 'sha256:private',
+              commandTemplates: ['/opt/private/gws sheets get *'],
+            },
+            {
+              kind: 'mcp_pattern',
+              mcpServer: 'sheets',
+              mcpToolPatterns: ['values_get'],
+            },
+            { kind: 'tool_rule', rule: 'WebFetch' },
+            { kind: 'adapter', adapterRef: 'builtin:BrowserOpen' },
+            { kind: 'adapter', adapterRef: 'private-adapter-ref' },
+          ],
+        }),
+      ],
+    });
+
+    expect(catalog.readyActions[0]?.invocations).toEqual([
+      {
+        kind: 'local_cli',
+        toolRef: 'capability_run',
+        capabilityId: 'sheets.values.read',
+        argumentPatterns: ['["sheets","get","*"]'],
+      },
+      {
+        kind: 'mcp_pattern',
+        toolRef: 'mcp_call_tool',
+        serverName: 'sheets',
+        toolPatterns: ['values_get'],
+      },
+      { kind: 'tool_rule', toolName: 'WebFetch' },
+      { kind: 'adapter', toolName: 'BrowserOpen' },
+      { kind: 'adapter' },
+    ]);
+    expect(JSON.stringify(catalog)).not.toMatch(
+      /\/opt\/private\/gws|sha256:private|private-adapter-ref/,
+    );
+  });
+
+  it('keeps a non-builtin adapter binding as an informational descriptor without exposing its reference', () => {
+    const catalog = resolveAgentPromptCapabilityCatalog({
+      appId: 'app-one',
+      agentId: 'agent-one',
+      readySemanticCapabilities: [
+        semanticCapability({
+          capabilityId: 'adapter.read',
+          implementationBindings: [
+            { kind: 'adapter', adapterRef: 'private-adapter-ref' },
+          ],
+        }),
+      ],
+    });
+
+    expect(catalog.readyActions[0]?.invocations).toEqual([{ kind: 'adapter' }]);
+    expect(JSON.stringify(catalog)).not.toContain('private-adapter-ref');
+  });
+
+  it('a capability with several bindings renders every one of them in a deterministic order', () => {
+    const definition = semanticCapability({
+      capabilityId: 'multi.route',
+      implementationBindings: [
+        { kind: 'adapter', adapterRef: 'builtin:BrowserOpen' },
+        { kind: 'tool_rule', rule: 'WebFetch' },
+        { kind: 'mcp_pattern', mcpServer: 'crm', mcpToolPatterns: ['read_*'] },
+      ],
+    });
+    const first = resolveAgentPromptCapabilityCatalog({
+      appId: 'app-one',
+      agentId: 'agent-one',
+      readySemanticCapabilities: [definition],
+    });
+    const second = resolveAgentPromptCapabilityCatalog({
+      appId: 'app-one',
+      agentId: 'agent-one',
+      readySemanticCapabilities: [
+        {
+          ...definition,
+          implementationBindings: [
+            ...definition.implementationBindings,
+          ].reverse(),
+        },
+      ],
+    });
+
+    expect(second.readyActions[0]?.invocations).toEqual(
+      first.readyActions[0]?.invocations,
+    );
+  });
+
+  it('a legacy mcp_tool binding never reaches the catalog', () => {
+    expect(() =>
+      resolveAgentPromptCapabilityCatalog({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        readySemanticCapabilities: [
+          semanticCapability({
+            capabilityId: 'legacy.mcp',
+            implementationBindings: [
+              { kind: 'tool_rule', rule: 'WebFetch' },
+              { kind: 'mcp_tool', mcpTool: 'mcp__legacy__read' },
+            ],
+          }),
+        ],
+      }),
+    ).toThrow(
+      'Capability legacy.mcp uses the unsupported legacy mcp_tool binding.',
+    );
   });
 
   it('keeps skills as instructions and MCP bindings as inventory without leaking live configuration', async () => {
@@ -292,7 +412,9 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
       .spyOn(String.prototype, 'localeCompare')
       .mockImplementation(function (this: string, other: string) {
         const left = String(this);
-        if (/[^\x00-\x7f]/.test(left) || /[^\x00-\x7f]/.test(other)) {
+        const nonAscii = (s: string) =>
+          [...s].some((c) => c.charCodeAt(0) > 0x7f);
+        if (nonAscii(left) || nonAscii(other)) {
           throw new Error('catalog ordering must not use localeCompare');
         }
         return nativeLocaleCompare.call(left, other);
@@ -331,7 +453,7 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
       expect(readyLines.filter(Boolean)).toEqual([
         ...catalog.readyActions.map(
           (entry) =>
-            `- ${entry.category} · ${entry.displayName} — ${entry.description}`,
+            `- ${entry.category} · ${entry.displayName} [id: ${entry.stableRef}] — ${entry.description}`,
         ),
         'Requestable next-run actions',
         '- none',
