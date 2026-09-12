@@ -129,7 +129,7 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 18a58e178789
+- verify.py: ok at 22e76d5b884f
   - `npm run format:check && npm run check:architecture` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0

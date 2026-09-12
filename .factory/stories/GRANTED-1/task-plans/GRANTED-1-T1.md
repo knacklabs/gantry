@@ -162,3 +162,80 @@ apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner`
 then `npm run typecheck`, `npm run lint`, `npm run format:check`,
 `npm run check:architecture`, and `python3 factory/scripts/verify.py` with
 `GANTRY_TEST_DATABASE_URL`.
+
+<!-- forge:contract -->
+## Contract (recorded)
+
+Rendered by the harness from the recorded decomposition; edit the decomposition, not this block. It is excluded from the plan's approval and grill digests, so a re-render never stales either.
+
+**Objective.** A scheduled run receives a capability catalog built from the person-filtered inheritedToolPolicy.semanticCapabilities on its existing spawn-input field, so an agent is told which grants it holds. Entries gain an invocation union over the four usable binding kinds with a lane-neutral tool reference and, for local CLI, the reviewed argument patterns. The renderer sheds non-granted material first, never hides a grant, and fails the run closed when even names will not fit.
+
+**Acceptance criteria**
+
+- The scheduled spawn input carries a catalog built from the person-filtered capability set, asserted over the real job execution path where the field is absent today
+- A capability active for the app but not granted to the acting person never appears as ready, asserted with the two sets differing
+- Rendered guidance carries display name, stable id, neutral tool reference and reviewed argument shape, asserted against exact rendered text
+- A descriptor is produced for each of the four usable binding kinds; the adapter reference never appears; a legacy mcp_tool binding still fails validation
+- The neutral reference resolves to the Anthropic tool name against the real projection including with tool search active, and the DeepAgents entry is asserted absent
+- No grant is hidden: shedding follows the fixed order and the derived ceiling cannot conflict with the never-hide rule
+- Hard overflow fails the run before any provider or tool call with a redacted capability_catalog_overflow diagnostic naming the counts
+- The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation
+- A deterministic replay builds the materialization through the production path, asserts the descriptor is present in it, and shows the descriptor is SUFFICIENT to call the production dispatcher: the real dispatcher registration accepts exactly the descriptor's capability id and argument pattern, and with the descriptor removed there is nothing to call. That the model chooses it FIRST is model behaviour a unit test cannot prove and is evidenced by the live run instead
+- The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged
+- No descriptor contains an executable path or hash, asserted against a binding carrying both; reviewed argument operands render verbatim by owner ruling
+
+**Write scope** (what `stage done` measures the diff against)
+
+- apps/core/src/jobs/execution-phases-run.ts
+- apps/core/src/application/agents/agent-prompt-capability-catalog.ts
+- apps/core/src/application/agents/agent-prompt-capability-guidance.ts
+- apps/core/src/application/agents/prompt-profile-service.ts
+- apps/core/src/runtime/agent-spawn-prompt.ts
+- apps/core/src/runtime/agent-spawn.ts
+- apps/core/src/runtime/agent-spawn-host.ts
+- apps/core/src/runner/mcp/context.ts
+- apps/core/src/runner/mcp/tools/capability-run.ts
+- apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts
+- apps/core/test/unit/runtime/prompt-profile.test.ts
+- apps/core/test/unit/runtime/agent-spawn-prompt.test.ts
+- apps/core/test/unit/runtime/agent-spawn-host.test.ts
+- apps/core/test/unit/jobs/execution-phases-run.test.ts
+- apps/core/test/unit/runner/mcp/locked-introspection.test.ts
+- apps/core/test/unit/runner/capability-catalog-replay.test.ts
+- apps/core/src/application/agents/agent-profile-service.ts
+
+**Scope amendments** (measured paths the scope did not name, recorded with `forge stage amend-scope`)
+
+- AGENTS.md -- AGENTS.md and harness.yaml carry no net change on this branch: git diff base..HEAD for both paths is empty. They were edited mid-task while applying the owner model policy in this checkout, then restored to their base state once that policy moved to its own branch, which is now PR 510. The measurement counts paths touched across commits rather than the final delta, so both appear as strays while the shipped diff contains neither. Nothing about the model pins belongs in a capability-catalog task.
+- harness.yaml -- AGENTS.md and harness.yaml carry no net change on this branch: git diff base..HEAD for both paths is empty. They were edited mid-task while applying the owner model policy in this checkout, then restored to their base state once that policy moved to its own branch, which is now PR 510. The measurement counts paths touched across commits rather than the final delta, so both appear as strays while the shipped diff contains neither. Nothing about the model pins belongs in a capability-catalog task.
+
+**Required tests** (run by `stage done`)
+
+- `the scheduled spawn input carries a capability catalog` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/jobs/execution-phases-run.test.ts)
+- `an ungranted but app-active capability never renders as ready` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/jobs/execution-phases-run.test.ts)
+- `rendered guidance carries name, stable id, lane tool name and reviewed argument shape` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/prompt-profile.test.ts)
+- `a descriptor is produced for each usable binding kind` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts)
+- `a capability with several bindings renders every one of them in a deterministic order` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts)
+- `a legacy mcp_tool binding never reaches the catalog` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts)
+- `the resolved engine from the worker path selects the Anthropic tool name` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/agent-spawn-prompt.test.ts)
+- `the resolved engine from the inline host path selects the Anthropic tool name` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/agent-spawn-host.test.ts)
+- `a deepagents engine renders no tool name and leaves guidance unchanged` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/agent-spawn-prompt.test.ts)
+- `shedding removes requestables, then discovery, then source summaries, then descriptions, then descriptors` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/prompt-profile.test.ts)
+- `the compact grant list survives the total prompt budget` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/prompt-profile.test.ts)
+- `hard overflow aborts the spawn and publishes capability_catalog_overflow before any provider call` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/agent-spawn-prompt.test.ts)
+- `hard overflow aborts the inline host spawn and publishes the same diagnostic` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runtime/agent-spawn-host.test.ts)
+- `the granted capability is the first tool action in replay` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runner/capability-catalog-replay.test.ts)
+- `removing the descriptor stops the replay producing that call` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runner/capability-catalog-replay.test.ts)
+- `the dispatcher schema, risk and enforcement are unchanged` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}` (apps/core/test/unit/runner/mcp/locked-introspection.test.ts)
+
+**Verify commands**
+
+- `npx vitest run --config vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner`
+- `npm run typecheck`
+- `npx eslint apps/core/src/jobs/execution-phases-run.ts apps/core/src/application/agents/agent-prompt-capability-catalog.ts apps/core/src/application/agents/agent-prompt-capability-guidance.ts apps/core/src/application/agents/prompt-profile-service.ts apps/core/src/runtime/agent-spawn-prompt.ts apps/core/src/runtime/agent-spawn.ts apps/core/src/runtime/agent-spawn-host.ts apps/core/src/runner/mcp/context.ts apps/core/src/runner/mcp/tools/capability-run.ts apps/core/src/application/agents/agent-profile-service.ts`
+- `npm run format:check`
+- `npm run check:architecture`
+- `python3 factory/scripts/verify.py`
+
+**Review budget.** 17 files / 1400 lines -- Nine source files and seven test files. Scope widened once for the two spawn seams; the redaction sinks were removed again by owner ruling that approved templates are trusted and reviewed argument shapes render verbatim everywhere. The security lens then required removing a compatibility re-export whose only consumer is agent-profile-service.ts, so that file joins the scope for a one-symbol import change.
+<!-- /forge:contract -->

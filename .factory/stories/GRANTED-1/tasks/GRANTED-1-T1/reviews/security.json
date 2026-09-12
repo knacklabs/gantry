@@ -1,19 +1,12 @@
 {
   "generated_by": "autoreview",
   "task_id": "GRANTED-1-T1",
-  "score": 9,
-  "summary": "security lens over GRANTED-1-T1 (19 product path(s), b740f8c..22e76d5, Codex via the autoreview skill at --max-priority P2): 0 blocking, 1 non-blocking. The catalog filtering, descriptor redaction, and fail-closed overflow behavior otherwise align with the stated contracts, but the worker path can still abort without publishing the mandatory overflow diagnostic because its publisher remains optional.",
+  "score": 10,
+  "summary": "security lens over GRANTED-1-T1 (17 product path(s), b740f8c..f9357d1, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. No actionable P0\u2013P2 security defects are demonstrated by the supplied diff. The scheduled catalog is derived from the person-filtered semantic capability set, legacy mcp_tool bindings fail closed, non-callable adapters remain visible without exposing adapter references, executable paths and hashes are excluded, hard overflow aborts and attempts publication of a redacted diagnostic before provider execution, and the compatibility re-export was removed. Enforcement behavior remains unchanged in the shown production code.",
   "blocking_findings": [],
-  "non_blocking_findings": [
-    {
-      "category": "security",
-      "area": "apps/core/src/runtime",
-      "summary": "Overflow diagnostics are silently skipped when the worker callback is absent (apps/core/src/runtime/agent-spawn-prompt.ts:158): The overflow publisher treats `publishRuntimeEvent` as optional and returns without recording anything when it is missing."
-    }
-  ],
-  "recommendation": "approve-with-caveats",
+  "non_blocking_findings": [],
+  "recommendation": "approve",
   "reviewed_scope": [
-    "AGENTS.md",
     "apps/core/src/application/agents/agent-profile-service.ts",
     "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
     "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
@@ -30,15 +23,14 @@
     "apps/core/test/unit/runner/mcp/locked-introspection.test.ts",
     "apps/core/test/unit/runtime/agent-spawn-host.test.ts",
     "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts",
-    "apps/core/test/unit/runtime/prompt-profile.test.ts",
-    "harness.yaml"
+    "apps/core/test/unit/runtime/prompt-profile.test.ts"
   ],
   "skills_used": [],
   "aspect": "security",
-  "review_run_id": "7ed13e15b719b101fc42fae63d7ca3245751766249419c880c109f874799bb4a",
-  "brief_sha256": "c99391c43f911cc0372271ae8e70ba375a5574cd52ee50a41242c52d2979ae58",
-  "branch_diff_digest": "fe7a8e5dd5d3c40d472b254eacc297b23844b841fe030335e09e40f730cd2a44",
+  "review_run_id": "7d07bb41d944a36b7fe7592d3b99e4cc9ca771de83c4a9aab56c8463e7e8a475",
+  "brief_sha256": "7120110e98dced84c2e156ae72b736d49161a6077ba8cdc6011ad19f2aabcda6",
+  "branch_diff_digest": "3596635c03bfcfc3dc2162790fbe950805e81a9ded99913ed043794fd17b295c",
   "residual_risks": [],
-  "recorded_at": "2026-09-11T13:48:57+00:00",
-  "commit": "22e76d5b884f6b9e15e1aa057505075f72c137db"
+  "recorded_at": "2026-09-11T14:55:11+00:00",
+  "commit": "f9357d17a729f0464205da9f61ddad29cee5ea22"
 }

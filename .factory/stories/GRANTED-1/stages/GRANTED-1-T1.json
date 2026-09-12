@@ -19,27 +19,13 @@
     }
   },
   "task_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
-  "local_review_stamp": {
-    "stage_id": "GRANTED-1-T1",
-    "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
-    "delta_id": "fbb219a3cb07a3ed9f73a11a3cccd605f6cfd7c3afc0bb82860baabfbfefce05",
-    "contract_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
-    "recorded_at": "2026-09-11T13:48:57+00:00",
-    "generated_by": "autoreview",
-    "lenses": [
-      "quality",
-      "performance",
-      "security"
-    ]
-  },
-  "completed_at": "2026-09-11T13:56:58+00:00",
   "measured": {
     "strays": [
       "AGENTS.md",
       "harness.yaml"
     ],
     "files": 19,
-    "lines": 1780,
+    "lines": 1749,
     "budget": {
       "files": 17,
       "lines": 1400
@@ -50,5 +36,21 @@
     "at": "2026-09-11T13:56:58+00:00",
     "from": "96ef1a85384e8b46410865259706b2e0f0145c9707a101b56f2719bcf878210c",
     "to": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac"
-  }
+  },
+  "review_fix_reopened_at": "2026-09-11T14:51:19+00:00",
+  "review_fix_count": 1,
+  "local_review_stamp": {
+    "stage_id": "GRANTED-1-T1",
+    "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
+    "delta_id": "29d558df1758ea6b3caa3167596c593fa9d5a01ebeb0e8c11907a772f512c1ec",
+    "contract_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
+    "recorded_at": "2026-09-11T14:55:11+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  },
+  "completed_at": "2026-09-11T15:03:16+00:00"
 }
