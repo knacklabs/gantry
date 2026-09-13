@@ -1,79 +1,102 @@
 {
-  "issue": "GRANTED-1",
+  "issue": "SKILLS-WEB-1",
   "stages": [
     {
-      "id": "GRANTED-1-T1",
-      "title": "The scheduled run is told which capabilities it holds",
-      "status": "pending"
+      "id": "SKILLS-WEB-1-T1",
+      "title": "Browser Skills facade and atomic attachment replacement",
+      "status": "done",
+      "started_at": "2026-08-31T06:34:35+00:00",
+      "base_sha": "e06343773cf795d61b2547aced0448ad0aaeae79",
+      "dirty_at_start": {},
+      "task_sha256": "18c4d3806c8f06403fd663b01d58d06389b367da83fa2c7b8ccfe775d17e229f",
+      "completed_at": "2026-08-31T08:09:13+00:00"
     },
     {
-      "id": "cache-bug-T1",
-      "title": "Measurement, storage, and the quality gate",
+      "id": "SKILLS-WEB-1-T2",
+      "title": "Skills inspection UI",
       "status": "done",
-      "started_at": "2026-09-09T11:11:15+00:00",
-      "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
+      "started_at": "2026-08-31T10:41:27+00:00",
+      "base_sha": "921ba474390b7c81d016fc5b675fc3e52eb2959b",
       "dirty_at_start": {
-        ".factory/stories/cache-bug/decomposition.json": {
-          "digest": "f36b3df1cea5b3801060b43132793c7ea66290d15083f386f67d23e5204f0325",
-          "git": "? .factory/stories/cache-bug/decomposition.json\u0000\u0000\u0000"
+        ".factory/events/09001611fa25461caeb04908088f4b29.json": {
+          "digest": "c24612295d1a3cde4ab0fdea16de676543876ed4ee34496980eb55a1145aa442",
+          "git": "? .factory/events/09001611fa25461caeb04908088f4b29.json\u0000\u0000\u0000"
         },
-        ".factory/stories/cache-bug/grill-rounds/37f74946-245f-4f39-a6ba-ae7a3c41c123.json": {
-          "digest": "e87d6951e656060b4e4a859d89f80c7e44c4a35b26884f1ddcf20b883fd4e24c",
-          "git": "? .factory/stories/cache-bug/grill-rounds/37f74946-245f-4f39-a6ba-ae7a3c41c123.json\u0000\u0000\u0000"
+        ".factory/events/3d714867d513425b9cea437387936b4a.json": {
+          "digest": "10b7c1b8d5c17f92a51d2de538fa1ae2fffb49f9860bb84fa86aa5adf077aaaf",
+          "git": "? .factory/events/3d714867d513425b9cea437387936b4a.json\u0000\u0000\u0000"
         },
-        ".factory/stories/cache-bug/grill-rounds/6957cdc9-7a16-49b0-abde-536dc589ef8b.json": {
-          "digest": "e571edb8557d2e1033c57cef38f0811a734b42341cd65fcec8f428d1965d79c4",
-          "git": "? .factory/stories/cache-bug/grill-rounds/6957cdc9-7a16-49b0-abde-536dc589ef8b.json\u0000\u0000\u0000"
+        ".factory/events/f31c165eeb754262b330b7c5862a81e2.json": {
+          "digest": "0d0f195fd0372a720a118c451ea8aa60568505dbe6129b414fe265de64e1ef71",
+          "git": "? .factory/events/f31c165eeb754262b330b7c5862a81e2.json\u0000\u0000\u0000"
         },
-        ".factory/stories/cache-bug/grills/tasks/cache-bug-T1.json": {
-          "digest": "34613f06ee6af8afcd76e829ed135fb1b8994c56c62a79f0a39dfa88366db02f",
-          "git": "? .factory/stories/cache-bug/grills/tasks/cache-bug-T1.json\u0000\u0000\u0000"
+        ".factory/stages.json": {
+          "digest": "f3a449878d52ad82fbea19efd9649ea026f6551b781f7b66e481abf7798b53ea",
+          "git": "1 .M N... 100644 100644 100644 14eb3cf370ea0636a99313f6fa8cffe7f61cffc2 14eb3cf370ea0636a99313f6fa8cffe7f61cffc2 .factory/stages.json\u0000\u0000100644 14eb3cf370ea0636a99313f6fa8cffe7f61cffc2 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
         },
-        ".factory/stories/cache-bug/task-plans/cache-bug-T1.md": {
-          "digest": "b4074678ae3403346682b9f084a72a1d2070e35506e4951215358c0f231940c0",
-          "git": "? .factory/stories/cache-bug/task-plans/cache-bug-T1.md\u0000\u0000\u0000"
+        ".factory/stories/SKILLS-WEB-1/grill-rounds/06a3aacd-3460-4c9f-854b-282819973a13.json": {
+          "digest": "7f979204d9559a907cc4d04fe0361e3e62aa252bd50afe88b65cfc2c9d33c996",
+          "git": "? .factory/stories/SKILLS-WEB-1/grill-rounds/06a3aacd-3460-4c9f-854b-282819973a13.json\u0000\u0000\u0000"
         },
-        "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md": {
-          "digest": "9d2148c64f4145c9ef6d2395d1463e15419bea883ed730632841472e4a85160a",
-          "git": "? plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md\u0000\u0000\u0000"
+        ".factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T2.json": {
+          "digest": "909a36147f1ba1f67950259373cb9b25d643510ebf2c2ddc9eb1a2000bef9002",
+          "git": "1 .M N... 100644 100644 100644 f97779f95bc4a8d19471c9a710e32c45bed5c68f f97779f95bc4a8d19471c9a710e32c45bed5c68f .factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T2.json\u0000\u0000100644 f97779f95bc4a8d19471c9a710e32c45bed5c68f 0\t.factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T2.json\u0000\u0000H .factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T2.json\u0000"
+        },
+        ".factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T2.md": {
+          "digest": "c160a688188b41de390d4972e4a2c8227eac31b6577271377433cee4fe1fa44e",
+          "git": "1 .M N... 100644 100644 100644 6b8275a88231355358df7898f1f7ddc81b144f80 6b8275a88231355358df7898f1f7ddc81b144f80 .factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T2.md\u0000\u0000100644 6b8275a88231355358df7898f1f7ddc81b144f80 0\t.factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T2.md\u0000\u0000H .factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T2.md\u0000"
         }
       },
-      "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
-      "contract_changed": {
-        "at": "2026-09-10T12:17:55+00:00",
-        "from": "b233f1d95888be75b1ddca4db29489532b6294e89ef2f88a94c3089ffc34e995",
-        "to": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2"
+      "task_sha256": "e21337bc2df40d5fc071609cf6a381e24283fdaf02ca780cd18d15970cc541ab",
+      "completed_at": "2026-08-31T11:07:20+00:00"
+    },
+    {
+      "id": "SKILLS-WEB-1-T3",
+      "title": "Administrator install and attachment workflows",
+      "status": "done",
+      "started_at": "2026-08-31T11:49:24+00:00",
+      "base_sha": "abf3f2a007a2f6dd3d78cfb12cef41eced852422",
+      "dirty_at_start": {
+        ".factory/events/088384efb43049d3a3f29900b65ba72b.json": {
+          "digest": "8a5a61359ffe0ccfd49da0c774ba3d6980e6c3ee0ee92e16fbf88d7ade8b5010",
+          "git": "? .factory/events/088384efb43049d3a3f29900b65ba72b.json\u0000\u0000\u0000"
+        },
+        ".factory/events/a2631dc0d2e84f599a848d59b068a1f3.json": {
+          "digest": "f77e3d77897e4e8e833b2b5ce98bd72f8718983eba7150dd07087a5b253291c0",
+          "git": "? .factory/events/a2631dc0d2e84f599a848d59b068a1f3.json\u0000\u0000\u0000"
+        },
+        ".factory/stages.json": {
+          "digest": "f06e12420a6a5b4057d11d131c1d52bc670d03f9988f5abde4bac1345431fa5e",
+          "git": "1 .M N... 100644 100644 100644 be57527df140a057fecd36ad9f6edbe35656037c be57527df140a057fecd36ad9f6edbe35656037c .factory/stages.json\u0000\u0000100644 be57527df140a057fecd36ad9f6edbe35656037c 0\t.factory/stages.json\u0000\u0000H .factory/stages.json\u0000"
+        },
+        ".factory/stories/SKILLS-WEB-1/decomposition.json": {
+          "digest": "97a6978189195837b25cbdb50c5ed69721ab6dcdc4ad04323cfaea8eefee0f1f",
+          "git": "1 .M N... 100644 100644 100644 77358bad7e478b6d9fdd5b6b6c884fb2ffd77eb3 77358bad7e478b6d9fdd5b6b6c884fb2ffd77eb3 .factory/stories/SKILLS-WEB-1/decomposition.json\u0000\u0000100644 77358bad7e478b6d9fdd5b6b6c884fb2ffd77eb3 0\t.factory/stories/SKILLS-WEB-1/decomposition.json\u0000\u0000H .factory/stories/SKILLS-WEB-1/decomposition.json\u0000"
+        },
+        ".factory/stories/SKILLS-WEB-1/grill-rounds/42d6d00e-e94f-4aee-87b2-b7e6f7b8c881.json": {
+          "digest": "14629f1e7e534d262feb50e3eba7ed5144058a9acccaf6c62deed3a1d822d114",
+          "git": "? .factory/stories/SKILLS-WEB-1/grill-rounds/42d6d00e-e94f-4aee-87b2-b7e6f7b8c881.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T3.json": {
+          "digest": "1d01657aa924c2f2ff89637cf7a6c7e22095d850f6ffd7d7abd6411f3d2a7e18",
+          "git": "? .factory/stories/SKILLS-WEB-1/grills/tasks/SKILLS-WEB-1-T3.json\u0000\u0000\u0000"
+        },
+        ".factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T3.md": {
+          "digest": "69e1780ccf197ba0f18ab0238f47a8a0b355f70f4f74e12d44ffb63f931d8e9e",
+          "git": "? .factory/stories/SKILLS-WEB-1/task-plans/SKILLS-WEB-1-T3.md\u0000\u0000\u0000"
+        }
       },
+      "task_sha256": "c109d33bb5d187b4366fbfe63d89e9eacfe91c18e89c2598d68b5ec87e665bc5",
       "local_review_stamp": {
-        "stage_id": "cache-bug-T1",
-        "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2",
-        "brief_sha256": "",
-        "base_sha": "a86e0b467f72564abd085c9927e98e8150aea461",
-        "product_tree_digest": "302d507ccb7e17c1fd14c15ae80e1193e865c4d4c19a063adb1024e5f1ebdefa",
-        "recorded_at": "2026-09-10T17:57:01+00:00",
-        "generated_by": "autoreview",
-        "lenses": [
-          "quality",
-          "performance",
-          "security"
-        ]
+        "stage_id": "SKILLS-WEB-1-T3",
+        "task_sha256": "c109d33bb5d187b4366fbfe63d89e9eacfe91c18e89c2598d68b5ec87e665bc5",
+        "brief_sha256": "8cb7a753b52e92fd4edbf523f6c8ccd73684a97520bf53880c0923cc940b2f8b",
+        "base_sha": "abf3f2a007a2f6dd3d78cfb12cef41eced852422",
+        "product_tree_digest": "1cf23e31598651168e22536e4d4b0a61042b612a5aa6588dcb9e176da14b9e59",
+        "recorded_at": "2026-08-31T13:18:48+00:00",
+        "generated_by": "autoreview"
       },
-      "completed_at": "2026-09-11T13:23:49+00:00"
-    },
-    {
-      "id": "cache-bug-T2",
-      "title": "Ceiling policy, the cap setting, and event types",
-      "status": "pending"
-    },
-    {
-      "id": "cache-bug-T3",
-      "title": "Adapter release port and post-reply coordinator",
-      "status": "pending"
-    },
-    {
-      "id": "cache-bug-T4",
-      "title": "The desired-state settings contract",
-      "status": "pending"
+      "completed_at": "2026-08-31T13:19:15+00:00"
     }
   ]
 }
