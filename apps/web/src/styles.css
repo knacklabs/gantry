@@ -41,8 +41,8 @@
   --color-focus-ring: var(--focus-ring);
   --font-sans: 'DM Sans Variable', system-ui, sans-serif;
   --font-mono: 'DM Mono', ui-monospace, monospace;
-  --font-display: 'Schibsted Grotesk Variable', 'DM Sans Variable', system-ui,
-    sans-serif;
+  --font-display:
+    'Schibsted Grotesk Variable', 'DM Sans Variable', system-ui, sans-serif;
   --shadow-control: 0 1px 2px rgb(27 26 24 / 8%);
   --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
   --shadow-popover: 0 16px 40px -16px rgb(27 26 24 / 30%);

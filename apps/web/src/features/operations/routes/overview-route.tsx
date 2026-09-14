@@ -36,7 +36,8 @@ export function OverviewRoute() {
       const response = await browserFetch('/ui/api/onboarding/status', {
         credentials: 'same-origin',
       });
-      if (!response.ok) throw new Error('Onboarding status could not be loaded.');
+      if (!response.ok)
+        throw new Error('Onboarding status could not be loaded.');
       return response.json() as Promise<{
         resume: { name: string; step: number } | null;
       }>;
