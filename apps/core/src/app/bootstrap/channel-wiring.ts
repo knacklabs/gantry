@@ -3,7 +3,6 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalRequest,
   ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
@@ -373,6 +372,8 @@ export function createChannelWiring(
       providerId: providerForJid(jid)?.id ?? channel.name,
       conversationJid: jid,
       threadId: options.messageOptions?.threadId,
+      replyToMessageId: options.messageOptions?.replyToMessageId,
+      runId: options.messageOptions?.runId,
       providerAccountId:
         options.messageOptions?.providerAccountId ??
         connectedChannels.find(

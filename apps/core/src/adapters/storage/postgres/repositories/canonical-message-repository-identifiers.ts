@@ -96,6 +96,7 @@ export function externalRefForMessage(msg: NewMessage) {
     chat_jid: msg.chat_jid,
     provider: msg.provider,
     provider_account_id: msg.providerAccountId,
+    run_id: msg.runId,
     thread_id: msg.thread_id,
     external_message_id: msg.external_message_id,
     reply_to_message_id: msg.reply_to_message_id,

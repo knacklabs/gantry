@@ -107,6 +107,7 @@ export function createGroupAgentRunner(input: {
       maintenanceCompaction?: boolean;
       responseSchema?: Record<string, unknown>;
       agentControls?: AgentControlOverrides;
+      onRunIdentified?: (runId: string) => void;
     },
   ): Promise<GroupAgentRunResult> {
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
@@ -475,6 +476,7 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
+    if (runState.runId) options?.onRunIdentified?.(runState.runId);
     updateLogContext({
       runId: runState.runId,
       appId: runtimeAppId,

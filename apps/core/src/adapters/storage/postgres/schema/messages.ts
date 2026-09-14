@@ -37,6 +37,7 @@ export const messagesPostgres = pgTable(
       () => conversationThreadsPostgres.id,
       { onDelete: 'cascade' },
     ),
+    runId: text('run_id'),
     externalMessageId: text('external_message_id'),
     externalRefJson: jsonb('external_ref_json'),
     direction: text('direction').notNull(),

@@ -122,6 +122,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let progressGeneration = streamGeneration;
     const turnOptions = createGroupTurnOptionBuilders({
       activeThreadId,
+      replyToMessageId: latestMessage.external_message_id,
       providerAccountId: group.providerAccountId,
       streamGeneration: () => streamGeneration,
       progressGeneration: () => progressGeneration,
@@ -690,6 +691,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             liveStopActionToken: turnOptions.liveStopActionToken,
             responseSchema: replay.responseSchema,
             agentControls: replay.agentControls,
+            onRunIdentified: turnOptions.identifyRun,
           },
         );
       } finally {

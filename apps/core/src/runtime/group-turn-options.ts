@@ -8,11 +8,13 @@ import type {
 
 export function createGroupTurnOptionBuilders(input: {
   activeThreadId?: string;
+  replyToMessageId?: string;
   providerAccountId?: string;
   streamGeneration: () => number;
   progressGeneration: () => number;
 }): {
   buildMessageOptions: (threadId?: string) => MessageSendOptions | undefined;
+  identifyRun: (runId: string) => void;
   buildStreamingOptions: (args: {
     threadId?: string;
     done?: boolean;
@@ -24,6 +26,7 @@ export function createGroupTurnOptionBuilders(input: {
     replaceOnly?: boolean;
   }) => ProgressUpdateOptions;
 } {
+  let runId: string | undefined;
   const resolveThreadId = (threadId?: string) =>
     threadId ?? input.activeThreadId;
   const liveStopActionToken = randomUUID();
@@ -33,10 +36,17 @@ export function createGroupTurnOptionBuilders(input: {
       if (!resolved && !input.providerAccountId) return undefined;
       return {
         ...(resolved ? { threadId: resolved } : {}),
+        ...(input.replyToMessageId
+          ? { replyToMessageId: input.replyToMessageId }
+          : {}),
         ...(input.providerAccountId
           ? { providerAccountId: input.providerAccountId }
           : {}),
+        ...(runId ? { runId } : {}),
       };
+    },
+    identifyRun: (value) => {
+      runId = value;
     },
     buildStreamingOptions: (args: { threadId?: string; done?: boolean }) => ({
       generation: input.streamGeneration(),

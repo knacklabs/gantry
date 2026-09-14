@@ -24,6 +24,8 @@ export function createConversationOutboundProjection(input: {
   providerAccountId?: string;
   conversationJid: string;
   threadId?: string;
+  replyToMessageId?: string;
+  runId?: string;
   appId: AppId;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
   logger: ConversationOutboundEventLogger;
@@ -57,6 +59,8 @@ export function createConversationOutboundProjection(input: {
     is_from_me: true,
     is_bot_message: true,
     thread_id: input.threadId,
+    reply_to_message_id: input.replyToMessageId,
+    runId: input.runId,
   };
 
   return {

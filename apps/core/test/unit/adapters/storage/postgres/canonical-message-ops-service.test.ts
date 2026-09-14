@@ -21,6 +21,11 @@ import {
 } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
+vi.mock(
+  '@core/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.js',
+  () => ({ correlateOnboardingVerification: vi.fn(async () => undefined) }),
+);
+
 function messageRow(
   overrides: Partial<CanonicalOpsMessageRow> = {},
 ): CanonicalOpsMessageRow {

@@ -81,6 +81,7 @@ import * as pgSchema from '../schema/schema.js';
 import {
   CANONICAL_APP_ID,
   jsonb,
+  parseJson,
   type CanonicalDb,
 } from './canonical-graph-repository.postgres.js';
 import {
@@ -94,6 +95,7 @@ import {
   providerAttachmentStorageRefsRemovedByReplacement,
 } from './canonical-message-attachments.postgres.js';
 import { lockCanonicalMessageAttachments } from './canonical-message-attachment-lock.postgres.js';
+import { correlateDomainOnboardingMessage } from './onboarding-verification-correlation.postgres.js';
 import {
   cleanupRemovedProviderAttachments,
   storageRefForAttachmentWriter,
@@ -213,19 +215,6 @@ function encodeJsonOrNull(value: unknown | undefined): string | null {
 }
 function jsonbOrNull(value: unknown | undefined): unknown | null {
   return value === undefined ? null : value;
-}
-function parseJson<T>(value: unknown, fallback: T): T {
-  if (value === null || value === undefined) return fallback;
-  if (typeof value !== 'string') return value as T;
-  if (value.length === 0) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch (err) {
-    if (!(err instanceof SyntaxError)) {
-      throw err;
-    }
-    return fallback;
-  }
 }
 function toIsoTimestamp(value: string): string {
   const ms = Date.parse(value);
@@ -1273,8 +1262,14 @@ export class PostgresMessageRepository implements MessageRepository {
           providerAccountId: channel.providerAccountId,
           conversationId: message.conversationId,
           threadId: message.threadId ?? null,
+          runId: message.runId ?? null,
           externalMessageId,
-          externalRefJson: jsonbOrNull(message.externalRef),
+          externalRefJson: jsonbOrNull({
+            ...message.externalRef,
+            ...(message.replyToMessageId
+              ? { reply_to_message_id: message.replyToMessageId }
+              : {}),
+          }),
           direction: message.direction,
           senderUserId: message.senderUserId ?? null,
           senderDisplayName: message.senderDisplayName ?? null,
@@ -1289,7 +1284,13 @@ export class PostgresMessageRepository implements MessageRepository {
           target: pgSchema.messagesPostgres.id,
           set: {
             externalMessageId,
-            externalRefJson: jsonbOrNull(message.externalRef),
+            runId: message.runId ?? null,
+            externalRefJson: jsonbOrNull({
+              ...message.externalRef,
+              ...(message.replyToMessageId
+                ? { reply_to_message_id: message.replyToMessageId }
+                : {}),
+            }),
             direction: message.direction,
             senderUserId: message.senderUserId ?? null,
             senderDisplayName: message.senderDisplayName ?? null,
@@ -1414,6 +1415,16 @@ export class PostgresMessageRepository implements MessageRepository {
           })),
         );
       }
+      const verificationEventAt =
+        message.direction === 'outbound'
+          ? (message.deliveredAt ?? message.createdAt)
+          : (message.receivedAt ?? message.createdAt);
+      await correlateDomainOnboardingMessage(tx, {
+        message,
+        canonicalMessageId: targetMessageId,
+        eventAt: verificationEventAt,
+        providerAccountId: channel.providerAccountId,
+      });
       if (replacementAttachmentRows.length > 0) {
         await tx
           .insert(pgSchema.messageAttachmentsPostgres)
@@ -1589,6 +1600,10 @@ export class PostgresMessageRepository implements MessageRepository {
       appId: row.appId,
       conversationId: row.conversationId,
       threadId: row.threadId ?? undefined,
+      runId: row.runId ?? undefined,
+      replyToMessageId: (
+        row.externalRefJson as { reply_to_message_id?: unknown } | null
+      )?.reply_to_message_id as string | undefined,
       externalRef: externalRef(
         row.externalRefJson,
         'message',

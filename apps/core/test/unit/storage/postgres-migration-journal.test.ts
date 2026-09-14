@@ -1898,6 +1898,50 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"group_join_onboarding_provider_chat_unique"');
   });
 
+  it('keeps the single generated onboarding migration in journal order', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as { entries: Array<{ tag: string }> };
+    const onboarding = journal.entries.at(-1)!;
+    const migrationsDir = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const setupMigrations = fs
+      .readdirSync(migrationsDir)
+      .filter((file) => file.endsWith('.sql'))
+      .filter((file) =>
+        fs
+          .readFileSync(path.join(migrationsDir, file), 'utf8')
+          .includes('CREATE TABLE "onboarding_setups"'),
+      );
+    expect(setupMigrations).toEqual([`${onboarding.tag}.sql`]);
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        `apps/core/src/adapters/storage/postgres/schema/migrations/${onboarding.tag}.sql`,
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE "onboarding_verifications"');
+    expect(migration).toContain('CREATE TABLE "onboarding_setups"');
+    expect(migration).toContain(
+      '"expires_at" timestamp with time zone NOT NULL',
+    );
+    expect(migration).toContain('"inbound_message_id" text');
+    expect(migration).toContain('"outbound_message_id" text');
+    expect(migration).toContain('"onboarding_run_id" text');
+    expect(migration).toContain('"thread_id" text');
+    expect(migration).toContain('"id" uuid PRIMARY KEY');
+    expect(migration).toContain('"created_by" text NOT NULL');
+    expect(migration).toContain('"updated_by" text NOT NULL');
+    expect(migration).toContain('"idx_onboarding_verifications_correlation"');
+  });
+
   it('keeps durable conversation history coverage migration and schema in sync', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

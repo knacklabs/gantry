@@ -7110,7 +7110,10 @@ describe('createGroupProcessor', () => {
       expect(channel.sendMessage).toHaveBeenCalledWith(
         'sl:C123',
         'Agent reply text',
-        { threadId: '1710000000.000100' },
+        {
+          replyToMessageId: '1710000000.000100',
+          threadId: '1710000000.000100',
+        },
       );
     });
 

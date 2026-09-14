@@ -53,6 +53,7 @@ import {
   messageIdFor,
   publicThreadIdForRow,
 } from './canonical-message-repository-identifiers.js';
+import { correlateOnboardingVerification } from './onboarding-verification-correlation.postgres.js';
 
 export {
   externalRefForMessage,
@@ -273,6 +274,7 @@ export class PostgresCanonicalMessageRepository {
         providerAccountId,
         conversationId,
         threadId: canonicalThreadId,
+        runId: msg.runId ?? null,
         externalMessageId,
         externalRefJson: jsonb(externalRefForMessage(msg)),
         direction,
@@ -289,6 +291,7 @@ export class PostgresCanonicalMessageRepository {
         target: pgSchema.messagesPostgres.id,
         set: {
           externalMessageId,
+          runId: msg.runId ?? null,
           externalRefJson: jsonb(externalRefForMessage(msg)),
           direction,
           senderUserId: msg.sender,
@@ -321,6 +324,23 @@ export class PostgresCanonicalMessageRepository {
           payloadJson: sql`excluded.payload_json`,
         },
       });
+    const verificationEventAt =
+      direction === 'outbound'
+        ? (msg.delivered_at ?? msg.timestamp)
+        : msg.timestamp;
+    await correlateOnboardingVerification(tx, {
+      appId: options.liveAdmission?.appId ?? CANONICAL_APP_ID,
+      agentRunId: msg.runId,
+      canonicalMessageId,
+      conversationId,
+      direction,
+      eventAt: verificationEventAt,
+      providerAccountId,
+      replyToMessageId: msg.reply_to_message_id,
+      text: msg.content,
+      threadId: canonicalThreadId,
+      deliveryStatus: msg.delivery_status,
+    });
     const removedProviderStorageRefs =
       msg.attachments === undefined
         ? []

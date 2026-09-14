@@ -130,6 +130,7 @@ export interface NewMessage {
   provider?: string;
   providerAccountId?: string;
   agentId?: string;
+  runId?: string;
   sender: string;
   sender_name: string;
   content: string;
@@ -551,8 +552,10 @@ export interface JobPermissionCardRetiredRow {
 
 export interface MessageSendOptions {
   threadId?: string;
+  replyToMessageId?: string;
   providerAccountId?: string;
   agentId?: string;
+  runId?: string;
   /** Provider message to edit in place for a durable living-card revision. */
   replaceMessageId?: string;
   /** Provider message to delete for a fully allowed retired card. */

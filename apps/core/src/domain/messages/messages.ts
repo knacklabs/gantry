@@ -22,6 +22,8 @@ export interface Message {
   appId: AppId;
   conversationId: ConversationId;
   threadId?: ConversationThreadId;
+  runId?: string;
+  replyToMessageId?: string;
   externalRef?: ExternalRef<'message'>;
   direction: MessageDirection;
   senderUserId?: UserId;
