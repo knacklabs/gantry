@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-14T12:16:21+00:00", "story": "ONBOARDING-V2-1", "detail": "S-0118-712f: Replaced the conflicting archive history with one drizzle-generated 20260914121535_onboarding_v2 baseline; removed generated public schema qualifiers from its SQL only, retained generator-produced jou"}

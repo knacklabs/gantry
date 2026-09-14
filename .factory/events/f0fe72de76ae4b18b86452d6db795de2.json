@@ -1,0 +1,1 @@
+{"event": "signal-contradiction", "generated_by": "implementer", "at": "2026-09-14T11:36:41+00:00", "story": "ONBOARDING-V2-1", "detail": "Current drizzle-kit generation emits explicit public-schema foreign-key targets, but ONBOARDING-V2-1-T1 requires untouched generator output and rejects public-schema assumptions; the brief does not au"}

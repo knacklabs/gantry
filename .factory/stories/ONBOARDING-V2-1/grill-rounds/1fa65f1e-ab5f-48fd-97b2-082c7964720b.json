@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Adopt the complete amended task contract?",
+      "options": [
+        "Yes (Recommended)",
+        "No"
+      ],
+      "chosen": "Yes (Recommended)"
+    }
+  ],
+  "at": "2026-09-14T10:54:59.225381+00:00",
+  "session_id": "b651455c-10f3-4ece-aeaf-2452b50e5eba"
+}

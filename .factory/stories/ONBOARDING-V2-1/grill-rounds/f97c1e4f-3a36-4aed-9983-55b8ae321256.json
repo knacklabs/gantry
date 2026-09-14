@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Is any ONBOARDING-V2-1-T1 grill finding still open?",
+      "options": [
+        "No open findings (Recommended)",
+        "Amend again",
+        "Revisit scope"
+      ],
+      "chosen": "No open findings (Recommended)"
+    }
+  ],
+  "at": "2026-09-14T10:55:27.235440+00:00",
+  "session_id": "b651455c-10f3-4ece-aeaf-2452b50e5eba"
+}

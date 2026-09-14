@@ -1,0 +1,34 @@
+{
+  "id": "ONBOARDING-V2-1-T1",
+  "title": "Adopt and harden the complete V2 onboarding flow",
+  "status": "active",
+  "started_at": "2026-09-14T10:59:16+00:00",
+  "base_sha": "59c43376518f06c656fb8ea329f72868880738b2",
+  "dirty_at_start": {
+    ".factory/stories/ONBOARDING-V2-1/decomposition.json": {
+      "digest": "d4af99aacf9c5e998aa7e1ff149106c52323c10fc5d25080d58a395a055ce1e3",
+      "git": "? .factory/stories/ONBOARDING-V2-1/decomposition.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/ONBOARDING-V2-1/grill-rounds/1fa65f1e-ab5f-48fd-97b2-082c7964720b.json": {
+      "digest": "3078cd6382d1ea55c852aab8a7261a09d8fbb9db6113e883bd7c0065cb81ae84",
+      "git": "? .factory/stories/ONBOARDING-V2-1/grill-rounds/1fa65f1e-ab5f-48fd-97b2-082c7964720b.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/ONBOARDING-V2-1/grill-rounds/f97c1e4f-3a36-4aed-9983-55b8ae321256.json": {
+      "digest": "861d6c0ec7f90d277c437eb9685ea30d8f0b01d87aae3b199f802818d1ceebb2",
+      "git": "? .factory/stories/ONBOARDING-V2-1/grill-rounds/f97c1e4f-3a36-4aed-9983-55b8ae321256.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/ONBOARDING-V2-1/grills/tasks/ONBOARDING-V2-1-T1.json": {
+      "digest": "e2c292978016adccdc07052f7d3322f7ab9b2ef46c06e63112fb0dd8c55c8421",
+      "git": "? .factory/stories/ONBOARDING-V2-1/grills/tasks/ONBOARDING-V2-1-T1.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/ONBOARDING-V2-1/task-plans/ONBOARDING-V2-1-T1.md": {
+      "digest": "7fcf63ee9a3b4d72f19c2f3b30202722a4ee9f76d5ea166a1c886f833b8cf1eb",
+      "git": "? .factory/stories/ONBOARDING-V2-1/task-plans/ONBOARDING-V2-1-T1.md\u0000\u0000\u0000"
+    },
+    "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md": {
+      "digest": "4b5ee70a47236080f83200c441f0d8a35b6903c164a6b8d0be9fea779d5eb223",
+      "git": "? plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md\u0000\u0000\u0000"
+    }
+  },
+  "task_sha256": "0abf67f210a3eb40ab454b7abc637293a17062c2acff98c1686c85d581863174"
+}

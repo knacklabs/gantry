@@ -1,0 +1,192 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "gaps": [
+    "The future task worktree did not have an explicit source for planning-only decisions, specifications, and the V2 reference.",
+    "The protected contract compressed material lifecycle, provider, harness, approver, and correlation requirements.",
+    "Candidate-before-persist credential validation had no owned shared implementation seam.",
+    "Exact run correlation had no declared outbound carrier or durable projection.",
+    "The exact agentHarness values and compatibility behavior were not protected.",
+    "Deterministic provider readiness, empty discovery, fallback, and Teams setup-only behavior were not protected or owned.",
+    "The approver criterion incorrectly required manual human selection for direct messages.",
+    "Channel secret ownership and supported reference or policy-disabled modes were ambiguous.",
+    "The required tests did not falsify replay, invalidation, identity ownership, approver, correlation, projection, migration, and OpenAPI failures.",
+    "The browser OpenAPI auth and error-envelope contract was unsettled.",
+    "Reviewer focus cited nonexistent constitution files and omitted the TypeScript modular standard.",
+    "The onboarding lifecycle table identifier and audit-field law was undecided.",
+    "The visual reference was writable and the 375x812 viewport was omitted.",
+    "Migration verification did not prove regeneration from a clean baseline or journal integrity.",
+    "The archive package overlap could widen current main's Node engine range.",
+    "Durable onboarding behavior changed without named architecture-document owners.",
+    "The archived onboarding route and workspace module exceeded the web module-size rule despite real responsibility boundaries."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Pinned planning commit 829500087 as the task hydration source and protected the immutable reference hash and untouched archive branch.",
+    "Expanded the acceptance contract to name the complete browser, lifecycle, model, provider, approver, verification, migration, visual, and handoff behavior.",
+    "Added shared model-credentials, model-provider preflight, provider-conversation discovery, outbound projection, and message carrier paths to task ownership.",
+    "Required onboarding runId in outbound send metadata and durable projection with exact account, conversation, canonical thread, code, inbound, outbound, and run correlation.",
+    "Protected auto, anthropic_sdk, and deepagents plus provider compatibility and pre-spawn failure behavior.",
+    "Required deterministic live provider selection, supported-only Slack preselection, Teams setup-only behavior, and non-empty discovery.",
+    "Corrected direct messages to derive the counterpart automatically while groups use recognized installer or validated manual membership.",
+    "Bound channel tokens to runtime-owned gantry-secret references with existing direct, env:, and aws-sm: modes and typed policy-disabled refusal.",
+    "Expanded focused required tests across all named negative transitions and durable lifecycle states.",
+    "Classified onboarding endpoints as same-origin browser facades with their repository envelope and an explicit x-gantry-browser-auth OpenAPI extension.",
+    "Replaced invalid citations with the repository's actual modularity, logging, exception, API, database, and provider standards.",
+    "Required UUID row identifiers and actor plus timestamp audit fields for onboarding lifecycle tables.",
+    "Pinned SHA-256 c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45 and added 375x812 acceptance.",
+    "Required generation from a clean baseline, a clean migration directory afterward, and the migration-journal unit test.",
+    "Protected current main package metadata and exact Node >=24 <25 range.",
+    "Added agent-runtime, channel-interactions, credential-management, and web-ui-foundation documentation to task ownership.",
+    "Required splitting the route and workspace implementation at splash, shell, model, workspace, assignment, and verification responsibility boundaries below 300 lines.",
+    "The user adopted the complete amended task contract and confirmed no task-grill finding remains open."
+  ],
+  "inspected_refs": [
+    ".factory/stories/ONBOARDING-V2-1/decomposition.json",
+    ".factory/stories/ONBOARDING-V2-1/task-plans/ONBOARDING-V2-1-T1.md",
+    "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md",
+    "docs/specs/v2-first-agent-onboarding.md",
+    "docs/specs/v2-first-agent-onboarding-visual-contract.md",
+    "docs/decisions/0028-agent-harness-selection.md",
+    "docs/decisions/0118-identity-scoped-approval-and-grants.md",
+    "docs/decisions/0119-provider-neutral-group-approver-bootstrap.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md",
+    "docs/decisions/0143-browser-write-only-secret-ingest.md",
+    "docs/decisions/0156-ai-employee-console-resumable-deployment.md",
+    "docs/decisions/0162-onboarding-v2-legacy-adoption.md",
+    "docs/decisions/0163-onboarding-v2-migration-baseline.md",
+    "apps/core/src/control/server/browser-auth-boundary.ts",
+    "apps/core/src/control/server/openapi.ts",
+    "apps/core/src/channels/channel-provider.ts",
+    "apps/core/src/channels/control-provider-catalog.ts",
+    "apps/core/src/adapters/llm/model-provider-preflight.ts",
+    "apps/web/AGENTS.md",
+    "constitution/pnp-coding-standards-modular-monolith.md",
+    "constitution/pnp-api-standards.md",
+    "constitution/pnp-database-standards.md"
+  ],
+  "current_flow": "Current main has the secure browser-session boundary, provider registry, model preflight, provider-conversation discovery ports, outbound message projection, desired-state authority, and public OpenAPI owner, but no V2 onboarding product flow. The pinned archive adds the user-facing and persistence delta but persists credentials before verification, can accept empty discovery, lacks exact run projection correlation, and carries obsolete migration history. The amended task reuses current-main seams, imports only the pinned product delta, and closes those defects before persistence or Console handoff.",
+  "criteria_map": {
+    "The task worktree hydrates decisions 0162 and 0163, both V2 specifications, and the V2 HTML reference from planning commit 829500087; the reference has SHA-256 c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45, and feat/v2-onboarding remains untouched.": "Task-start proof records the generated worktree base; git show copies only the four governing documents from 829500087; shasum asserts the reference hash; branch SHA checks prove the archive tip is unchanged.",
+    "The splash and all four onboarding steps conform to the immutable V2 reference in light and dark themes, saved and system reduced-motion modes, and 1920x956, 1469x800, 1280x800, 1024x768, 768x1024, and 375x812 viewports, with only documented deterministic masks.": "The hashed reference drives Playwright Core and browser-Canvas comparison at every named viewport with loaded local fonts, frozen named frames, saved/system motion variants, and only the visual-contract masks.",
+    "The same-origin browser onboarding facade requires administrator session auth, trusted Origin, CSRF, and hosted recent reauthentication; rejects Bearer credentials and automatic mutation replay; sends no-store responses; uses the repository browser error envelope documented in OpenAPI with x-gantry-browser-auth; and keeps browser, audit, and error projections secret-free.": "Focused browser route and OpenAPI tests exercise every auth rejection and header plus response, log, audit, and error redaction; the route docs carry x-gantry-browser-auth rather than Bearer security.",
+    "The focused onboarding application service atomically creates the custom role, Agent, service Person, desired-state revision, audit event, and resumable setup; one setup exists per app, explicit retry reuses its idempotency key, a changed payload conflicts, and upstream changes invalidate only dependent progress.": "Application and disposable-Postgres tests assert one transaction, unique app ownership, stored request fingerprints/results, replay equality/conflict, service identity, desired-state/audit writes, and step-specific invalidation.",
+    "Model setup accepts only the exact agentHarness values auto, anthropic_sdk, and deepagents and only compatible credential modes; a candidate is verified through the shared model-provider preflight before persistence, failed candidates preserve a prior healthy credential, models stay unavailable until validation, and successful secret inputs clear.": "Focused core tests spy on preflight-before-repository order, all exact harness values and incompatibilities, healthy replacement preservation, and model gating; web tests assert loading/lock and secret-state clearing.",
+    "Channel setup stores only runtime-owned gantry-secret references, supports the existing direct, env:, and aws-sm: reference modes when policy permits, returns a typed policy-disabled result otherwise, never projects channel secrets into agent capability secrets, and requires non-empty real conversation discovery before completion.": "Channel credential and onboarding tests assert stored references only, reference-mode selection, policy refusal, absence from agent projection/browser responses, and zero-conversation incompletion.",
+    "Provider selection is deterministic from live capability and provider support, Slack is preselected only when supported, Teams remains setup-only, provider accounts are Agent-owned with service-Person projection, direct-message approvers derive automatically from the counterpart, and group approvers require the recognized installer or validated manual membership.": "Provider catalog, browser, and Postgres tests cover ordering/fallback, supported-only Slack default, Teams no-connect path, Agent ownership, service alias, DM derivation, and both valid/invalid group membership paths.",
+    "The verification challenge persists account, conversation, canonical thread, code, inbound message, outbound message, and onboarding run identity; the run identity is carried through outbound send metadata and its persisted projection; expiry, replay, account/conversation/thread/code mismatch, outbound-before-inbound, and projection failure are typed, and projection retry preserves a satisfied challenge.": "Disposable-Postgres and projection tests assert each correlation field and negative transition, inspect runId through send options and durable message rows, then fail/retry projection without reopening the challenge.",
+    "Exactly one generator-produced current-schema pre-release migration and snapshot covers resumable setup, verification correlation, provider-account correlation, constraints, and indexes; lifecycle tables use UUID row identifiers and actor/timestamp audit fields, archive migration history is excluded, the migration is regenerated from a clean baseline, and the migration directory remains clean afterward.": "The generator creates one SQL/snapshot/journal delta from current schema; migration-journal and schema-isolated pgvector tests assert shape and lifecycle; a second generation followed by git diff --exit-code proves cleanliness.",
+    "The adopted web implementation preserves current-main package metadata including Node >=24 <25, uses repository primitives and Tailwind where appropriate, and splits the oversized onboarding route and workspace modules at real responsibility boundaries so route/page modules remain below 300 lines.": "Diff review asserts the exact engine range and shared primitives; architecture/lint checks plus line-count review verify route/page ownership boundaries rather than cosmetic file splitting.",
+    "Focused browser, model, provider, lifecycle, OpenAPI, migration, and visual tests cover idempotency conflict, invalidation, service-Person ownership, harness values, secret modes, empty discovery, provider fallback, Teams setup-only behavior, DM/group rules, expiry/replay/mismatch, run and thread correlation, projection retry, migration journal integrity, immutable reference hash, and Console gating.": "Every named behavior is mapped to a protected required-test title in the decomposition or to the focused suite commands in the task plan; fresh JUnit output is recorded through Forge.",
+    "Lint, formatting, type checks, web and runtime builds, disposable-Postgres proof, deterministic Forge verification, one three-lens autoreview with motion review, and a rebuilt-runtime functional check of healthz, readyz, and ui/onboarding are recorded before the user-held PR handoff; live Slack tenant proof remains release-only.": "Forge verify records the deterministic commands and JUnit evidence; the direct autoreview helper records quality/performance/security plus animation review; the functional check records listener/logs and all three local endpoints before stopping without push or PR."
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "Focused first-agent onboarding application service",
+    "Onboarding runId outbound correlation carrier",
+    "x-gantry-browser-auth OpenAPI operation extension"
+  ],
+  "rounds": [
+    {
+      "question": "Adopt the complete amended task contract?",
+      "options": [
+        "Yes (Recommended)",
+        "No"
+      ],
+      "chosen": "Yes (Recommended)",
+      "frontier_empty": false
+    },
+    {
+      "question": "Is any ONBOARDING-V2-1-T1 grill finding still open?",
+      "options": [
+        "No open findings (Recommended)",
+        "Amend again",
+        "Revisit scope"
+      ],
+      "chosen": "No open findings (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The future task worktree did not have an explicit source for planning-only decisions, specifications, and the V2 reference.",
+      "source": "factory/scripts/factory_lib.py:task worktree artifact hydration"
+    },
+    {
+      "finding": "The protected contract compressed material lifecycle, provider, harness, approver, and correlation requirements.",
+      "source": "docs/specs/v2-first-agent-onboarding.md:Required onboarding lifecycle"
+    },
+    {
+      "finding": "Candidate-before-persist credential validation had no owned shared implementation seam.",
+      "source": "apps/core/src/adapters/llm/model-provider-preflight.ts:model provider preflight"
+    },
+    {
+      "finding": "Exact run correlation had no declared outbound carrier or durable projection.",
+      "source": "apps/core/src/channels/channel-provider.ts:sendMessage options"
+    },
+    {
+      "finding": "The exact agentHarness values and compatibility behavior were not protected.",
+      "source": "docs/decisions/0028-agent-harness-selection.md:Canonical contract"
+    },
+    {
+      "finding": "Deterministic provider readiness, empty discovery, fallback, and Teams setup-only behavior were not protected or owned.",
+      "source": "apps/core/src/channels/control-provider-catalog.ts:RuntimeSecretConversationDiscovery"
+    },
+    {
+      "finding": "The approver criterion incorrectly required manual human selection for direct messages.",
+      "source": "docs/decisions/0118-identity-scoped-approval-and-grants.md:Direct-message approver"
+    },
+    {
+      "finding": "Channel secret ownership and supported reference or policy-disabled modes were ambiguous.",
+      "source": "docs/decisions/0143-browser-write-only-secret-ingest.md:Write-only channel secret contract"
+    },
+    {
+      "finding": "The required tests did not falsify replay, invalidation, identity ownership, approver, correlation, projection, migration, and OpenAPI failures.",
+      "source": "docs/decisions/0156-ai-employee-console-resumable-deployment.md:Acceptance criteria"
+    },
+    {
+      "finding": "The browser OpenAPI auth and error-envelope contract was unsettled.",
+      "source": "apps/core/src/control/server/browser-auth-boundary.ts:browserRequestAllowed"
+    },
+    {
+      "finding": "Reviewer focus cited nonexistent constitution files and omitted the TypeScript modular standard.",
+      "source": "constitution/pnp-coding-standards-modular-monolith.md:TypeScript module boundaries"
+    },
+    {
+      "finding": "The onboarding lifecycle table identifier and audit-field law was undecided.",
+      "source": "constitution/pnp-database-standards.md:Required Columns for All Domain Tables"
+    },
+    {
+      "finding": "The visual reference was writable and the 375x812 viewport was omitted.",
+      "source": "docs/specs/v2-first-agent-onboarding-visual-contract.md:Responsive acceptance"
+    },
+    {
+      "finding": "Migration verification did not prove regeneration from a clean baseline or journal integrity.",
+      "source": "apps/core/test/unit/storage/postgres-migration-journal.test.ts:migration journal integrity"
+    },
+    {
+      "finding": "The archive package overlap could widen current main's Node engine range.",
+      "source": "apps/web/package.json:engines"
+    },
+    {
+      "finding": "Durable onboarding behavior changed without named architecture-document owners.",
+      "source": "docs/architecture/credential-management.md:Credential ownership"
+    },
+    {
+      "finding": "The archived onboarding route and workspace module exceeded the web module-size rule despite real responsibility boundaries.",
+      "source": "apps/web/AGENTS.md:route page module limit"
+    }
+  ],
+  "open_items": [],
+  "task_id": "ONBOARDING-V2-1-T1",
+  "input_sha256": "550d6584a3ad85c3a66fcec8775c36074f20a96ff50a53c87f52797bd7f6af40",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "31d50a70d5860c8cc57066df972cfd396eaa3a433a49051badd232b6efbe311d",
+  "recorded_at": "2026-09-14T10:59:12+00:00",
+  "commit": "59c43376518f06c656fb8ea329f72868880738b2",
+  "approved_task_plan_sha256": "31d50a70d5860c8cc57066df972cfd396eaa3a433a49051badd232b6efbe311d",
+  "approved_by": "caw",
+  "approved_at": "2026-09-14T10:59:12+00:00"
+}

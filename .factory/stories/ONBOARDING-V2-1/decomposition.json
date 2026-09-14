@@ -1,0 +1,251 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "project": "",
+  "doc_roots": [
+    "docs/product/BRIEF.md",
+    "docs/architecture/agent-runtime.md",
+    "docs/architecture/channel-interactions.md",
+    "docs/architecture/credential-management.md",
+    "docs/architecture/web-ui-foundation.md",
+    "docs/decisions/0162-onboarding-v2-legacy-adoption.md",
+    "docs/decisions/0163-onboarding-v2-migration-baseline.md",
+    "docs/specs/v2-first-agent-onboarding.md",
+    "docs/specs/v2-first-agent-onboarding-visual-contract.md",
+    "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md"
+  ],
+  "epics": [
+    {
+      "id": "onboarding-v2-adoption",
+      "title": "V2 first-agent onboarding legacy adoption",
+      "objective": "Adopt the approved V2 first-agent onboarding archive into current main as one reviewable Forge task and close its known safety and readiness gaps.",
+      "source_refs": [
+        "docs/decisions/0162-onboarding-v2-legacy-adoption.md",
+        "docs/decisions/0163-onboarding-v2-migration-baseline.md",
+        "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md"
+      ]
+    }
+  ],
+  "user_facing": true,
+  "tasks": [
+    {
+      "id": "ONBOARDING-V2-1-T1",
+      "title": "Adopt and harden the complete V2 onboarding flow",
+      "objective": "From the Forge task worktree based on current origin/main, transplant the pinned product delta 97ded374637fd12b92dc05dbc2e482bd23035109..31bc4cf0740fdaad87482ba1a0c84fa1212c9fad, hydrate its governing documents from planning commit 829500087, correct the recorded safety defects, generate one current-schema migration, and leave local PR-ready evidence without pushing or opening a PR.",
+      "acceptance_criteria": [
+        "The task worktree hydrates decisions 0162 and 0163, both V2 specifications, and the V2 HTML reference from planning commit 829500087; the reference has SHA-256 c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45, and feat/v2-onboarding remains untouched.",
+        "The splash and all four onboarding steps conform to the immutable V2 reference in light and dark themes, saved and system reduced-motion modes, and 1920x956, 1469x800, 1280x800, 1024x768, 768x1024, and 375x812 viewports, with only documented deterministic masks.",
+        "The same-origin browser onboarding facade requires administrator session auth, trusted Origin, CSRF, and hosted recent reauthentication; rejects Bearer credentials and automatic mutation replay; sends no-store responses; uses the repository browser error envelope documented in OpenAPI with x-gantry-browser-auth; and keeps browser, audit, and error projections secret-free.",
+        "The focused onboarding application service atomically creates the custom role, Agent, service Person, desired-state revision, audit event, and resumable setup; one setup exists per app, explicit retry reuses its idempotency key, a changed payload conflicts, and upstream changes invalidate only dependent progress.",
+        "Model setup accepts only the exact agentHarness values auto, anthropic_sdk, and deepagents and only compatible credential modes; a candidate is verified through the shared model-provider preflight before persistence, failed candidates preserve a prior healthy credential, models stay unavailable until validation, and successful secret inputs clear.",
+        "Channel setup stores only runtime-owned gantry-secret references, supports the existing direct, env:, and aws-sm: reference modes when policy permits, returns a typed policy-disabled result otherwise, never projects channel secrets into agent capability secrets, and requires non-empty real conversation discovery before completion.",
+        "Provider selection is deterministic from live capability and provider support, Slack is preselected only when supported, Teams remains setup-only, provider accounts are Agent-owned with service-Person projection, direct-message approvers derive automatically from the counterpart, and group approvers require the recognized installer or validated manual membership.",
+        "The verification challenge persists account, conversation, canonical thread, code, inbound message, outbound message, and onboarding run identity; the run identity is carried through outbound send metadata and its persisted projection; expiry, replay, account/conversation/thread/code mismatch, outbound-before-inbound, and projection failure are typed, and projection retry preserves a satisfied challenge.",
+        "Exactly one generator-produced current-schema pre-release migration and snapshot covers resumable setup, verification correlation, provider-account correlation, constraints, and indexes; lifecycle tables use UUID row identifiers and actor/timestamp audit fields, archive migration history is excluded, the migration is regenerated from a clean baseline, and the migration directory remains clean afterward.",
+        "The adopted web implementation preserves current-main package metadata including Node >=24 <25, uses repository primitives and Tailwind where appropriate, and splits the oversized onboarding route and workspace modules at real responsibility boundaries so route/page modules remain below 300 lines.",
+        "Focused browser, model, provider, lifecycle, OpenAPI, migration, and visual tests cover idempotency conflict, invalidation, service-Person ownership, harness values, secret modes, empty discovery, provider fallback, Teams setup-only behavior, DM/group rules, expiry/replay/mismatch, run and thread correlation, projection retry, migration journal integrity, immutable reference hash, and Console gating.",
+        "Lint, formatting, type checks, web and runtime builds, disposable-Postgres proof, deterministic Forge verification, one three-lens autoreview with motion review, and a rebuilt-runtime functional check of healthz, readyz, and ui/onboarding are recorded before the user-held PR handoff; live Slack tenant proof remains release-only."
+      ],
+      "dependencies": [],
+      "user_facing": true,
+      "epic_id": "onboarding-v2-adoption",
+      "write_scope": [
+        "apps/core/src/adapters/llm/",
+        "apps/core/src/adapters/storage/postgres/repositories/",
+        "apps/core/src/adapters/storage/postgres/schema/",
+        "apps/core/src/application/model-credentials/",
+        "apps/core/src/application/onboarding/",
+        "apps/core/src/application/provider-conversations/",
+        "apps/core/src/app/bootstrap/",
+        "apps/core/src/channels/",
+        "apps/core/src/cli/",
+        "apps/core/src/control/server/",
+        "apps/core/src/domain/",
+        "apps/core/src/runtime/",
+        "apps/core/test/",
+        "apps/web/",
+        "docs/architecture/agent-runtime.md",
+        "docs/architecture/channel-interactions.md",
+        "docs/architecture/credential-management.md",
+        "docs/architecture/web-ui-foundation.md",
+        "docs/decisions/0162-onboarding-v2-legacy-adoption.md",
+        "docs/decisions/0163-onboarding-v2-migration-baseline.md",
+        "docs/operations/",
+        "docs/reference/onboarding/",
+        "docs/specs/v2-first-agent-onboarding.md",
+        "docs/specs/v2-first-agent-onboarding-visual-contract.md",
+        "package-lock.json"
+      ],
+      "required_tests": [
+        {
+          "id": "enforces the complete same-origin onboarding boundary and documents browser auth",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "validates candidates before persistence and preserves a healthy credential on failure",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "accepts only auto anthropic_sdk and deepagents with compatible providers",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "keeps channel credentials runtime owned across direct reference and policy disabled modes",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "does not complete discovery when no supported conversations are returned",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "selects supported providers deterministically and leaves Teams setup only",
+          "path": "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "creates one resumable setup and conflicts on changed idempotent replay",
+          "path": "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+          "command": "npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "invalidates only downstream onboarding progress",
+          "path": "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+          "command": "npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "assigns direct and group approvers from the correct provider identities",
+          "path": "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+          "command": "npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "correlates account conversation thread code messages and run before projection",
+          "path": "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+          "command": "npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "preserves a satisfied challenge while projection retries",
+          "path": "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+          "command": "npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "keeps the single generated onboarding migration in journal order",
+          "path": "apps/core/test/unit/storage/postgres-migration-journal.test.ts",
+          "command": "npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "keeps models locked until compatible credentials validate and clears successful drafts",
+          "path": "apps/web/src/features/onboarding/onboarding-model-setup.test.ts",
+          "command": "npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "keeps Console handoff locked until exact verification and projection complete",
+          "path": "apps/web/src/onboarding-step-one.test.ts",
+          "command": "npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        },
+        {
+          "id": "matches the immutable V2 reference outside documented masks at all required viewports",
+          "path": "apps/web/src/onboarding-visual-acceptance.test.ts",
+          "command": "npx vitest run -c apps/web/vitest.config.ts --root . {path} -t {id} --reporter=default --reporter=junit --outputFile.junit={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run db:migrations:generate",
+        "git diff --exit-code -- apps/core/src/adapters/storage/postgres/schema/migrations",
+        "npm run db:migrations:check",
+        "npm run lint",
+        "npm run lint:web",
+        "npm run format:check",
+        "npm run format:check:web",
+        "npm run typecheck",
+        "npm run typecheck:web",
+        "npm run check:architecture",
+        "npm run build:web",
+        "npm run build:runtime"
+      ],
+      "plan_contracts": [
+        {
+          "id": "ONBOARDING-V2-1-T1-AC1",
+          "statement": "The task worktree hydrates decisions 0162 and 0163, both V2 specifications, and the V2 HTML reference from planning commit 829500087; the reference has SHA-256 c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45, and feat/v2-onboarding remains untouched.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#source-authority"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC2",
+          "statement": "The splash and all four onboarding steps conform to the immutable V2 reference in light and dark themes, saved and system reduced-motion modes, and 1920x956, 1469x800, 1280x800, 1024x768, 768x1024, and 375x812 viewports, with only documented deterministic masks.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#visual-contract"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC3",
+          "statement": "The same-origin browser onboarding facade requires administrator session auth, trusted Origin, CSRF, and hosted recent reauthentication; rejects Bearer credentials and automatic mutation replay; sends no-store responses; uses the repository browser error envelope documented in OpenAPI with x-gantry-browser-auth; and keeps browser, audit, and error projections secret-free.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#browser-boundary"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC4",
+          "statement": "The focused onboarding application service atomically creates the custom role, Agent, service Person, desired-state revision, audit event, and resumable setup; one setup exists per app, explicit retry reuses its idempotency key, a changed payload conflicts, and upstream changes invalidate only dependent progress.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#lifecycle-owner"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC5",
+          "statement": "Model setup accepts only the exact agentHarness values auto, anthropic_sdk, and deepagents and only compatible credential modes; a candidate is verified through the shared model-provider preflight before persistence, failed candidates preserve a prior healthy credential, models stay unavailable until validation, and successful secret inputs clear.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#model-credentials"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC6",
+          "statement": "Channel setup stores only runtime-owned gantry-secret references, supports the existing direct, env:, and aws-sm: reference modes when policy permits, returns a typed policy-disabled result otherwise, never projects channel secrets into agent capability secrets, and requires non-empty real conversation discovery before completion.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#channel-secrets"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC7",
+          "statement": "Provider selection is deterministic from live capability and provider support, Slack is preselected only when supported, Teams remains setup-only, provider accounts are Agent-owned with service-Person projection, direct-message approvers derive automatically from the counterpart, and group approvers require the recognized installer or validated manual membership.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#provider-and-approver-rules"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC8",
+          "statement": "The verification challenge persists account, conversation, canonical thread, code, inbound message, outbound message, and onboarding run identity; the run identity is carried through outbound send metadata and its persisted projection; expiry, replay, account/conversation/thread/code mismatch, outbound-before-inbound, and projection failure are typed, and projection retry preserves a satisfied challenge.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#verification-correlation"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC9",
+          "statement": "Exactly one generator-produced current-schema pre-release migration and snapshot covers resumable setup, verification correlation, provider-account correlation, constraints, and indexes; lifecycle tables use UUID row identifiers and actor/timestamp audit fields, archive migration history is excluded, the migration is regenerated from a clean baseline, and the migration directory remains clean afterward.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#migration-baseline"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC10",
+          "statement": "The adopted web implementation preserves current-main package metadata including Node >=24 <25, uses repository primitives and Tailwind where appropriate, and splits the oversized onboarding route and workspace modules at real responsibility boundaries so route/page modules remain below 300 lines.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#implementation-boundaries"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC11",
+          "statement": "Focused browser, model, provider, lifecycle, OpenAPI, migration, and visual tests cover idempotency conflict, invalidation, service-Person ownership, harness values, secret modes, empty discovery, provider fallback, Teams setup-only behavior, DM/group rules, expiry/replay/mismatch, run and thread correlation, projection retry, migration journal integrity, immutable reference hash, and Console gating.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#verification"
+        },
+        {
+          "id": "ONBOARDING-V2-1-T1-AC12",
+          "statement": "Lint, formatting, type checks, web and runtime builds, disposable-Postgres proof, deterministic Forge verification, one three-lens autoreview with motion review, and a rebuilt-runtime functional check of healthz, readyz, and ui/onboarding are recorded before the user-held PR handoff; live Slack tenant proof remains release-only.",
+          "source": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#handoff"
+        }
+      ],
+      "reviewer_focus": [
+        "Apply constitution/03-modular-monolith-structure.md, constitution/pnp-coding-standards-modular-monolith.md, constitution/pnp-api-standards.md, constitution/pnp-swagger-api-documentation-standards.md, constitution/pnp-database-standards.md, constitution/05-logging-and-observability.md, constitution/06-logger-and-log-transports.md, constitution/07-exception-handling.md, and constitution/pnp-provider-pattern-for-integration.md at the application, browser, persistence, logging, and provider seams.",
+        "Keep the focused onboarding application service as lifecycle transaction owner; use shared model preflight and provider discovery ports rather than duplicating validation or discovery in the browser route.",
+        "Review Origin, CSRF, recent reauthentication, no-store, Bearer rejection, repository browser error envelope, OpenAPI x-gantry-browser-auth, redaction, idempotent conflict, downstream invalidation, runtime-owned channel secrets, provider account and service-Person ownership, DM/group rules, and exact run/thread/message correlation as security-critical seams.",
+        "Review the single migration as fresh generator output from current main with UUID and actor/timestamp fields, journal order, schema-isolated disposable-Postgres proof, and a clean migration directory; reject archive migration files, public-schema assumptions, compatibility shims, and hand-edited metadata.",
+        "Review V2 fidelity against reference SHA c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45 at every named viewport including 375x812, local fonts, motion and reduced motion, keyboard/labels/contrast, 200 percent zoom, deterministic masks, and split route/page ownership below 300 lines.",
+        "Preserve current-main package metadata exactly, especially Node >=24 <25. Do not modify factory/ scripts or tests, archive .factory artifacts, or feat/v2-onboarding. Stop locally without push, PR creation, or shipping markers."
+      ],
+      "review_budget": {
+        "max_changed_files": 90,
+        "max_changed_lines": 50000,
+        "reason": "Decision 0162 authorizes one interleaved legacy-adoption task. The pinned archive contains 62 product files and 5521 handwritten changed lines before one generator-owned Drizzle snapshot; the added allowance covers real UI module boundaries, shared provider seams, governing documents, and focused tests without authorizing unrelated scope."
+      }
+    }
+  ],
+  "story": "ONBOARDING-V2-1",
+  "epic": "ai-employee-v1",
+  "plan_file": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md",
+  "plan_sha256": "e0d247a15745f93840b0458beb05c4347a405cbfd51240d5aa1eceb81bb9bddb",
+  "commit": "763b4a3997fc7d8f231f3482fe460de3c3819dc6"
+}

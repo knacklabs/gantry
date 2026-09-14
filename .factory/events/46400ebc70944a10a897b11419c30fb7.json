@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-14T11:45:21+00:00", "story": "ONBOARDING-V2-1", "detail": "The required zero-unexpected-pixel test has no reviewed app baselines or deterministic mask coordinates, and the immutable .dc.html uses Design Canvas custom elements/runtime not vendored in this repo"}
