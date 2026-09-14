@@ -1,6 +1,8 @@
 import { ApplicationError } from '../common/application-error.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import { isAgentHarness } from '../../shared/agent-engine.js';
+import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js';
+import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
 import type {
   CreateOnboardingSetupRequestDto,
   OnboardingProgress,
@@ -9,7 +11,14 @@ import type {
 import type { OnboardingSetupRepository } from './onboarding-setup-repository.interface.js';
 
 export class OnboardingSetupService {
-  constructor(private readonly repository: OnboardingSetupRepository) {}
+  constructor(
+    private readonly repository: OnboardingSetupRepository,
+    private readonly validateModel: (input: {
+      appId: CreateOnboardingSetupRequestDto['appId'];
+      modelAlias: string;
+      providerId: string;
+    }) => Promise<{ ok: boolean; message: string }>,
+  ) {}
 
   async createOrResume(
     input: CreateOnboardingSetupRequestDto,
@@ -36,6 +45,28 @@ export class OnboardingSetupService {
         'Complete employee, model, harness, and idempotency details are required.',
       );
     }
+    const model = resolveModelSelectionForWorkload(
+      normalized.modelAlias,
+      'chat',
+    );
+    if (!model.ok) {
+      throw new ApplicationError('INVALID_REQUEST', model.message);
+    }
+    const route = resolveExecutionRoute({
+      entry: model.entry,
+      agentHarness: normalized.agentHarness,
+    });
+    if (!route.ok) {
+      throw new ApplicationError('INVALID_REQUEST', route.message);
+    }
+    const validation = await this.validateModel({
+      appId: normalized.appId,
+      modelAlias: normalized.modelAlias,
+      providerId: model.entry.modelRoute.id,
+    });
+    if (!validation.ok) {
+      throw new ApplicationError('INVALID_REQUEST', validation.message);
+    }
     return this.repository.createOrResume({
       ...normalized,
       requestHash: stableSha256Json({
@@ -49,6 +80,7 @@ export class OnboardingSetupService {
   }
 
   async updateProgress(input: {
+    appId: CreateOnboardingSetupRequestDto['appId'];
     setupId: string;
     actorId: string;
     progress: OnboardingProgress;

@@ -49,6 +49,7 @@ maybeDescribe('onboarding verification persistence', () => {
     });
     service = new OnboardingSetupService(
       new PostgresOnboardingSetupRepository(runtime.service.db),
+      async () => ({ ok: true, message: 'Validated for persistence test.' }),
     );
     setup = await service.createOrResume(setupRequest());
     await runtime.repositories.providerAccounts.saveProviderAccount({
@@ -334,7 +335,7 @@ maybeDescribe('onboarding verification persistence', () => {
       projectionFailureCode: 'RUNTIME_PROJECTION_FAILED',
     });
     const route = fs.readFileSync(
-      'apps/core/src/control/server/routes/browser-onboarding.ts',
+      'apps/core/src/control/server/routes/browser-onboarding-verification.ts',
       'utf8',
     );
     expect(route).toContain("verification.status !== 'projection_failed'");

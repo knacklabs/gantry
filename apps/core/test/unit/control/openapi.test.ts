@@ -420,6 +420,22 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
 }
 
 describe('control OpenAPI documentation', () => {
+  it('documents idempotent onboarding setup creation and replay', () => {
+    const operation = getGantryOpenApiDocument().paths[
+      '/ui/api/onboarding/setups'
+    ]?.post;
+
+    expect(operation.responses).toHaveProperty('200');
+    expect(operation.responses).toHaveProperty('201');
+    expect(operation.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'Idempotency-Key',
+        in: 'header',
+        required: true,
+      }),
+    );
+  });
+
   it('keeps the OpenAPI route inventory in sync with the control API surface', () => {
     expect(documentedRoutes()).toEqual(expectedControlRoutes);
   });

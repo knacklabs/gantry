@@ -11,6 +11,7 @@ export type RouteDoc = {
   description: string;
   scopes?: string[];
   status?: '200' | '201' | '202' | '409';
+  additionalSuccessStatuses?: Array<'200' | '201' | '202'>;
   body?: BodyKind;
   conflict?: boolean;
   parameters?: JsonSchema[];
@@ -84,7 +85,12 @@ export function doc(
   scopes?: string[],
   options: Pick<
     RouteDoc,
-    'body' | 'browserAuth' | 'conflict' | 'parameters' | 'status'
+    | 'additionalSuccessStatuses'
+    | 'body'
+    | 'browserAuth'
+    | 'conflict'
+    | 'parameters'
+    | 'status'
   > = {},
 ): RouteDoc {
   return {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { ApplicationError } from '../../../../application/common/application-error.js';
 import type {
   CreateOnboardingSetupRequestDto,
@@ -197,6 +197,7 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
   }
 
   async updateProgress(input: {
+    appId: CreateOnboardingSetupRequestDto['appId'];
     setupId: string;
     actorId: string;
     progress: OnboardingProgress;
@@ -208,7 +209,12 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
         updatedBy: input.actorId,
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(onboardingSetupsPostgres.id, input.setupId))
+      .where(
+        and(
+          eq(onboardingSetupsPostgres.id, input.setupId),
+          eq(onboardingSetupsPostgres.appId, input.appId),
+        ),
+      )
       .returning({ id: onboardingSetupsPostgres.id });
     if (result.length === 0) {
       throw new ApplicationError('NOT_FOUND', 'Onboarding setup not found.');

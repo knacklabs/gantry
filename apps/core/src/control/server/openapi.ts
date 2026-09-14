@@ -71,6 +71,12 @@ function operationFromDoc(doc: RouteDoc) {
     parameters: doc.parameters,
     responses: {
       [status]: response(statusDescription(status), responseSchema),
+      ...Object.fromEntries(
+        (doc.additionalSuccessStatuses ?? []).map((additionalStatus) => [
+          additionalStatus,
+          response(statusDescription(additionalStatus), responseSchema),
+        ]),
+      ),
       ...errors,
       ...(doc.conflict
         ? { '409': { $ref: '#/components/responses/Conflict' } }

@@ -1,4 +1,8 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  ServerResponse,
+} from 'node:http';
 
 import { isCredentialSecretCryptoError } from '../../../adapters/storage/postgres/repositories/credential-secret-crypto.js';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
@@ -50,6 +54,14 @@ function modelCredentialService(): ModelCredentialService {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+export function requestHasBody(headers: IncomingHttpHeaders): boolean {
+  const contentLength = headers['content-length'];
+  return (
+    Boolean(headers['transfer-encoding']) ||
+    Number(Array.isArray(contentLength) ? contentLength[0] : contentLength) > 0
+  );
 }
 
 export async function handleBrowserModelProviderRoutes(
@@ -175,9 +187,7 @@ export async function handleBrowserModelProviderRoutes(
   const actor = `browser:${session.userId}`;
   try {
     if (verifying) {
-      const hasBody = Boolean(
-        req.headers['content-length'] || req.headers['transfer-encoding'],
-      );
+      const hasBody = requestHasBody(req.headers);
       const candidate = hasBody ? await readModelCandidateBody(req, res) : null;
       if (hasBody && !candidate) return true;
       const appId = session.appId as AppId;

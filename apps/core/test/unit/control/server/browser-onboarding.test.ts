@@ -5,20 +5,31 @@ import { describe, expect, it } from 'vitest';
 import { channelSetupManifestFor } from '@core/channels/control-provider-catalog.js';
 import {
   isBrowserOnboardingPath,
-  onboardingChallengeText,
 } from '@core/control/server/routes/browser-onboarding.js';
+import { onboardingChallengeText } from '@core/control/server/routes/browser-onboarding-challenge.js';
 import { AGENT_HARNESSES } from '@core/shared/agent-engine.js';
+import { isOnboardingChallengeMessage } from '@core/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.js';
+import { requestHasBody } from '@core/control/server/routes/browser-model-providers.js';
 
 const repoRoot = path.resolve(
   new URL('../../../../../..', import.meta.url).pathname,
 );
-const source = fs.readFileSync(
-  path.join(
-    repoRoot,
-    'apps/core/src/control/server/routes/browser-onboarding.ts',
-  ),
-  'utf8',
-);
+const source = [
+  'browser-onboarding.ts',
+  'browser-onboarding-auth.ts',
+  'browser-onboarding-challenge.ts',
+  'browser-onboarding-setup.ts',
+  'browser-onboarding-status.ts',
+  'browser-onboarding-verification.ts',
+  'browser-onboarding-verification-create.ts',
+]
+  .map((file) =>
+    fs.readFileSync(
+      path.join(repoRoot, 'apps/core/src/control/server/routes', file),
+      'utf8',
+    ),
+  )
+  .join('\n');
 const dispatchSource = fs.readFileSync(
   path.join(repoRoot, 'apps/core/src/control/server/browser-route-dispatch.ts'),
   'utf8',
@@ -79,6 +90,10 @@ describe('browser onboarding route', () => {
     expect(source).toContain(
       'Install this employee in the selected conversation before verifying it.',
     );
+    expect(source).toContain('listConversationApprovers(');
+    expect(source).toContain(
+      'Assign a verified approver before preparing the test message.',
+    );
   });
 
   it('uses durable setup, install, and approver records for resume', () => {
@@ -90,7 +105,8 @@ describe('browser onboarding route', () => {
     expect(source).toContain(
       "if (verification?.status === 'completed') return null;",
     );
-    expect(source).toContain("verification?.status === 'pending'");
+    expect(source).toContain('const activeVerification = [');
+    expect(source).toContain("'inbound_received'");
   });
 
   it('generates challenge codes at the server trust boundary', () => {
@@ -103,6 +119,19 @@ describe('browser onboarding route', () => {
     expect(onboardingChallengeText('Atlas Ops', 'GY-4K7P')).toBe(
       '@atlas-ops are you there? · GY-4K7P',
     );
+  });
+
+  it('avoids onboarding writes for ordinary inbound messages', () => {
+    expect(isOnboardingChallengeMessage('hello Atlas')).toBe(false);
+    expect(
+      isOnboardingChallengeMessage('@atlas are you there? · GY-4A7F2'),
+    ).toBe(true);
+  });
+
+  it('treats an explicit zero content length as an empty verification request', () => {
+    expect(requestHasBody({ 'content-length': '0' })).toBe(false);
+    expect(requestHasBody({ 'content-length': '2' })).toBe(true);
+    expect(requestHasBody({ 'transfer-encoding': 'chunked' })).toBe(true);
   });
 
   it('binds verification creation and message correlation to a provider account', () => {

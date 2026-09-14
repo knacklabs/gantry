@@ -9,6 +9,7 @@ export interface OnboardingSetupRepository {
     input: CreateOnboardingSetupRequestDto & { requestHash: string },
   ): Promise<OnboardingSetupResponseDto>;
   updateProgress(input: {
+    appId: CreateOnboardingSetupRequestDto['appId'];
     setupId: string;
     actorId: string;
     progress: OnboardingProgress;

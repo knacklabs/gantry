@@ -10,6 +10,13 @@ const writeAuth = {
   mutation: true,
   recentReauthentication: true,
 };
+const idempotencyKey = {
+  name: 'Idempotency-Key',
+  in: 'header',
+  required: true,
+  description: 'Stable key required for explicit setup retries.',
+  schema: { type: 'string', minLength: 1 },
+};
 
 export const onboardingOpenApiRouteDocs: RouteDoc[] = [
   doc(
@@ -40,7 +47,14 @@ export const onboardingOpenApiRouteDocs: RouteDoc[] = [
     'Create or resume onboarding setup',
     'Atomically creates one resumable first-agent setup. Explicit retries must reuse Idempotency-Key.',
     undefined,
-    { body: 'json', conflict: true, status: '201', browserAuth: writeAuth },
+    {
+      additionalSuccessStatuses: ['200'],
+      body: 'json',
+      conflict: true,
+      parameters: [idempotencyKey],
+      status: '201',
+      browserAuth: writeAuth,
+    },
   ),
   doc(
     'post',
