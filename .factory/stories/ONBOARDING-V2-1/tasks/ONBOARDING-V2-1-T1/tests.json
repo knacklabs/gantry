@@ -1,23 +1,21 @@
 {
-  "commit": "11c2e12511fca98384832eea994a2a9e17acf6b8",
+  "commit": "067b13728e881a7199f1b82a9f5d9aa869187685",
   "automated": {
     "generated_by": "implementer",
     "status": "pass",
-    "summary": "The adopted V2 onboarding web, browser API, lifecycle persistence, verification correlation, migration baseline, security boundaries, visual contract, and production bundles passed their automated gates.",
+    "summary": "The V2 onboarding implementation and post-autoreview fixes pass the scoped web, browser API, persistence, migration, formatting, lint, typecheck, runtime build, and deterministic Forge gates.",
     "blocking_findings": [],
     "commands_run": [
       "npm test --workspace @gantry/web",
-      "npm test --workspace @gantry/core -- --run <focused onboarding and browser suites>",
-      "GANTRY_TEST_DATABASE_URL=postgres://gantry:gantry_test@127.0.0.1:55000/gantry_test npm test --workspace @gantry/core -- --run test/integration/onboarding-verification.postgres.integration.test.ts",
-      "npm run db:migrations:check",
-      "npm run db:migrations:generate -- --name onboarding_v2",
-      "npm run lint:web",
-      "npm run lint:changed",
-      "npm run format:check:web",
+      "npx vitest run -c vitest.unit.config.ts apps/core/test/unit/control/server/browser-onboarding.test.ts apps/core/test/unit/storage/postgres-migration-journal.test.ts",
+      "GANTRY_TEST_DATABASE_URL=postgresql://gantry:gantry@127.0.0.1:55439/gantry npx vitest run -c vitest.integration.config.ts apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
       "npm run format:check",
-      "npm run typecheck:web",
+      "npm run format:check:web",
+      "npm run lint:changed",
+      "npm run lint:web",
+      "npm run db:migrations:check",
       "npm run typecheck",
-      "npm run build:web",
+      "npm run typecheck:web",
       "npm run build:runtime",
       "python3 factory/scripts/verify.py"
     ],
@@ -33,13 +31,14 @@
       "apps/web/src/features/onboarding/onboarding-model-setup.test.ts",
       "apps/web/src/features/onboarding/onboarding-workspace-step.test.ts"
     ],
-    "pass_fail_summary": "40 web tests passed; 402 focused core tests passed; 31 regression tests passed; 5 disposable-Postgres lifecycle tests passed; migration check and no-op regeneration passed; lint, formatting, type checks, web/runtime builds, and deterministic Forge verification passed. Deterministic archive/task screenshots matched byte-for-byte for 15 of 25 states; the remaining Step 1 and Step 4 differences are the documented safety masks.",
+    "pass_fail_summary": "40 web tests passed; the complete pre-review focused core and regression sets passed; post-review guards passed 68 of 68 unit tests and 5 of 5 disposable-Postgres lifecycle tests; migration check, formatting, lint, typechecks, production runtime build, and Forge verification passed.",
     "remaining_gaps": [
       "Live Slack and Teams tenant proof requires external credentials and remains the accepted release-only gate."
     ],
     "reviewed_scope": [
       "apps/core/src/application/onboarding",
-      "apps/core/src/control/server/routes/browser-onboarding.ts",
+      "apps/core/src/control/server/routes/browser-onboarding*.ts",
+      "apps/core/src/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.ts",
       "apps/core/src/adapters/storage/postgres/schema/onboarding.ts",
       "apps/core/src/adapters/storage/postgres/schema/migrations",
       "apps/web/src/features/onboarding",
@@ -61,10 +60,10 @@
     "non_blocking_findings": [],
     "residual_risks": [],
     "manual_validation_steps": [],
-    "recorded_at": "2026-09-14T12:59:45+00:00",
-    "commit": "740404d5e1fb01e9f4870e47bd9de30cca14857e"
+    "recorded_at": "2026-09-14T17:58:54+00:00",
+    "commit": "067b13728e881a7199f1b82a9f5d9aa869187685"
   },
-  "updated_at": "2026-09-14T15:11:50+00:00",
+  "updated_at": "2026-09-14T17:58:54+00:00",
   "functional": {
     "generated_by": "functional-checker",
     "status": "partial",
