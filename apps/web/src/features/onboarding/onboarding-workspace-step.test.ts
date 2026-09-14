@@ -13,7 +13,7 @@ import {
   onboardingChannels,
   onboardingPhases,
   slackTokenError,
-} from './onboarding-workspace-step';
+} from './onboarding-workspace-content';
 
 const providers = ['telegram', 'mattermost', 'discord', 'slack', 'teams'].map(
   (id) => ({

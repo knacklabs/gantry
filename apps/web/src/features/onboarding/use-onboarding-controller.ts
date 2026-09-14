@@ -69,7 +69,12 @@ function onboardingVerificationQuery(id: string) {
   return queryOptions({
     queryKey: ['onboarding-verification', id],
     enabled: Boolean(id),
-    refetchInterval: 2_000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.verification.status;
+      return status === 'pending' || status === 'inbound_received'
+        ? 2_000
+        : false;
+    },
     queryFn: async (): Promise<{
       verification: {
         status: VerificationStatus;
@@ -280,10 +285,12 @@ export function useOnboardingController() {
               ]),
             ),
           }).then(({ account: created }) => ({ id: created.id }));
+      if (!accountId) {
+        setAccountId(account.id);
+        setChannelValues({});
+      }
       await discoverChannelConversations(account.id);
-      setAccountId(account.id);
       await client.invalidateQueries({ queryKey: ['channel-accounts'] });
-      setChannelValues({});
       setWorkspaceConnected(true);
     } catch (reason) {
       setError(

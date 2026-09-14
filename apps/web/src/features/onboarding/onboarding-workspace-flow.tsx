@@ -15,9 +15,7 @@ import {
 } from './onboarding-workspace-content';
 import { OnboardingWorkspacePhase } from './onboarding-workspace-phase';
 
-export { onboardingChannels, onboardingPhases, slackTokenError };
-
-export function OnboardingWorkspaceFlow({
+export function OnboardingWorkspaceStep({
   agentName,
   busy,
   channel,

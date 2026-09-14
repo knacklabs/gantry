@@ -16,7 +16,7 @@ import { usePreferences } from '../preferences/preferences-provider';
 import { GantryMark } from './onboarding-mark';
 import { OnboardingSplash } from './onboarding-splash';
 import { AssignStep, EmployeeStep, HelloStep } from './onboarding-step-content';
-import { OnboardingWorkspaceStep } from './onboarding-workspace-step';
+import { OnboardingWorkspaceStep } from './onboarding-workspace-flow';
 import { useOnboardingController } from './use-onboarding-controller';
 
 const STEPS = [
