@@ -39,6 +39,7 @@ import {
   roleView,
   validName,
   validateModelAlias,
+  handleBrowserRoleMutation,
 } from './browser-agents-helpers.js';
 import { handleBrowserAgentObservabilityRoutes } from './browser-agent-observability.js';
 
@@ -395,10 +396,18 @@ export async function handleBrowserAgentRoutes(
           sendError(res, 400, 'INVALID_REQUEST', 'Agent name is required.'),
           true
         );
+      if (body.onboarding === true)
+        return (
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'Use the onboarding setup endpoint for first-agent onboarding.',
+          ),
+          true
+        );
       const now = nowIso();
       await assertAvailableAgentName(storage, appId, body.name);
-      const roleId =
-        typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
       const modelAlias = requestedModelAlias(body);
       const configId = `agent-config:${randomUUID()}` as AgentConfigVersionId;
       const agent: Agent = {
@@ -412,6 +421,31 @@ export async function handleBrowserAgentRoutes(
       };
       if (modelAlias !== undefined)
         await validateModelAlias(ctx, appId, agent.id, modelAlias);
+      let roleId =
+        typeof body.roleId === 'string' ? body.roleId : 'built-in:developer';
+      if ('customRole' in body) {
+        const customRole = body.customRole;
+        if (
+          !object(customRole) ||
+          !validName(customRole.name) ||
+          !validName(customRole.prompt)
+        )
+          return (
+            sendError(
+              res,
+              400,
+              'INVALID_REQUEST',
+              'Custom role name and prompt are required.',
+            ),
+            true
+          );
+        const role = await roleService.create({
+          appId,
+          name: customRole.name,
+          prompt: customRole.prompt,
+        });
+        roleId = role.id;
+      }
       const config: AgentConfigVersion = {
         id: configId,
         appId,
@@ -625,62 +659,18 @@ export async function handleBrowserAgentRoutes(
       sendJson(res, 200, { capabilities });
       return true;
     }
-    if (pathname === '/ui/api/roles' && req.method === 'POST') {
-      const body = await readJson(req);
-      if (!object(body) || !validName(body.name) || !validName(body.prompt))
-        return (
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'Role name and prompt are required.',
-          ),
-          true
-        );
-      const role = await roleService.create({
+    if (
+      await handleBrowserRoleMutation({
+        req,
+        res,
+        pathname,
         appId,
-        name: body.name,
-        prompt: body.prompt,
-        sourceRoleId:
-          typeof body.sourceRoleId === 'string' ? body.sourceRoleId : undefined,
-      });
-      sendJson(res, 201, { role: roleView(role), actor });
+        actor,
+        storage,
+        roleService,
+      })
+    )
       return true;
-    }
-    const roleMatch = pathname.match(ROLE_PATH);
-    if (roleMatch && req.method === 'PATCH') {
-      const body = await readJson(req);
-      if (!object(body) || !validName(body.name) || !validName(body.prompt))
-        return (
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'Role name and prompt are required.',
-          ),
-          true
-        );
-      const role = await roleService.update({
-        appId,
-        id: decodeURIComponent(roleMatch[1]) as CustomRoleId,
-        name: body.name,
-        prompt: body.prompt,
-        sourceRoleId:
-          typeof body.sourceRoleId === 'string' ? body.sourceRoleId : undefined,
-      });
-      sendJson(res, 200, { role: roleView(role) });
-      return true;
-    }
-    if (roleMatch && req.method === 'DELETE') {
-      const roleId = decodeURIComponent(roleMatch[1]) as CustomRoleId;
-      const counts = await retainedAgentCounts(storage, appId);
-      await roleService.delete({
-        appId,
-        id: roleId,
-      });
-      sendJson(res, 200, { retainedAgentCount: counts.get(roleId) ?? 0 });
-      return true;
-    }
     sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     return true;
   } catch (error) {

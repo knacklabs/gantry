@@ -106,6 +106,53 @@ class InMemoryModelCredentialRepository implements ModelCredentialRepository {
 }
 
 describe('ModelCredentialService', () => {
+  it('replaces a credential only after its candidate passes validation', async () => {
+    const repository = new InMemoryModelCredentialRepository();
+    const service = new ModelCredentialService(repository);
+    await service.set({
+      appId,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-ant-old' },
+    });
+
+    const failed = await service.validateAndSet({
+      appId,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-ant-invalid' },
+      validate: async (candidateRepository) => {
+        await expect(
+          candidateRepository.getModelCredential({
+            appId,
+            providerId: 'anthropic',
+          }),
+        ).resolves.toMatchObject({ payload: { apiKey: 'sk-ant-invalid' } });
+        return { ok: false, status: 'fail', message: 'Rejected.' };
+      },
+    });
+    expect(failed).not.toHaveProperty('credential');
+    await expect(
+      service.getActiveCredential({ appId, providerId: 'anthropic' }),
+    ).resolves.toMatchObject({ payload: { apiKey: 'sk-ant-old' } });
+
+    const passed = await service.validateAndSet({
+      appId,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-ant-new' },
+      validate: async () => ({
+        ok: true,
+        status: 'pass',
+        message: 'Validated.',
+      }),
+    });
+    expect(passed).toHaveProperty('credential');
+    await expect(
+      service.getActiveCredential({ appId, providerId: 'anthropic' }),
+    ).resolves.toMatchObject({ payload: { apiKey: 'sk-ant-new' } });
+  });
+
   it('stores redacted metadata and returns active secret only while enabled', async () => {
     const audit = vi.fn(async () => undefined);
     const service = new ModelCredentialService(

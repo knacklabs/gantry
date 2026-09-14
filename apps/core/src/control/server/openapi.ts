@@ -16,10 +16,12 @@ import { extensionOpenApiSchemas } from './openapi-schemas-extensions.js';
 import { llmOpenApiSchemas } from './openapi-schemas-llm.js';
 import { controlOpenApiSchemas } from './openapi-schemas-control.js';
 import { openApiSchemas } from './openapi-schemas.js';
+import { onboardingOpenApiRouteDocs } from './openapi-onboarding-routes.js';
 
 const routeDocs: RouteDoc[] = [
   ...coreOpenApiRouteDocs,
   ...extendedOpenApiRouteDocs,
+  ...onboardingOpenApiRouteDocs,
 ];
 
 function response(description: string, schema: JsonSchema) {
@@ -87,6 +89,18 @@ function operationFromDoc(doc: RouteDoc) {
     operation.security = [{ bearerAuth: doc.scopes }];
     operation['x-gantry-required-scopes'] = doc.scopes;
   }
+  if (doc.browserAuth) {
+    operation.security = [{ browserSession: [] }];
+    operation['x-gantry-browser-auth'] = {
+      session: 'administrator',
+      bearerAccepted: false,
+      trustedOrigin: doc.browserAuth.mutation,
+      csrf: doc.browserAuth.mutation,
+      recentReauthentication: doc.browserAuth.recentReauthentication,
+      cache: 'no-store',
+      automaticMutationReplay: false,
+    };
+  }
   return operation;
 }
 
@@ -118,6 +132,10 @@ export const GANTRY_OPENAPI_DOCUMENT = {
   tags: [
     { name: 'System', description: 'Runtime health and diagnostics.' },
     { name: 'Agents', description: 'Agent identity and administration.' },
+    {
+      name: 'Onboarding',
+      description: 'Same-origin administrator first-agent onboarding.',
+    },
     { name: 'Capabilities', description: 'Capability selection.' },
     { name: 'Sessions', description: 'Durable SDK chat sessions.' },
     { name: 'LLM', description: 'Direct model invocation passthrough.' },
@@ -148,6 +166,13 @@ export const GANTRY_OPENAPI_DOCUMENT = {
         bearerFormat: 'Gantry control API token',
         description:
           'Use a token from GANTRY_CONTROL_API_KEYS_JSON. Operation-specific scopes are listed in x-gantry-required-scopes.',
+      },
+      browserSession: {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'gantry_session',
+        description:
+          'Same-origin administrator browser session. Mutation routes also require trusted Origin, CSRF, and hosted recent reauthentication.',
       },
     },
     schemas: {

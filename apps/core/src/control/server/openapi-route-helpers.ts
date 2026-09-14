@@ -14,6 +14,11 @@ export type RouteDoc = {
   body?: BodyKind;
   conflict?: boolean;
   parameters?: JsonSchema[];
+  browserAuth?: {
+    role: 'administrator';
+    mutation: boolean;
+    recentReauthentication: boolean;
+  };
 };
 
 export const errors: Record<string, JsonSchema> = {
@@ -66,6 +71,7 @@ export const ids = {
   skill: id('skillId', 'Skill id.'),
   trigger: id('triggerId', 'Trigger id.'),
   webhook: id('webhookId', 'Webhook id.'),
+  onboardingVerification: id('verificationId', 'Onboarding verification id.'),
 } as const;
 
 export function doc(
@@ -76,7 +82,10 @@ export function doc(
   summary: string,
   description: string,
   scopes?: string[],
-  options: Pick<RouteDoc, 'body' | 'conflict' | 'parameters' | 'status'> = {},
+  options: Pick<
+    RouteDoc,
+    'body' | 'browserAuth' | 'conflict' | 'parameters' | 'status'
+  > = {},
 ): RouteDoc {
   return {
     method,

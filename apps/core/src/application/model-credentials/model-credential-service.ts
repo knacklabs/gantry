@@ -82,29 +82,10 @@ export class ModelCredentialService {
     payload: unknown;
     actor?: string;
   }) {
-    const providerId = normalizeModelCredentialProvider(input.providerId);
-    const provider = getModelProviderDefinition(providerId);
-    if (!provider) throw new Error(`Unsupported model provider: ${providerId}`);
-    const mode = resolveModelCredentialMode(provider, input.authMode);
-    const payload = normalizeModelCredentialPayload({
-      providerId,
-      authMode: mode.id,
-      payload: input.payload,
-    });
-    const schemaVersion = mode.version;
-    const fieldFingerprints = fingerprintCredentialFields(
-      providerId,
-      mode.id,
-      payload,
-    );
+    const candidate = prepareCredentialCandidate(input);
     const metadata = await this.credentials.upsertModelCredential({
       appId: input.appId,
-      providerId,
-      authMode: mode.id,
-      schemaVersion,
-      payload,
-      fingerprint: fingerprintCredentialPayload(payload),
-      fieldFingerprints,
+      ...candidate,
       actor: input.actor,
     });
     await this.publishAudit({
@@ -125,6 +106,55 @@ export class ModelCredentialService {
       },
     });
     return metadata;
+  }
+
+  async validateAndSet(input: {
+    appId: AppId;
+    providerId: string;
+    authMode?: string;
+    payload: unknown;
+    actor?: string;
+    validate: (repository: ModelCredentialRepository) => Promise<{
+      ok: boolean;
+      status: 'pass' | 'fail' | 'skipped';
+      message: string;
+    }>;
+  }) {
+    const candidate = prepareCredentialCandidate(input);
+    const now = new Date().toISOString();
+    const row: ModelCredential = {
+      id: `model-credential:candidate:${candidate.providerId}` as ModelCredential['id'],
+      appId: input.appId,
+      ...candidate,
+      status: 'active',
+      createdAt: now as ModelCredential['createdAt'],
+      updatedAt: now as ModelCredential['updatedAt'],
+    };
+    const validation = await input.validate({
+      getModelCredential: async (query) =>
+        query.appId === input.appId && query.providerId === candidate.providerId
+          ? row
+          : this.credentials.getModelCredential(query),
+      listModelCredentials: (query) =>
+        this.credentials.listModelCredentials(query),
+      upsertModelCredential: (value) =>
+        this.credentials.upsertModelCredential(value),
+      disableModelCredential: (value) =>
+        this.credentials.disableModelCredential(value),
+      deleteModelCredential: (value) =>
+        this.credentials.deleteModelCredential(value),
+    });
+    if (!validation.ok || validation.status !== 'pass') return { validation };
+    return {
+      validation,
+      credential: await this.set({
+        appId: input.appId,
+        providerId: candidate.providerId,
+        authMode: candidate.authMode,
+        payload: candidate.payload,
+        actor: input.actor,
+      }),
+    };
   }
 
   async rotate(input: {
@@ -280,6 +310,34 @@ export class ModelCredentialService {
     if (!this.audit) return;
     await this.audit(input);
   }
+}
+
+function prepareCredentialCandidate(input: {
+  providerId: string;
+  authMode?: string;
+  payload: unknown;
+}) {
+  const providerId = normalizeModelCredentialProvider(input.providerId);
+  const provider = getModelProviderDefinition(providerId);
+  if (!provider) throw new Error(`Unsupported model provider: ${providerId}`);
+  const mode = resolveModelCredentialMode(provider, input.authMode);
+  const payload = normalizeModelCredentialPayload({
+    providerId,
+    authMode: mode.id,
+    payload: input.payload,
+  });
+  return {
+    providerId,
+    authMode: mode.id,
+    schemaVersion: mode.version,
+    payload,
+    fingerprint: fingerprintCredentialPayload(payload),
+    fieldFingerprints: fingerprintCredentialFields(
+      providerId,
+      mode.id,
+      payload,
+    ),
+  };
 }
 
 export function fingerprintCredential(value: string): string {

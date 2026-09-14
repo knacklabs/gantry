@@ -1,5 +1,5 @@
 import * as p from '@clack/prompts';
-import { formatSlackBotScopes } from './slack-install-scopes.js';
+import { formatSlackBotScopes } from '../channels/slack/app-manifest.js';
 
 import {
   normalizeSlackChatJid,

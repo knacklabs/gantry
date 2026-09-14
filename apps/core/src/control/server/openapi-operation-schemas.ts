@@ -1,4 +1,5 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
+import { AGENT_HARNESSES } from '../../shared/agent-engine.js';
 import {
   peopleOpenApiRequestSchemas,
   peopleOpenApiResponseSchemas,
@@ -8,7 +9,141 @@ const ref = (name: string): JsonSchema => ({
   $ref: `#/components/schemas/${name}`,
 });
 
+const onboardingVerification: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'status'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    challenge: { type: 'string' },
+    challengeText: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: [
+        'pending',
+        'inbound_received',
+        'satisfied',
+        'projection_failed',
+        'expired',
+        'completed',
+      ],
+    },
+    expiresAt: { type: 'string', format: 'date-time' },
+    satisfiedAt: { type: ['string', 'null'], format: 'date-time' },
+    completedAt: { type: ['string', 'null'], format: 'date-time' },
+    failureCode: {
+      type: ['string', 'null'],
+      enum: [
+        'VERIFICATION_PENDING',
+        'VERIFICATION_EXPIRED',
+        'RUNTIME_PROJECTION_FAILED',
+        null,
+      ],
+    },
+  },
+};
+
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  getBrowserOnboardingStatus: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['firstRun', 'resume'],
+    properties: {
+      firstRun: { type: 'boolean' },
+      resume: {
+        type: ['object', 'null'],
+        additionalProperties: false,
+        required: [
+          'id',
+          'setupId',
+          'name',
+          'accountId',
+          'channelId',
+          'conversationId',
+          'approver',
+          'assignmentReady',
+          'verificationId',
+          'challenge',
+          'challengeText',
+          'hasWorkspace',
+          'step',
+        ],
+        properties: {
+          id: { type: 'string' },
+          setupId: { type: 'string', format: 'uuid' },
+          name: { type: 'string' },
+          accountId: { type: ['string', 'null'] },
+          channelId: { type: ['string', 'null'] },
+          conversationId: { type: ['string', 'null'] },
+          approver: { type: ['string', 'null'] },
+          assignmentReady: { type: 'boolean' },
+          verificationId: { type: ['string', 'null'], format: 'uuid' },
+          challenge: { type: ['string', 'null'] },
+          challengeText: { type: ['string', 'null'] },
+          hasWorkspace: { type: 'boolean' },
+          step: { type: 'integer', enum: [2, 3, 4] },
+        },
+      },
+    },
+  },
+  getBrowserOnboardingChannelManifest: {
+    type: 'object',
+    required: ['manifestJson', 'createUrl', 'permissionGroups'],
+    properties: {
+      manifestJson: { type: 'string' },
+      createUrl: { type: 'string', format: 'uri' },
+      permissionGroups: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['title', 'description', 'scopes'],
+          properties: {
+            title: { type: 'string' },
+            description: { type: 'string' },
+            scopes: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+  createBrowserOnboardingSetup: {
+    type: 'object',
+    required: ['setup', 'agent'],
+    properties: {
+      setup: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'desiredStateRevision', 'replayed'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          desiredStateRevision: { type: 'integer', minimum: 1 },
+          replayed: { type: 'boolean' },
+        },
+      },
+      agent: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'name'],
+        properties: { id: { type: 'string' }, name: { type: 'string' } },
+      },
+    },
+  },
+  createBrowserOnboardingVerification: {
+    type: 'object',
+    required: ['verification'],
+    properties: { verification: onboardingVerification },
+  },
+  getBrowserOnboardingVerification: {
+    type: 'object',
+    required: ['verification'],
+    properties: { verification: onboardingVerification },
+  },
+  projectBrowserOnboardingVerification: {
+    type: 'object',
+    required: ['verification'],
+    properties: { verification: onboardingVerification },
+  },
   bindMcpServerToAgent: ref('AgentMcpServerBindingResponse'),
   bindSkillToAgent: ref('AgentSkillBindingResponse'),
   connectMcpServer: ref('McpServerResponse'),
@@ -133,6 +268,36 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
+  createBrowserOnboardingSetup: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'name',
+      'title',
+      'responsibilities',
+      'modelAlias',
+      'agentHarness',
+    ],
+    properties: {
+      name: { type: 'string', minLength: 1 },
+      title: { type: 'string', minLength: 1 },
+      responsibilities: { type: 'array', items: { type: 'string' } },
+      modelAlias: { type: 'string', minLength: 1 },
+      agentHarness: {
+        type: 'string',
+        enum: [...AGENT_HARNESSES],
+      },
+    },
+  },
+  createBrowserOnboardingVerification: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['agentId', 'conversationId'],
+    properties: {
+      agentId: { type: 'string', minLength: 1 },
+      conversationId: { type: 'string', minLength: 1 },
+    },
+  },
   bindMcpServerToAgent: ref('AgentMcpServerBindingRequest'),
   bindSkillToAgent: ref('AgentSkillBindingRequest'),
   connectMcpServer: ref('McpServerRequest'),

@@ -25,6 +25,13 @@ const observability = fs.readFileSync(
   ),
   'utf8',
 );
+const onboardingRepository = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'apps/core/src/adapters/storage/postgres/repositories/onboarding-setup-repository.postgres.ts',
+  ),
+  'utf8',
+);
 const agentRouteSource = `${source}\n${helpers}\n${observability}`;
 
 it('paginates app-scoped directory results and rejects cross-app access', () => {
@@ -99,8 +106,8 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   );
   expect(agentRouteSource).toContain("catalogKind === 'capabilities'");
   expect(agentRouteSource).toContain('listConfigVersions({');
-  expect(agentRouteSource).toContain(
-    'sendJson(res, 200, { retainedAgentCount:',
+  expect(agentRouteSource).toMatch(
+    /sendJson\((?:input\.)?res, 200, \{\s*retainedAgentCount:/,
   );
 });
 
@@ -114,4 +121,40 @@ it('requires Administrator, Origin, CSRF, and reauthentication for mutations', (
   );
   expect(source).toContain('ctx.syncSettingsFromProjection(appId)');
   expect(source).not.toContain('authorizeControlRequest(');
+});
+
+it('validates the selected model before creating an inline custom role', () => {
+  expect(
+    source.indexOf(
+      'await validateModelAlias(ctx, appId, agent.id, modelAlias)',
+    ),
+  ).toBeLessThan(source.indexOf('const role = await roleService.create({'));
+});
+
+it('creates the onboarding graph in one database transaction', () => {
+  const transaction = onboardingRepository.indexOf(
+    'return this.db.transaction(async (tx) => {',
+  );
+  expect(transaction).toBeGreaterThan(-1);
+  expect(
+    onboardingRepository.indexOf('tx.insert(customRolesPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    onboardingRepository.indexOf('tx.insert(agentsPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    onboardingRepository.indexOf('tx.insert(usersPostgres)', transaction),
+  ).toBeGreaterThan(transaction);
+  expect(
+    onboardingRepository.indexOf(
+      'tx.insert(agentConfigVersionsPostgres)',
+      transaction,
+    ),
+  ).toBeGreaterThan(transaction);
+  expect(
+    onboardingRepository.indexOf(
+      'tx.insert(onboardingSetupsPostgres)',
+      transaction,
+    ),
+  ).toBeGreaterThan(transaction);
 });

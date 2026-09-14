@@ -36,7 +36,7 @@ import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
 import { providerAccountIdForAgent } from './provider-utils.js';
 import { runtimeSecretNameForAgent } from '../domain/provider/provider-runtime-secret-keys.js';
 import { systemPrincipal } from '../domain/identity/principal-ref.js';
-import { slackInstallScopes } from './slack-install-scopes.js';
+import { slackInstallScopes } from '../channels/slack/app-manifest.js';
 
 export interface SlackTokenValidation {
   ok: boolean;

@@ -17,7 +17,11 @@ import { RuntimeSecretConversationDiscovery } from '../../../channels/control-pr
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { ConversationId } from '../../../domain/conversation/conversation.js';
-import { gantryRuntimeSecretRef } from '../../../domain/ports/runtime-secret-provider.js';
+import {
+  gantryRuntimeSecretRef,
+  normalizeRuntimeSecretRefString,
+  parseRuntimeSecretRefString,
+} from '../../../domain/ports/runtime-secret-provider.js';
 import { runtimeSecretNameForProviderAccount } from '../../../domain/provider/provider-runtime-secret-keys.js';
 import type {
   ProviderAccountId,
@@ -26,12 +30,7 @@ import type {
 import { nowIso } from '../app-identity.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
 import type { ControlRouteContext } from '../handler-context.js';
-import {
-  readJson,
-  sendApplicationError,
-  sendError,
-  sendJson,
-} from '../http.js';
+import { sendApplicationError, sendError, sendJson } from '../http.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
 import {
   activeSession,
@@ -41,12 +40,18 @@ import {
   createBrowserConversationAdministrationService,
   sendBrowserConversationMembers,
 } from './browser-conversation-members.js';
+import {
+  readAccountCreationBody,
+  readApproverIds,
+  readConversationInstallBody,
+} from './browser-channel-account-dtos.js';
 
 type BrowserChannelAccountSettings = {
   authentication: {
     mode: 'local' | 'hosted';
     canonicalOrigin: string;
   };
+  credentialBroker?: { mode: 'none' | 'gantry' };
 };
 
 const CHANNEL_PROVIDERS_PATH = '/ui/api/channel-providers';
@@ -62,18 +67,6 @@ const CONVERSATION_APPROVERS_PATH =
   /^\/ui\/api\/conversations\/([^/]+)\/approvers(?:\/(verify))?$/;
 const CONVERSATION_MEMBERS_PATH =
   /^\/ui\/api\/conversations\/([^/]+)\/members$/;
-
-type AccountCreationBody = {
-  agentId: string;
-  providerId: string;
-  label: string;
-  credentials: Record<string, string>;
-};
-
-type ConversationInstallBody = {
-  providerAccountId: string;
-  memoryScope: 'conversation' | 'agent' | 'app';
-};
 
 export function isBrowserChannelAccountsPath(pathname: string): boolean {
   return (
@@ -339,6 +332,49 @@ async function createBrowserChannelAccount(
     );
     return true;
   }
+  const referenceValues = credentialKeys.filter((key) =>
+    /^(?:env|aws-sm|gantry-secret):/.test(body.credentials[key]!.trim()),
+  );
+  try {
+    if (
+      referenceValues.some(
+        (key) =>
+          parseRuntimeSecretRefString(body.credentials[key]!).source ===
+          'gantry-secret',
+      )
+    ) {
+      sendError(
+        res,
+        400,
+        'INVALID_RUNTIME_SECRET_REFERENCE',
+        'Browser requests cannot claim an existing Gantry secret reference.',
+      );
+      return true;
+    }
+    referenceValues.forEach((key) =>
+      normalizeRuntimeSecretRefString(body.credentials[key]!),
+    );
+  } catch {
+    sendError(
+      res,
+      400,
+      'INVALID_RUNTIME_SECRET_REFERENCE',
+      'The runtime secret reference is invalid.',
+    );
+    return true;
+  }
+  if (
+    referenceValues.length > 0 &&
+    settings.credentialBroker?.mode !== 'gantry'
+  ) {
+    sendError(
+      res,
+      409,
+      'RUNTIME_SECRET_REFERENCE_POLICY_DISABLED',
+      'Runtime secret references are disabled by policy.',
+    );
+    return true;
+  }
   const appId = session.appId as AppId;
   const storage = getRuntimeStorage();
   const providerAccounts = new ProviderAccountControlService({
@@ -367,6 +403,10 @@ async function createBrowserChannelAccount(
     const runtimeSecretRefs = Object.fromEntries(
       await Promise.all(
         credentialKeys.map(async (key) => {
+          const credential = body.credentials[key]!.trim();
+          if (/^(?:env|aws-sm|gantry-secret):/.test(credential)) {
+            return [key, normalizeRuntimeSecretRefString(credential)];
+          }
           const name = runtimeSecretNameForProviderAccount(
             body.providerId,
             account.id,
@@ -375,7 +415,7 @@ async function createBrowserChannelAccount(
           await secrets.set({
             appId,
             name,
-            value: body.credentials[key]!,
+            value: credential,
             actor,
           });
           return [key, gantryRuntimeSecretRef(name)];
@@ -439,6 +479,15 @@ async function discoverBrowserConversations(
       clock: { now: nowIso },
     });
     const conversations = await discovery.execute({ appId, providerAccountId });
+    if (conversations.length === 0) {
+      sendError(
+        res,
+        409,
+        'NO_SUPPORTED_CONVERSATIONS',
+        'No supported conversations were discovered for this account.',
+      );
+      return true;
+    }
     sendJson(res, 200, {
       conversations: conversations.map((conversation) => ({
         id: conversation.id,
@@ -474,6 +523,23 @@ async function installBrowserConversation(
   const agentId = decodeURIComponent(match[1]!) as AgentId;
   const conversationId = decodeURIComponent(match[2]!) as ConversationId;
   try {
+    const conversation =
+      await storage.repositories.conversations.getConversation(conversationId);
+    const directCounterparts =
+      conversation?.kind === 'direct'
+        ? await storage.repositories.conversations.listParticipantExternalUserIds(
+            conversationId,
+          )
+        : [];
+    if (conversation?.kind === 'direct' && directCounterparts.length !== 1) {
+      sendError(
+        res,
+        409,
+        'DIRECT_MESSAGE_COUNTERPART_UNRESOLVED',
+        'The direct-message counterpart could not be resolved.',
+      );
+      return true;
+    }
     const install = await new ConversationInstallControlService({
       agents: storage.repositories.agents,
       providerAccounts: storage.repositories.providerAccounts,
@@ -489,6 +555,14 @@ async function installBrowserConversation(
         memoryScope: body.memoryScope,
       },
     });
+    if (conversation?.kind === 'direct') {
+      await storage.repositories.conversations.replaceConversationApprovers({
+        appId,
+        conversationId,
+        externalUserIds: directCounterparts,
+        updatedAt: nowIso(),
+      });
+    }
     await ctx.syncSettingsFromProjection(appId);
     sendJson(res, 201, {
       install: {
@@ -583,114 +657,4 @@ async function requireChannelAccountAdministrator(
     return null;
   }
   return session;
-}
-
-async function readConversationInstallBody(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<ConversationInstallBody | null> {
-  let value: unknown;
-  try {
-    value = await readJson(req);
-  } catch {
-    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    Object.keys(value).some(
-      (key) => !['providerAccountId', 'memoryScope'].includes(key),
-    ) ||
-    typeof value.providerAccountId !== 'string' ||
-    !value.providerAccountId.trim() ||
-    !['conversation', 'agent', 'app'].includes(String(value.memoryScope))
-  ) {
-    sendError(
-      res,
-      400,
-      'INVALID_REQUEST',
-      'Conversation installation details are incomplete.',
-    );
-    return null;
-  }
-  return {
-    providerAccountId: value.providerAccountId.trim(),
-    memoryScope: value.memoryScope as ConversationInstallBody['memoryScope'],
-  };
-}
-
-async function readApproverIds(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<string[] | null> {
-  let value: unknown;
-  try {
-    value = await readJson(req);
-  } catch {
-    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    Object.keys(value).some((key) => key !== 'userIds') ||
-    !Array.isArray(value.userIds) ||
-    value.userIds.length === 0 ||
-    value.userIds.some((userId) => typeof userId !== 'string' || !userId.trim())
-  ) {
-    sendError(
-      res,
-      400,
-      'INVALID_REQUEST',
-      'Enter at least one provider member ID.',
-    );
-    return null;
-  }
-  return [...new Set(value.userIds.map((userId) => userId.trim()))];
-}
-
-async function readAccountCreationBody(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<AccountCreationBody | null> {
-  let value: unknown;
-  try {
-    value = await readJson(req);
-  } catch {
-    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
-    return null;
-  }
-  if (
-    !isRecord(value) ||
-    Object.keys(value).some(
-      (key) => !['agentId', 'providerId', 'label', 'credentials'].includes(key),
-    )
-  ) {
-    sendError(res, 400, 'INVALID_REQUEST', 'Unsupported account fields.');
-    return null;
-  }
-  if (
-    typeof value.agentId !== 'string' ||
-    !value.agentId.trim() ||
-    typeof value.providerId !== 'string' ||
-    !value.providerId.trim() ||
-    typeof value.label !== 'string' ||
-    !value.label.trim() ||
-    !isRecord(value.credentials) ||
-    Object.values(value.credentials).some(
-      (credential) => typeof credential !== 'string' || !credential.trim(),
-    )
-  ) {
-    sendError(res, 400, 'INVALID_REQUEST', 'Account details are incomplete.');
-    return null;
-  }
-  return {
-    agentId: value.agentId.trim(),
-    providerId: value.providerId.trim(),
-    label: value.label.trim(),
-    credentials: value.credentials as Record<string, string>,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

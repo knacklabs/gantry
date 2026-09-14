@@ -15,6 +15,12 @@ import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-st
 import type { AppId } from '../../../domain/app/app.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import {
+  isAgentHarness,
+  type AgentHarness,
+} from '../../../shared/agent-engine.js';
+import { resolveModelSelectionForWorkload } from '../../../shared/model-catalog.js';
+import { resolveExecutionRoute } from '../../../shared/model-execution-route.js';
+import {
   listSupportedModelCredentialProviders,
   normalizeModelCredentialProvider,
 } from '../../../domain/model-credentials/model-credentials.js';
@@ -169,12 +175,85 @@ export async function handleBrowserModelProviderRoutes(
   const actor = `browser:${session.userId}`;
   try {
     if (verifying) {
+      const hasBody = Boolean(
+        req.headers['content-length'] || req.headers['transfer-encoding'],
+      );
+      const candidate = hasBody ? await readModelCandidateBody(req, res) : null;
+      if (hasBody && !candidate) return true;
+      const appId = session.appId as AppId;
+      if (candidate) {
+        const model = resolveModelSelectionForWorkload(
+          candidate.modelAlias,
+          'chat',
+        );
+        if (!model.ok || model.entry.modelRoute.id !== providerId) {
+          sendError(
+            res,
+            400,
+            'INCOMPATIBLE_MODEL_PROVIDER',
+            model.ok
+              ? 'The selected model belongs to a different provider.'
+              : model.message,
+          );
+          return true;
+        }
+        const route = resolveExecutionRoute({
+          entry: model.entry,
+          agentHarness: candidate.agentHarness,
+        });
+        if (
+          !route.ok ||
+          !route.value.supportedCredentialModes.includes(candidate.authMode)
+        ) {
+          sendError(
+            res,
+            400,
+            'INCOMPATIBLE_CREDENTIAL_MODE',
+            route.ok
+              ? 'The selected credential mode is incompatible with this model and harness.'
+              : route.message,
+          );
+          return true;
+        }
+        const outcome = await service.validateAndSet({
+          appId,
+          providerId,
+          authMode: candidate.authMode,
+          payload: candidate.payload,
+          actor,
+          validate: (modelCredentials) =>
+            preflightModelProvider({
+              runtimeHome: '',
+              providerId,
+              chatAlias: candidate.modelAlias,
+              settings,
+              modelCredentials,
+              appId,
+            }),
+        });
+        if (!outcome.credential) {
+          sendError(
+            res,
+            400,
+            'MODEL_CREDENTIAL_VALIDATION_FAILED',
+            'Gantry could not validate this credential configuration. The saved credential was not changed.',
+          );
+          return true;
+        }
+        sendJson(res, 200, {
+          status: 'pass',
+          message: 'Configuration validated.',
+          providerId,
+          authMode: outcome.credential.authMode,
+        });
+        return true;
+      }
       const result = await preflightModelProvider({
         runtimeHome: '',
         providerId,
         settings,
         modelCredentials: getRuntimeStorage().repositories.modelCredentials,
-        appId: session.appId as AppId,
+        appId,
       });
       sendJson(res, 200, {
         status: result.status,
@@ -237,6 +316,51 @@ export async function handleBrowserModelProviderRoutes(
     );
   }
   return true;
+}
+
+async function readModelCandidateBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<{
+  authMode: string;
+  payload: Record<string, unknown>;
+  modelAlias: string;
+  agentHarness: AgentHarness;
+} | null> {
+  let body: unknown;
+  try {
+    body = await readJson(req);
+  } catch {
+    sendError(res, 400, 'INVALID_REQUEST', 'Request body must be valid JSON.');
+    return null;
+  }
+  if (
+    !isObject(body) ||
+    !isObject(body.payload) ||
+    typeof body.authMode !== 'string' ||
+    !body.authMode.trim() ||
+    typeof body.modelAlias !== 'string' ||
+    !body.modelAlias.trim() ||
+    !isAgentHarness(body.agentHarness) ||
+    Object.keys(body).some(
+      (key) =>
+        !['authMode', 'payload', 'modelAlias', 'agentHarness'].includes(key),
+    )
+  ) {
+    sendError(
+      res,
+      400,
+      'INVALID_REQUEST',
+      'A complete model credential candidate is required.',
+    );
+    return null;
+  }
+  return {
+    authMode: body.authMode.trim(),
+    payload: body.payload,
+    modelAlias: body.modelAlias.trim(),
+    agentHarness: body.agentHarness,
+  };
 }
 
 async function readModelProviderBody(

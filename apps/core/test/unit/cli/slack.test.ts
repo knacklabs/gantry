@@ -32,7 +32,8 @@ import {
   SLACK_APP_MANIFEST,
   SLACK_FEATURE_BOT_SCOPES,
   SLACK_REQUIRED_BOT_SCOPES,
-} from '@core/cli/slack-install-scopes.js';
+  slackAppManifestFor,
+} from '@core/channels/slack/app-manifest.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const defaultSlackBotSecretName = runtimeSecretNameForAgent(
@@ -136,6 +137,27 @@ describe('Slack install scopes', () => {
       'canvases:read',
       'canvases:write',
     ]);
+  });
+
+  it('builds a Slack-ready manifest from the canonical scopes and employee name', () => {
+    const manifest = slackAppManifestFor('Atlas Smith');
+
+    expect(manifest.display_information.name).toBe('Atlas Smith');
+    expect(manifest.features.bot_user.display_name).toBe('atlas-smith');
+    expect(manifest.oauth_config).toBe(SLACK_APP_MANIFEST.oauth_config);
+    expect(manifest.settings.socket_mode_enabled).toBe(true);
+    expect(manifest.settings.event_subscriptions.bot_events).toEqual(
+      expect.arrayContaining(['app_mention', 'member_joined_channel']),
+    );
+  });
+
+  it('keeps Slack app names within the manifest limit without shortening bot names', () => {
+    const employeeName =
+      'A very long employee name that exceeds Slack app limits clearly';
+    const manifest = slackAppManifestFor(employeeName);
+
+    expect(manifest.display_information.name).toHaveLength(35);
+    expect(manifest.features.bot_user.display_name).toHaveLength(63);
   });
 
   it('detects an upgraded Slack install missing canvas scopes', async () => {

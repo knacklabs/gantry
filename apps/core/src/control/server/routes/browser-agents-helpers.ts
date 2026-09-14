@@ -8,10 +8,12 @@ import type {
   CustomRoleId,
 } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AGENT_PERSONAS } from '../../../shared/agent-persona.js';
 import { resolveModelSelectionForWorkload } from '../../../shared/model-catalog.js';
 import { resolveExecutionRoute } from '../../../shared/model-execution-route.js';
 import type { ControlRouteContext } from '../handler-context.js';
+import { readJson, sendError, sendJson } from '../http.js';
 
 export function pageParams(url: URL) {
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
@@ -20,6 +22,71 @@ export function pageParams(url: URL) {
     Math.max(1, Number(url.searchParams.get('pageSize')) || 25),
   );
   return { page, pageSize };
+}
+
+export async function handleBrowserRoleMutation(input: {
+  req: IncomingMessage;
+  res: ServerResponse;
+  pathname: string;
+  appId: AppId;
+  actor: string;
+  storage: ReturnType<typeof getRuntimeStorage>;
+  roleService: CustomRoleService;
+}): Promise<boolean> {
+  const roleMatch = input.pathname.match(/^\/ui\/api\/roles\/([^/]+)$/);
+  if (input.pathname === '/ui/api/roles' && input.req.method === 'POST') {
+    const body = await readJson(input.req);
+    if (!object(body) || !validName(body.name) || !validName(body.prompt)) {
+      sendError(
+        input.res,
+        400,
+        'INVALID_REQUEST',
+        'Role name and prompt are required.',
+      );
+      return true;
+    }
+    const role = await input.roleService.create({
+      appId: input.appId,
+      name: body.name,
+      prompt: body.prompt,
+      sourceRoleId:
+        typeof body.sourceRoleId === 'string' ? body.sourceRoleId : undefined,
+    });
+    sendJson(input.res, 201, { role: roleView(role), actor: input.actor });
+    return true;
+  }
+  if (roleMatch && input.req.method === 'PATCH') {
+    const body = await readJson(input.req);
+    if (!object(body) || !validName(body.name) || !validName(body.prompt)) {
+      sendError(
+        input.res,
+        400,
+        'INVALID_REQUEST',
+        'Role name and prompt are required.',
+      );
+      return true;
+    }
+    const role = await input.roleService.update({
+      appId: input.appId,
+      id: decodeURIComponent(roleMatch[1]) as CustomRoleId,
+      name: body.name,
+      prompt: body.prompt,
+      sourceRoleId:
+        typeof body.sourceRoleId === 'string' ? body.sourceRoleId : undefined,
+    });
+    sendJson(input.res, 200, { role: roleView(role) });
+    return true;
+  }
+  if (roleMatch && input.req.method === 'DELETE') {
+    const roleId = decodeURIComponent(roleMatch[1]) as CustomRoleId;
+    const counts = await retainedAgentCounts(input.storage, input.appId);
+    await input.roleService.delete({ appId: input.appId, id: roleId });
+    sendJson(input.res, 200, {
+      retainedAgentCount: counts.get(roleId) ?? 0,
+    });
+    return true;
+  }
+  return false;
 }
 
 export function page<T>(items: T[], pageNumber: number, pageSize: number) {
