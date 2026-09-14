@@ -1,0 +1,293 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "ONBOARDING-V2-1-T1",
+  "score": 0,
+  "summary": "quality lens over ONBOARDING-V2-1-T1 (98 product path(s), 59c4337..f2ee254, Codex via the autoreview skill at --max-priority P2): 8 blocking, 2 non-blocking. chunk 1/3: 2 finding(s), chunk 2/3: 5 finding(s), chunk 3/3: 3 finding(s).",
+  "blocking_findings": [
+    {
+      "category": "security",
+      "area": "apps/core/src/adapters/storage/postgres/repositories",
+      "summary": "[P1] Scope onboarding progress mutations to the authenticated app (apps/core/src/adapters/storage/postgres/repositories/onboarding-setup-repository.postgres.ts:209): Reviewer: chunk 1/3\n\n`updateProgress` identifies the row only by the caller-supplied setup UUID and accepts an arbitrary actor ID; the repository API does not even receive the authenticated app ID."
+    },
+    {
+      "category": "maintainability",
+      "area": "apps/core/src/control/server/routes",
+      "summary": "[P1] Split the 676-line browser onboarding route (apps/core/src/control/server/routes/browser-onboarding.ts:1): Reviewer: chunk 1/3\n\nThe new `browser-onboarding.ts` route is 676 lines, directly violating ONBOARDING-V2-1-T1-AC10's requirement that route/page modules remain below 300 lines and the review brief's mandatory responsibility-boundary split."
+    },
+    {
+      "category": "bug",
+      "area": "apps/core/src/application/onboarding",
+      "summary": "[P1] Validate the model selection before committing the setup (apps/core/src/application/onboarding/onboarding-setup.service.ts:42): Reviewer: chunk 2/3\n\n`createOrResume` accepts every non-empty `modelAlias` and checks only that the harness is one of the known strings before persisting the onboarding graph."
+    },
+    {
+      "category": "bug",
+      "area": "apps/core/src/control/server/routes",
+      "summary": "[P1] Require a valid approver before issuing the verification challenge (apps/core/src/control/server/routes/browser-onboarding.ts:542): Reviewer: chunk 2/3\n\nThe final readiness check before inserting a verification only requires a setup and an active conversation install."
+    },
+    {
+      "category": "regression",
+      "area": "apps/core/src/control/server/routes",
+      "summary": "[P1] Treat Content-Length: 0 as an empty verification request (apps/core/src/control/server/routes/browser-model-providers.ts:178): Reviewer: chunk 2/3\n\nThe stored-credential flow intentionally sends a POST with no body, but `hasBody` tests only whether the `content-length` header exists."
+    },
+    {
+      "category": "maintainability",
+      "area": "apps/core/src/control/server/routes",
+      "summary": "[P1] Split the onboarding route at the required responsibility boundaries (apps/core/src/control/server/routes/browser-onboarding.ts:676): Reviewer: chunk 2/3\n\nThis new route module is 676 lines, more than twice AC10's explicit 300-line ceiling, and combines authentication, status projection, manifest delivery, setup orchestration, verification creation, expiry, and projection retry with direct persistence queries."
+    },
+    {
+      "category": "regression",
+      "area": "apps/web/src",
+      "summary": "Imported variable fonts are referenced under the wrong family names (apps/web/src/styles.css:42): Reviewer: chunk 3/3\n\nThe new Fontsource packages define their faces as `DM Sans Variable` and `Schibsted Grotesk Variable`, but these tokens request `DM Sans` and `Schibsted Grotesk`; no corresponding static sans/display faces are imported."
+    },
+    {
+      "category": "bug",
+      "area": "apps/web/src/features/onboarding",
+      "summary": "Persist the created channel account before discovery can fail (apps/web/src/features/onboarding/use-onboarding-controller.ts:285): Reviewer: chunk 3/3\n\n`createChannelAccount` completes its server-side mutation before conversation discovery runs, but `accountId` is not saved and accepted secrets are not cleared until after discovery succeeds."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#source-authority",
+      "summary": "ONBOARDING-V2-1-T1-AC1: The task worktree hydrates decisions 0162 and 0163, both V2 specifications, and the V2 HTML reference from planning commit 829500087; the reference has SHA-256 c1dc1305abd4876f74ac7b0c8e097205c891b3478fb3ab7f7db1ec6f72259a45, and feat/v2-onboarding remains untouched."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#visual-contract",
+      "summary": "ONBOARDING-V2-1-T1-AC2: The splash and all four onboarding steps conform to the immutable V2 reference in light and dark themes, saved and system reduced-motion modes, and 1920x956, 1469x800, 1280x800, 1024x768, 768x1024, and 375x812 viewports, with only documented deterministic masks."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#browser-boundary",
+      "summary": "ONBOARDING-V2-1-T1-AC3: The same-origin browser onboarding facade requires administrator session auth, trusted Origin, CSRF, and hosted recent reauthentication; rejects Bearer credentials and automatic mutation replay; sends no-store responses; uses the repository browser error envelope documented in OpenAPI with x-gantry-browser-auth; and keeps browser, audit, and error projections secret-free."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#lifecycle-owner",
+      "summary": "ONBOARDING-V2-1-T1-AC4: The focused onboarding application service atomically creates the custom role, Agent, service Person, desired-state revision, audit event, and resumable setup; one setup exists per app, explicit retry reuses its idempotency key, a changed payload conflicts, and upstream changes invalidate only dependent progress."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#model-credentials",
+      "summary": "ONBOARDING-V2-1-T1-AC5: Model setup accepts only the exact agentHarness values auto, anthropic_sdk, and deepagents and only compatible credential modes; a candidate is verified through the shared model-provider preflight before persistence, failed candidates preserve a prior healthy credential, models stay unavailable until validation, and successful secret inputs clear."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#channel-secrets",
+      "summary": "ONBOARDING-V2-1-T1-AC6: Channel setup stores only runtime-owned gantry-secret references, supports the existing direct, env:, and aws-sm: reference modes when policy permits, returns a typed policy-disabled result otherwise, never projects channel secrets into agent capability secrets, and requires non-empty real conversation discovery before completion."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#provider-and-approver-rules",
+      "summary": "ONBOARDING-V2-1-T1-AC7: Provider selection is deterministic from live capability and provider support, Slack is preselected only when supported, Teams remains setup-only, provider accounts are Agent-owned with service-Person projection, direct-message approvers derive automatically from the counterpart, and group approvers require the recognized installer or validated manual membership."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#verification-correlation",
+      "summary": "ONBOARDING-V2-1-T1-AC8: The verification challenge persists account, conversation, canonical thread, code, inbound message, outbound message, and onboarding run identity; the run identity is carried through outbound send metadata and its persisted projection; expiry, replay, account/conversation/thread/code mismatch, outbound-before-inbound, and projection failure are typed, and projection retry preserves a satisfied challenge."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#migration-baseline",
+      "summary": "ONBOARDING-V2-1-T1-AC9: Exactly one generator-produced current-schema pre-release migration and snapshot covers resumable setup, verification correlation, provider-account correlation, constraints, and indexes; lifecycle tables use UUID row identifiers and actor/timestamp audit fields, archive migration history is excluded, the migration is regenerated from a clean baseline, and the migration directory remains clean afterward."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#implementation-boundaries",
+      "summary": "ONBOARDING-V2-1-T1-AC10: The adopted web implementation preserves current-main package metadata including Node >=24 <25, uses repository primitives and Tailwind where appropriate, and splits the oversized onboarding route and workspace modules at real responsibility boundaries so route/page modules remain below 300 lines."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#verification",
+      "summary": "ONBOARDING-V2-1-T1-AC11: Focused browser, model, provider, lifecycle, OpenAPI, migration, and visual tests cover idempotency conflict, invalidation, service-Person ownership, harness values, secret modes, empty discovery, provider fallback, Teams setup-only behavior, DM/group rules, expiry/replay/mismatch, run and thread correlation, projection retry, migration journal integrity, immutable reference hash, and Console gating."
+    },
+    {
+      "category": "plan-contract-partial",
+      "area": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md#handoff",
+      "summary": "ONBOARDING-V2-1-T1-AC12: Lint, formatting, type checks, web and runtime builds, disposable-Postgres proof, deterministic Forge verification, one three-lens autoreview with motion review, and a rebuilt-runtime functional check of healthz, readyz, and ui/onboarding are recorded before the user-held PR handoff; live Slack tenant proof remains release-only."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "category": "bug",
+      "area": "apps/core/src/control/server",
+      "summary": "[P2] Document the 200 response returned by idempotent setup replay (apps/core/src/control/server/openapi-onboarding-routes.ts:47): Reviewer: chunk 2/3\n\nThe route documentation declares only a `201` success status for setup creation, while the reachable handler deliberately returns `200` when the idempotency key replays an existing setup."
+    },
+    {
+      "category": "regression",
+      "area": "apps/web/src",
+      "summary": "Do not change the application-wide root scale for an onboarding-only layout (apps/web/src/styles.css:117): Reviewer: chunk 3/3\n\nChanging `html` from 14px to 15px rescales every existing rem-based Tailwind font, spacing, and dimension across overview, preferences, and the rest of the console\u2014not just the onboarding surface."
+    }
+  ],
+  "recommendation": "request-changes",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository-identifiers.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/onboarding-setup-repository.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/schema/index.ts",
+    "apps/core/src/adapters/storage/postgres/schema/messages.ts",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260914121535_onboarding_v2.sql",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260914121535_snapshot.json",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
+    "apps/core/src/adapters/storage/postgres/schema/onboarding.ts",
+    "apps/core/src/app/bootstrap/channel-wiring.ts",
+    "apps/core/src/app/bootstrap/conversation-outbound-projection.ts",
+    "apps/core/src/application/model-credentials/model-credential-service.ts",
+    "apps/core/src/application/onboarding/onboarding-setup-repository.interface.ts",
+    "apps/core/src/application/onboarding/onboarding-setup.dto.ts",
+    "apps/core/src/application/onboarding/onboarding-setup.service.ts",
+    "apps/core/src/channels/control-provider-catalog.ts",
+    "apps/core/src/channels/slack/app-manifest.ts",
+    "apps/core/src/cli/setup-flow-provider-steps.ts",
+    "apps/core/src/cli/slack.ts",
+    "apps/core/src/control/server/browser-route-dispatch.ts",
+    "apps/core/src/control/server/openapi-onboarding-routes.ts",
+    "apps/core/src/control/server/openapi-operation-schemas.ts",
+    "apps/core/src/control/server/openapi-route-helpers.ts",
+    "apps/core/src/control/server/openapi.ts",
+    "apps/core/src/control/server/routes/browser-agents-helpers.ts",
+    "apps/core/src/control/server/routes/browser-agents.ts",
+    "apps/core/src/control/server/routes/browser-channel-account-dtos.ts",
+    "apps/core/src/control/server/routes/browser-channel-accounts.ts",
+    "apps/core/src/control/server/routes/browser-model-providers.ts",
+    "apps/core/src/control/server/routes/browser-onboarding.ts",
+    "apps/core/src/domain/events/runtime-event-types.ts",
+    "apps/core/src/domain/messages/messages.ts",
+    "apps/core/src/domain/types.ts",
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/src/runtime/group-processing.ts",
+    "apps/core/src/runtime/group-turn-options.ts",
+    "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
+    "apps/core/test/unit/adapters/storage/postgres/canonical-message-ops-service.test.ts",
+    "apps/core/test/unit/adapters/storage/postgres/domain-repositories.postgres.test.ts",
+    "apps/core/test/unit/cli/slack.test.ts",
+    "apps/core/test/unit/control/openapi.test.ts",
+    "apps/core/test/unit/control/server/browser-agents.test.ts",
+    "apps/core/test/unit/control/server/browser-onboarding.test.ts",
+    "apps/core/test/unit/core/model-credential-service.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
+    "apps/core/test/unit/storage/postgres-migration-journal.test.ts",
+    "apps/web/package.json",
+    "apps/web/src/app/app.test.ts",
+    "apps/web/src/app/app.tsx",
+    "apps/web/src/app/root-route.tsx",
+    "apps/web/src/app/routes/foundation-routes.tsx",
+    "apps/web/src/assets/onboarding/gantry-rail-step-1-reduced.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-1.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-2-reduced.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-2.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-3-reduced.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-3.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-4-reduced.svg",
+    "apps/web/src/assets/onboarding/gantry-rail-step-4.svg",
+    "apps/web/src/assets/onboarding/gantry-splash-mark.svg",
+    "apps/web/src/assets/onboarding/index.ts",
+    "apps/web/src/assets/onboarding/knacklabs-mark.svg",
+    "apps/web/src/features/agents/routes/agent-create-route.tsx",
+    "apps/web/src/features/channel-accounts/channel-account-queries.test.ts",
+    "apps/web/src/features/channel-accounts/channel-account-queries.ts",
+    "apps/web/src/features/onboarding/onboarding-flow.tsx",
+    "apps/web/src/features/onboarding/onboarding-mark.tsx",
+    "apps/web/src/features/onboarding/onboarding-model-setup.test.ts",
+    "apps/web/src/features/onboarding/onboarding-model-setup.tsx",
+    "apps/web/src/features/onboarding/onboarding-route.tsx",
+    "apps/web/src/features/onboarding/onboarding-splash.tsx",
+    "apps/web/src/features/onboarding/onboarding-step-content.tsx",
+    "apps/web/src/features/onboarding/onboarding-workspace-content.ts",
+    "apps/web/src/features/onboarding/onboarding-workspace-flow.tsx",
+    "apps/web/src/features/onboarding/onboarding-workspace-phase.tsx",
+    "apps/web/src/features/onboarding/onboarding-workspace-step.test.ts",
+    "apps/web/src/features/onboarding/onboarding-workspace-step.tsx",
+    "apps/web/src/features/onboarding/slack-manifest-drawer.test.ts",
+    "apps/web/src/features/onboarding/slack-manifest-drawer.tsx",
+    "apps/web/src/features/onboarding/slack-token-guide-drawer.test.ts",
+    "apps/web/src/features/onboarding/slack-token-guide-drawer.tsx",
+    "apps/web/src/features/onboarding/use-onboarding-controller.ts",
+    "apps/web/src/features/operations/routes/overview-route.tsx",
+    "apps/web/src/features/preferences/preferences-route.test.ts",
+    "apps/web/src/features/preferences/preferences-route.tsx",
+    "apps/web/src/main.tsx",
+    "apps/web/src/onboarding-splash.test.ts",
+    "apps/web/src/onboarding-step-one.test.ts",
+    "apps/web/src/onboarding-visual-acceptance.test.ts",
+    "apps/web/src/styles.css",
+    "apps/web/src/ui/primitives/copy-button.test.ts",
+    "apps/web/src/ui/primitives/copy-button.tsx",
+    "apps/web/src/ui/primitives/switch.tsx",
+    "apps/web/src/ui/primitives/toast.ts",
+    "docs/operations/slack-app-install.md",
+    "package-lock.json"
+  ],
+  "skills_used": [
+    "review-animations"
+  ],
+  "contract_verdicts": [
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC1",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC2",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC3",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC4",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC5",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC6",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC7",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC8",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC9",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC10",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC11",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    },
+    {
+      "contract_id": "ONBOARDING-V2-1-T1-AC12",
+      "verdict": "partial",
+      "evidence": "the reviewer emitted no VERDICT line for this contract; recorded as partial (fail-closed) \u2014 re-review or verdict it"
+    }
+  ],
+  "aspect": "quality",
+  "review_run_id": "f9ef77e1d4ec156f201e03c2f4447f5e4f1fc2e32c3709994459d055bfd7817d",
+  "brief_sha256": "446ada9654c1570a3c3629410a1fa3ee3d4f96f61f8ec3adfa01b8c259ef29f3",
+  "branch_diff_digest": "446b969dc2e828956a29c1ad1c31139e862f5bc65a55834c50e9c56eb8b1262a",
+  "residual_risks": [],
+  "recorded_at": "2026-09-14T17:32:54+00:00",
+  "commit": "f2ee25417da9e02c091f9d2b62cdc83874dbd779"
+}
