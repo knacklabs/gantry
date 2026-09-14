@@ -129,6 +129,7 @@ describe('Slack install scopes', () => {
   it('uses one canonical fresh-install manifest with canvas and file scopes', () => {
     expect(SLACK_APP_MANIFEST.oauth_config.scopes.bot).toEqual([
       ...SLACK_REQUIRED_BOT_SCOPES,
+      'commands',
       ...SLACK_FEATURE_BOT_SCOPES,
     ]);
     expect(SLACK_FEATURE_BOT_SCOPES).toEqual([
@@ -137,6 +138,31 @@ describe('Slack install scopes', () => {
       'canvases:read',
       'canvases:write',
     ]);
+  });
+
+  it('keeps pre-manifest Slack installs valid without the commands scope', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, team_id: 'T1', user_id: 'U1' }),
+            {
+              headers: {
+                'content-type': 'application/json',
+                'x-oauth-scopes': [
+                  ...SLACK_REQUIRED_BOT_SCOPES,
+                  ...SLACK_FEATURE_BOT_SCOPES,
+                ].join(','),
+              },
+            },
+          ),
+      ),
+    );
+
+    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject(
+      { ok: true },
+    );
   });
 
   it('builds a Slack-ready manifest from the canonical scopes and employee name', () => {

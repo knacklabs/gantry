@@ -8,7 +8,6 @@ export const SLACK_FEATURE_BOT_SCOPES = [
 
 export const SLACK_REQUIRED_BOT_SCOPES = [
   'chat:write',
-  'commands',
   'app_mentions:read',
   'channels:read',
   'channels:history',
@@ -20,10 +19,16 @@ export const SLACK_REQUIRED_BOT_SCOPES = [
   'mpim:history',
 ] as const;
 
+const SLACK_FRESH_INSTALL_BOT_SCOPES = ['commands'] as const;
+
 export const SLACK_APP_MANIFEST = {
   oauth_config: {
     scopes: {
-      bot: [...SLACK_REQUIRED_BOT_SCOPES, ...SLACK_FEATURE_BOT_SCOPES],
+      bot: [
+        ...SLACK_REQUIRED_BOT_SCOPES,
+        ...SLACK_FRESH_INSTALL_BOT_SCOPES,
+        ...SLACK_FEATURE_BOT_SCOPES,
+      ],
     },
   },
 } as const;
@@ -113,7 +118,11 @@ export function missingSlackBotScopes(grantedScopes: readonly string[]): {
 }
 
 export function formatSlackBotScopes(): string {
-  return [...SLACK_REQUIRED_BOT_SCOPES, ...SLACK_FEATURE_BOT_SCOPES].join(', ');
+  return [
+    ...SLACK_REQUIRED_BOT_SCOPES,
+    ...SLACK_FRESH_INSTALL_BOT_SCOPES,
+    ...SLACK_FEATURE_BOT_SCOPES,
+  ].join(', ');
 }
 
 export function slackBotScopeFailure(
