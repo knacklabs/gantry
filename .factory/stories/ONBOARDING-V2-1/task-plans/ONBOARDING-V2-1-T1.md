@@ -327,7 +327,7 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - `npm run db:migrations:generate`
 - `git diff --exit-code -- apps/core/src/adapters/storage/postgres/schema/migrations`
 - `npm run db:migrations:check`
-- `npm run lint`
+- `npm run lint:changed`
 - `npm run lint:web`
 - `npm run format:check`
 - `npm run format:check:web`

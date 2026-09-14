@@ -2556,6 +2556,25 @@
       ],
       "origin": "adhoc",
       "spec_debt_reason": "Follow-up to GRANTED-1, which binds the lane-neutral tool reference to the Anthropic runtime only and asserts the DeepAgents entry absent so the gap cannot drift silently. This story adds that lane's mapping and its proof."
+    },
+    {
+      "key": "ONBOARDING-V2-1",
+      "title": "V2 first-agent onboarding legacy adoption",
+      "story": "As an authenticated administrator, I can configure and verify Gantry's first AI employee through the V2 web onboarding flow so that the deployment reaches the Console without terminal setup or fabricated readiness.",
+      "acceptance_criteria": [
+        "The splash and four onboarding steps match the versioned V2 visual contract across supported themes, motion preferences, and responsive viewports.",
+        "Model credentials and channel secrets remain write-only, authenticated, CSRF-protected, and separated while completed durable state resumes and dependent changes invalidate only downstream progress.",
+        "Only validated model configuration, real conversation discovery, persisted conversation and approver selection, and correlated inbound/outbound verification can unlock Console handoff.",
+        "The current schema receives one generated pre-release onboarding migration with disposable-Postgres lifecycle coverage; archive migration history is excluded.",
+        "Product tests, builds, Forge verification, three-lens review, animation review, and local functional evidence are recorded before PR handoff."
+      ],
+      "order": 123,
+      "status": "pending",
+      "epic": "ai-employee-v1",
+      "skill": "fullstack",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/v2-first-agent-onboarding.md"
     }
   ],
   "epics": [
@@ -2662,5 +2681,5 @@
       ]
     }
   ],
-  "updated_at": "2026-09-11T13:04:16+00:00"
+  "updated_at": "2026-09-14T18:01:40+00:00"
 }

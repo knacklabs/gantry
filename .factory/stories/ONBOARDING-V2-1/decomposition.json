@@ -156,7 +156,7 @@
         "npm run db:migrations:generate",
         "git diff --exit-code -- apps/core/src/adapters/storage/postgres/schema/migrations",
         "npm run db:migrations:check",
-        "npm run lint",
+        "npm run lint:changed",
         "npm run lint:web",
         "npm run format:check",
         "npm run format:check:web",
@@ -247,5 +247,5 @@
   "epic": "ai-employee-v1",
   "plan_file": "plans/active/ONBOARDING-V2-1-v2-first-agent-onboarding-legacy-adoption.md",
   "plan_sha256": "e0d247a15745f93840b0458beb05c4347a405cbfd51240d5aa1eceb81bb9bddb",
-  "commit": "763b4a3997fc7d8f231f3482fe460de3c3819dc6"
+  "commit": "33d3bb6137ed5cb9887ec3e9b99da9f31d8f63c6"
 }
