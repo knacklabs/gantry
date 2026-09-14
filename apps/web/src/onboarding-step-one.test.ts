@@ -46,6 +46,8 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
   );
   expect(route).toContain("browserFetch('/ui/api/onboarding/setups'");
   expect(route).toContain("'idempotency-key': setupIdempotencyKey");
+  expect(route).toContain('setSetupIdempotencyKey(nextIdempotencyKey)');
+  expect(route).toContain("selectedConversation?.kind !== 'direct'");
   expect(route).toContain(
     'flow.setCredentialValidated(false);\n                  flow.setStepOneReady(false);',
   );

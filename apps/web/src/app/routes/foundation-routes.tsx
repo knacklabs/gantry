@@ -45,8 +45,8 @@ const onboardingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'onboarding',
   component: lazyRouteComponent(
-    () => import('../../features/onboarding/onboarding-route'),
-    'OnboardingRoute',
+    () => import('../../features/onboarding/onboarding-flow'),
+    'OnboardingFlow',
   ),
 });
 

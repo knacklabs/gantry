@@ -131,7 +131,7 @@ export function useOnboardingController() {
   const [verificationId, setVerificationId] = useState('');
   const [stepOneReady, setStepOneReady] = useState(false);
   const [credentialValidated, setCredentialValidated] = useState(false);
-  const [setupIdempotencyKey] = useState(() => {
+  const [setupIdempotencyKey, setSetupIdempotencyKey] = useState(() => {
     const key = sessionStorage.getItem('gantry.onboarding.idempotency');
     if (key) return key;
     const created = crypto.randomUUID();
@@ -143,9 +143,16 @@ export function useOnboardingController() {
   const models = useQuery(agentModelsQuery);
   const channelProviders = useQuery(channelProvidersQuery());
   const conversations = useQuery(channelConversationsQuery());
+  const selectedConversation = conversations.data?.conversations.find(
+    (item) => item.id === conversationId,
+  );
   const conversationMembers = useQuery({
     queryKey: ['channel-accounts', 'members', conversationId],
-    enabled: Boolean(conversationId && channelId === 'slack'),
+    enabled: Boolean(
+      conversationId &&
+      channelId === 'slack' &&
+      selectedConversation?.kind !== 'direct',
+    ),
     queryFn: () => loadConversationMembers(conversationId),
   });
   const status = useQuery(onboardingStatusQuery);
@@ -156,9 +163,6 @@ export function useOnboardingController() {
     channelProviders.data?.providers.find((item) => item.id === channelId) ??
     selectOnboardingChannelProvider(channelProviders.data?.providers ?? []);
   const verification = useQuery(onboardingVerificationQuery(verificationId));
-  const selectedConversation = conversations.data?.conversations.find(
-    (item) => item.id === conversationId,
-  );
   const effectiveProviderId = providerId || selectedProvider?.providerId || '';
   const availableModels = useMemo(
     () =>
@@ -246,11 +250,16 @@ export function useOnboardingController() {
       const body = (await response.json()) as { agent: { id: string } };
       setAgentId(body.agent.id);
       setStepOneReady(true);
+      const nextIdempotencyKey = crypto.randomUUID();
+      setSetupIdempotencyKey(nextIdempotencyKey);
+      sessionStorage.setItem(
+        'gantry.onboarding.idempotency',
+        nextIdempotencyKey,
+      );
       for (const key of [
         'gantry.onboarding.name',
         'gantry.onboarding.title',
         'gantry.onboarding.responsibilities',
-        'gantry.onboarding.idempotency',
       ]) {
         sessionStorage.removeItem(key);
       }
