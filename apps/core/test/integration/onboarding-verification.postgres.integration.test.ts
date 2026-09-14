@@ -14,6 +14,7 @@ import {
   agentConfigVersionsPostgres,
   agentsPostgres,
   customRolesPostgres,
+  llmProfilesPostgres,
   onboardingSetupsPostgres,
   onboardingVerificationsPostgres,
   runtimeEventsPostgres,
@@ -125,6 +126,21 @@ maybeDescribe('onboarding verification persistence', () => {
         .from(customRolesPostgres)
         .where(eq(customRolesPostgres.appId, appId)),
     ).resolves.toHaveLength(1);
+    const [config] = await runtime.service.db
+      .select({ llmProfileId: agentConfigVersionsPostgres.llmProfileId })
+      .from(agentConfigVersionsPostgres)
+      .where(eq(agentConfigVersionsPostgres.agentId, setup.agentId));
+    await expect(
+      runtime.service.db
+        .select()
+        .from(llmProfilesPostgres)
+        .where(
+          and(
+            eq(llmProfilesPostgres.id, config!.llmProfileId),
+            eq(llmProfilesPostgres.appId, appId),
+          ),
+        ),
+    ).resolves.toMatchObject([{ modelAlias: 'sonnet' }]);
     await expect(
       runtime.service.db
         .select()

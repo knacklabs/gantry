@@ -16,6 +16,7 @@ const request = {
 
 function repository(): OnboardingSetupRepository {
   return {
+    findReplay: vi.fn(async () => null),
     createOrResume: vi.fn(async () => ({
       setupId: 'setup:one',
       agentId: 'agent:one',
@@ -51,6 +52,24 @@ describe('OnboardingSetupService', () => {
       code: 'INVALID_REQUEST',
       message: 'Credential is unavailable.',
     });
+    expect(store.createOrResume).not.toHaveBeenCalled();
+  });
+
+  it('returns an idempotent replay without repeating provider preflight', async () => {
+    const store = repository();
+    vi.mocked(store.findReplay).mockResolvedValue({
+      setupId: 'setup:one',
+      agentId: 'agent:one',
+      agentName: 'Atlas',
+      desiredStateRevision: 1,
+      replayed: true,
+    });
+    const validate = vi.fn(async () => ({ ok: false, message: 'offline' }));
+
+    await expect(
+      new OnboardingSetupService(store, validate).createOrResume(request),
+    ).resolves.toMatchObject({ replayed: true });
+    expect(validate).not.toHaveBeenCalled();
     expect(store.createOrResume).not.toHaveBeenCalled();
   });
 });

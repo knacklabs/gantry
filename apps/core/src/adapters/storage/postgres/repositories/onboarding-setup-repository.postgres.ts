@@ -3,22 +3,28 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { ApplicationError } from '../../../../application/common/application-error.js';
 import type {
-  CreateOnboardingSetupRequestDto,
   OnboardingProgress,
   OnboardingSetupResponseDto,
 } from '../../../../application/onboarding/onboarding-setup.dto.js';
-import type { OnboardingSetupRepository } from '../../../../application/onboarding/onboarding-setup-repository.interface.js';
+import type {
+  CreateOnboardingSetupPersistenceInput,
+  OnboardingSetupRepository,
+} from '../../../../application/onboarding/onboarding-setup-repository.interface.js';
 import type { AgentId } from '../../../../domain/agent/agent.js';
 import type { AppId } from '../../../../domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { stableId } from './person-identity-mappers.postgres.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import {
   agentConfigVersionsPostgres,
   agentsPostgres,
   appsPostgres,
   customRolesPostgres,
+  llmProfilesPostgres,
   onboardingSetupsPostgres,
   settingsRevisionsPostgres,
   usersPostgres,
@@ -27,53 +33,30 @@ import {
 export class PostgresOnboardingSetupRepository implements OnboardingSetupRepository {
   constructor(private readonly db: CanonicalDb) {}
 
+  async findReplay(input: {
+    appId: CreateOnboardingSetupPersistenceInput['appId'];
+    idempotencyKey: string;
+    requestHash: string;
+  }): Promise<OnboardingSetupResponseDto | null> {
+    return this.findReplayWith(this.db, input);
+  }
+
   async createOrResume(
-    input: CreateOnboardingSetupRequestDto & { requestHash: string },
+    input: CreateOnboardingSetupPersistenceInput,
   ): Promise<OnboardingSetupResponseDto> {
     return this.db.transaction(async (tx) => {
       await tx.execute(
         sql`select ${appsPostgres.id} from ${appsPostgres} where ${appsPostgres.id} = ${input.appId} for update`,
       );
-      const [existing] = await tx
-        .select()
-        .from(onboardingSetupsPostgres)
-        .where(eq(onboardingSetupsPostgres.appId, input.appId))
-        .limit(1);
-      if (existing) {
-        if (
-          existing.idempotencyKey !== input.idempotencyKey ||
-          existing.requestHash !== input.requestHash
-        ) {
-          throw new ApplicationError(
-            'CONFLICT',
-            'This app already has an onboarding setup with different details.',
-          );
-        }
-        const [agent] = await tx
-          .select({ name: agentsPostgres.name })
-          .from(agentsPostgres)
-          .where(eq(agentsPostgres.id, existing.agentId))
-          .limit(1);
-        if (!agent) {
-          throw new ApplicationError(
-            'CONFLICT',
-            'The existing onboarding setup is incomplete.',
-          );
-        }
-        return {
-          setupId: existing.id,
-          agentId: existing.agentId,
-          agentName: agent.name,
-          desiredStateRevision: existing.desiredStateRevision,
-          replayed: true,
-        };
-      }
+      const replay = await this.findReplayWith(tx, input);
+      if (replay) return replay;
 
       const now = new Date().toISOString();
       const setupId = randomUUID();
       const agentId = `agent:${randomUUID()}`;
       const roleId = `custom-role:${randomUUID()}`;
       const configId = `agent-config:${randomUUID()}`;
+      const llmProfileId = `llm:onboarding:${setupId}`;
       const roleName = `${input.name} — ${input.title}`;
       const rolePrompt = [
         `You are the organisation's ${input.title}.`,
@@ -124,6 +107,15 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
         createdAt: now,
         updatedAt: now,
       });
+      await tx.insert(llmProfilesPostgres).values({
+        id: llmProfileId,
+        appId: input.appId,
+        purpose: 'default',
+        responseFamily: input.responseFamily,
+        modelAlias: input.modelAlias,
+        createdAt: now,
+        updatedAt: now,
+      });
       await tx.insert(agentConfigVersionsPostgres).values({
         id: configId,
         appId: input.appId,
@@ -135,7 +127,7 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
         rolePrompt,
         sourceRoleId: roleId,
         modelAliasSnapshot: input.modelAlias,
-        llmProfileId: 'llm:default',
+        llmProfileId,
         toolIdsJson: '[]',
         skillIdsJson: '[]',
         permissionPolicyIdsJson: '[]',
@@ -197,7 +189,7 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
   }
 
   async updateProgress(input: {
-    appId: CreateOnboardingSetupRequestDto['appId'];
+    appId: CreateOnboardingSetupPersistenceInput['appId'];
     setupId: string;
     actorId: string;
     progress: OnboardingProgress;
@@ -219,6 +211,49 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
     if (result.length === 0) {
       throw new ApplicationError('NOT_FOUND', 'Onboarding setup not found.');
     }
+  }
+
+  private async findReplayWith(
+    executor: CanonicalExecutor,
+    input: {
+      appId: CreateOnboardingSetupPersistenceInput['appId'];
+      idempotencyKey: string;
+      requestHash: string;
+    },
+  ): Promise<OnboardingSetupResponseDto | null> {
+    const [existing] = await executor
+      .select()
+      .from(onboardingSetupsPostgres)
+      .where(eq(onboardingSetupsPostgres.appId, input.appId))
+      .limit(1);
+    if (!existing) return null;
+    if (
+      existing.idempotencyKey !== input.idempotencyKey ||
+      existing.requestHash !== input.requestHash
+    ) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'This app already has an onboarding setup with different details.',
+      );
+    }
+    const [agent] = await executor
+      .select({ name: agentsPostgres.name })
+      .from(agentsPostgres)
+      .where(eq(agentsPostgres.id, existing.agentId))
+      .limit(1);
+    if (!agent) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'The existing onboarding setup is incomplete.',
+      );
+    }
+    return {
+      setupId: existing.id,
+      agentId: existing.agentId,
+      agentName: agent.name,
+      desiredStateRevision: existing.desiredStateRevision,
+      replayed: true,
+    };
   }
 }
 

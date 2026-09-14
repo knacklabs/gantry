@@ -45,6 +45,19 @@ export class OnboardingSetupService {
         'Complete employee, model, harness, and idempotency details are required.',
       );
     }
+    const requestHash = stableSha256Json({
+      name: normalized.name,
+      title: normalized.title,
+      responsibilities: normalized.responsibilities,
+      modelAlias: normalized.modelAlias,
+      agentHarness: normalized.agentHarness,
+    });
+    const replay = await this.repository.findReplay({
+      appId: normalized.appId,
+      idempotencyKey: normalized.idempotencyKey,
+      requestHash,
+    });
+    if (replay) return replay;
     const model = resolveModelSelectionForWorkload(
       normalized.modelAlias,
       'chat',
@@ -69,13 +82,8 @@ export class OnboardingSetupService {
     }
     return this.repository.createOrResume({
       ...normalized,
-      requestHash: stableSha256Json({
-        name: normalized.name,
-        title: normalized.title,
-        responsibilities: normalized.responsibilities,
-        modelAlias: normalized.modelAlias,
-        agentHarness: normalized.agentHarness,
-      }),
+      requestHash,
+      responseFamily: model.entry.responseFamily,
     });
   }
 
