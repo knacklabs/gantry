@@ -1,42 +1,16 @@
 {
   "generated_by": "autoreview",
   "task_id": "ONBOARDING-V2-1-T1",
-  "score": 2,
-  "summary": "security lens over ONBOARDING-V2-1-T1 (98 product path(s), 59c4337..f2ee254, Codex via the autoreview skill at --max-priority P2): 2 blocking, 4 non-blocking. chunk 1/3: 0 finding(s), chunk 2/3: 3 finding(s), chunk 3/3: 3 finding(s).",
+  "score": 7,
+  "summary": "security lens over ONBOARDING-V2-1-T1 (104 product path(s), 59c4337..f71b7d2, Codex via the autoreview skill at --max-priority P2): 1 blocking, 0 non-blocking. chunk 1/3: 0 finding(s), chunk 2/3: 0 finding(s), chunk 3/3: 1 finding(s).",
   "blocking_findings": [
     {
       "category": "maintainability",
       "area": "apps/web/src/features/onboarding",
-      "summary": "Remove the compatibility-only workspace-step alias (apps/web/src/features/onboarding/onboarding-workspace-step.tsx:4): Reviewer: chunk 3/3\n\nThis new module contains only a forwarding export and renames `OnboardingWorkspaceFlow` to `OnboardingWorkspaceStep`, so it is precisely the compatibility alias forbidden by the review brief."
-    },
-    {
-      "category": "maintainability",
-      "area": "apps/web/src/features/onboarding",
-      "summary": "Remove the compatibility re-exports from the flow module (apps/web/src/features/onboarding/onboarding-workspace-flow.tsx:18): Reviewer: chunk 3/3\n\nThese helpers are owned by `onboarding-workspace-content.ts`, but the flow module re-exports them solely to preserve another import surface."
+      "summary": "Remove the one-line route compatibility alias (apps/web/src/features/onboarding/onboarding-route.tsx:1): Reviewer: chunk 3/3\n\nThis module contains no route implementation and exists solely to retain the `OnboardingRoute` caller-facing name while the implementation is named `OnboardingFlow`."
     }
   ],
-  "non_blocking_findings": [
-    {
-      "category": "security",
-      "area": "apps/core/src/application/onboarding",
-      "summary": "Enforce model and credential validation in the setup mutation (apps/core/src/application/onboarding/onboarding-setup.service.ts:31): Reviewer: chunk 2/3\n\n`createOrResume` accepts every non-empty `modelAlias` and immediately delegates persistence after checking only the harness enum."
-    },
-    {
-      "category": "security",
-      "area": "apps/core/src/control/server/routes",
-      "summary": "Require a validated approver before issuing a verification challenge (apps/core/src/control/server/routes/browser-onboarding.ts:550): Reviewer: chunk 2/3\n\nVerification creation checks only that the agent has an active conversation install."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/control/server",
-      "summary": "Document the setup endpoint's actual idempotent contract (apps/core/src/control/server/openapi-onboarding-routes.ts:43): Reviewer: chunk 2/3\n\nThe route documentation declares only a `201` success, while the implementation returns `200` for an idempotent replay, and the mandatory `Idempotency-Key` header is not included in the operation parameters."
-    },
-    {
-      "category": "security",
-      "area": "apps/web/src/features/onboarding",
-      "summary": "Retain the created provider account before discovery can fail (apps/web/src/features/onboarding/use-onboarding-controller.ts:304): Reviewer: chunk 3/3\n\nThe provider account and its credential are persisted before conversation discovery, but `accountId` is recorded only after discovery succeeds."
-    }
-  ],
+  "non_blocking_findings": [],
   "recommendation": "request-changes",
   "reviewed_scope": [
     "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository-identifiers.ts",
@@ -46,8 +20,8 @@
     "apps/core/src/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.ts",
     "apps/core/src/adapters/storage/postgres/schema/index.ts",
     "apps/core/src/adapters/storage/postgres/schema/messages.ts",
-    "apps/core/src/adapters/storage/postgres/schema/migrations/20260914121535_onboarding_v2.sql",
-    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260914121535_snapshot.json",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260914173938_onboarding_v2.sql",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260914173938_snapshot.json",
     "apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json",
     "apps/core/src/adapters/storage/postgres/schema/onboarding.ts",
     "apps/core/src/app/bootstrap/channel-wiring.ts",
@@ -70,6 +44,12 @@
     "apps/core/src/control/server/routes/browser-channel-account-dtos.ts",
     "apps/core/src/control/server/routes/browser-channel-accounts.ts",
     "apps/core/src/control/server/routes/browser-model-providers.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-auth.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-challenge.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-setup.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-status.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-verification-create.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-verification.ts",
     "apps/core/src/control/server/routes/browser-onboarding.ts",
     "apps/core/src/domain/events/runtime-event-types.ts",
     "apps/core/src/domain/messages/messages.ts",
@@ -80,6 +60,7 @@
     "apps/core/test/integration/onboarding-verification.postgres.integration.test.ts",
     "apps/core/test/unit/adapters/storage/postgres/canonical-message-ops-service.test.ts",
     "apps/core/test/unit/adapters/storage/postgres/domain-repositories.postgres.test.ts",
+    "apps/core/test/unit/application/onboarding-setup.service.test.ts",
     "apps/core/test/unit/cli/slack.test.ts",
     "apps/core/test/unit/control/openapi.test.ts",
     "apps/core/test/unit/control/server/browser-agents.test.ts",
@@ -117,7 +98,6 @@
     "apps/web/src/features/onboarding/onboarding-workspace-flow.tsx",
     "apps/web/src/features/onboarding/onboarding-workspace-phase.tsx",
     "apps/web/src/features/onboarding/onboarding-workspace-step.test.ts",
-    "apps/web/src/features/onboarding/onboarding-workspace-step.tsx",
     "apps/web/src/features/onboarding/slack-manifest-drawer.test.ts",
     "apps/web/src/features/onboarding/slack-manifest-drawer.tsx",
     "apps/web/src/features/onboarding/slack-token-guide-drawer.test.ts",
@@ -142,10 +122,10 @@
     "review-animations"
   ],
   "aspect": "security",
-  "review_run_id": "f9ef77e1d4ec156f201e03c2f4447f5e4f1fc2e32c3709994459d055bfd7817d",
-  "brief_sha256": "446ada9654c1570a3c3629410a1fa3ee3d4f96f61f8ec3adfa01b8c259ef29f3",
-  "branch_diff_digest": "446b969dc2e828956a29c1ad1c31139e862f5bc65a55834c50e9c56eb8b1262a",
+  "review_run_id": "0adcc098f1395130dbfb4a34b34a546d646b55cc4e32be5c5ec6d17837036f72",
+  "brief_sha256": "b687da0035b2859cdd716a7672ca54c879e021ddfba016005f2a778a22a49344",
+  "branch_diff_digest": "56a53eafd88f0bc3332993327944faa74eb446e9739f15b4101e05c45d78f10a",
   "residual_risks": [],
-  "recorded_at": "2026-09-14T17:32:55+00:00",
-  "commit": "f2ee25417da9e02c091f9d2b62cdc83874dbd779"
+  "recorded_at": "2026-09-14T18:32:53+00:00",
+  "commit": "f71b7d23aa6789bed71f1dc1f9f91604fbc70816"
 }

@@ -115,10 +115,10 @@ Recorded lessons that apply to this task's paths. A finding that contradicts one
 
 Recorded by the harness for this story (not in the diff). Use it to verdict verification contracts; do not mark them partial for lack of execution evidence in the bundle.
 
-- verify.py: ok at 740404d5e1fb
+- verify.py: ok at 067b13728e88
   - `npm run format:check && npm run check:architecture && npm run lint:changed` -> exit 0
   - `npm run typecheck` -> exit 0
   - `npm test` -> exit 0
 - automated tests: pass
-  - The adopted V2 onboarding web, browser API, lifecycle persistence, verification correlation, migration baseline, security boundaries, visual contract, and production bundles passed their automated gates.
-  - 14 command(s) recorded, e.g. `npm test --workspace @gantry/web`
+  - The V2 onboarding implementation and post-autoreview fixes pass the scoped web, browser API, persistence, migration, formatting, lint, typecheck, runtime build, and deterministic Forge gates.
+  - 12 command(s) recorded, e.g. `npm test --workspace @gantry/web`
