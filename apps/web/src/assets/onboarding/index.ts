@@ -1,0 +1,10 @@
+export { default as gantrySplashMark } from './gantry-splash-mark.svg';
+export { default as knacklabsMark } from './knacklabs-mark.svg';
+export { default as gantryRailStepOne } from './gantry-rail-step-1.svg';
+export { default as gantryRailStepOneReduced } from './gantry-rail-step-1-reduced.svg';
+export { default as gantryRailStepTwo } from './gantry-rail-step-2.svg';
+export { default as gantryRailStepTwoReduced } from './gantry-rail-step-2-reduced.svg';
+export { default as gantryRailStepThree } from './gantry-rail-step-3.svg';
+export { default as gantryRailStepThreeReduced } from './gantry-rail-step-3-reduced.svg';
+export { default as gantryRailStepFour } from './gantry-rail-step-4.svg';
+export { default as gantryRailStepFourReduced } from './gantry-rail-step-4-reduced.svg';

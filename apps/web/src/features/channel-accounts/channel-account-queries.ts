@@ -25,6 +25,15 @@ export type ChannelAccount = {
   updatedAt: string;
 };
 
+export function selectOnboardingChannelProvider(
+  providers: ChannelProvider[],
+): ChannelProvider | undefined {
+  const available = providers
+    .filter((provider) => provider.status === 'available')
+    .sort((left, right) => left.id.localeCompare(right.id));
+  return available.find((provider) => provider.id === 'slack') ?? available[0];
+}
+
 export type ChannelConversation = {
   id: string;
   providerAccountId: string;
@@ -161,14 +170,15 @@ export async function verifyConversationApprovers(
   return response.json();
 }
 
-export async function loadSlackConversationMembers(
+export async function loadConversationMembers(
   conversationId: string,
 ): Promise<{ memberIds: string[] }> {
   const response = await browserFetch(
     `/ui/api/conversations/${encodeURIComponent(conversationId)}/members`,
     { credentials: 'same-origin' },
   );
-  if (!response.ok) throw new Error('Slack members could not be loaded.');
+  if (!response.ok)
+    throw new Error('Conversation members could not be loaded.');
   return response.json();
 }
 
@@ -199,11 +209,30 @@ export async function discoverChannelConversations(accountId: string): Promise<{
       headers: browserCsrfHeader(),
     },
   );
-  if (!response.ok)
-    throw new Error(
-      'Gantry could not discover conversations for this account.',
-    );
-  return response.json() as Promise<{ conversations: ChannelConversation[] }>;
+  if (!response.ok) {
+    const fallback =
+      'Gantry could not discover conversations for this account.';
+    let message = fallback;
+    try {
+      const body = (await response.json()) as {
+        error?: { message?: unknown };
+      };
+      const responseMessage = body.error?.message;
+      if (typeof responseMessage === 'string' && responseMessage.trim()) {
+        message = responseMessage;
+      }
+    } catch {
+      message = fallback;
+    }
+    throw new Error(message);
+  }
+  const result = (await response.json()) as {
+    conversations: ChannelConversation[];
+  };
+  if (result.conversations.length === 0) {
+    throw new Error('No supported conversations were discovered.');
+  }
+  return result;
 }
 
 export async function installAgentConversation(input: {

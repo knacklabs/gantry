@@ -37,7 +37,7 @@ import {
   createChannelAccount,
   discoverChannelConversations,
   installAgentConversation,
-  loadSlackConversationMembers,
+  loadConversationMembers,
   replaceConversationApprovers,
   verifyConversationApprovers,
 } from '../../channel-accounts/channel-account-queries';
@@ -204,7 +204,7 @@ export function AgentCreateDialog({
       verifyConversationApprovers(conversationId, currentApproverIds()),
   });
   const loadSlackMembers = useMutation({
-    mutationFn: () => loadSlackConversationMembers(conversationId),
+    mutationFn: () => loadConversationMembers(conversationId),
   });
   const finishSetup = useMutation({
     mutationFn: async () => {

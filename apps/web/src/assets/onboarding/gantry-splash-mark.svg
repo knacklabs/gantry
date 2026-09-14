@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Gantry">
+  <style>
+    @keyframes reveal { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+    @keyframes glow { 0%,100% { opacity: .4; filter: drop-shadow(0 0 0 rgba(240,238,234,0)); } 50% { opacity: 1; filter: drop-shadow(0 0 11px rgba(240,238,234,.5)); } }
+    @keyframes green-glow { 0%,100% { opacity: .45; filter: drop-shadow(0 0 0 rgba(95,174,140,0)); } 50% { opacity: 1; filter: drop-shadow(0 0 12px rgba(95,174,140,.7)); } }
+    .active { transform-box: fill-box; transform-origin: center; animation: reveal .5s cubic-bezier(.2,.7,.2,1) both, glow 3.6s ease-in-out infinite; }
+    .one { animation-delay: .05s,.6s; } .two { animation-delay: .15s,1.5s; } .three { animation-delay: .25s,2.4s; } .four { animation: reveal .5s cubic-bezier(.2,.7,.2,1) .35s both, green-glow 3.6s ease-in-out 3.1s infinite; }
+    @media (prefers-reduced-motion: reduce) { .active { animation: none; } }
+  </style>
+  <rect width="30" height="30" x="0" y="0" fill="#F0EEEA" fill-opacity=".07"/><rect width="30" height="30" x="35" y="0" fill="#F0EEEA" fill-opacity=".07"/><rect class="active one" width="30" height="30" x="70" y="0" fill="#F0EEEA"/>
+  <rect width="30" height="30" x="0" y="35" fill="#F0EEEA" fill-opacity=".07"/><rect class="active two" width="30" height="30" x="35" y="35" fill="#F0EEEA"/><rect width="30" height="30" x="70" y="35" fill="#F0EEEA" fill-opacity=".07"/>
+  <rect class="active three" width="30" height="30" x="0" y="70" fill="#F0EEEA"/><rect width="30" height="30" x="35" y="70" fill="#F0EEEA" fill-opacity=".07"/><rect class="active four" width="30" height="30" x="70" y="70" fill="#5FAE8C"/>
+</svg>
