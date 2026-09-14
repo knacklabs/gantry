@@ -1,5 +1,5 @@
 {
-  "commit": "740404d5e1fb01e9f4870e47bd9de30cca14857e",
+  "commit": "11c2e12511fca98384832eea994a2a9e17acf6b8",
   "automated": {
     "generated_by": "implementer",
     "status": "pass",
@@ -64,5 +64,49 @@
     "recorded_at": "2026-09-14T12:59:45+00:00",
     "commit": "740404d5e1fb01e9f4870e47bd9de30cca14857e"
   },
-  "updated_at": "2026-09-14T12:59:45+00:00"
+  "updated_at": "2026-09-14T15:11:50+00:00",
+  "functional": {
+    "generated_by": "functional-checker",
+    "status": "partial",
+    "score": 8,
+    "summary": "User-visible onboarding verification is strong for the isolated local runtime and product-backed flows. The current bundle serves successfully; real-browser smoke covers auth, splash and Step 1 behavior, while focused product, Postgres, and hermetic agent tests cover the remaining onboarding contracts. Live external-tenant proof remains a release gate.",
+    "blocking_findings": [],
+    "manual_validation_steps": [
+      "GET http://127.0.0.1:3940/healthz returned 200 with status ok.",
+      "GET http://127.0.0.1:3940/readyz returned 503 with database, migrations, and API auth passing; only fresh unseeded settings failed.",
+      "GET http://127.0.0.1:3940/ui/onboarding returned 200 from the rebuilt task bundle.",
+      "A real headless Chrome session used local authorization, reached /ui/onboarding, and confirmed the authorization hash was cleared.",
+      "Verified Atlas and General assistant defaults, field-specific empty validation, saved light/dark themes, and saved reduced motion.",
+      "Verified five model providers, credential-gated model selection, visible disabled Continue, fixed model header, centered rail footer, Back to splash, 375x812 overflow, and no console errors.",
+      "Focused web onboarding tests passed: 7 files and 16 tests.",
+      "Browser onboarding API unit slice passed: 14 tests.",
+      "Disposable-Postgres onboarding verification lifecycle passed: 5 tests.",
+      "Hermetic onboarding agent E2E passed: 1 test.",
+      "Web typecheck, lint, and production build passed."
+    ],
+    "non_blocking_findings": [
+      "Live Slack tenant Create to Connect proof was not performed because it requires real workspace tokens; manifest, token-guide, validation, discovery, and persistence behavior are covered by product tests.",
+      "Live Teams, Discord, and Telegram tenant proof was not performed.",
+      "Fresh-runtime readiness remains red until onboarding seeds desired settings, which is expected for the first-run state."
+    ],
+    "residual_risks": [
+      "External provider behavior can drift from local contracts and requires release-environment proof.",
+      "Live model-provider credential validation was not exercised with real secrets.",
+      "The complete pixel matrix relies on the committed visual oracle and prior deterministic screenshot evidence rather than a fresh full matrix in this functional run."
+    ],
+    "recommendation": "approve-with-caveats",
+    "reviewed_scope": [
+      "Isolated rebuilt runtime delivery",
+      "Splash and Step 1 real-browser behavior",
+      "Theme, reduced-motion, and responsive behavior",
+      "Slack/model/browser API behavior through product tests",
+      "Durable verification lifecycle with disposable Postgres",
+      "Hermetic agent onboarding projection and recovery"
+    ],
+    "remaining_gaps": [],
+    "commands_run": [],
+    "tests_added_or_updated": [],
+    "recorded_at": "2026-09-14T15:11:50+00:00",
+    "commit": "11c2e12511fca98384832eea994a2a9e17acf6b8"
+  }
 }
