@@ -315,11 +315,29 @@ maybeDescribe('onboarding verification persistence', () => {
   });
 
   it('preserves a satisfied challenge while projection retries', async () => {
+    const verificationId = randomUUID();
+    const satisfiedAt = '2099-09-14T00:03:00.000Z';
+    await runtime.service.db.insert(onboardingVerificationsPostgres).values({
+      id: verificationId,
+      setupId: setup.setupId,
+      appId,
+      agentId: setup.agentId,
+      conversationId: otherConversationId,
+      providerAccountId,
+      challenge: 'GY-7P4K',
+      status: 'satisfied',
+      expiresAt: '2099-09-14T00:10:00.000Z',
+      satisfiedAt,
+      createdBy: 'user:onboarding',
+      updatedBy: 'user:onboarding',
+      createdAt: now,
+      updatedAt: satisfiedAt,
+    });
     const [row] = await runtime.service.db
       .select()
       .from(onboardingVerificationsPostgres)
-      .where(eq(onboardingVerificationsPostgres.status, 'satisfied'));
-    const satisfiedAt = row!.satisfiedAt;
+      .where(eq(onboardingVerificationsPostgres.id, verificationId));
+    const persistedSatisfiedAt = row!.satisfiedAt;
     await runtime.service.db
       .update(onboardingVerificationsPostgres)
       .set({
@@ -331,7 +349,7 @@ maybeDescribe('onboarding verification persistence', () => {
 
     await expect(verification(row!.id)).resolves.toMatchObject({
       status: 'projection_failed',
-      satisfiedAt,
+      satisfiedAt: persistedSatisfiedAt,
       projectionFailureCode: 'RUNTIME_PROJECTION_FAILED',
     });
     const route = fs.readFileSync(
