@@ -56,7 +56,7 @@ export async function correlateOnboardingVerification(
           scope,
           eq(onboardingVerificationsPostgres.status, 'pending'),
           gt(onboardingVerificationsPostgres.expiresAt, input.eventAt),
-          sql`${input.text} ~ ('(^|[^A-Z0-9-])' || ${onboardingVerificationsPostgres.challenge} || '([^A-Z0-9-]|$)')`,
+          sql`${input.text} ~* ('(^|[^A-Z0-9-])' || ${onboardingVerificationsPostgres.challenge} || '([^A-Z0-9-]|$)')`,
         ),
       );
     return;
