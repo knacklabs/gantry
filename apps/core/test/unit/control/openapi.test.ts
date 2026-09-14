@@ -421,9 +421,8 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
 
 describe('control OpenAPI documentation', () => {
   it('documents idempotent onboarding setup creation and replay', () => {
-    const operation = getGantryOpenApiDocument().paths[
-      '/ui/api/onboarding/setups'
-    ]?.post;
+    const operation =
+      getGantryOpenApiDocument().paths['/ui/api/onboarding/setups']?.post;
 
     expect(operation.responses).toHaveProperty('200');
     expect(operation.responses).toHaveProperty('201');

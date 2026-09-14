@@ -1,5 +1,5 @@
 {
-  "id": "41322b39-06f3-462d-98e6-cab22cee7772",
+  "id": "c5d84eb4-a8ae-4c87-a9b3-f72c7c7ade77",
   "prevId": "9d1c80c7-15de-499b-a199-a6549f4bd88f",
   "version": "7",
   "dialect": "postgresql",
@@ -14833,6 +14833,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"onboarding_verifications\".\"status\" IN ('pending', 'inbound_received', 'satisfied', 'projection_failed')",
           "concurrently": false,
           "method": "btree",
           "with": {}

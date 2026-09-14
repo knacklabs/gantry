@@ -3,9 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { channelSetupManifestFor } from '@core/channels/control-provider-catalog.js';
-import {
-  isBrowserOnboardingPath,
-} from '@core/control/server/routes/browser-onboarding.js';
+import { isBrowserOnboardingPath } from '@core/control/server/routes/browser-onboarding.js';
 import { onboardingChallengeText } from '@core/control/server/routes/browser-onboarding-challenge.js';
 import { AGENT_HARNESSES } from '@core/shared/agent-engine.js';
 import { isOnboardingChallengeMessage } from '@core/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.js';

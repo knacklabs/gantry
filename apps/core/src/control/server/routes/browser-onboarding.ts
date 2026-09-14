@@ -60,12 +60,7 @@ export async function handleBrowserOnboardingRoutes(
     );
   }
   if (verificationMatch && !verificationMatch[2] && req.method === 'GET') {
-    return getOnboardingVerification(
-      req,
-      res,
-      settings,
-      verificationMatch[1],
-    );
+    return getOnboardingVerification(req, res, settings, verificationMatch[1]);
   }
   if (pathname === STATUS_PATH && req.method === 'GET') {
     return getOnboardingStatus(req, res, settings);

@@ -110,7 +110,11 @@ export const onboardingVerificationsPostgres = pgTable(
   (table) => ({
     activeChallenge: uniqueIndex(
       'onboarding_verifications_active_challenge_unique',
-    ).on(table.appId, table.challenge),
+    )
+      .on(table.appId, table.challenge)
+      .where(
+        sql`${table.status} IN ('pending', 'inbound_received', 'satisfied', 'projection_failed')`,
+      ),
     activeConversation: uniqueIndex(
       'onboarding_verifications_active_conversation_unique',
     )

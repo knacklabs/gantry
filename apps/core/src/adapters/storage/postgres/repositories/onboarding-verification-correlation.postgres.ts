@@ -4,6 +4,12 @@ import { onboardingVerificationsPostgres } from '../schema/schema.js';
 import type { Message } from '../../../../domain/messages/messages.js';
 import type { CanonicalExecutor } from './canonical-graph-repository.postgres.js';
 
+const ONBOARDING_CHALLENGE = /(?:^|[^A-Z0-9-])GY-[A-F0-9]{5}(?=$|[^A-Z0-9-])/i;
+
+export function isOnboardingChallengeMessage(text: string): boolean {
+  return ONBOARDING_CHALLENGE.test(text);
+}
+
 export async function correlateOnboardingVerification(
   tx: CanonicalExecutor,
   input: {
@@ -31,7 +37,11 @@ export async function correlateOnboardingVerification(
       ? eq(onboardingVerificationsPostgres.threadId, input.threadId)
       : isNull(onboardingVerificationsPostgres.threadId),
   );
-  if (input.direction === 'inbound' && input.text?.trim()) {
+  if (
+    input.direction === 'inbound' &&
+    input.text &&
+    isOnboardingChallengeMessage(input.text)
+  ) {
     await tx
       .update(onboardingVerificationsPostgres)
       .set({
@@ -50,6 +60,7 @@ export async function correlateOnboardingVerification(
       );
     return;
   }
+  if (input.direction === 'inbound') return;
   if (
     input.direction !== 'outbound' ||
     input.deliveryStatus !== 'sent' ||
