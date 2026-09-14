@@ -378,6 +378,11 @@ describe('PostgresMessageRepository', () => {
       delete: vi.fn(() => ({
         where: vi.fn(async () => undefined),
       })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(async () => undefined),
+        })),
+      })),
     };
     const db = {
       transaction: vi.fn(
@@ -453,6 +458,11 @@ describe('PostgresMessageRepository', () => {
       })),
       delete: vi.fn(() => ({
         where: vi.fn(async () => undefined),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(async () => undefined),
+        })),
       })),
     };
     const cleanupTx = {

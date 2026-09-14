@@ -23,6 +23,7 @@ import {
 import { requiredModelCredentialProviders } from '@core/application/model-resolution/required-model-credential-providers.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
+import { handleBrowserControlRoutes } from '@core/control/server/browser-route-dispatch.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
 import { handleBrainRoutes } from '@core/control/server/routes/brain.js';
@@ -48,6 +49,12 @@ import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
 
 const expectedControlRoutes = [
+  'GET /ui/api/onboarding/channel-manifest',
+  'GET /ui/api/onboarding/status',
+  'GET /ui/api/onboarding/verifications/{verificationId}',
+  'POST /ui/api/onboarding/setups',
+  'POST /ui/api/onboarding/verifications',
+  'POST /ui/api/onboarding/verifications/{verificationId}/project',
   'POST /llm/v1/chat/completions',
   'POST /llm/v1/messages',
   'POST /llm/v1/messages/count_tokens',
@@ -374,6 +381,15 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
   const ctx = mockContext();
   const url = new URL(pathname, 'http://localhost');
   const handlers = [
+    () =>
+      handleBrowserControlRoutes({
+        req,
+        res,
+        ctx,
+        url,
+        pathname,
+        getSettings: createDefaultRuntimeSettings,
+      }),
     () => handleOpenApiRoutes(req, res, pathname),
     () => handleSystemRoutes(req, res, ctx, pathname),
     () => handleGuidedActionRoutes(req, res, ctx, pathname),

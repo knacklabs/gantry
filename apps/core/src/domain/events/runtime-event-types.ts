@@ -81,6 +81,7 @@ export const RUNTIME_EVENT_TYPES = {
   AUTH_REAUTHENTICATED: 'auth.reauthenticated',
   AUTH_CONFIGURATION_ACTIVATED: 'auth.configuration.activated',
   AUTH_ACCESS_RECOVERED: 'auth.access.recovered',
+  ONBOARDING_SETUP_CREATED: 'onboarding.setup.created',
 } as const;
 
 export type RuntimeEventType =

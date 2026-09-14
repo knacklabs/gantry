@@ -8,15 +8,18 @@ import type {
   OnboardingSetupResponseDto,
 } from '../../../../application/onboarding/onboarding-setup.dto.js';
 import type { OnboardingSetupRepository } from '../../../../application/onboarding/onboarding-setup-repository.interface.js';
+import type { AgentId } from '../../../../domain/agent/agent.js';
+import type { AppId } from '../../../../domain/app/app.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { stableId } from './person-identity-mappers.postgres.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import {
   agentConfigVersionsPostgres,
   agentsPostgres,
   appsPostgres,
   customRolesPostgres,
   onboardingSetupsPostgres,
-  runtimeEventsPostgres,
   settingsRevisionsPostgres,
   usersPostgres,
 } from '../schema/schema.js';
@@ -159,13 +162,15 @@ export class PostgresOnboardingSetupRepository implements OnboardingSetupReposit
         note: 'First-agent onboarding setup',
         createdAt: now,
       });
-      await tx.insert(runtimeEventsPostgres).values({
-        appId: input.appId,
-        agentId,
-        eventType: 'onboarding.setup.created',
-        actor: `human:${input.actorId}`,
+      await new PostgresRuntimeEventRepository(
+        this.db,
+      ).appendRuntimeEventWithExecutor(tx, {
+        appId: input.appId as AppId,
+        agentId: agentId as AgentId,
+        eventType: RUNTIME_EVENT_TYPES.ONBOARDING_SETUP_CREATED,
+        actor: { kind: 'human', personId: input.actorId },
         idempotencyKey: `onboarding-setup:${setupId}`,
-        payloadJson: JSON.stringify({ setupId, revision }),
+        payload: { setupId, revision },
         createdAt: now,
       });
       await tx.insert(onboardingSetupsPostgres).values({
