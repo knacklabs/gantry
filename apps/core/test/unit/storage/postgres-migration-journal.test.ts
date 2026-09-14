@@ -1940,6 +1940,13 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"created_by" text NOT NULL');
     expect(migration).toContain('"updated_by" text NOT NULL');
     expect(migration).toContain('"idx_onboarding_verifications_correlation"');
+    expect(migration).toContain(
+      '"onboarding_verifications_active_challenge_unique"',
+    );
+    expect(migration).toContain(
+      "WHERE \"onboarding_verifications\".\"status\" IN ('pending', 'inbound_received', 'satisfied', 'projection_failed')",
+    );
+    expect(migration).not.toContain('"public".');
   });
 
   it('keeps durable conversation history coverage migration and schema in sync', () => {

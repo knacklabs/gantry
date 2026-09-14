@@ -36,16 +36,16 @@ CREATE TABLE "onboarding_verifications" (
 );
 --> statement-breakpoint
 ALTER TABLE "messages" ADD COLUMN "run_id" text;--> statement-breakpoint
-ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_setup_id_onboarding_setups_id_fk" FOREIGN KEY ("setup_id") REFERENCES "public"."onboarding_setups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "public"."apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_provider_account_id_provider_accounts_id_fk" FOREIGN KEY ("provider_account_id") REFERENCES "public"."provider_accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_thread_id_conversation_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."conversation_threads"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_inbound_message_id_messages_id_fk" FOREIGN KEY ("inbound_message_id") REFERENCES "public"."messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_outbound_message_id_messages_id_fk" FOREIGN KEY ("outbound_message_id") REFERENCES "public"."messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_setups" ADD CONSTRAINT "onboarding_setups_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_setup_id_onboarding_setups_id_fk" FOREIGN KEY ("setup_id") REFERENCES "onboarding_setups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_provider_account_id_provider_accounts_id_fk" FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_thread_id_conversation_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "conversation_threads"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_inbound_message_id_messages_id_fk" FOREIGN KEY ("inbound_message_id") REFERENCES "messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "onboarding_verifications" ADD CONSTRAINT "onboarding_verifications_outbound_message_id_messages_id_fk" FOREIGN KEY ("outbound_message_id") REFERENCES "messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "onboarding_setups_app_unique" ON "onboarding_setups" USING btree ("app_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "onboarding_setups_agent_unique" ON "onboarding_setups" USING btree ("agent_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "onboarding_setups_app_idempotency_unique" ON "onboarding_setups" USING btree ("app_id","idempotency_key");--> statement-breakpoint

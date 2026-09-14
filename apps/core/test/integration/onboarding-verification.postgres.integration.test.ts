@@ -338,7 +338,9 @@ maybeDescribe('onboarding verification persistence', () => {
       'apps/core/src/control/server/routes/browser-onboarding-verification.ts',
       'utf8',
     );
-    expect(route).toContain("verification.status !== 'projection_failed'");
+    expect(route).toContain(
+      "['satisfied', 'projection_failed'].includes(verification.status)",
+    );
     expect(route).toContain("status: 'completed'");
     expect(route).not.toMatch(
       /status: 'projection_failed',[\s\S]{0,160}satisfiedAt: null/,
