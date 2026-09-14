@@ -122,7 +122,7 @@ describe('browser onboarding route', () => {
   it('avoids onboarding writes for ordinary inbound messages', () => {
     expect(isOnboardingChallengeMessage('hello Atlas')).toBe(false);
     expect(
-      isOnboardingChallengeMessage('@atlas are you there? · GY-4A7F2'),
+      isOnboardingChallengeMessage('@atlas are you there? · GY-4K7P'),
     ).toBe(true);
   });
 

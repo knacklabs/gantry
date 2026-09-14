@@ -4,7 +4,8 @@ import { onboardingVerificationsPostgres } from '../schema/schema.js';
 import type { Message } from '../../../../domain/messages/messages.js';
 import type { CanonicalExecutor } from './canonical-graph-repository.postgres.js';
 
-const ONBOARDING_CHALLENGE = /(?:^|[^A-Z0-9-])GY-[A-F0-9]{5}(?=$|[^A-Z0-9-])/i;
+const ONBOARDING_CHALLENGE =
+  /(?:^|[^A-Z0-9-])GY-[A-Z0-9]{4,5}(?=$|[^A-Z0-9-])/i;
 
 export function isOnboardingChallengeMessage(text: string): boolean {
   return ONBOARDING_CHALLENGE.test(text);
