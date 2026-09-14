@@ -19,8 +19,8 @@ export async function readConversationInstallBody(
   res: ServerResponse,
 ): Promise<ConversationInstallBody | null> {
   const value = await readBody(req, res);
+  if (!value) return null;
   if (
-    !value ||
     Object.keys(value).some(
       (key) => !['providerAccountId', 'memoryScope'].includes(key),
     ) ||
@@ -47,8 +47,8 @@ export async function readApproverIds(
   res: ServerResponse,
 ): Promise<string[] | null> {
   const value = await readBody(req, res);
+  if (!value) return null;
   if (
-    !value ||
     Object.keys(value).some((key) => key !== 'userIds') ||
     !Array.isArray(value.userIds) ||
     value.userIds.length === 0 ||
@@ -70,8 +70,8 @@ export async function readAccountCreationBody(
   res: ServerResponse,
 ): Promise<AccountCreationBody | null> {
   const value = await readBody(req, res);
+  if (!value) return null;
   if (
-    !value ||
     Object.keys(value).some(
       (key) => !['agentId', 'providerId', 'label', 'credentials'].includes(key),
     ) ||
