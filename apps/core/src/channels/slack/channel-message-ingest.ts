@@ -95,6 +95,7 @@ export async function ingestSlackMessage(input: {
   event: SlackMessageLike;
   opts: SlackIngestOpts;
   botUserId: string | null;
+  isSlackBotUser: (userId: string | undefined) => Promise<boolean>;
   resolveChannelName: (channelId: string) => Promise<string>;
   resolveUserName: (userId?: string) => Promise<string>;
   isLikelyGroupConversation: (channelId: string) => boolean;
@@ -122,7 +123,7 @@ export async function ingestSlackMessage(input: {
     return;
   }
   if (!event.channel || !event.ts) return;
-  if (event.bot_id) return;
+  if (event.bot_id && (await input.isSlackBotUser(event.user))) return;
   if (event.subtype && event.subtype !== 'file_share') return;
   if (event.subtype === 'message_changed') return;
   if (event.edited) return;

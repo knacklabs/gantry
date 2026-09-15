@@ -70,23 +70,19 @@ export async function sendSlackTestMessage(input: {
   token: string;
   channelId: string;
   mentionUserId?: string;
-}): Promise<{ ts: string; text: string; botId?: string; subtype?: string }> {
+}): Promise<{ ts: string; text: string }> {
   const mention = input.mentionUserId ? `<@${input.mentionUserId}> ` : '';
   const text = `${mention}[gantry-e2e:${randomUUID()}] Reply with one short sentence confirming you received this message.`;
-  const result = await slackApi<{
-    ts?: string;
-    message?: { bot_id?: string; subtype?: string };
-  }>(input.token, 'chat.postMessage', {
-    channel: input.channelId,
-    text,
-  });
+  const result = await slackApi<{ ts?: string }>(
+    input.token,
+    'chat.postMessage',
+    {
+      channel: input.channelId,
+      text,
+    },
+  );
   if (!result.ts) throw new Error('Slack chat.postMessage did not return ts');
-  return {
-    ts: result.ts,
-    text,
-    botId: result.message?.bot_id,
-    subtype: result.message?.subtype,
-  };
+  return { ts: result.ts, text };
 }
 
 export async function waitForSlackThreadReply(input: {

@@ -215,17 +215,6 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
           mentionUserId: botUserId,
         });
         rootTs = message.ts;
-        if (message.botId || message.subtype === 'bot_message') {
-          await deleteSlackMessage({
-            token: slack.humanSenderToken,
-            channelId,
-            ts: rootTs,
-          });
-          rootTs = '';
-          throw new Error(
-            'E2E_SLACK_HUMAN_SENDER_TOKEN posted an app/bot-authored message; use a dedicated Slack user token that posts as its human owner',
-          );
-        }
         const reply = await waitForSlackThreadReply({
           token: slack.botToken,
           channelId,

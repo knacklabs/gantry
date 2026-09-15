@@ -41,6 +41,7 @@ import {
 } from './channel-message-ingest.js';
 import { registerSlackUserQuestionHandlers } from './user-question-interactions.js';
 import { bootstrapGroupInstall } from '../group-install-bootstrap.js';
+import { isSlackBotUser } from './slack-user-profile.js';
 
 export interface SlackMemberJoinedChannelEvent {
   user?: string;
@@ -119,6 +120,13 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       event,
       opts: this.opts,
       botUserId: this.botUserId,
+      isSlackBotUser: (userId) =>
+        isSlackBotUser({
+          app: this.app,
+          botUserId: this.botUserId,
+          cache: this.slackBotUserCache,
+          userId,
+        }),
       resolveChannelName: (channelId) => this.resolveChannelName(channelId),
       resolveUserName: (userId) => this.resolveUserName(userId),
       isLikelyGroupConversation: (channelId) =>
