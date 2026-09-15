@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 export interface SlackLiveCredentials {
-  userToken: string;
+  humanSenderToken: string;
   botToken: string;
   appToken: string;
 }
@@ -15,17 +15,17 @@ interface SlackApiEnvelope {
 export function requireSlackLiveCredentials():
   | { credentials: SlackLiveCredentials }
   | { skipReason: string } {
-  const userToken = process.env.E2E_SLACK_USER_TOKEN?.trim();
+  const humanSenderToken = process.env.E2E_SLACK_HUMAN_SENDER_TOKEN?.trim();
   const botToken = process.env.E2E_SLACK_BOT_TOKEN?.trim();
   const appToken = process.env.E2E_SLACK_APP_TOKEN?.trim();
   const missing = [
-    !userToken && 'E2E_SLACK_USER_TOKEN',
+    !humanSenderToken && 'E2E_SLACK_HUMAN_SENDER_TOKEN',
     !botToken && 'E2E_SLACK_BOT_TOKEN',
     !appToken && 'E2E_SLACK_APP_TOKEN',
   ].filter(Boolean);
   return missing.length
     ? { skipReason: `${missing.join(', ')} not set` }
-    : { credentials: { userToken, botToken, appToken } };
+    : { credentials: { humanSenderToken, botToken, appToken } };
 }
 
 async function slackApi<T extends SlackApiEnvelope>(
@@ -94,19 +94,23 @@ export async function sendSlackTestMessage(input: {
   token: string;
   channelId: string;
   mentionUserId?: string;
-}): Promise<{ ts: string; text: string }> {
+}): Promise<{ ts: string; text: string; botId?: string; subtype?: string }> {
   const mention = input.mentionUserId ? `<@${input.mentionUserId}> ` : '';
   const text = `${mention}[gantry-e2e:${randomUUID()}] Reply with one short sentence confirming you received this message.`;
-  const result = await slackApi<{ ts?: string }>(
-    input.token,
-    'chat.postMessage',
-    {
-      channel: input.channelId,
-      text,
-    },
-  );
+  const result = await slackApi<{
+    ts?: string;
+    message?: { bot_id?: string; subtype?: string };
+  }>(input.token, 'chat.postMessage', {
+    channel: input.channelId,
+    text,
+  });
   if (!result.ts) throw new Error('Slack chat.postMessage did not return ts');
-  return { ts: result.ts, text };
+  return {
+    ts: result.ts,
+    text,
+    botId: result.message?.bot_id,
+    subtype: result.message?.subtype,
+  };
 }
 
 export async function waitForSlackThreadReply(input: {

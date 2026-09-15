@@ -1,5 +1,5 @@
 // Protected real-Slack scenario. It deliberately uses Slack's Web API as the
-// test actor: user token posts a root message, the isolated Gantry runtime
+// test actor: a dedicated human-sender token posts a root message, the isolated Gantry runtime
 // receives it through Socket Mode, and the test reads the bot's thread reply.
 // No reply wording is asserted.
 
@@ -68,7 +68,9 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
   afterAll(async () => {
     const secrets = [
       ...(harness?.secrets ?? []),
-      ...(slack ? [slack.userToken, slack.botToken, slack.appToken] : []),
+      ...(slack
+        ? [slack.humanSenderToken, slack.botToken, slack.appToken]
+        : []),
       ...(modelApiKey ? [modelApiKey] : []),
     ];
     if (sawFailure && harness && evidence) {
@@ -86,7 +88,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
         });
       if (rootTs)
         await deleteSlackMessage({
-          token: slack.userToken,
+          token: slack.humanSenderToken,
           channelId,
           ts: rootTs,
         });
@@ -107,7 +109,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
         evidence = startEvidenceRun({
           scenario: 'slack-live',
           secrets: [
-            slack.userToken,
+            slack.humanSenderToken,
             slack.botToken,
             slack.appToken,
             modelApiKey,
@@ -117,8 +119,8 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
           harness: 'socket-mode',
         });
         evidence.phase('discover-channel');
-        channelId = await slackChannelIdByName(slack.userToken, CHANNEL_NAME);
-        const userId = await slackBotUserId(slack.userToken);
+        channelId = await slackChannelIdByName(slack.botToken, CHANNEL_NAME);
+        const userId = await slackBotUserId(slack.humanSenderToken);
         const botUserId = await slackBotUserId(slack.botToken);
 
         evidence.phase('boot-runtime');
@@ -207,13 +209,18 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
 
         evidence.phase('send-and-verify');
         const message = await sendSlackTestMessage({
-          token: slack.userToken,
+          token: slack.humanSenderToken,
           channelId,
           mentionUserId: botUserId,
         });
         rootTs = message.ts;
+        if (message.botId || message.subtype === 'bot_message') {
+          throw new Error(
+            'E2E_SLACK_HUMAN_SENDER_TOKEN posted an app/bot-authored message; use a dedicated Slack user token that posts as its human owner',
+          );
+        }
         const reply = await waitForSlackThreadReply({
-          token: slack.userToken,
+          token: slack.botToken,
           channelId,
           rootTs,
           botUserId,
