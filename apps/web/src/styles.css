@@ -675,7 +675,7 @@
 @media (min-width: 768px) {
   .onboarding-model-card {
     align-content: start;
-    height: 50dvh;
+    height: 55dvh;
     min-height: 0;
   }
   .onboarding-model-card .onboarding-model-setup {
@@ -1026,7 +1026,7 @@
 }
 @media (min-width: 768px) {
   .onboarding-split-card {
-    height: 50dvh;
+    height: 55dvh;
   }
   .onboarding-split-card .onboarding-identity-pane,
   .onboarding-split-card .onboarding-model-pane {

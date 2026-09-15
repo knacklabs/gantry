@@ -87,7 +87,7 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
   expect(styles).toContain('grid-template-columns: 266px minmax(0, 1fr)');
   expect(styles).toContain('@keyframes onboarding-pulse');
   expect(styles).toMatch(
-    /@media \(min-width: 768px\) \{\s*\.onboarding-model-card \{\s*align-content: start;\s*height: 50dvh;/,
+    /@media \(min-width: 768px\) \{\s*\.onboarding-model-card \{\s*align-content: start;\s*height: 55dvh;/,
   );
   expect(styles).toMatch(
     /\.onboarding-model-card \.onboarding-model-setup \{\s*align-self: stretch;\s*height: calc\(100% - 15px\);\s*min-height: 0;\s*overflow: hidden;/,
