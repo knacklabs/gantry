@@ -1,7 +1,7 @@
 {
   "id": "cache-bug-T2",
   "title": "Ceiling policy, the cap setting, and event types",
-  "status": "active",
+  "status": "done",
   "started_at": "2026-09-11T17:17:21+00:00",
   "base_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
   "dirty_at_start": {
@@ -10,5 +10,30 @@
       "git": "1 .M N... 100644 100644 100644 869656abdb796f22a5aa0c9d34767c0591b4788e 869656abdb796f22a5aa0c9d34767c0591b4788e .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000100644 869656abdb796f22a5aa0c9d34767c0591b4788e 0\t.factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000\u0000H .factory/stories/cache-bug/grills/tasks/cache-bug-T2.json\u0000"
     }
   },
-  "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c"
+  "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c",
+  "local_review_stamp": {
+    "stage_id": "cache-bug-T2",
+    "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c",
+    "brief_sha256": "aeabd82be5655135476ffbf90c838c2ec49a9db13e1337509ec55613012282fc",
+    "base_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
+    "product_tree_digest": "2ea28b9990f7c46160918701185334425d1cf963cb1dd7cad027c50dfb5ff943",
+    "recorded_at": "2026-09-12T19:55:19+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  },
+  "completed_at": "2026-09-12T20:10:39+00:00",
+  "measured": {
+    "strays": [],
+    "files": 26,
+    "lines": 2107,
+    "budget": {
+      "files": 34,
+      "lines": 3600
+    },
+    "test_id_misses": []
+  }
 }
