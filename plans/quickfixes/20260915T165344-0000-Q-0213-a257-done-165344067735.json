@@ -1,0 +1,9 @@
+{
+  "event": "done",
+  "id": "Q-0213-a257",
+  "profile": "quickfix",
+  "reason": "Correct the approved cache-bug story plan for deferrals D-0090 and D-0089, whose triggers fire before T3's ceremony. D-0090: the plan contradicted itself on the drain boundary, saying at one point that the retired-reference queue is drained at the end of runAgent and ruling 230 lines later that a drain there would precede or delay the fallback reply. T3 owns that boundary and its implementer reads this section, so the contradiction had to go before T3's task grill. D-0089: T4's section claimed it serves the API half of S4, but S4 is the post-run measurement raise with no API surface; T4's settings endpoint belongs to S7, and the Acceptance Criteria section named no criterion for T4 at all, so the task traced to nothing.",
+  "started_at": "2026-09-15T16:53:43+00:00",
+  "completed_at": "2026-09-15T16:53:44+00:00",
+  "files": []
+}
