@@ -2,28 +2,33 @@
   "generated_by": "autoreview",
   "task_id": "ONBOARDING-V2-1-T1",
   "score": 8,
-  "summary": "performance lens over ONBOARDING-V2-1-T1 (104 product path(s), 59c4337..f71b7d2, Codex via the autoreview skill at --max-priority P2): 0 blocking, 4 non-blocking. chunk 1/3: 1 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 1 finding(s).",
+  "summary": "performance lens over ONBOARDING-V2-1-T1 (103 product path(s), 59c4337..86b4b3f, Codex via the autoreview skill at --max-priority P2): 0 blocking, 5 non-blocking. chunk 1/3: 1 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 2 finding(s).",
   "blocking_findings": [],
   "non_blocking_findings": [
     {
       "category": "bug",
       "area": "apps/core/src/adapters/storage/postgres/repositories",
-      "summary": "[P2] Avoid an onboarding UPDATE on every ordinary outbound reply (apps/core/src/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.ts:82): Reviewer: chunk 1/3\n\nThis hook is invoked from both message-persistence paths, and any sent outbound message with the normal run and reply metadata reaches this `UPDATE`, even when no onboarding verification exists."
-    },
-    {
-      "category": "bug",
-      "area": "apps/core/src/application/onboarding",
-      "summary": "Idempotent setup replays repeat the external model preflight (apps/core/src/application/onboarding/onboarding-setup.service.ts:57): Reviewer: chunk 2/3\n\nEvidence: `createOrResume` calls `validateModel` before the repository is allowed to identify and return an existing setup."
+      "summary": "Avoid an extra verification UPDATE on every delivered reply (apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts:331): Reviewer: chunk 1/3\n\nStatic evidence: every persisted outbound message with `deliveryStatus === 'sent'`, a run id, and a reply target reaches `correlateOnboardingVerification`, even when the run has no onboarding verification; the domain repository adds the same hook."
     },
     {
       "category": "bug",
       "area": "apps/core/src/control/server/routes",
-      "summary": "Onboarding status loads full app collections on the console landing path (apps/core/src/control/server/routes/browser-onboarding-status.ts:48): Reviewer: chunk 2/3\n\nEvidence: the status handler serially loads every agent and every provider account, then loads setups and performs additional install, approver, and verification queries for the matching setup."
+      "summary": "[P2] Index the latest-verification lookup (apps/core/src/control/server/routes/browser-onboarding-status.ts:93): Reviewer: chunk 2/3\n\nThe status endpoint executes `WHERE app_id = ? AND agent_id = ? ORDER BY created_at DESC LIMIT 1`, but none of the new verification indexes has an `(app_id, agent_id, created_at)` prefix."
+    },
+    {
+      "category": "bug",
+      "area": "apps/core/src/control/server/routes",
+      "summary": "[P2] Avoid loading every agent and provider account for one setup (apps/core/src/control/server/routes/browser-onboarding-status.ts:39): Reviewer: chunk 2/3\n\nThis request loads complete app-wide agent and provider-account collections before querying `onboarding_setups`, even though the new unique `onboarding_setups_app_unique` constraint proves at most one setup can be resumed."
     },
     {
       "category": "bug",
       "area": "apps/web/src/features/onboarding",
-      "summary": "[P2] Skip member discovery for direct-message conversations (apps/web/src/features/onboarding/use-onboarding-controller.ts:149): Reviewer: chunk 3/3\n\nThe explicit `enabled` condition starts `loadConversationMembers` for every selected Slack conversation, including direct messages."
+      "summary": "[P2] Bound the discovered-conversation selector (apps/web/src/features/onboarding/onboarding-step-content.tsx:131): Reviewer: chunk 3/3\n\n`conversations.map(...)` eagerly creates an `<option>` for every discovered conversation."
+    },
+    {
+      "category": "bug",
+      "area": "apps/web/src/features/onboarding",
+      "summary": "[P2] Do not render the complete conversation member list at once (apps/web/src/features/onboarding/onboarding-step-content.tsx:157): Reviewer: chunk 3/3\n\nThe approver control eagerly maps every returned member into a native `<select>`."
     }
   ],
   "recommendation": "approve-with-caveats",
@@ -106,7 +111,6 @@
     "apps/web/src/features/onboarding/onboarding-mark.tsx",
     "apps/web/src/features/onboarding/onboarding-model-setup.test.ts",
     "apps/web/src/features/onboarding/onboarding-model-setup.tsx",
-    "apps/web/src/features/onboarding/onboarding-route.tsx",
     "apps/web/src/features/onboarding/onboarding-splash.tsx",
     "apps/web/src/features/onboarding/onboarding-step-content.tsx",
     "apps/web/src/features/onboarding/onboarding-workspace-content.ts",
@@ -137,10 +141,10 @@
     "review-animations"
   ],
   "aspect": "performance",
-  "review_run_id": "0adcc098f1395130dbfb4a34b34a546d646b55cc4e32be5c5ec6d17837036f72",
+  "review_run_id": "09030a3a7e6fa4eb3045e9d1b546d693996fcbd0ca1b3cf36f7d73863a792318",
   "brief_sha256": "b687da0035b2859cdd716a7672ca54c879e021ddfba016005f2a778a22a49344",
-  "branch_diff_digest": "56a53eafd88f0bc3332993327944faa74eb446e9739f15b4101e05c45d78f10a",
+  "branch_diff_digest": "ce01bb4a08eca0e129e29c81b7b0987f7e3aa1463b749860a259fcfbc79bd49a",
   "residual_risks": [],
-  "recorded_at": "2026-09-14T18:32:53+00:00",
-  "commit": "f71b7d23aa6789bed71f1dc1f9f91604fbc70816"
+  "recorded_at": "2026-09-15T05:41:32+00:00",
+  "commit": "86b4b3fab5b89b73a98d6f55106ed0ec146ed9e1"
 }

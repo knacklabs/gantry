@@ -1,18 +1,13 @@
 {
   "generated_by": "autoreview",
   "task_id": "ONBOARDING-V2-1-T1",
-  "score": 2,
-  "summary": "quality lens over ONBOARDING-V2-1-T1 (104 product path(s), 59c4337..f71b7d2, Codex via the autoreview skill at --max-priority P2): 2 blocking, 4 non-blocking. chunk 1/3: 2 finding(s), chunk 2/3: 2 finding(s), chunk 3/3: 2 finding(s).",
+  "score": 5,
+  "summary": "quality lens over ONBOARDING-V2-1-T1 (103 product path(s), 59c4337..86b4b3f, Codex via the autoreview skill at --max-priority P2): 1 blocking, 6 non-blocking. chunk 1/3: 1 finding(s), chunk 2/3: 3 finding(s), chunk 3/3: 3 finding(s).",
   "blocking_findings": [
     {
-      "category": "security",
-      "area": "apps/core/src/adapters/storage/postgres/repositories",
-      "summary": "[P1] Bind the new agent config to an app-owned LLM profile (apps/core/src/adapters/storage/postgres/repositories/onboarding-setup-repository.postgres.ts:130): Reviewer: chunk 1/3\n\nEvery onboarding setup writes the global literal `llm:default` even though `input.appId` is variable and `llm_profiles` rows are app-owned."
-    },
-    {
       "category": "regression",
-      "area": "apps/core/src/channels/slack",
-      "summary": "New `commands` requirement rejects previously valid Slack installations (apps/core/src/channels/slack/app-manifest.ts:13): Reviewer: chunk 2/3\n\n`commands` was added to `SLACK_REQUIRED_BOT_SCOPES`, whose missing entries are treated as hard failures by `validateSlackBotScopeHeader`; the deleted implementation did not require this scope."
+      "area": "apps/web/src/features/onboarding",
+      "summary": "[P1] Do not link to the console before onboarding completes (apps/web/src/features/onboarding/onboarding-flow.tsx:68): Reviewer: chunk 2/3\n\nThe brand is an unconditional link to `/overview`, so an administrator can leave the flow and enter the console from any onboarding step even though the explicit \u201cOpen the console\u201d action is disabled until verification reaches `completed`."
     },
     {
       "category": "plan-contract-partial",
@@ -78,23 +73,33 @@
   "non_blocking_findings": [
     {
       "category": "bug",
-      "area": "apps/core/src/adapters/storage/postgres/repositories",
-      "summary": "[P2] Use consistent case handling when correlating verification codes (apps/core/src/adapters/storage/postgres/repositories/onboarding-verification-correlation.postgres.ts:59): Reviewer: chunk 1/3\n\nThe exported prefilter accepts challenge codes case-insensitively (`ONBOARDING_CHALLENGE` has the `i` flag), but the database transition uses PostgreSQL's case-sensitive `~` operator."
+      "area": "apps/core/src/adapters/storage/postgres/schema/migrations",
+      "summary": "Add a CHECK constraint for verification status (apps/core/src/adapters/storage/postgres/schema/migrations/20260914173938_onboarding_v2.sql:26): Reviewer: chunk 1/3\n\nThe lifecycle status is stored as unrestricted text, while both active-uniqueness indexes only recognize a fixed set of status strings."
     },
     {
       "category": "regression",
+      "area": "apps/web/src/app/routes",
+      "summary": "[P2] Do not treat onboarding status failures as completed onboarding (apps/web/src/app/routes/foundation-routes.tsx:18): Reviewer: chunk 2/3\n\nEvery non-2xx response is converted to `{ firstRun: false, resume: null }`, which redirects to `/overview`."
+    },
+    {
+      "category": "bug",
       "area": "apps/core/src/control/server/routes",
-      "summary": "Malformed JSON causes channel-account handlers to send two responses (apps/core/src/control/server/routes/browser-channel-account-dtos.ts:112): Reviewer: chunk 2/3\n\n`readBody` sends an `INVALID_REQUEST` response and then returns `null`, while every caller treats `null` as another validation failure and calls `sendError` again."
+      "summary": "[P2] Prevent a failed concurrent projection from downgrading completion (apps/core/src/control/server/routes/browser-onboarding-verification.ts:78): Reviewer: chunk 2/3\n\nThe failure handler updates the row to `projection_failed` using only its id and app id."
     },
     {
       "category": "bug",
       "area": "apps/web/src/features/onboarding",
-      "summary": "[P2] Rotate the idempotency key after a successful setup save (apps/web/src/features/onboarding/use-onboarding-controller.ts:231): Reviewer: chunk 3/3\n\n`setupIdempotencyKey` is immutable for the controller's lifetime, while a successful request only removes its session-storage copy."
+      "summary": "[P2] Ignore validation results after the selected provider changes (apps/web/src/features/onboarding/onboarding-model-setup.tsx:230): Reviewer: chunk 3/3\n\nProvider buttons remain enabled while `validateCredential()` is awaiting the old provider's response."
     },
     {
-      "category": "test_gap",
+      "category": "bug",
+      "area": "apps/web/src/features/onboarding",
+      "summary": "[P2] Prevent stale workspace connection results after a channel switch (apps/web/src/features/onboarding/onboarding-workspace-flow.tsx:165): Reviewer: chunk 3/3\n\nWorkspace selectors remain active while `busy` is true."
+    },
+    {
+      "category": "regression",
       "area": "apps/web/src",
-      "summary": "[P2] Replace the source-inspection test with a real visual comparison (apps/web/src/onboarding-visual-acceptance.test.ts:21): Reviewer: chunk 3/3\n\nThe test named as the immutable-reference acceptance test never renders the onboarding UI or captures pixels."
+      "summary": "[P2] Keep onboarding typography from resizing every existing route (apps/web/src/styles.css:117): Reviewer: chunk 3/3\n\nChanging the root font size from 14px to 15px scales every rem-based Tailwind dimension throughout the web application, not just onboarding."
     }
   ],
   "recommendation": "request-changes",
@@ -177,7 +182,6 @@
     "apps/web/src/features/onboarding/onboarding-mark.tsx",
     "apps/web/src/features/onboarding/onboarding-model-setup.test.ts",
     "apps/web/src/features/onboarding/onboarding-model-setup.tsx",
-    "apps/web/src/features/onboarding/onboarding-route.tsx",
     "apps/web/src/features/onboarding/onboarding-splash.tsx",
     "apps/web/src/features/onboarding/onboarding-step-content.tsx",
     "apps/web/src/features/onboarding/onboarding-workspace-content.ts",
@@ -270,10 +274,10 @@
     }
   ],
   "aspect": "quality",
-  "review_run_id": "0adcc098f1395130dbfb4a34b34a546d646b55cc4e32be5c5ec6d17837036f72",
+  "review_run_id": "09030a3a7e6fa4eb3045e9d1b546d693996fcbd0ca1b3cf36f7d73863a792318",
   "brief_sha256": "b687da0035b2859cdd716a7672ca54c879e021ddfba016005f2a778a22a49344",
-  "branch_diff_digest": "56a53eafd88f0bc3332993327944faa74eb446e9739f15b4101e05c45d78f10a",
+  "branch_diff_digest": "ce01bb4a08eca0e129e29c81b7b0987f7e3aa1463b749860a259fcfbc79bd49a",
   "residual_risks": [],
-  "recorded_at": "2026-09-14T18:32:53+00:00",
-  "commit": "f71b7d23aa6789bed71f1dc1f9f91604fbc70816"
+  "recorded_at": "2026-09-15T05:41:32+00:00",
+  "commit": "86b4b3fab5b89b73a98d6f55106ed0ec146ed9e1"
 }
