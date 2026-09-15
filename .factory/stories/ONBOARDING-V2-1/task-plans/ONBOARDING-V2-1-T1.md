@@ -177,7 +177,7 @@ Do not modify Factory scripts/tests, rewrite or push the archive, redesign Conso
 5. Select providers from live capabilities deterministically, keep Teams setup-only, refuse empty discovery, create Agent-owned accounts/service-Person aliases, auto-derive DM approvers, and validate group installer/manual membership.
 6. Extend the existing outbound send options and durable message projection with onboarding `runId`; persist exact account/conversation/canonical-thread/code/inbound/outbound/run correlation and retain a satisfied challenge across projection retry.
 7. Generate one Drizzle migration from the current schema with UUID row identifiers, actor/timestamp audit fields, snake_case physical columns, foreign keys, partial active uniqueness, and expiry/correlation indexes. Regenerate from clean baseline and require a clean migration diff after generation.
-8. Adopt and split the V2 React/Tailwind/SVG/Iconify/Fontsource/Sonner implementation at the splash, shell/rail, model, workspace, assignment, and verification boundaries; route/page modules stay below 300 lines. Preserve exact motion/reduced-motion and accessibility contracts.
+8. Keep the splash visual-only and move identity into Step 1. Refactor the existing Step 1 model card into one fixed-height V2 split shell: a left pane for the static mark, editable name/title, and ordered live provider list; a right pane for the selected provider’s write-only credential workflow, validation, connected state, and model selector. Reuse the existing provider data, Iconify marks, controller, and browser facades. Provider changes clear unsaved secrets, validation, model, and readiness; a green Connected pill belongs only to the selected provider after actual validation. Lock identity after the durable setup succeeds, and enable Continue only after that saved, validated, explicitly modeled state. Use Tailwind for local layout/state and retain stylesheet rules only for shared responsive and scrolling precision.
 9. Add focused Vitest/Postgres proof and a Playwright Core plus browser-Canvas visual oracle against the hashed HTML. Include `375x812`, wait for local fonts, freeze named frames, mask only listed intentional deviations, and fail on every other pixel; also check keyboard focus, labels, contrast, responsive states, and 200 percent zoom.
 10. Rebuild/restart runtime, retain logs/listener evidence, prove `/healthz`, `/readyz`, and `/ui/onboarding`, then execute the full browser flow. Record evidence through Forge and stop before push/PR.
 
@@ -228,27 +228,26 @@ One task, `ONBOARDING-V2-1-T1`, `user_facing: true`. Decision 0162 is the story-
 
 ```mermaid
 flowchart TD
-  A[Authenticated administrator opens onboarding] --> B[Splash: required employee name and title]
-  B --> C[Atomic role + Agent + service Person + setup]
-  C --> D[Validate typed model credential candidate]
-  D -->|healthy + compatible| E[Choose model and project desired state]
-  E --> F[Create Agent-owned channel account]
-  F --> G[Discover non-empty real conversations]
-  G --> H[Persist conversation + human approver]
-  H --> I[Issue expiring challenge]
-  I --> J[Correlate inbound challenge]
-  J --> K[Correlate outbound reply and run]
-  K --> L[Project runtime state]
-  L -->|success| M[Unlock Console]
-  L -->|failure| N[Keep satisfied challenge and retry projection]
+  A[Authenticated administrator opens onboarding] --> B[Visual-only splash CTA]
+  B --> C[Step 1: name/title, provider validation, explicit model]
+  C --> D[Atomic role + Agent + service Person + setup]
+  D --> E[Create Agent-owned channel account]
+  E --> F[Discover non-empty real conversations]
+  F --> G[Persist conversation + human approver]
+  G --> H[Issue expiring challenge]
+  H --> I[Correlate inbound challenge]
+  I --> J[Correlate outbound reply and run]
+  J --> K[Project runtime state]
+  K -->|success| L[Unlock Console]
+  K -->|failure| M[Keep satisfied challenge and retry projection]
 ```
 
 ## Manual Verification
 
-1. Start from a clean disposable database and authenticate as administrator. Confirm first visit shows the V2 splash; empty employee name/title reveal inline errors and do not advance.
+1. Start from a clean disposable database and authenticate as administrator. Confirm the V2 splash is visual-only and its CTA opens Step 1. Confirm blank name/title reveal inline errors only after Save is pressed and no browser mutation occurs.
 2. Verify exact light/dark splash and Steps 1–4 at every named viewport. Check the fixed 266px rail, centered KnackLabs lockup, SVG state progression, focus rings, card/accordion scrolling, always-visible footer navigation, and mobile block.
 3. Toggle saved reduced motion and system reduced motion separately. Confirm motion runs by default, mark/role/rail/transition sequences match named frames, and movement stops or becomes the specified fade without hiding state.
-4. Exercise each allowed model provider/auth mode, including Bedrock variants. Confirm models remain locked/loading until validation, a failed candidate retains the prior healthy credential, successful secrets disappear from browser inputs/state, explicit model choice is required, and Back/Continue resume without revalidation when inputs did not change.
+4. Exercise each allowed model provider/auth mode, including Bedrock variants. Confirm the Step 1 split card keeps a 50dvh desktop/tablet shell with independent pane scrolling and mobile document scrolling; the selected provider alone receives the green Connected pill after validation. Confirm models remain locked/loading until validation, a failed candidate retains the prior healthy credential, successful secrets disappear from browser inputs/state, explicit model choice is required, Save locks identity after durable creation, and Back/Continue resume without revalidation when inputs did not change.
 5. In Slack Step 2, confirm Slack is preselected, the prefilled manifest URL and setup drawer are accurate/copyable, Create completes honestly, Connect validates `xapp-`/`xoxb-` tokens, empty discovery does not complete, and successful real discovery enables Continue. Confirm non-Slack providers keep their supported flows.
 6. Persist a DM conversation and confirm its counterpart becomes approver automatically, then exercise a group path with recognised installer/manual membership validation. Confirm invalid people and cross-account conversations are rejected without losing completed upstream state.
 7. Send the exact challenge. Confirm wrong account/conversation/thread/code, replay, expired challenge, and outbound-before-inbound remain incomplete. Force projection failure after valid correlation, confirm the challenge remains satisfied, then retry projection and unlock Console only after success.
