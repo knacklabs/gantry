@@ -154,6 +154,7 @@ export function OnboardingWorkspaceStep({
             <button
               key={item.id}
               aria-pressed={channelId === item.id}
+              disabled={busy}
               className={`relative inline-flex h-[34px] items-center gap-[9px] rounded-full border border-border bg-surface px-[13px] text-[12.5px] font-medium text-text transition-[background-color,transform] duration-[160ms] [@media(hover:hover)_and_(pointer:fine)]:hover:translate-y-[-1px] [@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-muted active:translate-y-px active:scale-[0.98] motion-reduce:transform-none motion-reduce:transition-none ${channelId === item.id ? "after:pointer-events-none after:absolute after:inset-[-1px] after:rounded-[inherit] after:border-2 after:border-ink after:content-[''] after:[animation:onboarding-fade_0.22s_var(--ease)_both] motion-reduce:after:animate-none" : ''}`}
               onClick={() => onChannelChange(item.id)}
             >

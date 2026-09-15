@@ -93,9 +93,8 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
   expect(styles).toContain('@media (max-width: 767px)');
   expect(styles).toContain('animation: none !important;');
   expect(styles).not.toContain('.onboarding-toast');
-  expect(modelSetup).toContain(
-    "import { toast } from '../../ui/primitives/toast';",
-  );
+  expect(modelSetup).toContain("import { toast } from 'sonner';");
+  expect(modelSetup).toContain('disabled={validating}');
   expect(modelSetup).toContain(
     "toast.success('Configuration validated. Choose a model to continue.')",
   );
@@ -119,6 +118,7 @@ it('keeps Console handoff locked until exact verification and projection complet
     "status === 'satisfied' || status === 'projection_failed'",
   );
   expect(route).toContain("status === 'completed'");
+  expect(route).toContain("verificationStatus === 'completed'");
   expect(route).toContain("{busy ? 'Finishing setup…' : 'Finish setup'}");
   expect(route).toContain("'gantry.onboarding.name'");
   expect(route).toContain('sessionStorage.removeItem(key)');

@@ -16,7 +16,8 @@ function HomeRoute() {
       const response = await browserFetch('/ui/api/onboarding/status', {
         credentials: 'same-origin',
       });
-      if (!response.ok) return { firstRun: false, resume: null };
+      if (!response.ok)
+        throw new Error('Onboarding status could not be loaded.');
       return response.json() as Promise<{
         firstRun: boolean;
         resume: unknown | null;
@@ -24,6 +25,20 @@ function HomeRoute() {
     },
   });
   if (status.isPending) return null;
+  if (status.isError)
+    return (
+      <main className="grid min-h-dvh place-items-center bg-canvas p-6 text-text">
+        <div className="grid justify-items-center gap-3 text-center">
+          <p className="m-0">Gantry could not load onboarding status.</p>
+          <button
+            className="rounded-md border border-border px-3 py-2"
+            onClick={() => void status.refetch()}
+          >
+            Retry
+          </button>
+        </div>
+      </main>
+    );
   return (
     <Navigate
       replace

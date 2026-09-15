@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -64,6 +64,10 @@ export async function projectOnboardingVerification(
         and(
           eq(onboardingVerificationsPostgres.id, id),
           eq(onboardingVerificationsPostgres.appId, appId),
+          inArray(onboardingVerificationsPostgres.status, [
+            'satisfied',
+            'projection_failed',
+          ]),
         ),
       );
     sendJson(res, 200, { verification: { id, status: 'completed' } });
@@ -80,6 +84,10 @@ export async function projectOnboardingVerification(
         and(
           eq(onboardingVerificationsPostgres.id, id),
           eq(onboardingVerificationsPostgres.appId, appId),
+          inArray(onboardingVerificationsPostgres.status, [
+            'satisfied',
+            'projection_failed',
+          ]),
         ),
       );
     sendError(

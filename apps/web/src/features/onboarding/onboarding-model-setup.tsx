@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { agentModelsQuery, type AgentModel } from '../agents/agents-queries';
 import type { ModelProvider } from '../operations/operations-queries';
 import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
-import { toast } from '../../ui/primitives/toast';
+import { toast } from 'sonner';
 
 export const ONBOARDING_PROVIDER_IDS = [
   'anthropic',
@@ -226,6 +226,7 @@ export function OnboardingModelSetup({
           {onboardingProviders(providers).map((item) => (
             <button
               className={providerId === item.providerId ? 'is-selected' : ''}
+              disabled={validating}
               key={item.providerId}
               onClick={() => {
                 onProviderChange(item.providerId);

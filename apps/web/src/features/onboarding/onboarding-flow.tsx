@@ -60,10 +60,17 @@ export function OnboardingFlow() {
     <div className="onboarding-page">
       <header className="onboarding-header">
         <div className="onboarding-header-controls">
-          <Link to="/overview" className="onboarding-brand">
-            <GantryMark />
-            <strong>Gantry</strong>
-          </Link>
+          {verificationStatus === 'completed' ? (
+            <Link to="/overview" className="onboarding-brand">
+              <GantryMark />
+              <strong>Gantry</strong>
+            </Link>
+          ) : (
+            <span className="onboarding-brand" aria-label="Gantry">
+              <GantryMark />
+              <strong>Gantry</strong>
+            </span>
+          )}
           <span className="onboarding-rule" />
         </div>
         <button
