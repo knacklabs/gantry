@@ -11,7 +11,6 @@ import {
   requireSlackLiveCredentials,
   sendSlackTestMessage,
   slackBotUserId,
-  slackChannelIdByName,
   waitForSlackThreadReply,
 } from '../fixtures/slack-live-fixture.js';
 import { AgentE2EApiClient } from '../harness/api-client.js';
@@ -32,9 +31,11 @@ const modelApiKey =
 const slack =
   'credentials' in slackCredential ? slackCredential.credentials : undefined;
 const hasDb = Boolean(process.env.GANTRY_TEST_DATABASE_URL?.trim());
-const maybeDescribe = modelApiKey && slack && hasDb ? describe : describe.skip;
 const CHANNEL_NAME =
   process.env.E2E_SLACK_CHANNEL_NAME?.trim() || 'agent-e2e-channel';
+const CHANNEL_ID = process.env.E2E_SLACK_CHANNEL_ID?.trim();
+const maybeDescribe =
+  modelApiKey && slack && hasDb && CHANNEL_ID ? describe : describe.skip;
 const AGENT_FOLDER = 'e2e_live_slack';
 const PROVIDER_ACCOUNT_ID = 'e2e_slack';
 const CONVERSATION_KEY = 'e2e_live_slack_channel';
@@ -104,7 +105,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
     { timeout: 360_000 },
     async () => {
       try {
-        if (!slack || !modelApiKey)
+        if (!slack || !modelApiKey || !CHANNEL_ID)
           throw new Error('protected credentials missing');
         evidence = startEvidenceRun({
           scenario: 'slack-live',
@@ -119,7 +120,7 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
           harness: 'socket-mode',
         });
         evidence.phase('discover-channel');
-        channelId = await slackChannelIdByName(slack.botToken, CHANNEL_NAME);
+        channelId = CHANNEL_ID;
         const userId = await slackBotUserId(slack.humanSenderToken);
         const botUserId = await slackBotUserId(slack.botToken);
 
@@ -215,6 +216,12 @@ maybeDescribe('agent-e2e Slack live channel (protected)', () => {
         });
         rootTs = message.ts;
         if (message.botId || message.subtype === 'bot_message') {
+          await deleteSlackMessage({
+            token: slack.humanSenderToken,
+            channelId,
+            ts: rootTs,
+          });
+          rootTs = '';
           throw new Error(
             'E2E_SLACK_HUMAN_SENDER_TOKEN posted an app/bot-authored message; use a dedicated Slack user token that posts as its human owner',
           );

@@ -141,9 +141,10 @@ jobs:
           E2E_SLACK_BOT_TOKEN: ${{ secrets.E2E_SLACK_BOT_TOKEN }}
           E2E_SLACK_APP_TOKEN: ${{ secrets.E2E_SLACK_APP_TOKEN }}
           E2E_SLACK_CHANNEL_NAME: agent-e2e-channel
+          E2E_SLACK_CHANNEL_ID: C0BUN1N2056
           AGENT_E2E_EVIDENCE_DIR: /tmp/gantry-agent-e2e-evidence
         run: |
-          if [ -z "$E2E_MODEL_API_KEY" ] || [ -z "$E2E_SLACK_HUMAN_SENDER_TOKEN" ] || [ -z "$E2E_SLACK_BOT_TOKEN" ] || [ -z "$E2E_SLACK_APP_TOKEN" ]; then
+          if [ -z "$E2E_MODEL_API_KEY" ] || [ -z "$E2E_SLACK_HUMAN_SENDER_TOKEN" ] || [ -z "$E2E_SLACK_BOT_TOKEN" ] || [ -z "$E2E_SLACK_APP_TOKEN" ] || [ -z "$E2E_SLACK_CHANNEL_ID" ]; then
             echo "::notice::Slack E2E secrets are unavailable; skipping the real Slack lane."
             exit 0
           fi

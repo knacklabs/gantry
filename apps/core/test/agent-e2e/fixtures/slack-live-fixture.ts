@@ -66,30 +66,6 @@ export async function slackBotUserId(token: string): Promise<string> {
   return result.user_id;
 }
 
-export async function slackChannelIdByName(
-  token: string,
-  name: string,
-): Promise<string> {
-  let cursor: string | undefined;
-  do {
-    const params = new URLSearchParams({
-      types: 'public_channel,private_channel',
-      limit: '200',
-    });
-    if (cursor) params.set('cursor', cursor);
-    const result = await slackApi<{
-      channels?: Array<{ id?: string; name?: string }>;
-      response_metadata?: { next_cursor?: string };
-    }>(token, `conversations.list?${params.toString()}`);
-    const channel = result.channels?.find((entry) => entry.name === name);
-    if (channel?.id) return channel.id;
-    cursor = result.response_metadata?.next_cursor?.trim() || undefined;
-  } while (cursor);
-  throw new Error(
-    `Slack channel #${name} was not found or is not visible to the test user`,
-  );
-}
-
 export async function sendSlackTestMessage(input: {
   token: string;
   channelId: string;
