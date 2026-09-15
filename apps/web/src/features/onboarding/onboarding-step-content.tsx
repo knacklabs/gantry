@@ -1,15 +1,22 @@
-import { Check, ChevronRight, Power } from 'lucide-react';
+import { Check, ChevronRight, Pencil, Power } from 'lucide-react';
+import { useState } from 'react';
 
 import type { AgentModel } from '../agents/agents-queries';
 import type { ChannelConversation } from '../channel-accounts/channel-account-queries';
 import type { ModelProvider } from '../operations/operations-queries';
 import { CopyButton } from '../../ui/primitives/copy-button';
 import { GantryMark } from './onboarding-mark';
-import { OnboardingModelSetup } from './onboarding-model-setup';
+import {
+  OnboardingModelSetup,
+  OnboardingProviderMark,
+  onboardingProviders,
+} from './onboarding-model-setup';
 
 export function EmployeeStep({
   name,
+  onName,
   title,
+  onTitle,
   providers,
   providerId,
   onProviderChange,
@@ -23,7 +30,9 @@ export function EmployeeStep({
   ready,
 }: {
   name: string;
+  onName: (value: string) => void;
   title: string;
+  onTitle: (value: string) => void;
   providers: ModelProvider[];
   providerId: string;
   onProviderChange: (providerId: string) => void;
@@ -36,20 +45,106 @@ export function EmployeeStep({
   busy: boolean;
   ready: boolean;
 }) {
+  const [attemptedSave, setAttemptedSave] = useState(false);
+  const nameError = attemptedSave && !name.trim();
+  const titleError = attemptedSave && !title.trim();
+  const setupError =
+    attemptedSave && (!credentialValidated || !model)
+      ? 'Validate the selected provider and choose a model before saving.'
+      : null;
+
+  function save() {
+    setAttemptedSave(true);
+    if (!name.trim() || !title.trim() || !credentialValidated || !model) return;
+    onSave();
+  }
+
   return (
     <>
       <Heading
         title="Onboard Your First Agent"
-        body="Give it a model to think with. All of it can change later."
+        body="Name it, say what it does, and give it a model to think with. All of it can change later."
       />
-      <article className="onboarding-card onboarding-model-card">
+      <article className="onboarding-card onboarding-model-card onboarding-split-card md:grid-cols-[minmax(240px,.72fr)_minmax(0,1.6fr)]">
+        <aside className="onboarding-identity-pane border-b border-border md:border-r md:border-b-0">
+          <div className="onboarding-identity-pane-scroll">
+            <GantryMark large />
+            <label className="onboarding-identity-field">
+              <span>Name</span>
+              <span className="onboarding-name-input">
+                <input
+                  aria-describedby={
+                    nameError ? 'onboarding-name-error' : undefined
+                  }
+                  aria-invalid={nameError}
+                  disabled={ready}
+                  onChange={(event) => onName(event.target.value)}
+                  placeholder="Atlas"
+                  value={name}
+                />
+                {!ready ? <Pencil aria-hidden="true" /> : null}
+              </span>
+              {nameError ? (
+                <small
+                  className="onboarding-inline-error"
+                  id="onboarding-name-error"
+                  role="alert"
+                >
+                  Give your employee a name.
+                </small>
+              ) : null}
+            </label>
+            <label className="onboarding-identity-field">
+              <span>Job title</span>
+              <input
+                aria-describedby={
+                  titleError ? 'onboarding-title-error' : undefined
+                }
+                aria-invalid={titleError}
+                className="onboarding-job-title-input"
+                disabled={ready}
+                onChange={(event) => onTitle(event.target.value)}
+                placeholder="General assistant"
+                value={title}
+              />
+              {titleError ? (
+                <small
+                  className="onboarding-inline-error"
+                  id="onboarding-title-error"
+                  role="alert"
+                >
+                  Give your employee a job title.
+                </small>
+              ) : null}
+            </label>
+            <div
+              className="onboarding-provider-list"
+              aria-label="Model providers"
+            >
+              <span>Provider</span>
+              {onboardingProviders(providers).map((provider) => (
+                <button
+                  className={
+                    provider.providerId === providerId ? 'is-selected' : ''
+                  }
+                  disabled={busy || ready}
+                  key={provider.providerId}
+                  onClick={() => onProviderChange(provider.providerId)}
+                  type="button"
+                >
+                  <OnboardingProviderMark providerId={provider.providerId} />
+                  {provider.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
         <OnboardingModelSetup
           credentialValidated={credentialValidated}
           model={model}
           models={models}
           onCredentialValidated={onCredentialValidated}
           onModelChange={onModelChange}
-          onProviderChange={onProviderChange}
           providerId={providerId}
           providers={providers}
         />
@@ -63,22 +158,17 @@ export function EmployeeStep({
             Tested &amp; connected
           </span>
         ) : (
-          <button
-            className="onboarding-primary"
-            onClick={onSave}
-            disabled={
-              busy ||
-              !name.trim() ||
-              !title.trim() ||
-              !credentialValidated ||
-              !model
-            }
-          >
+          <button className="onboarding-primary" onClick={save} disabled={busy}>
             <Power size={13} />
             {busy ? 'Reaching provider…' : 'Save employee and test connection'}
           </button>
         )}
       </div>
+      {setupError ? (
+        <p className="onboarding-step-one-error" role="alert">
+          {setupError}
+        </p>
+      ) : null}
     </>
   );
 }

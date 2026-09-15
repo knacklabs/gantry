@@ -6,7 +6,7 @@ import siOpenAi from '@iconify-icons/simple-icons/openai';
 import siOpenRouter from '@iconify-icons/simple-icons/openrouter';
 import { Icon } from '@iconify/react';
 import { Check, ChevronDown, KeyRound } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { agentModelsQuery, type AgentModel } from '../agents/agents-queries';
 import type { ModelProvider } from '../operations/operations-queries';
@@ -28,6 +28,15 @@ const ONBOARDING_PROVIDER_ICONS: Record<string, typeof siAnthropic> = {
   openrouter: siOpenRouter,
   vertex: siGoogleCloud,
 };
+
+export function OnboardingProviderMark({ providerId }: { providerId: string }) {
+  const icon = ONBOARDING_PROVIDER_ICONS[providerId];
+  return (
+    <span className="onboarding-provider-mark" aria-hidden="true">
+      {icon ? <Icon icon={icon} /> : null}
+    </span>
+  );
+}
 
 type CredentialMode = ModelProvider['credentialModes'][number];
 
@@ -58,7 +67,6 @@ export function OnboardingModelSetup({
   models,
   onCredentialValidated,
   onModelChange,
-  onProviderChange,
   providerId,
   providers,
 }: {
@@ -67,7 +75,6 @@ export function OnboardingModelSetup({
   models: AgentModel[];
   onCredentialValidated: (validated: boolean) => void;
   onModelChange: (model: string) => void;
-  onProviderChange: (providerId: string) => void;
   providerId: string;
   providers: ModelProvider[];
 }) {
@@ -82,8 +89,10 @@ export function OnboardingModelSetup({
   const [validating, setValidating] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [changingCredential, setChangingCredential] = useState(false);
+  const validationRequest = useRef(0);
 
   useEffect(() => {
+    validationRequest.current += 1;
     const nextModeId =
       provider?.authMode ??
       (provider?.credentialModes.length === 1
@@ -143,6 +152,8 @@ export function OnboardingModelSetup({
       toast.error('Complete the required credential fields.');
       return;
     }
+    const request = validationRequest.current + 1;
+    validationRequest.current = request;
     setValidating(true);
     setCredentialError(null);
     const payload = Object.fromEntries(
@@ -193,11 +204,13 @@ export function OnboardingModelSetup({
       }
       setLoadingModels(true);
       await queryClient.fetchQuery({ ...agentModelsQuery, staleTime: 0 });
+      if (request !== validationRequest.current) return;
       setValues({});
       setChangingCredential(false);
       onCredentialValidated(true);
       toast.success('Configuration validated. Choose a model to continue.');
     } catch (error) {
+      if (request !== validationRequest.current) return;
       const message =
         error instanceof Error
           ? error.message
@@ -207,43 +220,31 @@ export function OnboardingModelSetup({
       onCredentialValidated(false);
       onModelChange('');
     } finally {
-      setLoadingModels(false);
-      setValidating(false);
+      if (request === validationRequest.current) {
+        setLoadingModels(false);
+        setValidating(false);
+      }
     }
   }
 
   return (
-    <section className="onboarding-model-setup">
+    <section className="onboarding-model-setup onboarding-model-pane">
       <div className="onboarding-provider-heading">
-        <span>Choose a model provider</span>
+        <span className="onboarding-selected-provider">
+          {provider ? (
+            <OnboardingProviderMark providerId={provider.providerId} />
+          ) : null}
+          <span>
+            <b>{provider?.label ?? 'Choose a provider'}</b>
+            <small>{mode?.label ?? 'Configure credentials'}</small>
+          </span>
+        </span>
         <span className={credentialValidated ? 'is-ready' : ''}>
           {credentialValidated ? <Check aria-hidden="true" /> : <i />}
-          {credentialValidated ? 'Validated' : 'Needs a key'}
+          {credentialValidated ? 'Connected' : 'Needs a key'}
         </span>
       </div>
       <div className="onboarding-model-scroll">
-        <div className="onboarding-provider-options">
-          {onboardingProviders(providers).map((item) => (
-            <button
-              className={providerId === item.providerId ? 'is-selected' : ''}
-              disabled={validating}
-              key={item.providerId}
-              onClick={() => {
-                onProviderChange(item.providerId);
-                onModelChange('');
-              }}
-              type="button"
-            >
-              <span className="onboarding-provider-mark">
-                <Icon
-                  aria-hidden="true"
-                  icon={ONBOARDING_PROVIDER_ICONS[item.providerId]}
-                />
-              </span>
-              {item.label}
-            </button>
-          ))}
-        </div>
         {provider ? (
           <div className="onboarding-credential-fields">
             {credentialIsStored && !credentialValidated ? (

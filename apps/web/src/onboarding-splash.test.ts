@@ -34,11 +34,10 @@ it('keeps the V2 splash assets, copy, and motion contract', () => {
   expect(splash).toContain("'executive assistant'");
   expect(splash).toContain('Set Up Your First Agent');
   expect(splash).toContain('Hire your first employee');
-  expect(splash).toContain('max-w-[360px]');
-  expect(splash).toContain('Give it a name');
-  expect(splash).toContain('Job title');
-  expect(splash).toContain('Give your employee a name.');
-  expect(splash).toContain('Give your employee a job title.');
+  expect(splash).not.toContain('Give it a name');
+  expect(splash).not.toContain('Job title');
+  expect(splash).not.toContain('onName');
+  expect(splash).not.toContain('onTitle');
   expect(splash).toContain('Powered by');
   expect(styles).toContain('onboarding-splash-role-roll 16.8s');
   expect(styles).toContain('transform: translateY(-11.4em)');

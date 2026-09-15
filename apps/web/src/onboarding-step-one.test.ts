@@ -65,6 +65,12 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
   );
   expect(route).toContain('onboarding-provider-action');
   expect(route).toContain('Tested &amp; connected');
+  expect(route).toContain('onboarding-split-card');
+  expect(route).toContain('onboarding-identity-pane');
+  expect(route).toContain('onboarding-provider-list');
+  expect(route).toContain('onboarding-name-input');
+  expect(route).toContain('onboarding-job-title-input');
+  expect(route).toContain('Name it, say what it does');
   expect(route).toContain(
     'RAIL_MARKS[flow.step - 1][preferences.reduceMotion ? 1 : 0]',
   );
@@ -90,6 +96,12 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
     /\.onboarding-model-card \.onboarding-model-scroll \{\s*flex: 1;\s*min-height: 0;\s*overflow-y: auto;\s*overscroll-behavior: contain;\s*scrollbar-gutter: stable;\s*scroll-padding: 16px;/,
   );
   expect(modelSetup).toContain('className="onboarding-model-scroll"');
+  expect(modelSetup).toContain(
+    "credentialValidated ? 'Connected' : 'Needs a key'",
+  );
+  expect(modelSetup).not.toContain('onboarding-provider-options');
+  expect(styles).toContain('.onboarding-split-card');
+  expect(styles).toContain('.onboarding-identity-pane-scroll');
   expect(styles).toContain('@media (max-width: 767px)');
   expect(styles).toContain('animation: none !important;');
   expect(styles).not.toContain('.onboarding-toast');

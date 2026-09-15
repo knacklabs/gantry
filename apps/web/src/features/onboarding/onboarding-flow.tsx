@@ -22,7 +22,7 @@ import { useOnboardingController } from './use-onboarding-controller';
 const STEPS = [
   [
     'Create Employee',
-    'Give it a model to think with. All of it can change later.',
+    'Name it, say what it does, and give it a model to think with.',
   ],
   ['Connect Workspace', 'Install Gantry where your team already talks.'],
   [
@@ -45,12 +45,8 @@ export function OnboardingFlow() {
   if (!flow.started) {
     return (
       <OnboardingSplash
-        name={flow.name}
-        onName={(value) => flow.updateDraft('name', value)}
         onStart={() => flow.setStarted(true)}
-        onTitle={(value) => flow.updateDraft('title', value)}
         resume={flow.status.data?.resume}
-        title={flow.title}
       />
     );
   }
@@ -136,7 +132,9 @@ export function OnboardingFlow() {
             {flow.step === 1 ? (
               <EmployeeStep
                 name={flow.name}
+                onName={(value) => flow.updateDraft('name', value)}
                 title={flow.title}
+                onTitle={(value) => flow.updateDraft('title', value)}
                 providers={flow.providers.data ?? []}
                 providerId={
                   flow.providerId || flow.providers.data?.[0]?.providerId || ''
