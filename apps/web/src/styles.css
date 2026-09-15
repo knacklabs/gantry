@@ -622,7 +622,7 @@
 .onboarding-credential-fields {
   display: grid;
   gap: 10px;
-  padding: 0 16px 16px;
+  padding: 14px 16px 16px;
 }
 .onboarding-credential-fields .onboarding-field {
   gap: 6px;
@@ -876,6 +876,11 @@
   justify-self: end;
   margin-bottom: 2px;
 }
+.onboarding-identity-pane-scroll > .gantry-mark-large {
+  grid-template-columns: repeat(3, 8.5px);
+  grid-template-rows: repeat(3, 8.5px);
+  gap: 1.5px;
+}
 .onboarding-identity-field,
 .onboarding-provider-list {
   display: grid;
@@ -917,7 +922,9 @@
 }
 .onboarding-name-input input {
   width: 100%;
+  height: 40px;
   padding-right: 38px;
+  font-size: 18px;
 }
 .onboarding-name-input svg {
   position: absolute;
