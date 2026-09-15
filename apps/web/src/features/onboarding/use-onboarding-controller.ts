@@ -142,7 +142,10 @@ export function useOnboardingController() {
   const providers = useQuery(modelProviderQuery);
   const models = useQuery(agentModelsQuery);
   const channelProviders = useQuery(channelProvidersQuery());
-  const conversations = useQuery(channelConversationsQuery());
+  const conversations = useQuery({
+    ...channelConversationsQuery(),
+    enabled: started && step >= 3 && workspaceConnected,
+  });
   const selectedConversation = conversations.data?.conversations.find(
     (item) => item.id === conversationId,
   );

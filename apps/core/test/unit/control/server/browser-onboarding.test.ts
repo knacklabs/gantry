@@ -101,7 +101,7 @@ describe('browser onboarding route', () => {
     expect(source).toContain('listConversationApprovers(');
     expect(source).toContain('assignmentReady: Boolean(install && approver)');
     expect(source).toContain(
-      "if (verification?.status === 'completed') return null;",
+      "if (verificationStatus === 'completed') return null;",
     );
     expect(source).toContain('const activeVerification = [');
     expect(source).toContain("'inbound_received'");

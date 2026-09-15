@@ -70,6 +70,8 @@ export async function createOnboardingSetup(
         (item): item is string => typeof item === 'string',
       )
     : [];
+  const modelAlias =
+    typeof payload.modelAlias === 'string' ? payload.modelAlias.trim() : '';
   const agentHarness = payload.agentHarness;
   const idempotencyHeader = req.headers['idempotency-key'];
   const idempotencyKey = Array.isArray(idempotencyHeader)
@@ -78,7 +80,7 @@ export async function createOnboardingSetup(
   if (
     typeof payload.name !== 'string' ||
     typeof payload.title !== 'string' ||
-    typeof payload.modelAlias !== 'string' ||
+    !modelAlias ||
     !isAgentHarness(agentHarness) ||
     !idempotencyKey
   ) {
@@ -111,7 +113,7 @@ export async function createOnboardingSetup(
       name: payload.name,
       title: payload.title,
       responsibilities,
-      modelAlias: payload.modelAlias,
+      modelAlias,
       agentHarness,
     });
     const folder = setup.agentId.replace(/^agent:/, '');
@@ -120,7 +122,7 @@ export async function createOnboardingSetup(
       appId,
       folder,
       name: setup.agentName,
-      modelAlias: payload.modelAlias,
+      modelAlias,
     });
     await ctx.agentSettings.writeAgentHarnessSetting({
       runtimeHome: ctx.runtimeHome,

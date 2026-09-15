@@ -159,6 +159,7 @@ export function OnboardingFlow() {
                 channel={flow.selectedChannel}
                 channels={flow.channelProviders.data?.providers ?? []}
                 channelId={flow.channelId || flow.selectedChannel?.id || ''}
+                hasStoredAccount={Boolean(flow.accountId)}
                 values={flow.channelValues}
                 setValues={flow.setChannelValues}
                 connected={flow.workspaceConnected}

@@ -17,6 +17,7 @@ export function OnboardingWorkspacePhase({
   slack,
   channel,
   connected,
+  hasStoredAccount,
   busy,
   connectDisabled,
   credentialKeys,
@@ -40,6 +41,7 @@ export function OnboardingWorkspacePhase({
   slack: boolean;
   channel?: ChannelProvider;
   connected: boolean;
+  hasStoredAccount: boolean;
   busy: boolean;
   connectDisabled: boolean;
   credentialKeys: string[];
@@ -101,7 +103,11 @@ export function OnboardingWorkspacePhase({
               </span>
             ) : (
               <div className="grid gap-[9px]">
-                {credentialKeys.map((key) => {
+                {hasStoredAccount ? (
+                  <p className="m-0 text-[13px] leading-[1.6] text-text-secondary">
+                    Stored credentials will be used to retry discovery.
+                  </p>
+                ) : credentialKeys.map((key) => {
                   const detail = slack ? SLACK_TOKEN_DETAILS[key] : undefined;
                   const error = credentialErrors[key];
                   const errorId = `onboarding-${key.toLowerCase()}-error`;

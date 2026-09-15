@@ -126,10 +126,9 @@ const strongEncryptionKey = Buffer.from(
 ).toString('base64');
 
 describe('Slack install scopes', () => {
-  it('uses one canonical fresh-install manifest with canvas and file scopes', () => {
+  it('uses one canonical manifest with command, canvas, and file scopes', () => {
     expect(SLACK_APP_MANIFEST.oauth_config.scopes.bot).toEqual([
       ...SLACK_REQUIRED_BOT_SCOPES,
-      'commands',
       ...SLACK_FEATURE_BOT_SCOPES,
     ]);
     expect(SLACK_FEATURE_BOT_SCOPES).toEqual([
@@ -140,7 +139,7 @@ describe('Slack install scopes', () => {
     ]);
   });
 
-  it('keeps pre-manifest Slack installs valid without the commands scope', async () => {
+  it('rejects Slack installs missing the required commands scope', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -151,7 +150,9 @@ describe('Slack install scopes', () => {
               headers: {
                 'content-type': 'application/json',
                 'x-oauth-scopes': [
-                  ...SLACK_REQUIRED_BOT_SCOPES,
+                  ...SLACK_REQUIRED_BOT_SCOPES.filter(
+                    (scope) => scope !== 'commands',
+                  ),
                   ...SLACK_FEATURE_BOT_SCOPES,
                 ].join(','),
               },
@@ -160,9 +161,10 @@ describe('Slack install scopes', () => {
       ),
     );
 
-    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject(
-      { ok: true },
-    );
+    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject({
+      ok: false,
+      missingScopes: expect.arrayContaining(['commands']),
+    });
   });
 
   it('builds a Slack-ready manifest from the canonical scopes and employee name', () => {

@@ -92,6 +92,8 @@ it('keeps V2 guidance separate from the live write-only connection', () => {
   expect(component).toMatch(/See what it sets\s+up/);
   expect(component).toContain('setActivePhase(1);');
   expect(component).toContain('setSlackCreated(true);');
+  expect(component).toContain('hasStoredAccount');
+  expect(component).toContain('Stored credentials will be used to retry discovery.');
   expect(component).toContain('App-level token');
   expect(component).toContain('Bot user OAuth token');
   expect(component).toContain('xapp-…');

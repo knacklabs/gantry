@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { onboardingVerificationsPostgres } from '../../../adapters/storage/postgres/schema/schema.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
@@ -109,21 +109,6 @@ export async function getOnboardingVerification(
   }
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
-  const now = new Date().toISOString();
-  await storage.service.db
-    .update(onboardingVerificationsPostgres)
-    .set({ status: 'expired', updatedAt: now })
-    .where(
-      and(
-        eq(onboardingVerificationsPostgres.id, id),
-        eq(onboardingVerificationsPostgres.appId, appId),
-        inArray(onboardingVerificationsPostgres.status, [
-          'pending',
-          'inbound_received',
-        ]),
-        lt(onboardingVerificationsPostgres.expiresAt, now),
-      ),
-    );
   const [verification] = await storage.service.db
     .select()
     .from(onboardingVerificationsPostgres)
@@ -138,17 +123,22 @@ export async function getOnboardingVerification(
     sendError(res, 404, 'NOT_FOUND', 'Verification not found.');
     return true;
   }
+  const status =
+    ['pending', 'inbound_received'].includes(verification.status) &&
+    verification.expiresAt < new Date().toISOString()
+      ? 'expired'
+      : verification.status;
   sendJson(res, 200, {
     verification: {
       id: verification.id,
-      status: verification.status,
+      status,
       expiresAt: verification.expiresAt,
       satisfiedAt: verification.satisfiedAt,
       completedAt: verification.completedAt,
       failureCode:
-        verification.status === 'expired'
+        status === 'expired'
           ? 'VERIFICATION_EXPIRED'
-          : ['pending', 'inbound_received'].includes(verification.status)
+          : ['pending', 'inbound_received'].includes(status)
             ? 'VERIFICATION_PENDING'
             : verification.projectionFailureCode,
     },

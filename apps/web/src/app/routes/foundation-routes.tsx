@@ -16,15 +16,18 @@ function HomeRoute() {
       const response = await browserFetch('/ui/api/onboarding/status', {
         credentials: 'same-origin',
       });
-      if (!response.ok) return { firstRun: false };
-      return response.json() as Promise<{ firstRun: boolean }>;
+      if (!response.ok) return { firstRun: false, resume: null };
+      return response.json() as Promise<{
+        firstRun: boolean;
+        resume: unknown | null;
+      }>;
     },
   });
   if (status.isPending) return null;
   return (
     <Navigate
       replace
-      to={status.data?.firstRun ? '/onboarding' : '/overview'}
+      to={status.data?.firstRun || status.data?.resume ? '/onboarding' : '/overview'}
     />
   );
 }

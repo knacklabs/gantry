@@ -21,6 +21,7 @@ export function OnboardingWorkspaceStep({
   channel,
   channels,
   channelId,
+  hasStoredAccount,
   connected,
   onChannelChange,
   onConnect,
@@ -32,6 +33,7 @@ export function OnboardingWorkspaceStep({
   channel?: ChannelProvider;
   channels: ChannelProvider[];
   channelId: string;
+  hasStoredAccount: boolean;
   connected: boolean;
   onChannelChange: (id: string) => void;
   onConnect: () => void;
@@ -118,6 +120,10 @@ export function OnboardingWorkspaceStep({
   }
 
   function connect() {
+    if (hasStoredAccount) {
+      onConnect();
+      return;
+    }
     if (!slack) {
       if (credentialsReady) onConnect();
       return;
@@ -174,7 +180,8 @@ export function OnboardingWorkspaceStep({
               channel={channel}
               connected={connected}
               busy={busy}
-              connectDisabled={!slack && !credentialsReady}
+              connectDisabled={!hasStoredAccount && !slack && !credentialsReady}
+              hasStoredAccount={hasStoredAccount}
               credentialKeys={credentialKeys}
               credentialErrors={credentialErrors}
               values={values}

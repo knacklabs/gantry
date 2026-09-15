@@ -17,16 +17,14 @@ export const SLACK_REQUIRED_BOT_SCOPES = [
   'im:history',
   'mpim:read',
   'mpim:history',
+  'commands',
 ] as const;
-
-const SLACK_FRESH_INSTALL_BOT_SCOPES = ['commands'] as const;
 
 export const SLACK_APP_MANIFEST = {
   oauth_config: {
     scopes: {
       bot: [
         ...SLACK_REQUIRED_BOT_SCOPES,
-        ...SLACK_FRESH_INSTALL_BOT_SCOPES,
         ...SLACK_FEATURE_BOT_SCOPES,
       ],
     },
@@ -120,7 +118,6 @@ export function missingSlackBotScopes(grantedScopes: readonly string[]): {
 export function formatSlackBotScopes(): string {
   return [
     ...SLACK_REQUIRED_BOT_SCOPES,
-    ...SLACK_FRESH_INSTALL_BOT_SCOPES,
     ...SLACK_FEATURE_BOT_SCOPES,
   ].join(', ');
 }

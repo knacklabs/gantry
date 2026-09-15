@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import {
   onboardingSetupsPostgres,
@@ -32,19 +32,6 @@ export async function getOnboardingStatus(
   const storage = getRuntimeStorage();
   const appId = session.appId as AppId;
   const now = new Date().toISOString();
-  await storage.service.db
-    .update(onboardingVerificationsPostgres)
-    .set({ status: 'expired', updatedAt: now })
-    .where(
-      and(
-        eq(onboardingVerificationsPostgres.appId, appId),
-        inArray(onboardingVerificationsPostgres.status, [
-          'pending',
-          'inbound_received',
-        ]),
-        lt(onboardingVerificationsPostgres.expiresAt, now),
-      ),
-    );
   const agents = await storage.repositories.agents.listAgents(appId);
   const onboardingAgents = agents.filter(
     (agent) => agent.id !== DEFAULT_AGENT_ID,
@@ -96,6 +83,7 @@ export async function getOnboardingStatus(
             id: onboardingVerificationsPostgres.id,
             challenge: onboardingVerificationsPostgres.challenge,
             status: onboardingVerificationsPostgres.status,
+            expiresAt: onboardingVerificationsPostgres.expiresAt,
           })
           .from(onboardingVerificationsPostgres)
           .where(
@@ -106,13 +94,19 @@ export async function getOnboardingStatus(
           )
           .orderBy(desc(onboardingVerificationsPostgres.createdAt))
           .limit(1);
-        if (verification?.status === 'completed') return null;
+        const verificationStatus =
+          verification &&
+          ['pending', 'inbound_received'].includes(verification.status) &&
+          verification.expiresAt < now
+            ? 'expired'
+            : verification?.status;
+        if (verificationStatus === 'completed') return null;
         const activeVerification = [
           'pending',
           'inbound_received',
           'satisfied',
           'projection_failed',
-        ].includes(verification?.status ?? '');
+        ].includes(verificationStatus ?? '');
         return {
           id: agent.id,
           setupId: setups.find((setup) => setup.agentId === agent.id)!.id,
