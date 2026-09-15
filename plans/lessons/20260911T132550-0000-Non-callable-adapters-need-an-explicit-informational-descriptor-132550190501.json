@@ -1,0 +1,11 @@
+{
+  "topic": "Non-callable adapters need an explicit informational descriptor",
+  "lesson": "At agent-prompt-capability-catalog.ts:245 an adapter binding whose adapterRef is not builtin-prefixed returns no invocation at all, so C4's 'a descriptor is produced for each of the four usable binding kinds' is unmet and the binding is silently absent rather than visibly non-callable. Emit an explicit informational descriptor for that case: kind adapter, no tool reference, and never the raw adapterRef. Silence and 'this one has no callable form' look identical in the output and are different facts \u2014 the whole task is about not hiding things. Add a test for a non-builtin adapterRef.",
+  "source": ".factory/stories/GRANTED-1/tasks/GRANTED-1-T1/reviews/quality.json",
+  "applies_to": [
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-11T13:25:50+00:00"
+}

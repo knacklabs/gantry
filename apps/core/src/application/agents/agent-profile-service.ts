@@ -4,9 +4,9 @@ import {
   type FileArtifactDescriptor,
 } from '../../domain/file-artifacts/file-artifact.js';
 import type { FileArtifactStore } from '../../domain/ports/file-artifact-store.js';
+import { PROMPT_PROFILE_VIRTUAL_SCOPE } from '../../domain/file-artifacts/protected-virtual-path.js';
 import {
   PROFILE_FILE_NAMES,
-  PROMPT_PROFILE_VIRTUAL_SCOPE,
   promptProfileAgentIdForFolder,
   promptProfileAgentsPath,
   promptProfileSoulPath,

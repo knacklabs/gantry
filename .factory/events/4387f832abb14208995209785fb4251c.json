@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-10T18:07:29+00:00", "story": "GRANTED-1", "detail": "S-0099-6359: Correct catch, and the scope was mine to fix. The requirement stands: a secret-shaped operand must not reach any sink, and the mismatch denial already emits the reviewed patterns verbatim, so the erro"}

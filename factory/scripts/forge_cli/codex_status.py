@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 
 from factory_lib import repo_root
@@ -48,39 +49,62 @@ def _registry_jobs(project_root: Path) -> dict[str, dict]:
     }
 
 
+def workspace_key(value) -> str:
+    # What `Path(a) == Path(b)` compares: separators normalised, and case
+    # folded where the filesystem folds it.
+    return os.path.normcase(str(Path(str(value))))
+
+
+def jobs_by_workspace(root: Path) -> dict[str, list[dict]]:
+    """Every job in the registry, grouped by workspace root, parsed ONCE per
+    change to the registry.
+
+    The board used to ask once per worktree root and re-read the registry for
+    each: 17 roots x ~740 job files on every story drawer refresh. It now
+    asks once per request for all of them (board._codex_jobs_by_root).
+    Parsed defensively: the registry belongs to the plugin and may change
+    shape without notice.
+    """
+    from . import fscache
+
+    def compute() -> dict[str, list[dict]]:
+        grouped: dict[str, list[dict]] = {}
+        registries: dict[Path, dict[str, dict]] = {}
+        for path in sorted(root.glob("*/jobs/*.json")):
+            try:
+                job = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                # Third-party bytes: a partially written or non-UTF-8 record
+                # is an unusable job, never a reason for a diagnostic to exit
+                # non-zero.
+                continue
+            if not isinstance(job, dict):
+                continue
+            # The per-job file has the detailed payload, while state.json
+            # carries updatedAt from phase/progress upserts. Merge them so
+            # inactivity can use the companion's freshest progress timestamp.
+            project_root = path.parent.parent
+            if project_root not in registries:
+                registries[project_root] = _registry_jobs(project_root)
+            job = {**job, **registries[project_root].get(str(job.get("id", "")), {})}
+            job["_path"] = path
+            grouped.setdefault(workspace_key(job.get("workspaceRoot", "")), []).append(job)
+        for jobs in grouped.values():
+            jobs.sort(key=lambda j: str(j.get("createdAt", "")))
+        return grouped
+
+    return fscache.cached(f"codex-jobs:{root}", fscache.tree_stamp(root), compute)
+
+
 def load_jobs(base: Path, state_root: Path | None = None) -> list[dict]:
-    """Jobs whose workspace IS this repo.
+    """Jobs whose workspace IS this repo, oldest first.
 
     Matched on `workspaceRoot` rather than the state directory's name, which
-    is a hash this repo has no business reproducing. Parsed defensively: the
-    registry belongs to the plugin and may change shape without notice."""
+    is a hash this repo has no business reproducing."""
     root = state_root or STATE_ROOT
     if not root.is_dir():
         return []
-    jobs = []
-    registries: dict[Path, dict[str, dict]] = {}
-    for path in sorted(root.glob("*/jobs/*.json")):
-        try:
-            job = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            # Third-party bytes: a partially written or non-UTF-8 record is an
-            # unusable job, never a reason for a diagnostic to exit non-zero.
-            continue
-        if not isinstance(job, dict):
-            continue
-        # The per-job file has the detailed payload, while state.json carries
-        # updatedAt from phase/progress upserts. Merge them so inactivity can
-        # use the companion's freshest available progress timestamp.
-        project_root = path.parent.parent
-        if project_root not in registries:
-            registries[project_root] = _registry_jobs(project_root)
-        registry_job = registries[project_root].get(str(job.get("id", "")), {})
-        job = {**job, **registry_job}
-        if Path(str(job.get("workspaceRoot", ""))) != base:
-            continue
-        job["_path"] = path
-        jobs.append(job)
-    return sorted(jobs, key=lambda j: str(j.get("createdAt", "")))
+    return [dict(job) for job in jobs_by_workspace(root).get(workspace_key(base), [])]
 
 
 def age_minutes(job: dict, now: datetime.datetime | None = None) -> float | None:

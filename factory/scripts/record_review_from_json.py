@@ -144,10 +144,10 @@ if args.aspect == "quality" and state.get("decomposition_status") == "recorded":
                 )
             seen.add(contract_id)
             value = verdict.get("verdict")
-            if value not in {"implemented", "partial", "missing", "unverified"}:
+            if value not in {"implemented", "partial", "missing"}:
                 raise SystemExit(
                     f"contract_verdicts[{pos}] for {contract_id}: verdict must be "
-                    "implemented, partial, missing, or unverified"
+                    "implemented, partial, or missing"
                 )
             evidence = verdict.get("evidence")
             if not isinstance(evidence, str) or not evidence.strip():
@@ -155,27 +155,12 @@ if args.aspect == "quality" and state.get("decomposition_status") == "recorded":
                     f"contract_verdicts[{pos}] for {contract_id}: evidence must "
                     "be a non-empty string"
                 )
-            # `partial`/`missing` are the reviewer ASSERTING a defect, so they
-            # block. `unverified` says only that no pass attested the contract
-            # — a chunked review hands each pass part of the diff, and a
-            # contract whose implementation spans slices can end up judged by
-            # none of them. Recording that as a defect made the gate
-            # unpassable for any task big enough to chunk, so it is surfaced
-            # as a non-blocking gap instead: visible to the human, not a claim
-            # the code is wrong.
-            contract = expected[contract_id]
             if value in {"partial", "missing"}:
+                contract = expected[contract_id]
                 review["blocking_findings"].append({
                     "category": f"plan-contract-{value}",
                     "area": contract["source"],
                     "summary": f"{contract_id}: {contract['statement']}",
-                })
-            elif value == "unverified":
-                review.setdefault("non_blocking_findings", []).append({
-                    "category": "plan-contract-unverified",
-                    "area": contract["source"],
-                    "summary": f"{contract_id} was not attested by any review "
-                               f"pass: {contract['statement']}",
                 })
         missing_ids = [contract["id"] for contract in contracts
                        if contract["id"] not in seen]

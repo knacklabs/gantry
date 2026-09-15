@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Before this hands off to the plan, the live five-run check on the real job: gate or evidence?",
+      "options": [
+        "Evidence, not a gate (Recommended)",
+        "Make it a merge gate",
+        "Drop the live check"
+      ],
+      "chosen": "Evidence, not a gate (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T13:45:02.574393+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,6 +16,7 @@ from factory_lib import (
     task_evidence_path,
     evidence_path, load_json, now_iso, parse_sections,
     plan_digest_without_assumptions, repo_root, run_state_path, story_dir, task_rows,
+    proof_read_path,
 )
 
 # Shipped/archived plans move out of active|completed; scan debt too or a
@@ -178,16 +181,16 @@ def _plan_evidence(
     tasks = merge_task_detail(decomposition, stages, derived_rows)
     # The same predicates pr_ready gates on: a tick here must mean the gate
     # would open, not merely that a file is on disk.
-    recorded = load_json(evidence_path(base, story, "tests.json"), default={})
+    recorded = load_json(proof_read_path(base, story, "tests.json"), default={})
     evidence = {
         "verify": verify_passed(load_json(
-            evidence_path(base, story, "verify.json"), default={})),
+            proof_read_path(base, story, "verify.json"), default={})),
         "tests": tests_passed(recorded.get("automated")) and (
             tests_passed(recorded.get("functional"), functional=True)
             if recorded.get("functional") else True),
         "reviews": {
             aspect: review_passed(load_json(
-                evidence_path(base, story, f"reviews/{aspect}.json"), default={}))
+                proof_read_path(base, story, f"reviews/{aspect}.json"), default={}))
             for aspect in ("quality", "performance", "security")
         },
     }
@@ -765,16 +768,23 @@ def _codex_jobs_by_root(roots: list[Path]) -> dict[Path, dict]:
     """
     jobs: dict[Path, dict] = {}
     try:
-        from .codex_status import STATE_ROOT, load_jobs
+        from .codex_status import STATE_ROOT, jobs_by_workspace, workspace_key
     except Exception:
+        return jobs
+    # ONE registry read for every root: asking per root stamped the whole
+    # registry once per worktree, most of a story drawer's seconds.
+    try:
+        grouped = jobs_by_workspace(STATE_ROOT) if STATE_ROOT.is_dir() else {}
+    except (Exception, SystemExit):
         return jobs
     for root in roots:
         try:
-            found = load_jobs(root.resolve(), STATE_ROOT)
-        except (Exception, SystemExit):
+            resolved = root.resolve()
+        except OSError:
             continue
+        found = grouped.get(workspace_key(resolved)) or []
         if found:
-            jobs[root.resolve()] = found[-1]  # sorted by createdAt
+            jobs[resolved] = dict(found[-1])  # sorted by createdAt
     return jobs
 
 
@@ -1105,12 +1115,36 @@ def _record_plan_views(root: Path, key: str, detail: dict | None) -> None:
 def make_server(base: Path, port: int) -> ThreadingHTTPServer:
     root = base.resolve()
     # This process is the read-only board: it re-renders every few seconds, and
-    # a live `git fetch` per render is what made opening a story slow. Let the
-    # marker check reuse a recent fetch here — and ONLY here; every CLI process
-    # leaves the TTL at zero so the frontier and ship gates stay live.
+    # a live `git fetch` per render is what made it slow. Here -- and ONLY here;
+    # every CLI process leaves the TTL at zero so the frontier and ship gates
+    # stay live -- a fetch is reused for a minute, and a thread on its own
+    # clock keeps it fresh, so a request never waits on the network: the 15 s
+    # window against a 4 s poll still put a 2.7 s round trip on every fourth
+    # poll, and `forge next`'s own marker checks went around the window.
     import factory_lib
+    from factory_lib import _has_origin, default_trunk_branch, refresh_trunk
 
-    factory_lib.MARKER_FETCH_TTL = 15.0
+    factory_lib.MARKER_FETCH_TTL = 60.0
+    # Same boundary: reuse git facts fingerprinted by the files git rewrites
+    # when they change (markers, origin, tree digests). CLI processes do not.
+    factory_lib.BOARD_MEMO = True
+
+    def keep_trunk_fresh() -> None:
+        try:
+            if not _has_origin(root):
+                return
+            trunk = default_trunk_branch(root)
+        except (Exception, SystemExit):
+            return
+        while root.is_dir():  # a board over a removed tree stops refreshing
+            try:
+                refresh_trunk(root, trunk)
+            except (Exception, SystemExit):
+                pass
+            time.sleep(45.0)
+
+    threading.Thread(target=keep_trunk_fresh, name="board-trunk-refresh",
+                     daemon=True).start()
 
     class BoardHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
@@ -1162,24 +1196,35 @@ def make_server(base: Path, port: int) -> ThreadingHTTPServer:
 DEFAULT_PORT = 8765
 
 
-def already_serving(port: int) -> bool:
-    """True when a board for this repo is already up on the port.
+def already_serving(port: int, root: Path | None = None) -> bool:
+    """True when a board for THIS repo is already up on the port.
 
     The skill is told to reuse rather than duplicate; without this a second
     `forge board` dies on 'address in use' and looks broken.
+
+    `root` is what makes the answer about this repo. Without it the probe said
+    yes to ANY board, so a board open on another checkout made `forge board`
+    hand you that other repo's board, and made `forge next` report a board for a
+    repo that had none. It also left the gate tests non-hermetic: the suite
+    failed on a developer machine purely because a board happened to be running.
     """
     import urllib.error
     import urllib.request
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=1) as r:
-            return json.loads(r.read()).get("root") is not None
+            served = json.loads(r.read()).get("root")
+        if served is None:
+            return False
+        if root is None:
+            return True
+        return Path(served).resolve() == Path(root).resolve()
     except (urllib.error.URLError, OSError, ValueError):
         return False
 
 
 def cmd_board(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
-    if already_serving(args.port):
+    if already_serving(args.port, base):
         url = f"http://127.0.0.1:{args.port}/"
         print(f"Lifecycle board already running: {url}")
         webbrowser.open(url)

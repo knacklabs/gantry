@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-10T18:05:49+00:00", "story": "GRANTED-1", "detail": "GRANTED-1-T1 requires redacting localCliArgPatterns in the structured-invocation mismatch error and capability audit record, but apps/core/src/jobs/structured-local-cli-invocation.ts and apps/core/src"}

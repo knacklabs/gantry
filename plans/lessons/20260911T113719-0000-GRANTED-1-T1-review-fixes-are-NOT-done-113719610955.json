@@ -1,0 +1,12 @@
+{
+  "topic": "GRANTED-1-T1 review fixes are NOT done",
+  "lesson": "The last run reported 'no additional source edits were needed' and all three blocking findings are still present in the tree: the re-export survives at prompt-profile-service.ts:783, a capability carrying an mcp_tool binding still returns an empty list at agent-prompt-capability-catalog.ts:157-163 instead of failing, and the replay test still fabricates firstAction with a ternary over a prompt substring at capability-catalog-replay.test.ts:46-57 rather than driving the real dispatcher. Verify each fix by reading the file after making it; do not report a finding fixed without that.",
+  "source": ".factory/stories/GRANTED-1/tasks/GRANTED-1-T1/reviews/security.json",
+  "applies_to": [
+    "apps/core/src/application/agents/**",
+    "apps/core/test/unit/runner/capability-catalog-replay.test.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-11T11:37:19+00:00"
+}

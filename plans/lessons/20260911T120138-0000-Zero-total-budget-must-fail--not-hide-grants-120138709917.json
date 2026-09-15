@@ -1,0 +1,11 @@
+{
+  "topic": "Zero total budget must fail, not hide grants",
+  "lesson": "All three lenses found the same defect at agent-prompt-capability-guidance.ts:49: 'if (input.totalBudget <= 0 || input.blocks.length === 0) return \"\"' returns an empty block before the overflow check, so with a non-zero grantedCount every granted capability disappears silently \u2014 the exact never-hide violation this task exists to prevent, and worse than the overflow case because nothing is recorded. Fix: when grantedCount is greater than zero and the compact lines cannot be rendered, take the SAME hard-overflow path as the normal branch (abort with the redacted capability_catalog_overflow diagnostic naming granted and renderable counts). Only an empty granted set may return early. Cover it with a test at zero and at a negative budget.",
+  "source": ".factory/stories/GRANTED-1/tasks/GRANTED-1-T1/reviews/security.json",
+  "applies_to": [
+    "apps/core/src/application/agents/agent-prompt-capability-guidance.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-11T12:01:38+00:00"
+}

@@ -17,17 +17,11 @@ precedence:
 modes:
   lite:
     model: "gpt-5.6-luna"
-    # Ravi, 2026-09-10. `max` sits above the harness's own ALLOWED_EFFORTS
-    # (low/medium/high/xhigh), which gates only the `--effort` OVERRIDE flag:
-    # a pin here is passed through by mode_run_config unvalidated and the CLI
-    # accepts it (enabled-reasoning-efforts carries ultra and max). So the pin
-    # works, but `forge delegate --effort max` would still be refused.
     reasoning: "max"
     bound: 5
-  # The cold reader for `forge grill`. Repinned by Ravi 2026-09-10 to sol at
-  # high, which also settles a drift: the note here used to claim the per-task
-  # grills ran on sol at xhigh while the pin below said terra at xhigh, and
-  # the pin is what mode_run_config actually reads (grill.py:400). Still one
+  # The harness's cold reader for `forge grill` (its gate test pins this exact
+  # model). The per-task contract grills this project runs go out through the
+  # codex companion at high — owner policy 2026-09-11 retires terra everywhere; one
   # grill per round, no parallel second model.
   grill:
     model: "gpt-5.6-sol"
@@ -79,12 +73,7 @@ phases:
   planning:
     owner: "claude-code:plan-mode"
     alternate: "codex:planner-high"
-    # Ravi, 2026-09-11: the read-only breadth lane moves from terra at high to
-    # luna at max. `max` is above the harness's own ALLOWED_EFFORTS, which
-    # gates only the `--effort` OVERRIDE flag, so it works as a written pin
-    # here and in the /codex:rescue argv, but `--effort max` on the CLI would
-    # still be refused.
-    exploration: "/codex:rescue --model gpt-5.6-luna --effort max (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
+    exploration: "/codex:rescue --model gpt-5.6-sol --effort low (read-only by default) — NEVER Claude Code itself, NEVER raw codex exec"
     contract: "factory/prompts/planner.md"
     plan_artifact: "plans/active/<issue>-<slug>.md via forge.py plan save"
     decisions: "docs/decisions/ records BEFORE decomposition is recorded"
@@ -99,7 +88,7 @@ phases:
       the contract is identical: same sections (incl. Decisions), same
       forge.py plan save step, same gates. When planning in Claude, delegate
       ALL codebase exploration to Codex read-only runs
-      (/codex:rescue --model gpt-5.6-luna --effort max — read-only by
+      (/codex:rescue --model gpt-5.6-sol --effort low — read-only by
       default; raw codex exec is hook-blocked, no exceptions).
       Approval is the saved plan file, not a flag.
   decomposition:
@@ -113,12 +102,13 @@ phases:
     notes: "Per-task task graph; records the user_facing flag the ship gate reads."
   implementation:
     owner: "codex:/codex:rescue"
+    # Owner policy 2026-09-11: implementers run gpt-5.6-sol at medium.
+    # PATCHED IN PLACE by owner ruling; harness.yaml is vendored from
+    # symphony-forge, so a re-vendor reverts this unless made upstream too.
     model: "gpt-5.6-sol"
-    # Ravi, 2026-09-11: astra at low was tried on the strength of being fast
-    # and did not work out, so implementation returns to sol at medium. Raise a
-    # single run with `./forge delegate <id> --effort high` (or xhigh) for
-    # migrations, cross-domain or security work — that is where the old terra
-    # xhigh floor was aimed, and medium is not it.
+    # Floor, not a ceiling. Raise a single run with
+    # `./forge delegate <id> --effort medium` for migrations, cross-domain or
+    # security work.
     reasoning: "medium"
     prompts: "factory/prompts/implementer.md"
     required_skills: # ENFORCED by feature type — the decomposition's user_facing flag:

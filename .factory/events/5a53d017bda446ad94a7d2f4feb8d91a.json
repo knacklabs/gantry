@@ -1,0 +1,1 @@
+{"event": "stage-measured", "generated_by": "implementer", "at": "2026-09-11T13:56:58+00:00", "story": "GRANTED-1", "detail": "GRANTED-1-T1: GRANTED-1-T1 changed 2 path(s) outside its declared write_scope: AGENTS.md, harness.yaml; GRANTED-1-T1 exceeds its review budget: measured files=19, lines=1780; budget files=17, lines=1400"}

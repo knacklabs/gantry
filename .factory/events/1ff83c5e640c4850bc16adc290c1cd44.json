@@ -1,0 +1,1 @@
+{"event": "signal-confusion", "generated_by": "implementer", "at": "2026-09-10T18:22:36+00:00", "story": "GRANTED-1", "detail": "GRANTED-1-T1 requires an invocation descriptor for adapter bindings while forbidding adapterRef exposure, but the brief supplies no callable neutral reference or resolution rule for adapter-only bindi"}

@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0206-5c93",
+  "profile": "quickfix",
+  "reason": "Owner model policy: implementation gpt-5.6-sol at medium, grill sol at high, exploration sol at low, lite gpt-5.6-luna at max; terra and astra retired. Pins the policy in harness.yaml and AGENTS.md so delegate/grill/review stop picking retired models.",
+  "started_at": "2026-09-12T05:56:59+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

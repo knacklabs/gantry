@@ -1,0 +1,48 @@
+{
+  "commit": "18a58e1787896f9e32efdbb8939771f3c22af9d8",
+  "automated": {
+    "generated_by": "implementer",
+    "status": "passed",
+    "summary": "A scheduled run now receives a capability catalog built from the person-filtered capability set and carried on its existing spawn-input field. Catalog entries gain plural invocation descriptors, one per binding, each rendering its real calling mechanism: the dispatcher for local CLI, the MCP proxy with a server name for patterns, a direct tool name for tool rules and builtin adapters, and an informational entry where an adapter names no callable tool. Overflow sheds in a fixed order and never hides a grant; when even the compact list will not fit, the spawn aborts and publishes a diagnostic. The superseded runtime-context block is deleted and the dispatcher description points at the catalog. Enforcement is untouched.",
+    "blocking_findings": [],
+    "commands_run": [
+      "npx vitest run --config vitest.unit.config.ts apps/core/test/unit/application apps/core/test/unit/runtime apps/core/test/unit/jobs apps/core/test/unit/runner",
+      "npm run typecheck",
+      "npm run lint",
+      "npm run format:check",
+      "npm run check:architecture",
+      "python3 factory/scripts/verify.py"
+    ],
+    "pass_fail_summary": "295 test files, 3895 tests passed, 0 failed. All 16 required test leaves green. typecheck, format:check and check:architecture clean. verify.py passed with GANTRY_TEST_DATABASE_URL set.",
+    "tests_added_or_updated": [
+      "apps/core/test/unit/jobs/execution-phases-run.test.ts (new): the scheduled spawn input carries a catalog built from the person-filtered set, and an app-active but ungranted capability never renders as ready",
+      "apps/core/test/unit/runner/capability-catalog-replay.test.ts (new): the granted capability is the first tool action in replay, with a negative control proving the descriptor causes it",
+      "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts: a descriptor per usable binding kind, every binding of a multi-binding capability, legacy mcp_tool rejected, adapter cases",
+      "apps/core/test/unit/runtime/prompt-profile.test.ts: shedding order, the compact grant list surviving the total prompt budget",
+      "apps/core/test/unit/runtime/agent-spawn-prompt.test.ts and agent-spawn-host.test.ts: engine-selected tool name on both paths, deepagents unchanged, hard overflow aborting before any provider call",
+      "apps/core/test/unit/runner/mcp/locked-introspection.test.ts: dispatcher schema, risk and enforcement pinned unchanged"
+    ],
+    "remaining_gaps": [
+      "82 pre-existing lint errors remain in files this task never touched; they were 83 before, the one this task orphaned has been removed. Not this task's to fix and deliberately not suppressed or baselined.",
+      "Reviewed argument operands render verbatim with no redaction, by owner ruling; the accepted exposure is ledgered as assumption A-0071.",
+      "The DeepAgents lane still receives no descriptors; its absence from the mapping is asserted by test and the work is queued as GRANTED-2."
+    ],
+    "reviewed_scope": [
+      "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+      "apps/core/src/application/agents/agent-prompt-capability-guidance.ts",
+      "apps/core/src/application/agents/prompt-profile-service.ts",
+      "apps/core/src/jobs/execution-phases-run.ts",
+      "apps/core/src/runtime/agent-spawn.ts",
+      "apps/core/src/runtime/agent-spawn-host.ts",
+      "apps/core/src/runtime/agent-spawn-prompt.ts",
+      "apps/core/src/runner/mcp/context.ts",
+      "apps/core/src/runner/mcp/tools/capability-run.ts"
+    ],
+    "non_blocking_findings": [],
+    "residual_risks": [],
+    "manual_validation_steps": [],
+    "recorded_at": "2026-09-11T05:36:47+00:00",
+    "commit": "18a58e1787896f9e32efdbb8939771f3c22af9d8"
+  },
+  "updated_at": "2026-09-11T05:36:47+00:00"
+}

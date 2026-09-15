@@ -54,6 +54,7 @@ import {
 } from './agent-spawn-prompt.js';
 import {
   getConfiguredModelProvidersForApp,
+  getRuntimeEventExchange,
   getRuntimeFileArtifactStore,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
@@ -194,6 +195,7 @@ export async function prepareInlineAgentHostContext(
         appId: input.appId || 'default',
         accessPreset: promptAccessPreset,
         mcpInventoryToolsMounted: inlineCoreToolsMountMcpInventory(),
+        agentEngine: resolvedModel.value.agentEngine,
         modelIdentity: {
           alias: resolvedModel.value.modelEntry.displayName,
           modelId: resolvedModel.value.runnerModel,
@@ -205,6 +207,8 @@ export async function prepareInlineAgentHostContext(
             getRuntimeStorage().repositories,
           ),
         fileArtifactStore: () => getRuntimeFileArtifactStore(),
+        publishRuntimeEvent: (event) =>
+          getRuntimeEventExchange().publish(event),
         measureAsync: async (_name, fn) => fn(),
       })
     : undefined;

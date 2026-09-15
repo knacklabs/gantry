@@ -1,0 +1,24 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The implementer model is pinned in the vendored harness. How do you want Astra low applied?",
+      "options": [
+        "You change it upstream (Recommended)",
+        "I patch harness.yaml here",
+        "Let this task finish first"
+      ],
+      "chosen": "I patch harness.yaml here"
+    },
+    {
+      "question": "I could not confirm an Astra model identifier resolves for this account. What is it?",
+      "options": [
+        "gpt-6-astra",
+        "You will confirm it"
+      ],
+      "chosen": "gpt-6-astra"
+    }
+  ],
+  "at": "2026-09-10T18:15:54.105654+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

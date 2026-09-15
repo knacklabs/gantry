@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Your model-policy changes sit on this task's branch and would ride in its pull request. Split them out?",
+      "options": [
+        "Split into their own pull request (Recommended)",
+        "Let them ride along",
+        "Drop them from the branch entirely"
+      ],
+      "chosen": "Split into their own pull request (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T14:45:18.880772+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

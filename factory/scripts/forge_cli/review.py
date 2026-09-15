@@ -21,11 +21,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import uuid
 from pathlib import Path
 
 from factory_lib import (
     branch_diff_digest, clean_git_env, evidence_path, load_json,
+    proof_read_path,
     proof_path, protected_decomposition_state_path, repo_root, run_state_path,
     safe_factory_write_bytes, schema_path,
 )
@@ -44,8 +47,7 @@ HARNESS_PREFIXES = (".factory/", "plans/", "docs/decisions/")
 # The recorder's contract_verdicts shape: {contract_id, verdict, evidence}.
 VERDICT_LINE = re.compile(
     r"^\s*VERDICT\s+(?P<id>[A-Za-z0-9._:-]+)\s*:\s*"
-    r"(?P<verdict>implemented|partial|missing|not_in_chunk)\b"
-    r"\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
+    r"(?P<verdict>implemented|partial|missing)\b\s*(?:[—–-]+\s*(?P<evidence>.*))?$",
     re.IGNORECASE | re.MULTILINE,
 )
 DEFAULT_SKILL = Path.home() / ".codex" / "skills" / "autoreview" / "scripts" / "autoreview"
@@ -97,23 +99,12 @@ Use category `security` for these findings.
 
 QUALITY_VERDICT_FORMAT = """\
 CONTRACT VERDICTS (mandatory, machine-parsed). In overall_explanation, emit ONE
-line for each plan contract listed below THAT THIS DIFF LETS YOU JUDGE:
+line per plan contract listed under "Plan contracts" below, exactly in this form:
 
 VERDICT <contract-id>: implemented|partial|missing — <file:line evidence>
 
-Verdict only what you can see. A chunked review hands each pass PART of the
-change; when a contract's code is not in the slice you were given, OMIT its
-line entirely. Do not guess it, and do not report `partial` to mean "this was
-not in my slice" — another pass reviews the rest, and a contract that no pass
-verdicts is failed closed by the harness, so nothing is lost by omitting it.
-
-`partial` and `missing` ASSERT A DEFECT and block the task. Use them only for
-a contract you can see and judge incomplete or absent. Where the contract
-names behaviour a diff cannot show — a test passing, a command succeeding —
-verdict what the diff does establish (the test or step is present and
-correct); the harness verifies execution separately.
-
-Do not rename contract ids."""
+Every listed contract must get a line. Do not rename contract ids.
+"""
 
 
 def resolve_skill(explicit: str | None) -> Path:
@@ -143,23 +134,42 @@ def review_excluded_prefixes(base: Path) -> tuple[str, ...]:
     (`workflow_prefixes`). A re-vendor commit on a task branch once put 36
     harness files into a client's review bundle and the quality lens raised
     P1s against harness code the task never touched."""
-    from .stages import HARNESS_MACHINERY_PATHS, WORKFLOW_PATHS
-    from factory_lib import vendored_client
-    prefixes = set(HARNESS_PREFIXES) | set(WORKFLOW_PATHS)
-    if vendored_client(base):
-        prefixes |= set(HARNESS_MACHINERY_PATHS)
-    return tuple(sorted(prefixes))
+    # The same set the stage measures and the stamp binds to; one function,
+    # so a path is product for every closeout check or for none.
+    from factory_lib import product_excluded_prefixes
+    return product_excluded_prefixes(base)
 
 
 def _product_dirty(base: Path) -> list[str]:
+    """Dirty product paths, from NUL-separated porcelain with no stripping.
+
+    Stripping the status text ate the leading space of a first ` M path`
+    entry, and `line[3:]` then cut the first character of the path itself --
+    `plans/roadmap.json` became `lans/roadmap.json`, outside every excluded
+    prefix, and a review refused on harness bookkeeping. Both sides of a
+    rename count: either path being dirty is a dirty tree.
+    """
     excluded = review_excluded_prefixes(base)
-    status = _require_git(base, "reading working tree status", "status",
-                          "--porcelain", "--untracked-files=all")
-    dirty = []
-    for line in status.splitlines():
-        path = line[3:].strip()
-        if path and not path.startswith(excluded):
-            dirty.append(path)
+    proc = _git(base, "status", "--porcelain", "-z", "--untracked-files=all")
+    if proc.returncode != 0:
+        fail("reading working tree status failed"
+             + (f": {proc.stderr.strip()}" if proc.stderr.strip() else ""))
+    entries = proc.stdout.split("\0")
+    dirty: list[str] = []
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        paths = [path]
+        if code[:1] in ("R", "C") and index < len(entries) and entries[index]:
+            paths.append(entries[index])  # the rename/copy source follows
+            index += 1
+        for rel in paths:
+            if rel and not rel.startswith(excluded):
+                dirty.append(rel)
     return dirty
 
 
@@ -246,32 +256,55 @@ def _score(blocking: int, non_blocking: int) -> int:
     return max(0, int(10 - 3 * blocking - min(2.0, 0.5 * non_blocking)))
 
 
+def recorded_review_totals(base: Path, story: str, task_id: str,
+                           lenses: list[str] | tuple[str, ...]) -> tuple[int, int, dict]:
+    """Blocking and non-blocking counts from the recorded lens artifacts.
+
+    The one source every gate agrees on: `stage done`, `task pr-ready` and CI
+    all read these files. A verdict computed anywhere else can disagree with
+    them, and did.
+    """
+    recorded: dict[str, dict] = {}
+    for lens in lenses:
+        artifact = load_json(
+            proof_path(base, story, f"reviews/{lens}.json", task_id=task_id),
+            default={})
+        recorded[lens] = artifact if isinstance(artifact, dict) else {}
+    blocking = sum(len(a.get("blocking_findings") or []) for a in recorded.values())
+    caveats = sum(len(a.get("non_blocking_findings") or []) for a in recorded.values())
+    return blocking, caveats, recorded
+
+
 def _next_hint(task_id: str, stage_status: str, blocking: int, caveats: int) -> str:
     """The one instruction after a review. Blocking findings go back to Codex;
-    a done stage reopens for the fix first (delegate writes only inside an
-    active stage); a clean run has already stamped the stage."""
+    a clean run has already stamped the stage, and `task close` takes it from
+    there -- re-reviewing only if the diff moves again, reopening a done stage
+    itself, then measuring, closing and sealing."""
+    # These are instructions, not options. A coordinator that turns a review
+    # finding into a menu for the human ("fix now / ship and defer / fix it
+    # myself") is asking them to arbitrate something the harness has already
+    # decided: fixing a finding the review just raised is the work, and it goes
+    # to Codex like every other write.
     if blocking:
-        reopen = (f"`./forge task reopen {task_id} --review-fix`, then "
-                  if stage_status == "done" else "")
-        return (f"NEXT: {blocking} blocking finding(s) — {reopen}delegate the fixes "
-                f"to Codex (`./forge delegate {task_id}`), commit, rerun "
-                f"`./forge review {task_id}`. Loop until no lens blocks. Do this "
-                "WITHOUT asking the human to choose: a blocking finding cannot be "
-                "deferred or shipped past (pr-ready refuses it). A finding that "
-                "contradicts an accepted contract is not a defect: record the "
-                "contract as a lesson (`./forge lesson add`) so the next round "
-                "carries it. Host-side fixing is the single exception, and only "
-                "when the defect cannot be reproduced or fixed inside the Codex "
-                "sandbox — then open a ledgered degraded window and say why.")
-    seal = (f"`./forge stage done {task_id}` then `./forge task pr-ready {task_id}`"
-            if stage_status == "active" else f"`./forge task pr-ready {task_id}`")
+        return (f"NEXT: {blocking} blocking finding(s) -- delegate the fixes "
+                f"to Codex (`./forge delegate {task_id}`), commit, then "
+                f"`./forge task close {task_id}`: it re-reviews the new diff, "
+                "and a done stage reopens itself for the fix. Loop until no "
+                "lens blocks. Do this WITHOUT asking the human to choose: a "
+                "blocking finding cannot be deferred or shipped past (the seal "
+                "refuses it). A finding that contradicts an accepted contract "
+                "is not a defect: record the contract as a lesson "
+                "(`./forge lesson add`) so the next round carries it. Host-side "
+                "fixing is the single exception, and only when the defect cannot "
+                "be reproduced or fixed inside the Codex sandbox -- then open a "
+                "ledgered degraded window and say why.")
+    seal = f"`./forge task close {task_id}` measures, closes and seals it"
     if caveats:
         return (f"NEXT: no blocking finding; {caveats} non-blocking finding(s) "
-                "recorded as follow-ups. The stage is stamped — " + seal + ". Fix a "
+                "recorded as follow-ups. The stage is stamped -- " + seal + ". Fix a "
                 "follow-up in this task only when it is cheap and in scope; "
                 "otherwise `./forge defer` it with a revisit trigger.")
-    return "NEXT: all lenses clean; the stage is stamped — " + seal + "."
-
+    return "NEXT: all lenses clean; the stage is stamped -- " + seal + "."
 
 def _recommendation(blocking: int, non_blocking: int) -> str:
     if blocking:
@@ -281,66 +314,22 @@ def _recommendation(blocking: int, non_blocking: int) -> str:
 
 _VERDICT_SEVERITY = {"implemented": 0, "partial": 1, "missing": 2}
 
-# A pass that cannot see a contract is SUPPOSED to say `not_in_chunk`, but the
-# engine reliably ignores that instruction and reports `partial` with evidence
-# that says so in prose ("... is not present in chunk 1", "outside this
-# chunk", "cannot be verified from this chunk"). Reading the prose is the only
-# thing that actually works, so both forms are honoured. This only ever
-# DOWNGRADES a partial when another pass gave a real verdict; when no pass did,
-# the contract stays partial and still fails closed.
-# Two independent signals, both required: the evidence talks about the review
-# CHUNK, and it says the thing is ABSENT. Matching exact phrasings failed —
-# across runs the engine wrote "not present in chunk 1", "not shown in
-# chunk 1", "outside this chunk" and "cannot be verified from this chunk", so
-# each fix caught some and missed the rest. A verdict that describes a real
-# defect describes the CODE; one that mentions the chunk is talking about what
-# the pass could see.
-_CHUNK_REF = re.compile(r"\bchunk\b|\bdiff slice\b", re.IGNORECASE)
-_ABSENCE = re.compile(
-    r"\b(?:not|outside|beyond|cannot|can ?not|could ?n[o']t|unable|absent"
-    r"|missing|elsewhere|omitted|excluded)\b",
-    re.IGNORECASE,
-)
-
-
-def _chunk_blind(evidence: str) -> bool:
-    """True when a `partial` is reporting review scope, not a code defect."""
-    return bool(_CHUNK_REF.search(evidence) and _ABSENCE.search(evidence))
-
 
 def _parse_verdicts(texts: list[str]) -> dict[str, tuple[str, str]]:
     """One verdict per contract across every text; when a contract is verdicted
     more than once (a chunked review emits one VERDICT line per pass) the WORST
-    REAL verdict wins — missing over partial over implemented — so a pass that
-    saw a defect is never outvoted by a pass that only saw the files exist.
-
-    `not_in_chunk` is not a verdict about the code, only about what one pass
-    could see, so it never outvotes a real one: a contract another pass
-    verdicted `implemented` with file:line evidence stays implemented. Without
-    that split, worst-wins turned "this is not in my chunk" into a blocking
-    partial, and every task whose diff is large enough to chunk shipped a
-    review artifact that check_task_proof then refused — unpassable by
-    construction. When EVERY pass says `not_in_chunk` the contract really is
-    unverified, so it falls back to `partial` and still fails closed."""
-    real: dict[str, tuple[str, str]] = {}
-    unseen: dict[str, tuple[str, str]] = {}
+    verdict wins — missing over partial over implemented — so a pass that saw
+    a defect is never outvoted by a pass that only saw the files exist."""
+    verdicts: dict[str, tuple[str, str]] = {}
     for text in texts:
         for match in VERDICT_LINE.finditer(text or ""):
             cid = match.group("id").strip()
-            verdict = match.group("verdict").lower()
-            evidence = ((match.group("evidence") or "").strip()
-                        or "reviewer verdict")
-            if verdict == "not_in_chunk" or (
-                verdict == "partial" and _chunk_blind(evidence)
-            ):
-                unseen.setdefault(cid, ("partial", evidence))
-                continue
-            current = real.get(cid)
-            if current is None or (_VERDICT_SEVERITY[verdict]
+            found = (match.group("verdict").lower(),
+                     (match.group("evidence") or "").strip() or "reviewer verdict")
+            current = verdicts.get(cid)
+            if current is None or (_VERDICT_SEVERITY[found[0]]
                                    > _VERDICT_SEVERITY[current[0]]):
-                real[cid] = (verdict, evidence)
-    verdicts = dict(unseen)
-    verdicts.update(real)
+                verdicts[cid] = found
     return verdicts
 
 
@@ -374,17 +363,9 @@ def _contract_verdicts(
         if cid in parsed:
             verdict, evidence = parsed[cid]
         else:
-            # No pass verdicted this contract. That is NOT the reviewer
-            # asserting a defect: a chunked review gives each pass part of the
-            # diff, and a contract whose implementation spans slices can be
-            # judged by none of them. Recording it as `partial` made it a
-            # blocking finding, which left the task-proof gate unpassable for
-            # any task large enough to chunk. `unverified` keeps it visible as
-            # a non-blocking gap while `partial`/`missing` stay reserved for a
-            # defect a pass actually saw.
-            verdict, evidence = "unverified", (
-                "no review pass emitted a VERDICT line for this contract — "
-                "its implementation was not judged by any chunk")
+            verdict, evidence = "partial", (
+                "the reviewer emitted no VERDICT line for this contract; "
+                "recorded as partial (fail-closed) — re-review or verdict it")
         out.append({"contract_id": cid, "verdict": verdict, "evidence": evidence})
     for other in all_tasks:
         oid = other.get("id")
@@ -491,11 +472,17 @@ def codex_runs_path(root: Path) -> Path:
     return git_control_dir(root) / "codex_runs.jsonl"
 
 
+# One file, appended by every lens launch. The launches happen in this
+# process, so a lock here is what keeps three concurrent lenses from
+# interleaving half-lines into it.
+_CODEX_RUN_LOCK = threading.Lock()
+
+
 def _append_codex_run(root: Path, record: dict) -> None:
     try:
         path = codex_runs_path(root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
+        with _CODEX_RUN_LOCK, path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
     except (OSError, SystemExit):
         return  # advisory: never fail a review because bookkeeping failed
@@ -534,13 +521,23 @@ def _close_codex_run(root: Path, run_id: str, returncode) -> None:
     })
 
 
-def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
-               json_out: Path, engine: str, max_priority: str) -> dict:
-    argv = [
+def _skill_argv(skill: Path, base_sha: str, prompt_rel: str, json_out: Path,
+                engine: str, max_priority: str) -> list[str]:
+    return [
         sys.executable, str(skill), "--mode", "branch", "--base", base_sha,
         "--engine", engine, "--max-priority", max_priority,
         "--prompt-file", prompt_rel, "--json-output", str(json_out),
     ]
+
+
+def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
+               json_out: Path, engine: str, max_priority: str,
+               ledger_root: Path | None = None) -> dict:
+    argv = _skill_argv(skill, base_sha, prompt_rel, json_out, engine, max_priority)
+    # The ledger goes to the REPO's control dir: the review worktree is removed
+    # when the review ends and its control dir pruned with it, so rows written
+    # there never reach `forge codex status`.
+    ledger = ledger_root or worktree
     # Inherit stdio: the skill's heartbeat ("review still running ...") and any
     # streamed engine output are how the coordinator WATCHES this Codex release.
     #
@@ -551,19 +548,166 @@ def _run_skill(skill: Path, worktree: Path, base_sha: str, prompt_rel: str,
     # review was ever in flight. A delegation is covered by its own ledger; a
     # review was the blind spot, and it is the release the coordinator is told
     # to watch every time.
-    started = _record_codex_run(worktree, prompt_rel, argv)
+    started = _record_codex_run(ledger, prompt_rel, argv)
     process = subprocess.Popen(argv, cwd=worktree,
                                env={**os.environ, "PYTHONUTF8": "1"})
-    _stamp_codex_run(worktree, started, pid=process.pid)
+    _stamp_codex_run(ledger, started, pid=process.pid)
     try:
         returncode = process.wait()
     finally:
-        _close_codex_run(worktree, started, getattr(process, "returncode", None))
+        _close_codex_run(ledger, started, getattr(process, "returncode", None))
     if returncode not in (0, 1):  # 1 == findings present, not an error
         fail(f"autoreview exited {returncode} for {prompt_rel}; see its output above")
     if not json_out.is_file():
         fail(f"autoreview produced no JSON for {prompt_rel} (the run aborted?)")
     return json.loads(json_out.read_text(encoding="utf-8"))
+
+
+def lenses_may_run_together(skill: Path) -> tuple[bool, str]:
+    """Whether three copies of the review skill can start at once.
+
+    The skill scans every outgoing review pack with TruffleHog, and TruffleHog
+    checks for a newer release on every start and swaps its own binary in
+    place. Three lenses launched together are three scanners starting within
+    the same second: on Windows the second and third find the binary locked,
+    exit non-zero, and the skill's `--fail-on-scan-errors` turns that into
+    "could not complete the scan" -- the lens dies and the close with it (two
+    closes on WF-1 T3, 2026-09-12). Upstream fixed it twice: `--no-update`
+    on the scanner (2026-08-27), then no scanner at all (2026-09-08). A copy
+    installed before that still collides, so it is read here rather than
+    assumed: until `forge doctor --fix` refreshes it, the lenses run one at
+    a time -- slow, but never a dead close.
+    """
+    try:
+        text = skill.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return False, f"cannot read the review skill at {skill}: {exc}"
+    if "trufflehog" not in text.lower():
+        return True, "the review skill runs no scanner that could collide"
+    # The scan is one argv list starting at the resolved binary; the update
+    # flag has to sit inside that same call, not anywhere in the file.
+    start = text.find("trufflehog_bin,")
+    if start < 0:
+        start = text.lower().find("trufflehog")
+    window = text[start:start + 2500]
+    end = window.find("]")
+    call = window[:end] if end > 0 else window
+    if "--no-update" in call:
+        return True, "the review skill runs TruffleHog with --no-update"
+    return False, ("the installed review skill lets TruffleHog self-update on "
+                   "every start, and three scanners starting together collide "
+                   "on its binary; `forge doctor --fix` refreshes the skill "
+                   "(upstream passed --no-update on 2026-08-27 and dropped the "
+                   f"scanner on 2026-09-08); the scan call is in {skill}"),
+
+
+def review_log_dir(base: Path, task_id: str) -> Path:
+    """Where each lens's streamed output lands when lenses run together.
+
+    Beside the run ledger in git's control directory, not under .factory/:
+    nothing in the product tree changes, so a review never dirties the
+    working copy or needs an ignore rule.
+    """
+    return codex_runs_path(base).parent / "review-logs" / task_id
+
+
+def review_log_path(base: Path, task_id: str, lens: str) -> Path:
+    return review_log_dir(base, task_id) / f"{lens}.log"
+
+
+def run_lenses(skill: Path, worktree: Path, base_sha: str, lenses: list[str],
+               prompts: dict[str, tuple[str, bytes]], tmp: Path, engine: str,
+               max_priority: str, *, parallel: bool, log_dir: Path,
+               ledger_root: Path | None = None,
+               heartbeat_every: float = 60.0) -> dict[str, dict]:
+    """Release every lens and return its report, keyed by lens.
+
+    Sequential keeps the old shape: one lens at a time, stdio inherited so the
+    skill's heartbeat is the watch. Parallel launches all of them at once --
+    each with its own ledger row, pid, prompt, output file and log -- and
+    prints one combined heartbeat. Nothing downstream needs one lens before
+    another; the artifacts are recorded only after all have returned. If one
+    lens crashes the others are still waited for and reaped, then the failure
+    names the lens and its log, so a crash never orphans a running review.
+    """
+    if not parallel or len(lenses) == 1:
+        reports: dict[str, dict] = {}
+        for lens in lenses:
+            reports[lens] = _run_skill(
+                skill, worktree, base_sha, prompts[lens][0], tmp / f"{lens}.json",
+                engine, max_priority, ledger_root=ledger_root)
+        return reports
+
+    ledger = ledger_root or worktree  # same rule as _run_skill
+    log_dir.mkdir(parents=True, exist_ok=True)
+    launched: dict[str, dict] = {}
+    try:
+        for lens in lenses:
+            json_out = tmp / f"{lens}.json"
+            argv = _skill_argv(skill, base_sha, prompts[lens][0], json_out,
+                               engine, max_priority)
+            log = (log_dir / f"{lens}.log").open("wb")
+            run_id = _record_codex_run(ledger, prompts[lens][0], argv)
+            process = subprocess.Popen(
+                argv, cwd=worktree, stdout=log, stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUTF8": "1"})
+            _stamp_codex_run(ledger, run_id, pid=process.pid)
+            launched[lens] = {"process": process, "run_id": run_id, "log": log,
+                              "json": json_out, "started": time.monotonic(),
+                              "returncode": None}
+        print(f"lenses running together: {', '.join(lenses)} -- one heartbeat "
+              f"line per {int(heartbeat_every)}s; each lens's own output is in "
+              f"{log_dir.as_posix()}/<lens>.log", flush=True)
+
+        last_beat = time.monotonic()
+        while any(item["returncode"] is None for item in launched.values()):
+            for lens, item in launched.items():
+                if item["returncode"] is not None:
+                    continue
+                code = item["process"].poll()
+                if code is None:
+                    continue
+                item["returncode"] = code
+                _close_codex_run(ledger, item["run_id"], code)
+                item["log"].close()
+                took = int(time.monotonic() - item["started"])
+                print(f"== {lens} lens finished (exit {code}, {took}s) ==", flush=True)
+            now = time.monotonic()
+            if now - last_beat >= heartbeat_every:
+                last_beat = now
+                status = " · ".join(
+                    f"{lens} {int(now - item['started'])}s"
+                    for lens, item in launched.items() if item["returncode"] is None)
+                print(f"review still running: {status}", flush=True)
+            time.sleep(1.0)
+    finally:
+        # A KeyboardInterrupt or a fail() above must not leave lenses running.
+        for lens, item in launched.items():
+            if item["returncode"] is None:
+                try:
+                    item["process"].terminate()
+                except OSError:
+                    pass
+                _close_codex_run(ledger, item["run_id"], None)
+            try:
+                item["log"].close()
+            except OSError:
+                pass
+
+    crashed = [lens for lens, item in launched.items()
+               if item["returncode"] not in (0, 1)]  # 1 == findings, not an error
+    if crashed:
+        where = ", ".join(f"{lens} (exit {launched[lens]['returncode']}, "
+                          f"{(log_dir / f'{lens}.log').as_posix()})" for lens in crashed)
+        fail(f"autoreview crashed on {where}; the other lens(es) finished and "
+             "were reaped. Read the log, fix the cause, rerun the review.")
+    reports = {}
+    for lens, item in launched.items():
+        if not item["json"].is_file():
+            fail(f"autoreview produced no JSON for the {lens} lens (the run "
+                 f"aborted?); see {(log_dir / f'{lens}.log').as_posix()}")
+        reports[lens] = json.loads(item["json"].read_text(encoding="utf-8"))
+    return reports
 
 
 def reject_finding(base: Path, task_id: str, lens: str, match: str, *,
@@ -803,8 +947,6 @@ def _shared_terms(finding: dict | str, source: str) -> list[str]:
 
 
 def cmd_review(args: argparse.Namespace) -> None:
-    from .stages import load_stages, task_for
-
     base = Path(args.repo).resolve() if args.repo else repo_root()
     if getattr(args, "reject", None):
         reject_finding(base, args.id, getattr(args, "lens", None) or "",
@@ -812,6 +954,36 @@ def cmd_review(args: argparse.Namespace) -> None:
                        cite=getattr(args, "cite", "") or "",
                        by=getattr(args, "by", "") or "")
         return
+    outcome = review_task(
+        base, args.id, lens=getattr(args, "lens", None),
+        engine=getattr(args, "engine", "codex"),
+        max_priority=getattr(args, "max_priority", "P2"),
+        skill=getattr(args, "skill", None),
+        parallel=not getattr(args, "sequential", False),
+    )
+    print(_next_hint(args.id, outcome["stage_status"], outcome["blocking"],
+                     outcome["caveats"]))
+
+
+def review_task(base: Path, task_id: str, *, lens: str | None = None,
+                engine: str = "codex", max_priority: str = "P2",
+                skill: str | None = None, parallel: bool | None = None) -> dict:
+    """Release the three-lens review for one task and record its proof.
+
+    Returns {"blocking", "caveats", "stamped", "stage_status"}. `cmd_review`
+    prints the next-step hint; `task close` reads the numbers and decides.
+    """
+    from .stages import load_stages, task_for
+
+    class _Args:  # the body below reads these as it always did
+        pass
+    args = _Args()
+    args.id = task_id
+    args.lens = lens
+    args.engine = engine
+    args.max_priority = max_priority
+    args.skill = skill
+
     task = task_for(base, args.id)
     if not task:
         fail(f"task {args.id} is not in the recorded decomposition")
@@ -831,10 +1003,8 @@ def cmd_review(args: argparse.Namespace) -> None:
     if not isinstance(story, str) or not story:
         fail("review requires an active story")
     for artifact in ("verify.json", "tests.json"):
-        # Hotfix (vendored): verify.py and record_test write task-scoped proof
-        # (proof_path -> tasks/<id>/) once `task start` stamps task_id into the
-        # worktree pointer; read the same path here. Upstream: symphony-forge.
-        if not proof_path(base, story, artifact, task_id=args.id).is_file():
+        # Proof follows the writer: a per-task run records under the task.
+        if not proof_read_path(base, story, artifact).is_file():
             fail(f"{artifact} is not recorded for {story}; review runs after "
                  "`python3 factory/scripts/verify.py` and "
                  "`record_test_from_json.py --kind automated`")
@@ -886,14 +1056,24 @@ def cmd_review(args: argparse.Namespace) -> None:
             target = worktree / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(body)
+        # Together by default: the lenses share nothing but the diff they
+        # read. FORGE_REVIEW_SEQUENTIAL=1 or --sequential restores one at a
+        # time (an account that rate-limits three sessions, or a debug run).
+        together = (parallel if parallel is not None
+                    else not os.environ.get("FORGE_REVIEW_SEQUENTIAL"))
+        if together and len(lenses) > 1:
+            together, why = lenses_may_run_together(skill)
+            if not together:
+                print(f"lenses run one at a time: {why}", flush=True)
         for lens in lenses:
             print(f"== {lens} lens: releasing Codex over {len(scope)} path(s) "
-                  f"({base_sha[:7]}..{review_tip[:7]}, task tip {tip_sha[:7]}) — "
-                  "watch the heartbeat below ==", flush=True)
-            reports[lens] = _run_skill(
-                skill, worktree, base_sha, prompts[lens][0], tmp / f"{lens}.json",
-                args.engine, args.max_priority,
-            )
+                  f"({base_sha[:7]}..{review_tip[:7]}, task tip {tip_sha[:7]})"
+                  f"{' ==' if together and len(lenses) > 1 else ' — watch the heartbeat below =='}",
+                  flush=True)
+        reports = run_lenses(
+            skill, worktree, base_sha, lenses, prompts, tmp, args.engine,
+            args.max_priority, parallel=together,
+            log_dir=review_log_dir(base, args.id), ledger_root=base)
     finally:
         _git(base, "worktree", "remove", "--force", str(worktree))
         _git(base, "worktree", "prune")
@@ -926,12 +1106,17 @@ def cmd_review(args: argparse.Namespace) -> None:
         outcome[lens] = artifact
     shutil.rmtree(tmp, ignore_errors=True)
 
-    blocking_total = sum(len(a["blocking_findings"]) for a in outcome.values())
-    caveats_total = sum(len(a["non_blocking_findings"]) for a in outcome.values())
-    for lens, artifact in outcome.items():
-        print(f"{lens:<12} score {artifact['score']:>2}  {artifact['recommendation']:<21}"
-              f" blocking={len(artifact['blocking_findings'])} "
-              f"non-blocking={len(artifact['non_blocking_findings'])}")
+    # Count what was RECORDED, not what was composed. The recorder turns a
+    # partial or missing contract verdict into a blocking finding, and CI
+    # reads the recorded file; counting the pre-record artifact printed
+    # "blocking=0", stamped the stage, and let CI refuse it (WF-1 T2).
+    blocking_total, caveats_total, recorded = recorded_review_totals(
+        base, story, args.id, lenses)
+    for lens, artifact in recorded.items():
+        print(f"{lens:<12} score {str(artifact.get('score', '?')):>2}  "
+              f"{str(artifact.get('recommendation', '')):<21}"
+              f" blocking={len(artifact.get('blocking_findings') or [])} "
+              f"non-blocking={len(artifact.get('non_blocking_findings') or [])}")
     print(f"Recorded {len(outcome)} review artifact(s) for {args.id} under "
           f".factory/stories/{story}/reviews/.")
     # ONE review per task: a run with no blocking finding is the stage's review
@@ -951,9 +1136,9 @@ def cmd_review(args: argparse.Namespace) -> None:
         from .stages import revoke_stage_review_stamp
         if revoke_stage_review_stamp(base, args.id):
             print(f"Stage {args.id}'s earlier review stamp revoked: this run blocks.")
-    # These are instructions, not options. A coordinator that turns a review
-    # finding into a menu for the human ("fix now / ship and defer / fix it
-    # myself") is asking them to arbitrate something the harness has already
-    # decided: fixing a finding the review just raised is the work, and it goes
-    # to Codex like every other write.
-    print(_next_hint(args.id, str(started.get(args.id)), blocking_total, caveats_total))
+    return {
+        "blocking": blocking_total,
+        "caveats": caveats_total,
+        "stamped": bool(not blocking_total and len(lenses) == len(LENSES)),
+        "stage_status": str(started.get(args.id)),
+    }

@@ -1,0 +1,56 @@
+{
+  "id": "GRANTED-1-T1",
+  "title": "The scheduled run is told which capabilities it holds",
+  "status": "done",
+  "started_at": "2026-09-10T18:01:52+00:00",
+  "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
+  "dirty_at_start": {
+    ".factory/grill-brief-task-GRANTED-1-T1.md": {
+      "digest": "83bd4937a38b0fb5df0e70f21ac7825030d7c8ee3f2ad92cda2388f64fa7a73b",
+      "git": "1 .M N... 100644 100644 100644 c4dd6dc661d12906dce551791af5dbedc6535391 c4dd6dc661d12906dce551791af5dbedc6535391 .factory/grill-brief-task-GRANTED-1-T1.md\u0000\u0000100644 c4dd6dc661d12906dce551791af5dbedc6535391 0\t.factory/grill-brief-task-GRANTED-1-T1.md\u0000\u0000H .factory/grill-brief-task-GRANTED-1-T1.md\u0000"
+    },
+    ".factory/stories/GRANTED-1/grill-rounds/94ba140d-4da0-40dc-bb43-747b174669d9.json": {
+      "digest": "636e1e34bc915c2a30bbc8d9db1fa72908d2d4bb70a0395a1a06c486d254a153",
+      "git": "? .factory/stories/GRANTED-1/grill-rounds/94ba140d-4da0-40dc-bb43-747b174669d9.json\u0000\u0000\u0000"
+    },
+    ".factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json": {
+      "digest": "e5839d4c5188e6f36d9970a9e2939c1c89171842620476d912e3dadb43d64383",
+      "git": "1 .M N... 100644 100644 100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 b606c3fde9ae7f34b9c597ffec4db3943de468c0 .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000100644 b606c3fde9ae7f34b9c597ffec4db3943de468c0 0\t.factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000\u0000H .factory/stories/GRANTED-1/grills/tasks/GRANTED-1-T1.json\u0000"
+    }
+  },
+  "task_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
+  "measured": {
+    "strays": [
+      "AGENTS.md",
+      "harness.yaml"
+    ],
+    "files": 19,
+    "lines": 1749,
+    "budget": {
+      "files": 17,
+      "lines": 1400
+    },
+    "test_id_misses": []
+  },
+  "contract_changed": {
+    "at": "2026-09-11T13:56:58+00:00",
+    "from": "96ef1a85384e8b46410865259706b2e0f0145c9707a101b56f2719bcf878210c",
+    "to": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac"
+  },
+  "review_fix_reopened_at": "2026-09-11T14:51:19+00:00",
+  "review_fix_count": 1,
+  "local_review_stamp": {
+    "stage_id": "GRANTED-1-T1",
+    "base_sha": "b740f8c8056f66754849f0c1a07c9b0b6d4d2ae4",
+    "delta_id": "29d558df1758ea6b3caa3167596c593fa9d5a01ebeb0e8c11907a772f512c1ec",
+    "contract_sha256": "d821109d9cc5ebf513e13f329e9d8c62b15eafea4c012f6ca8dfbf95a7c541ac",
+    "recorded_at": "2026-09-11T14:55:11+00:00",
+    "generated_by": "autoreview",
+    "lenses": [
+      "quality",
+      "performance",
+      "security"
+    ]
+  },
+  "completed_at": "2026-09-11T15:03:16+00:00"
+}

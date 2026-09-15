@@ -34,13 +34,16 @@ def test_non_blocking_findings_never_sink_a_review_below_the_seal_floor():
 
 
 def test_next_hint_names_the_single_loop_for_each_stage_state():
+    # One instruction, one command. A done stage reopens itself inside
+    # `task close`; no verb to discover, no order to remember.
     active_block = _next_hint("T1", "active", 2, 0)
     assert "delegate the fixes" in active_block and "--review-fix" not in active_block
+    assert "task close T1" in active_block
     done_block = _next_hint("T1", "done", 1, 3)
-    assert "task reopen T1 --review-fix" in done_block
+    assert "task close T1" in done_block and "--review-fix" not in done_block
     assert "lesson add" in done_block
-    assert "stage done T1" in _next_hint("T1", "active", 0, 0)
-    assert "task pr-ready T1" in _next_hint("T1", "done", 0, 0)
+    assert "task close T1" in _next_hint("T1", "active", 0, 0)
+    assert "task close T1" in _next_hint("T1", "done", 0, 0)
     caveats = _next_hint("T1", "active", 0, 2)
     assert "follow-ups" in caveats and "stamped" in caveats and "defer" in caveats
 
@@ -84,7 +87,9 @@ def test_stamp_binds_the_current_tree_on_an_active_and_a_done_stage(repo, tmp_pa
         assert recorded["stage_id"] == "T1"
         assert recorded["generated_by"] == "autoreview"
         assert recorded["lenses"] == ["quality", "performance", "security"]
-        assert len(recorded["product_tree_digest"]) == 64
+        assert len(recorded["delta_id"]) == 64
+        assert "product_tree_digest" not in recorded
+        assert "brief_sha256" not in recorded
         assert _stage(repo, "T1")["status"] == status
 
 

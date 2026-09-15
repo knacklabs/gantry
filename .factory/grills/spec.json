@@ -1,143 +1,45 @@
 {
   "generated_by": "griller",
   "gate": "spec",
-  "issue": "cache-bug",
   "verdict": "pass",
-  "summary": "Spec gate for cache-bug: five cold reads (four under the pre-pull loop rule, the fifth as the single read under the one-read rule), ten ledgered human questions across four AskUserQuestion rounds; every gap has a human decision or a repository-cited resolution folded into the amended docs/specs/cache-bug.md; frontier closed by the human.",
-  "questions_asked": 10,
+  "issue": "GRANTED-1",
+  "summary": "Requirements re-read on the stable tree returned a single finding, the hard-overflow edge where even names and ids will not fit. The owner ruled fail closed and both spec and plan carry it.",
   "gaps": [
-    "Spec dropped the channel/thread snapshot on resume, contradicting decision 0089",
-    "Expiring a DeepAgents session left its raw LangGraph checkpoint rows, so Postgres kept growing",
-    "Threshold proposed as an environment variable, contradicting decision 0025 settings authority",
-    "Ceiling metric ambiguous: per-run inputTokens plus cache reads double-counted on OpenAI-compatible providers and totalBillableInputTokens subtracts cache reads so a 270k cached prompt records near zero",
-    "Shipped rollout/cleanup command and lazy retirement contradicted decisions 0003 and 0112",
-    "Per-request model-visible measurement not implementable from current adapter output; model-capacity clause unknowable because no model identity is stored on the session",
-    "High-water mark placed in metadata_json, contradicting decision 0017 typed resume-governing state; write not race-safe",
-    "expireProviderSession returns void so cleanup could not be gated on a won transition; reset_at not in the fence; maintenance_compact rows retireable",
-    "Host-owned DeepAgents-specific cleanup violated provider-neutral core rule; /new returned no references for cleanup",
-    "Settings shape named a non-existent limits.providers sibling; strict parser would break old fleet workers without a reader-version bump",
-    "Retirement events claimed pre-run timing for missing-session which is only discovered after a run row exists; 16-hex hash not a safe join key",
-    "Pre-deploy reset said truncate checkpoint tables, which would remove checkpoint_migrations and replay package migrations",
-    "Active roadmap card carries intake-time acceptance criteria that contradict the spec and cannot be edited"
+    "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee."
   ],
-  "contradictions": [
-    "0089 per-turn snapshot guarantee vs dropping the snapshot on resume",
-    "0025 revisioned settings authority vs environment-variable threshold",
-    "0003/0112 no runtime migration vs shipped rollout command and lazy retirement",
-    "0017 typed columns for governing state vs JSONB high-water mark",
-    "BRIEF provider-neutral core vs host branching on DeepAgents checkpoint tables",
-    "Roadmap card intake criteria vs grilled spec acceptance criteria"
-  ],
+  "contradictions": [],
   "resolutions": [
-    "Gap 1 \u2014 Human (round 1): keep 0089 and 0078; ceiling only; spec Behaviour 7 and Non-goals",
-    "Gap 2 \u2014 Human (round 1): reclaim DeepAgents checkpoint rows on retirement; spec Behaviour 6",
-    "Gap 3 \u2014 Human (round 1): threshold is a global revisioned runtime setting per 0025; spec Behaviour 4",
-    "Gap 4 \u2014 Human (round 3) + repo (model-usage.ts, provider registry usageFields): per-run usage corrected per provider cache semantics via registry booleans; spec Behaviour 1",
-    "Gap 5 \u2014 Human (round 3): manual pre-deploy reset by the deployment owner, no command, no lazy retirement; spec Behaviour 7 and Non-goals",
-    "Gap 6 \u2014 Human (round 3): minimal scope; per-request seam and model-capacity clause parked; spec Non-goals",
-    "Gap 7 \u2014 Repo (0017): typed nullable integer column provider_sessions.context_high_water_mark with fenced GREATEST update; spec Behaviour 2",
-    "Gap 8 \u2014 Repo (helpers statuses, current expiry): atomic active->expired transition returning the retired reference, fenced on id/owner/status/reset_at; promote ready first; never retire maintenance_compact; spec Behaviour 3 and 5",
-    "Gap 9 \u2014 Repo (BRIEF, PostgresSaver.deleteThread): adapter releaseSession port with runtimeStorage; /new hands references to cleanup after commit; spec Behaviour 5 and 6",
-    "Gap 10 \u2014 Repo (limits parser, settings-revision-listener): limits.provider_session_max_input_tokens flat global scalar; CURRENT_SETTINGS_READER_VERSION bump with min_reader_version; spec Behaviour 4",
-    "Gap 11 \u2014 Repo (group-agent-runner run creation, missing retry): preflight events with sessionId for ceiling/fingerprint, post-attempt with runId for missing; full SHA-256 hash with SQL join expression; spec Behaviour 8",
-    "Gap 12 \u2014 Repo (checkpoint schema): reset deletes only selected interactive sessions' rows from the three checkpoint tables, preserving checkpoint_migrations; spec Behaviour 7",
-    "Gap 13 \u2014 Human (round 5): the confirmed spec is linked to the card as its authority; intake criteria superseded; spec Why",
-    "Contradiction 1 \u2014 resolved in favour of 0089: snapshot stays on every turn; spec Behaviour 7",
-    "Contradiction 2 \u2014 resolved in favour of 0025: revisioned setting, no env var; spec Behaviour 4",
-    "Contradiction 3 \u2014 resolved in favour of 0003/0112: no command, no lazy retirement, manual owner reset with stop condition; spec Behaviour 7",
-    "Contradiction 4 \u2014 resolved in favour of 0017: typed column; spec Behaviour 2",
-    "Contradiction 5 \u2014 resolved in favour of the BRIEF: adapter cleanup port, core never names a checkpoint table; spec Behaviour 6",
-    "Contradiction 6 \u2014 Human (round 5): linked confirmed spec is the card's authority; spec Why"
+    "Owner ruled fail closed: the spec and plan now state that when the compact list cannot fit, the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts, and acceptance criterion 4b asserts it."
   ],
   "open_items": [
-    "Non-blocking: DeepAgents usage normaliser keeps largest-not-summed per-call usage (billing accuracy defect) \u2014 recorded as a deferral, out of scope",
-    "Non-blocking: delta channel/thread snapshot on resume parked; revisit if retirement alone leaves turns too expensive"
+    "Extending the catalog to the DeepAgents lane remains follow-up, with its absence asserted so the gap is explicit.",
+    "The document edit contract and decisions 0108 and 0114 remain in the superseded draft awaiting their own spec."
   ],
+  "questions_asked": 1,
+  "input_sha256": "c771a919d286892dec872f57ceeeb2380094911b92693c86d2790ea3e2ecfeb8",
   "rounds": [
     {
-      "question": "Grill finding 1: decision 0089 pins that every provider turn sees the 30-message channel block plus the thread window. The spec drops that snapshot on resumed sessions. Which way?",
+      "question": "If even the bare name-and-id list of an agent's grants will not fit the prompt, what should the run do?",
       "options": [
-        "Keep 0089, ceiling only (Recommended)",
-        "Supersede 0089 with a delta snapshot",
-        "Supersede 0089, no snapshot on resume"
+        "Fail the run before it starts (Recommended)",
+        "Truncate and record it",
+        "Let the prompt grow past the budget"
       ],
-      "chosen": "Keep 0089, ceiling only (Recommended)"
-    },
-    {
-      "question": "Grill finding 2: expiring a DeepAgents session starts a fresh thread but leaves the old raw LangGraph checkpoint rows, so Postgres still grows. Reclaim or narrow?",
-      "options": [
-        "Reclaim on expiry (Recommended)",
-        "Narrow the promise, defer reclamation"
-      ],
-      "chosen": "Reclaim on expiry (Recommended)"
-    },
-    {
-      "question": "Findings 3 to 5 have clear defaults. Confirm all three: threshold is one validated global runtime setting per decision 0025 (not an env var), default 150,000; expiry keys on the max single model-call inputTokens (no cache-read double count); durable memory stays freshly injected on every run and the rule is renamed to no duplicate channel/thread snapshot.",
-      "options": [
-        "Confirm all three (Recommended)",
-        "Change something"
-      ],
-      "chosen": "Confirm all three (Recommended)"
-    },
-    {
-      "question": "Round 2 finding: the one-off rollout invalidation command is a migration/cleanup command, which accepted decision 0003 (early stage, no back-compat) explicitly rejects. How do we handle existing oversized sessions?",
-      "options": [
-        "Drop the command, rely on unmeasured-means-no-resume (Recommended)",
-        "Keep the command, record a 0003 exception"
-      ],
-      "chosen": "Drop the command, rely on unmeasured-means-no-resume (Recommended)"
-    },
-    {
-      "question": "Round 2 finding: Claude's normalised inputTokens excludes cache read/write tokens and is aggregated per run, so it cannot supply the largest single model-call context. What should the ceiling measure?",
-      "options": [
-        "New per-request model-visible input maximum (Recommended)",
-        "Aggregate per-run billable input"
-      ],
-      "chosen": "New per-request model-visible input maximum (Recommended)"
-    },
-    {
-      "question": "Confirm the five defaults: scope is every persistent interactive provider session on any channel, jobs excluded; a session without a valid versioned measurement is not resumable, and measurements persist even from failed turns; effective cap is the lower of the global setting (valid range 20,000 to 900,000, applies on next resume) and the runtime-known safe model capacity, unknown capacity does not resume; DeepAgents checkpoint reclamation runs in one shared expiry operation for every expiry reason, never blocks a reply, leaves the session expired if cleanup fails and emits retry evidence; the observability query is operator-only, joins runtime_events to agent_runs to provider_sessions, and shows hashed identifiers by default.",
-      "options": [
-        "Confirm all five (Recommended)",
-        "Change something"
-      ],
-      "chosen": "Confirm all five (Recommended)"
-    },
-    {
-      "question": "Round 3 shows the per-request measurement is not implementable from current adapter output (DeepAgents emits one terminal usage snapshot whose input already includes cache reads; Claude aggregates per run), and the model-capacity clause is unknowable because no model identity is stored on the session. Do you want the minimal scope or the full design?",
-      "options": [
-        "Minimal: existing per-run usage as the ceiling (Recommended)",
-        "Full: new per-request seam, fenced cleanup, retry owner"
-      ],
-      "chosen": "Minimal: existing per-run usage as the ceiling (Recommended)"
-    },
-    {
-      "question": "Finding 2: retiring legacy sessions lazily on their next turn is a runtime migration, which decisions 0003 and 0112 reject. How are pre-existing sessions handled?",
-      "options": [
-        "Manual pre-deploy reset by the owner (Recommended)",
-        "Record an exception decision for lazy retirement"
-      ],
-      "chosen": "Manual pre-deploy reset by the owner (Recommended)"
-    },
-    {
-      "question": "The active cache-bug roadmap card still carries intake-time criteria (drop the snapshot on resume, null Slack handles, update pinned tests) that contradict the grilled spec, and the harness refuses to edit an active card's criteria. How should the two contracts be reconciled?",
-      "options": [
-        "Link the spec as the card's authority (Recommended)",
-        "Retire this card and add a fresh one"
-      ],
-      "chosen": "Link the spec as the card's authority (Recommended)"
-    },
-    {
-      "question": "Closing question for the spec gate: the other seven findings (typed high-water column per 0017, provider-resolved usage components with partial usage on errors, fenced transition order including reset_at, adapter cleanup port with /new returning references after commit, flat limits scalar with a reader-version bump, event timing with full SHA-256 correlation, and a reset that preserves checkpoint_migrations) are being folded in from what the repository says. Any remaining gap before I amend once and record?",
-      "options": [
-        "No remaining gap, amend and record (Recommended)",
-        "Yes, there is a gap"
-      ],
-      "chosen": "No remaining gap, amend and record (Recommended)",
+      "chosen": "Fail the run before it starts (Recommended)",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "a78f6aa9abd6294fb3f50e1214d9ac49cbd81c77612252a6ff0f7e2c7ee5dd94",
-  "recorded_at": "2026-09-09T08:47:51+00:00",
-  "commit": "148589a11cf437661399dd68d38a74891be3ee50"
+  "inspected_refs": [
+    "docs/specs/granted-capability-is-visible.md",
+    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
+    "apps/core/src/application/agents/prompt-profile-service.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee.",
+      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+    }
+  ],
+  "recorded_at": "2026-09-10T16:11:56+00:00",
+  "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
 }

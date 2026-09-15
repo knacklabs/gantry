@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Decision 0066 says a review stamp binds the diff alone and a contract re-record never affects it. My stamp kept dying anyway. Which way?",
+      "options": [
+        "Honour 0066, treat the deaths as a bug (Recommended)",
+        "Supersede 0066 for scope-changing fields",
+        "Leave stamp behaviour alone entirely"
+      ],
+      "chosen": "Honour 0066, treat the deaths as a bug (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T16:37:06.272904+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

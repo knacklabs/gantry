@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "If an agent's granted capabilities will not fit the prompt section, what should it see?",
+      "options": [
+        "Names always, details degrade (Recommended)",
+        "Full details, no ceiling",
+        "Add a lookup tool"
+      ],
+      "chosen": "Names always, details degrade (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T13:11:47.345973+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

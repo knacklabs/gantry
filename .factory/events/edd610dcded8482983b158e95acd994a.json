@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-11T03:13:14+00:00", "story": "GRANTED-1", "detail": "GRANTED-1-T1 implementation and scoped tests are green, but required npm run lint fails on 83 pre-existing errors outside the 16-file write scope; the orchestrator must resolve or baseline that lane b"}

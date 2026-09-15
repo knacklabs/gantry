@@ -21,7 +21,10 @@ import pytest
 from test_gates import HARNESS, git, load_factory_lib, repo, run  # noqa: F401
 
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
-from factory_lib import GROUNDING_CONTRACT_FIELDS  # noqa: E402
+from factory_lib import (  # noqa: E402
+    GROUNDING_CONTRACT_FIELDS, IN_STAGE_GROUNDING_FIELDS,
+    MEASUREMENT_CONTRACT_FIELDS,
+)
 
 
 TASK = {
@@ -89,23 +92,50 @@ def test_bookkeeping_never_forces_a_regrill(repo: Path, field, value):
     ("user_facing", True),
 ])
 def test_changing_what_the_work_is_forces_a_regrill(repo: Path, field, value):
-    # The gate has to keep working. Narrowing write_scope or adding a required
-    # test changes what was authorised, and the grill that read the old version
-    # does not speak to the new one.
+    # BEFORE the stage opens every substantive field is what was authorised,
+    # and the grill that read the old version does not speak to the new one.
     lib = _seed(repo)
+    before = lib.grounding_digest(repo, TASK, in_stage=False)
+    after = lib.grounding_digest(repo, {**TASK, field: value}, in_stage=False)
+    assert before != after, f"changing {field} did NOT force a re-grill"
+    # ONCE the stage is open, scope/tests/verify are MEASUREMENT fields:
+    # `stage done` measures the diff and runs the tests, so a cold read of
+    # them adds nothing and re-grilling on them cost T2 a 21-minute round, a
+    # plan rewrite and a human re-approval for zero code change.
     before = lib.grounding_digest(repo, TASK, in_stage=True)
     after = lib.grounding_digest(repo, {**TASK, field: value}, in_stage=True)
-    assert before != after, f"changing {field} did NOT force a re-grill"
+    if field in MEASUREMENT_CONTRACT_FIELDS:
+        assert before == after, f"changing {field} in-stage re-grilled"
+    else:
+        assert before != after, f"changing {field} in-stage did NOT re-grill"
 
 
 def test_every_substantive_field_is_actually_bound(repo: Path):
     # A field named in the tuple but absent from the payload would be silently
     # unbound — the shape of the original defect.
     lib = _seed(repo)
-    base = lib.grounding_digest(repo, TASK, in_stage=True)
+    base = lib.grounding_digest(repo, TASK, in_stage=False)
     for field in GROUNDING_CONTRACT_FIELDS:
         mutated = {**TASK, field: ["mutated-sentinel"]}
+        assert lib.grounding_digest(repo, mutated, in_stage=False) != base, field
+    base = lib.grounding_digest(repo, TASK, in_stage=True)
+    for field in IN_STAGE_GROUNDING_FIELDS:
+        mutated = {**TASK, field: ["mutated-sentinel"]}
         assert lib.grounding_digest(repo, mutated, in_stage=True) != base, field
+
+
+def test_a_grill_recorded_under_the_old_in_stage_rule_still_matches(repo: Path):
+    """Migration without a launch: an in-stage grill fingerprinted with all
+    seven fields is accepted while those fields have not moved -- it says
+    exactly what a new record would say."""
+    lib = _seed(repo)
+    legacy = lib.grounding_digest(repo, TASK, in_stage=True,
+                                  fields=GROUNDING_CONTRACT_FIELDS)
+    assert legacy != lib.grounding_digest(repo, TASK, in_stage=True)
+    assert lib.grounding_matches(repo, TASK, legacy, in_stage=True)
+    # Not a hole: a legacy record for a changed criterion is still stale.
+    moved = {**TASK, "acceptance_criteria": ["something else"]}
+    assert not lib.grounding_matches(repo, moved, legacy, in_stage=True)
 
 
 # -------------------------------------------------------------- product tree

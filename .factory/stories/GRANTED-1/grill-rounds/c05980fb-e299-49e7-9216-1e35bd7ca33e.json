@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The harness wants a task count from you and suggests starting at four. You said one. Which stands?",
+      "options": [
+        "One task, as you said (Recommended)",
+        "Two tasks",
+        "Four, as the harness suggests"
+      ],
+      "chosen": "One task, as you said (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T16:14:56.527441+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

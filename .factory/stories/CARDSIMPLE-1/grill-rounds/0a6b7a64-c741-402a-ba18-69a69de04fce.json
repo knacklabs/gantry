@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Before the spec hands off to planning, is there any remaining gap you want closed?",
+      "options": [
+        "No gap, hand off (Recommended)",
+        "Bring back the second document surface",
+        "Widen back to the live job as a gate"
+      ],
+      "chosen": "No gap, hand off (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T11:01:41.189917+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

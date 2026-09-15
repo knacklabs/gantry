@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "How should the four harness fixes be split into work?",
+      "options": [
+        "Two pieces, cheap ones first (Recommended)",
+        "All four in one task",
+        "Only the two you scoped"
+      ],
+      "chosen": "All four in one task"
+    }
+  ],
+  "at": "2026-09-11T16:25:53.012799+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

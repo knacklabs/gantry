@@ -48,6 +48,11 @@ def _validate_round_provenance(
             + FLOOR_IS_NOT_A_TARGET
         )
 
+    # Only the ACTIVE story's rounds are ever read, plus the global ones, so a
+    # round asked during a DIFFERENT story is already unreachable here. An
+    # earlier draft narrowed this further for non-story-scoped gates and broke
+    # the ordinary flow: spec, signoff and epics are recorded while a story IS
+    # active, so their rounds live in that story's directory.
     ledger_rounds: list[dict] = []
     directories = (
         evidence_path(root, story, "grill-rounds"),
@@ -78,7 +83,14 @@ def _validate_round_provenance(
         for grill_path in paths:
             saved = load_json(grill_path, default={})
             saved_rounds = saved.get("rounds")
-            if grill_path == current_path and saved_rounds == rounds:
+            # A pass never spends the rounds recorded at its OWN evidence path,
+            # whatever they now contain. That path is unique per gate, story and
+            # task, so this is exactly "reusable at THAT gate for THAT story"
+            # (decision 0067) and nothing wider: every OTHER pass still spends
+            # them. The old condition also required the stored rounds to be
+            # byte-identical to the ones being submitted, so editing a round made
+            # a pass start consuming its own history and demand a new question.
+            if grill_path == current_path:
                 continue
             if isinstance(saved_rounds, list):
                 used_rounds.extend(

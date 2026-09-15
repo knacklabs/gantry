@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The two runtimes name tools differently. Should the catalog serve both, or just the one the job runs on?",
+      "options": [
+        "Bound to the Anthropic lane (Recommended)",
+        "Serve both lanes now",
+        "Render a neutral name and let each lane translate"
+      ],
+      "chosen": "Render a neutral name and let each lane translate"
+    }
+  ],
+  "at": "2026-09-10T14:05:05.684675+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

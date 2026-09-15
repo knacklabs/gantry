@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Before the plan goes to the board, what happens to the held pull request 500?",
+      "options": [
+        "Land it now as a stopgap (Recommended)",
+        "Fold it into task four",
+        "Land it with the write-back advice removed"
+      ],
+      "chosen": "Land it now as a stopgap (Recommended)"
+    }
+  ],
+  "at": "2026-09-10T12:26:54.249585+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}

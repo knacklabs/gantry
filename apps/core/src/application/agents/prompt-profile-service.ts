@@ -11,10 +11,8 @@ import {
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
 import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
-import {
-  renderCapabilityGuidancePrompt,
-  type CapabilityCatalogRenderDiagnostics,
-} from './agent-prompt-capability-guidance.js';
+// prettier-ignore
+import { composePromptWithRequiredCapabilityCatalog, renderCapabilityGuidancePrompt, type CapabilityCatalogRenderDiagnostics } from './agent-prompt-capability-guidance.js';
 import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
 import type { AgentPromptCapabilityCatalog } from './agent-prompt-capability-catalog.js';
 import {
@@ -308,6 +306,7 @@ export interface CompilePromptProfileOptions {
   // locked instruction projection; absent defaults to full (today's prompt).
   accessPreset?: PromptAccessPreset;
   capabilityCatalog?: AgentPromptCapabilityCatalog;
+  agentEngine?: import('../../shared/agent-engine.js').AgentEngine;
   mcpInventoryToolsMounted?: boolean;
   // Resolved model identity for this run; rendered as a plain "You are running
   // on ..." runtime rule. Changes only when model config changes (cache-safe).
@@ -532,16 +531,31 @@ export class PromptProfileService {
     const renderedCapabilityGuidance = renderCapabilityGuidancePrompt({
       catalog: options.capabilityCatalog,
       accessPreset,
-      budget: this.sectionBudgets.CAPABILITY_GUIDANCE,
+      budget: Math.min(
+        this.sectionBudgets.CAPABILITY_GUIDANCE,
+        Math.max(
+          0,
+          this.totalBudget -
+            renderSection({
+              name: 'CAPABILITY_GUIDANCE',
+              source: CAPABILITY_GUIDANCE_SOURCE,
+              content: '',
+            }).length,
+        ),
+      ),
       mcpInventoryToolsMounted: options.mcpInventoryToolsMounted !== false,
+      agentEngine: options.agentEngine,
     });
     this.onCapabilityCatalogRendered?.(renderedCapabilityGuidance.diagnostics);
-    const capabilityGuidance = makeSection(
-      'CAPABILITY_GUIDANCE',
-      CAPABILITY_GUIDANCE_SOURCE,
-      renderedCapabilityGuidance.prompt,
-      this.sectionBudgets.CAPABILITY_GUIDANCE,
-    );
+    const capabilityGuidance =
+      (options.capabilityCatalog?.readyActions.length ?? 0) === 0 &&
+      this.sectionBudgets.CAPABILITY_GUIDANCE <= 0
+        ? null
+        : {
+            name: 'CAPABILITY_GUIDANCE' as const,
+            source: CAPABILITY_GUIDANCE_SOURCE,
+            content: renderedCapabilityGuidance.prompt,
+          };
     if (capabilityGuidance) sections.push(capabilityGuidance);
 
     const operatingGuidance = makeSection(
@@ -556,7 +570,17 @@ export class PromptProfileService {
 
     if (agentInstructions) sections.push(agentInstructions);
 
-    return this.composeWithinTotalBudget(sections);
+    return composePromptWithRequiredCapabilityCatalog({
+      blocks: sections.map(renderSection),
+      capabilityIndex:
+        (options.capabilityCatalog?.readyActions.length ?? 0) > 0 &&
+        capabilityGuidance
+          ? sections.indexOf(capabilityGuidance)
+          : -1,
+      totalBudget: this.totalBudget,
+      grantedCount: options.capabilityCatalog?.readyActions.length ?? 0,
+      compactReadyLines: renderedCapabilityGuidance.compactReadyLines,
+    });
   }
 
   private async writeDefaultIfMissing(input: {
@@ -752,32 +776,4 @@ export class PromptProfileService {
       throw err;
     }
   }
-
-  private composeWithinTotalBudget(sections: PromptSection[]): string {
-    if (this.totalBudget <= 0 || sections.length === 0) return '';
-
-    let output = '';
-
-    for (const section of sections) {
-      const separator = output.length === 0 ? '' : '\n\n';
-      const remaining = this.totalBudget - output.length;
-      if (remaining <= separator.length) break;
-
-      const block = renderSection(section);
-      const availableForBlock = remaining - separator.length;
-      const nextBlock =
-        block.length <= availableForBlock
-          ? block
-          : block.slice(0, availableForBlock).trimEnd();
-
-      if (!nextBlock) break;
-      output += separator + nextBlock;
-    }
-
-    return output.trim();
-  }
 }
-
-// Re-exported from the domain layer (single source of truth) for existing
-// importers of this module.
-export { PROMPT_PROFILE_VIRTUAL_SCOPE };

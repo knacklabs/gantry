@@ -426,7 +426,7 @@ sequence a JIT contract loop for every pending task:
 7. the orchestrator inspects the diff and rejects overbuilt code
 8. that stage's assumption rows are validated (`forge assumptions list --open`)
 9. smallest relevant checks run
-10. commit, then **`forge review <id>`** — ONE three-lens autoreview of the
+10. commit, then **`forge review <id>`** — ONE three-lens autoreview (the three lenses run together, one Codex process each, joined at the end; `--sequential` runs them one at a time, and so does `forge review` itself while the installed review skill still lets TruffleHog self-update -- `forge doctor` shows which, `forge doctor --fix` refreshes it) of the
    task's own delta, run by Codex with the settled contracts in the brief. A
    run with no blocking (P0/P1) finding STAMPS the stage, bound to that tree;
    non-blocking findings are recorded follow-ups. A blocking finding is ALWAYS
@@ -437,31 +437,54 @@ sequence a JIT contract loop for every pending task:
    --lens <l> --reason ... --cite <decision|contract|section> --by <agent>`
    records the rejection, ledgers the contract as a lesson and stamps when no
    lens blocks. The ONE exception to re-delegating: a fix that genuinely
-   cannot be verified inside the companion sandbox (needs a database/network/
-   Docker it lacks) — open a bounded degraded window (`forge mode degraded
+   cannot be verified inside the companion sandbox (needs Docker, or a folder
+   its account cannot read) — open a bounded degraded window (`forge mode degraded
    start --reason ...`), make the MINIMAL host fix, log it with `forge signal
    raise --kind host-exception`, verify host-side, and resume.
-11. `forge stage done <id>` — it seals on the review stamp and measures the
-   delta. It REFUSES only when verify or a required test fails, or the review
-   stamp is missing or stale. Write-scope strays, a review-budget overrun and
-   a required-test id that matched no JUnit case (exact id or id-prefix) are
-   MEASURED: recorded on the stage (`forge stage list`), printed as NOTES,
-   ledgered as a `stage-measured` event — never refused. The one measure that
-   still refuses is a delta above twice the declared line budget. Decision
-   records (`docs/decisions/`) never count as strays. A degraded window that
-   closed with at most five files, all inside the task's write scope, counts
-   as the stage's write launch when no Codex launch exists (recorded on the
-   stage as `host_window`). A review that finds blockers AFTER the stage closed reopens it for
-   the fix with `forge task reopen <id> --review-fix` (base, contract and
-   approval stand; only the stamp drops), then the same loop: delegate, commit,
-   review, stage done.
+11. `forge task close <id>` — one command from a built task to its open PR.
+   In order: a clean committed tree; no open signal, window or assumption;
+   the product delta (`delta_id`, the hash of `base..HEAD` on product paths);
+   the proof (verify commands + required tests); the three-lens review — ONLY
+   if no review stamp already covers this exact delta; the measure; stage
+   done; the task marker, push and PR. It stops at the first step that fails
+   and names the next action; re-running after a fix repeats only the steps
+   the new delta needs. A done stage whose delta moved (a post-seal fix)
+   reopens itself inside `close` — base, contract and approval stand.
+   Every check here is one `review`, `stage done` or `task pr-ready` already
+   ran; `close` runs them in the one order that never invalidates itself.
+   Write-scope strays, a review-budget overrun and a required-test id that
+   matched no JUnit case (exact id or id-prefix) are MEASURED: recorded on
+   the stage (`forge stage list`), printed as NOTES, ledgered as a
+   `stage-measured` event — never refused. The one measure that still
+   refuses is a delta above twice the declared line budget. A degraded
+   window that closed with at most five files, all inside the task's write
+   scope, counts as the stage's write launch when no Codex launch exists
+   (recorded on the stage as `host_window`).
+
+   What each closeout record binds to — and so what can stale it:
+   the review stamp binds to `delta_id` and nothing else (a contract
+   re-record, a decision record, a scope amendment or an evidence commit
+   changes no product byte and stales no review); the delegate launch binds
+   to the stage (Codex wrote inside it; the contract at launch time is kept as
+   evidence, not required to match); after stage start the task grill binds to
+   objective, acceptance criteria, plan contracts, `user_facing` and the plan
+   (`write_scope`, `required_tests` and `verify_commands` are MEASUREMENT
+   fields — `stage done` enforces them by measuring and running them, so
+   changing them mid-stage re-grills nothing); the plan digest excludes the
+   harness-rendered `<!-- forge:contract -->` block, which every task plan
+   carries as the rendered, never hand-copied, copy of its contract.
+   Scope is widened with `forge stage amend-scope`, and the measure, the
+   delegate brief, the grill brief and the review brief all read the same
+   effective scope. The explicit verbs remain: `forge review <id>`,
+   `forge stage done <id>`, `forge task pr-ready <id>`, and `forge task
+   reopen <id> --review-fix`.
 
 `forge next` derives this frontier from the same readiness gate and reports
 exactly one of author contract, task grill, stage start, delegate, or
-`await-merge`. **Per-task PRs are the standard:** after a task's review
-and `forge stage done`, ship it as its OWN PR — `forge task pr-ready <id>` (writes
-the marker, pushes, opens the PR, poll CI to green) — and let it merge to the
-trunk before the next task starts, never batching a whole story into one PR.
+`await-merge`. **Per-task PRs are the standard:** after a task is built,
+`forge task close <id>` reviews, closes and ships it as its OWN PR (marker,
+push, PR; poll CI to green) — let it merge to the trunk before the next task
+starts, never batching a whole story into one PR.
 `await-merge` surfaces this in BOTH run-pointer modes (task-level and a stage
 running in the story worktree), so the frontier never skips past a done-but-
 unshipped task.
@@ -512,8 +535,9 @@ stalls on "should I do this or hand it to Codex?":
   and moves to the next stage without pausing for a human "ok to commit?". This
   is what lets an unattended overnight run finish instead of stalling.
 - **The one exception — a logged host-exception.** When a required product
-  change is PROVABLY impossible in the companion's environment (a sandbox with
-  no network, database, or Docker that the change or its verification needs),
+  change is PROVABLY impossible in the companion's environment (no Docker, or
+  a folder its sandbox account cannot read, that the change or its verification
+  needs — the network and the local database are reachable since decision 0068),
   the coordinator may make the MINIMAL change on the host and MUST record why
   with `forge signal raise ... --kind host-exception` (resolve it once done).
   This is bounded and always ledgered — never the default, never silent.
@@ -530,7 +554,7 @@ through AskUserQuestion until `frontier_empty`, then a human approves
 (`forge task approve --by`), then `stage start`, then `delegate`. A task
 plan without a marker, or a grill whose rounds are not in the ledger, is
 refused by the recorders. (Exploration
-delegated to Codex: `/codex:rescue --model gpt-5.6-luna --effort max` —
+delegated to Codex: `/codex:rescue --model gpt-5.6-terra --effort high` —
 read-only by default, never Claude Code itself, never raw `codex exec`; plan
 validation, debugging and root-cause runs use `--model gpt-5.6-sol --effort xhigh`,
 still read-only); devs may instead use the

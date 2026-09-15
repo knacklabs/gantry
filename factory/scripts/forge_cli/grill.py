@@ -89,7 +89,9 @@ def _lessons_section(base: Path, gate: str, task_id: str) -> str:
         tasks = load_json(protected_decomposition_state_path(base),
                           default={}).get("tasks", [])
         task = next((t for t in tasks if t.get("id") == task_id), None)
-        scope = [str(entry) for entry in (task or {}).get("write_scope") or []]
+        from .stages import effective_scope
+        scope = effective_scope(base, task_id, [
+            str(entry) for entry in (task or {}).get("write_scope") or []])
         lessons = relevant_lessons(base, scope) if scope else []
     except Exception:
         return ""
@@ -185,6 +187,42 @@ def _settled_rounds(base: Path, gate: str) -> str:
     return "\n".join(header + lines) + "\n"
 
 
+def _contract_section(base: Path, gate: str, task_id: str) -> str:
+    """The recorded contract, rendered for the cold reader -- for a task gate.
+
+    The reader used to see only the task plan, and the plan carried its own
+    hand-written copy of the criteria and the file list. The two drifted;
+    five of T2's six "blockers" were that drift. Now the reader is handed the
+    contract itself, with every measured scope amendment, so a path added
+    with `amend-scope` is a declared path here too -- the stage measure, the
+    delegate brief and this brief read one scope.
+    """
+    if gate != "task" or not task_id:
+        return ""
+    try:
+        from factory_lib import (
+            load_json, protected_decomposition_state_path,
+            render_task_contract_block,
+        )
+        from .stages import scope_amendments_path
+        tasks = load_json(protected_decomposition_state_path(base),
+                          default={}).get("tasks", [])
+        task = next((t for t in tasks if t.get("id") == task_id), None)
+        if not task:
+            return ""
+        amendments = (load_json(scope_amendments_path(base), default={})
+                      .get("tasks", {}).get(task_id))
+        block = render_task_contract_block(
+            task, amendments if isinstance(amendments, dict) else None)
+    except Exception:
+        return ""
+    body = "\n".join(
+        line for line in block.splitlines()
+        if not line.startswith("<!--")).strip()
+    return ("## The contract as recorded (authoritative over any copy in the plan)\n\n"
+            + body + "\n")
+
+
 def _compose_brief(base: Path, gate: str, label: str, artifact: str,
                    task_id: str = "") -> str:
     contract = base / "factory" / "prompts" / "griller.md"
@@ -205,6 +243,7 @@ def _compose_brief(base: Path, gate: str, label: str, artifact: str,
         contract_text,
         "",
         _lessons_section(base, gate, task_id),
+        _contract_section(base, gate, task_id),
         _settled_rounds(base, gate),
         f"## The artifact under interrogation ({label})",
         "",

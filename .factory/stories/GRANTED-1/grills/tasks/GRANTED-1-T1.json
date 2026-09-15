@@ -1,0 +1,147 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "issue": "GRANTED-1",
+  "task_id": "GRANTED-1-T1",
+  "summary": "Three task reads. The first returned seven findings, all resolved. The second returned six, whose largest was that the governing spec and decision were absent from this worktree; that is fixed by folding those records into the task branch, and the other five are corrected at the seams. The third died mid-verification on the upstream Codex remote-compaction 404 without raising a defect, its closing note being that the contract is internally consistent, its criteria and plan contracts match, and its declared paths exist. The gate then refused further reads and its escalation path did not reopen them, so the owner ruled the pass be recorded on this evidence. A fourth round followed the implementer's scope-change signal: the owner ruled argument redaction out of scope, so the contract returned to sixteen files and the accepted exposure is ledgered as A-0071. A fifth round corrected the descriptor model itself after the implementer showed the dispatcher is local-CLI only. A sixth round followed the three-lens review: scope widened by one file so a blocking compatibility-re-export finding could be fixed. A seventh round amended C9 after three review rounds proved it unsatisfiable in a unit test.",
+  "gaps": [
+    "The governing spec and decision 0161 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
+    "The lane mapping read the worker-or-inline runtime flag, which is a different axis from the execution engine, so it could be undefined or select the wrong engine and could not prove the other lane unchanged.",
+    "Hard overflow could not emit its diagnostic: the existing startup publisher runs immediately before runner execution and is never reached once the spawn aborts, and neither spawn source nor a spawn test was in scope.",
+    "The recorded verify command named a suite root that does not exist; the catalog test lives under test/unit/application.",
+    "Two criteria lacked exact leaves and owning paths for the startup event and for the assertion that redaction covers every sink.",
+    "The shedding rule was too loose to guarantee no grant is hidden: the renderer always counts requestable actions and fixed discovery text, and the rule did not order their removal.",
+    "The contract required redacting reviewed argument operands in the mismatch error text and the audit record, but both modules were outside the declared write scope, which the implementer raised as a scope change before writing code.",
+    "The contract assumed one neutral tool reference could serve every binding kind, but the dispatcher runs local CLI capabilities only by its own registered description, so adapter, MCP-pattern and tool-rule bindings had no stated calling mechanism.",
+    "The security lens required removing a compatibility re-export whose only consumer sits outside the declared write scope, so the fix could not be made without widening the contract.",
+    "Criterion C9 required a unit-test replay to make the dispatcher call FIRST, which is model behaviour no unit test can perform without doing the choosing itself, so every implementation of it was judged synthetic across three review rounds.",
+    "The contract's verify commands included the repo-wide `npm run lint`, which cannot pass: 82 lint errors pre-exist in files this task never touched, and CI itself does not run core lint at all, only lint:web. The stage could never close."
+  ],
+  "contradictions": [
+    "The contract cited a governing spec and decision that did not exist in the tree an implementer would work in."
+  ],
+  "resolutions": [
+    "The spec, decision 0161 and the 0109 and 0153 amendments are merged into the task branch, so the worktree contains every artifact the contract cites. The documentation-only pull request was closed because the contract check requires each pull request to complete a work record, which a docs change does not.",
+    "The mapping now takes the engine already resolved from the model at both prompt-compile call sites, agent-spawn.ts:179 before the compile at :219 and agent-spawn-host.ts:161 before the compile at :179, with a deepagents non-regression test on each path.",
+    "Overflow aborts the spawn and publishes capability_catalog_overflow at the abort point; both spawn sources and their tests are in scope, with a required leaf on each path.",
+    "The verify command now names apps/core/test/unit/application.",
+    "Required leaves now name the startup event on each spawn path and assert redaction across the rendered catalog, the error text and the audit record.",
+    "The shedding order is total and explicit: requestables, discovery text, source summaries, skills, descriptions, descriptors; the compact representation is defined as one line per grant carrying display name and stable id.",
+    "Owner ruled redaction out of scope entirely: approved templates are trusted and reviewed shapes render verbatim in every sink. The two modules leave the scope again, the redaction criterion and its leaves are removed, and the accepted exposure is ledgered as assumption A-0071.",
+    "Corrected after the implementer rejected two successive rulings with citations: each kind now carries its real mechanism. local_cli through the lane-mapped dispatcher with capability id and reviewed args; mcp_pattern through the lane-mapped proxy with server name and tool pattern; tool_rule as a directly called tool name, which is also how skill actions appear; adapter with a builtin prefix as the tool name after that prefix, never the raw reference; every other adapter shape informational with no tool reference. The lane mapping applies only to the two dispatcher-style kinds.",
+    "Scope widened to 17 files to include agent-profile-service.ts for a one-symbol import change: it now imports PROMPT_PROFILE_VIRTUAL_SCOPE from the domain module that owns it, and the re-export is deleted. Noted for the record that the re-export is pre-existing, added by an earlier feature commit, and was flagged only because it sits in a file this task touched.",
+    "C9 amended to what is provable and still meaningful: the materialization is built through the production path, contains the descriptor, the real dispatcher registration accepts exactly the descriptor's capability id and argument pattern, and removing the descriptor leaves nothing to call. First-call ordering is evidenced by the live run. Ledgered as a lesson so it is not re-raised.",
+    "Verify now runs eslint scoped to this task's source files, which is the bar the task can actually meet and the one the implementer already validated. The 82 pre-existing errors are left untouched and unsuppressed."
+  ],
+  "open_items": [
+    "Harness defect for the owner's other thread: recording an escalation does not reset the grill budget despite the gate saying grilling continues after one, so a read that dies on an upstream tool failure permanently consumes an allowance.",
+    "Blocking literal credentials at capability-definition validation remains available as later hardening; the owner chose render-time redaction for this task.",
+    "The owner is landing the model policy upstream in symphony-forge; until then harness.yaml, AGENTS.md and the Claude adapter carry it patched in place and a re-vendor would revert them.",
+    "Owner accepted the 243-line overage at stage close: the contract grew twice during grilling and the review then required a real dispatcher replay rather than a stub, all after the ceiling was set."
+  ],
+  "questions_asked": 8,
+  "task_plan_sha256": "4e2f0de8aec2f6f2af43113322bdcdb6b61a655e0f58f2d61abc359e41c5a34a",
+  "criteria_map": {
+    "The scheduled spawn input carries a catalog built from the person-filtered capability set, asserted over the real job execution path where the field is absent today": "covered",
+    "A capability active for the app but not granted to the acting person never appears as ready, asserted with the two sets differing": "covered",
+    "Rendered guidance carries display name, stable id, neutral tool reference and reviewed argument shape, asserted against exact rendered text": "covered",
+    "A descriptor is produced for each of the four usable binding kinds; the adapter reference never appears; a legacy mcp_tool binding still fails validation": "covered",
+    "The neutral reference resolves to the Anthropic tool name against the real projection including with tool search active, and the DeepAgents entry is asserted absent": "covered",
+    "No grant is hidden: shedding follows the fixed order and the derived ceiling cannot conflict with the never-hide rule": "covered",
+    "Hard overflow fails the run before any provider or tool call with a redacted capability_catalog_overflow diagnostic naming the counts": "covered",
+    "The never-hide guarantee survives both the section budget and the total prompt budget, asserted end to end through prompt compilation": "covered",
+    "A deterministic replay builds the materialization through the production path, asserts the descriptor is present in it, and shows the descriptor is SUFFICIENT to call the production dispatcher: the real dispatcher registration accepts exactly the descriptor's capability id and argument pattern, and with the descriptor removed there is nothing to call. That the model chooses it FIRST is model behaviour a unit test cannot prove and is evidenced by the live run instead": "covered",
+    "The 97ded3746 block is gone, the dispatcher description points at the catalog, and its schema, risk and enforcement are pinned unchanged": "covered",
+    "No descriptor contains an executable path or hash, asserted against a binding carrying both; reviewed argument operands render verbatim by owner ruling": "covered"
+  },
+  "rounds": [
+    {
+      "question": "The diff is 1,643 lines against a 1,400 ceiling. I judge this at stage close. How do you want it handled?",
+      "options": [
+        "Accept the overage (Recommended)",
+        "Make me look before you seal",
+        "Cut it back under the ceiling"
+      ],
+      "chosen": "Accept the overage (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "inspected_refs": [
+    ".factory/stories/GRANTED-1/task-plans/GRANTED-1-T1.md",
+    ".factory/stories/GRANTED-1/decomposition.json",
+    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
+    "docs/specs/granted-capability-is-visible.md",
+    "docs/decisions/0161-granted-capabilities-must-be-discoverable.md",
+    "apps/core/src/shared/semantic-capabilities.ts",
+    "apps/core/src/application/agents/agent-prompt-capability-catalog.ts",
+    "apps/core/src/application/agents/prompt-profile-service.ts",
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/runtime/agent-spawn-types.ts",
+    "apps/core/src/runtime/group-run-context.ts",
+    "apps/core/src/jobs/execution-phases-run.ts",
+    "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts",
+    "apps/core/test/unit/runtime/prompt-profile.test.ts"
+  ],
+  "citations": [
+    {
+      "finding": "The governing spec and decision 0161 were absent from this worktree, because it was cut from trunk while those records sat on an unmerged branch, leaving the contract citing artifacts an implementer could not open.",
+      "source": "docs/specs/granted-capability-is-visible.md"
+    },
+    {
+      "finding": "The lane mapping read the worker-or-inline runtime flag, which is a different axis from the execution engine, so it could be undefined or select the wrong engine and could not prove the other lane unchanged.",
+      "source": "apps/core/src/shared/agent-runtime.ts"
+    },
+    {
+      "finding": "Hard overflow could not emit its diagnostic: the existing startup publisher runs immediately before runner execution and is never reached once the spawn aborts, and neither spawn source nor a spawn test was in scope.",
+      "source": "apps/core/src/runtime/agent-spawn.ts"
+    },
+    {
+      "finding": "The recorded verify command named a suite root that does not exist; the catalog test lives under test/unit/application.",
+      "source": "apps/core/test/unit/application/agent-prompt-capability-catalog.test.ts"
+    },
+    {
+      "finding": "Two criteria lacked exact leaves and owning paths for the startup event and for the assertion that redaction covers every sink.",
+      "source": ".factory/stories/GRANTED-1/decomposition.json"
+    },
+    {
+      "finding": "The shedding rule was too loose to guarantee no grant is hidden: the renderer always counts requestable actions and fixed discovery text, and the rule did not order their removal.",
+      "source": "apps/core/src/application/agents/agent-prompt-capability-guidance.ts"
+    },
+    {
+      "finding": "The contract required redacting reviewed argument operands in the mismatch error text and the audit record, but both modules were outside the declared write scope, which the implementer raised as a scope change before writing code.",
+      "source": "apps/core/src/jobs/structured-local-cli-invocation.ts"
+    },
+    {
+      "finding": "The contract assumed one neutral tool reference could serve every binding kind, but the dispatcher runs local CLI capabilities only by its own registered description, so adapter, MCP-pattern and tool-rule bindings had no stated calling mechanism.",
+      "source": "apps/core/src/runner/mcp/tools/capability-run.ts"
+    },
+    {
+      "finding": "The security lens required removing a compatibility re-export whose only consumer sits outside the declared write scope, so the fix could not be made without widening the contract.",
+      "source": "apps/core/src/application/agents/prompt-profile-service.ts"
+    },
+    {
+      "finding": "Criterion C9 required a unit-test replay to make the dispatcher call FIRST, which is model behaviour no unit test can perform without doing the choosing itself, so every implementation of it was judged synthetic across three review rounds.",
+      "source": "apps/core/test/unit/runner/capability-catalog-replay.test.ts"
+    },
+    {
+      "finding": "The contract's verify commands included the repo-wide `npm run lint`, which cannot pass: 82 lint errors pre-exist in files this task never touched, and CI itself does not run core lint at all, only lint:web. The stage could never close.",
+      "source": ".github/workflows/ci.yml"
+    }
+  ],
+  "current_flow": "Today a scheduled run reaches runScheduledJobExecution (jobs/execution-phases-run.ts), loads the access snapshot at :179, derives the person-filtered inheritedToolPolicy at :182 and the unfiltered semanticCapabilities at :194, and builds its spawn input at :287 WITHOUT setting capabilityCatalog. runtime/agent-spawn-prompt.ts:87 passes input.agentInput.capabilityCatalog to the prompt profile service, which is undefined, so no capability guidance renders. Only the chat path populates it, via runtime/group-agent-access-context.ts:45 calling runtime/group-run-context.ts:156. capability_run IS mounted on autonomous surfaces (shared/admin-mcp-tools.ts:96, filtered at runner/gantry-mcp-tool-surface.ts:152) and the host refuses argv outside the reviewed template, so the agent probes an invented MCP server, an invented tool, then off-template arguments, and learns the shape from the denial.",
+  "new_abstractions": [
+    "CatalogEntry.invocations: a closed union over the four usable implementation binding kinds, plural because a capability owns an array of bindings.",
+    "A lane-neutral tool reference plus a per-runtime mapping resolved at the prompt-compile seam.",
+    "A typed pre-spawn capability_catalog_overflow failure that the existing prompt-compile catch does not swallow."
+  ],
+  "decision": "keep",
+  "input_sha256": "33132a133c1143ff75d1782377b4bc75a1090ae60b2c3a701f96f0256edc14ea",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "recorded_at": "2026-09-11T13:44:29+00:00",
+  "commit": "22e76d5b884f6b9e15e1aa057505075f72c137db",
+  "approved_task_plan_sha256": "4e2f0de8aec2f6f2af43113322bdcdb6b61a655e0f58f2d61abc359e41c5a34a",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-11T13:44:37+00:00"
+}

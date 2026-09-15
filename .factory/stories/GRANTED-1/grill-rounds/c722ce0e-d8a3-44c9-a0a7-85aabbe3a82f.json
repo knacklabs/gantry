@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The Homebrew Node is the last extra one, but mongosh depends on it. How far do you want me to go?",
+      "options": [
+        "Remove both (Recommended)",
+        "Remove Node, keep mongosh installed",
+        "Leave the Homebrew Node alone"
+      ],
+      "chosen": "Remove both (Recommended)"
+    }
+  ],
+  "at": "2026-09-11T10:08:47.420588+00:00",
+  "session_id": "b4051e43-dbea-4d62-ba73-ae6210455474"
+}
