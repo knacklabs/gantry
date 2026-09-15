@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0213-a30d",
+  "profile": "quickfix",
+  "reason": "Record deferral D-0092, which was created in the main worktree during T2's review rounds and therefore never joined T2's branch or its merge. It is the deferral that fires at T3's ceremony: T2-AC1's wording says the mark is raised 'with the model-visible input tokens T1 computes' and never mentions contextUsage, which reads as forbidding it and contradicts decision 0158 section 2. Autoreview raised the same non-defect three times against correct code because of that wording, and it would mislead T3's and T4's reviews identically if left unrecorded.",
+  "started_at": "2026-09-15T10:32:39+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
