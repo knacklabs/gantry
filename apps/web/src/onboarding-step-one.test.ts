@@ -101,6 +101,10 @@ it('keeps the V2 Step 1 draft, rail, and Continue gate contract', () => {
   );
   expect(modelSetup).not.toContain('onboarding-provider-options');
   expect(styles).toContain('.onboarding-split-card');
+  expect(styles).toContain(
+    'grid-template-columns: minmax(190px, 1fr) minmax(0, 3fr)',
+  );
+  expect(styles).toContain('.onboarding-content:has(.onboarding-split-card)');
   expect(styles).toContain('.onboarding-identity-pane-scroll');
   expect(styles).toContain('@media (max-width: 767px)');
   expect(styles).toContain('animation: none !important;');

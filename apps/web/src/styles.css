@@ -852,7 +852,10 @@
 .onboarding-split-card {
   width: min(100%, 960px);
   min-height: 0;
-  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(190px, 1fr) minmax(0, 3fr);
+}
+.onboarding-content:has(.onboarding-split-card) {
+  width: min(100%, 860px);
 }
 .onboarding-identity-pane,
 .onboarding-model-pane {
