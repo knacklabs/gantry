@@ -1,0 +1,12 @@
+{
+  "topic": "the ceiling mark is raised POST-RUN, never inside the streaming output handler",
+  "lesson": "raiseProviderSessionMarkFromOutput must be called ONCE after the agent invocation settles (after 'output = await invokeAgent(...)' in group-agent-runner.ts), never from wrappedOnOutput. wrappedOnOutput is passed as onOutput to invokeAgent and runs per streamed output mid-run, so awaiting a Postgres UPDATE there blocks the streaming pipeline: with a real database attached the run never leaves status 'running' and the turn hangs until the caller's timeout. Proven by bisect \u2014 reverting only group-agent-runner.ts to the stage baseline made inline-agent-runtime.integration.test.ts pass 8/8 while the ceiling module, settings and events kept the task's code. It also breaks two contracts: T2-AC1 specifies a POST-RUN raise, and T1's R2 requires the host to record the mark EXACTLY ONCE, which per-output raising cannot honour. The failure is invisible without GANTRY_TEST_DATABASE_URL, because the DB-gated integration lanes skip entirely without it \u2014 a green verify.py does not cover this path.",
+  "source": "bisect against b1e1ac0b0 + stage done refusals 2026-09-12T16:47 and 17:29",
+  "applies_to": [
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T17:36:08+00:00"
+}

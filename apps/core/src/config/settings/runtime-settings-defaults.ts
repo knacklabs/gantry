@@ -61,6 +61,9 @@ export const DEFAULT_RUNTIME_DEPLOYMENT_MODE = 'workstation';
 export const DEFAULT_LLM_GLOBAL_MAX_IN_FLIGHT = 32;
 export const DEFAULT_LLM_PER_APP_KEY_MAX_IN_FLIGHT = 8;
 export const DEFAULT_LIVE_ADMISSION_BACKLOG = 100;
+export const DEFAULT_PROVIDER_SESSION_MAX_INPUT_TOKENS = 150_000;
+export const MIN_PROVIDER_SESSION_MAX_INPUT_TOKENS = 20_000;
+export const MAX_PROVIDER_SESSION_MAX_INPUT_TOKENS = 900_000;
 
 export function getDefaultRuntimeSandboxSettings(): RuntimeSandboxSettings {
   return {
@@ -240,7 +243,10 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     authentication,
     browser,
     permissions,
-    limits: { providers: {} },
+    limits: {
+      providerSessionMaxInputTokens: DEFAULT_PROVIDER_SESSION_MAX_INPUT_TOKENS,
+      providers: {},
+    },
     observability: {
       tracing: {
         enabled: false,

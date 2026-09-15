@@ -1,0 +1,59 @@
+{
+  "generated_by": "autoreview",
+  "task_id": "cache-bug-T2",
+  "score": 10,
+  "summary": "security lens over cache-bug-T2 (26 product path(s), b1e1ac0..5797a10, Codex via the autoreview skill at --max-priority P2): 0 blocking, 0 non-blocking. The supplied diff implements the provider-session ceiling, domain-boundary overflow clamp, fenced retirement recovery, settings propagation, typed and hashed event publication, and post-run measurement without exposing raw provider session identifiers or weakening authorization. No actionable P0-P2 security or correctness defect is demonstrated by the available evidence, and the apparent tokens and session strings are harmless test fixtures.",
+  "blocking_findings": [],
+  "non_blocking_findings": [],
+  "recommendation": "approve",
+  "reviewed_scope": [
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts",
+    "apps/core/src/config/settings/runtime-settings-defaults.ts",
+    "apps/core/src/config/settings/runtime-settings-limits-parser.ts",
+    "apps/core/src/config/settings/runtime-settings-optional-blocks-renderer.ts",
+    "apps/core/src/config/settings/runtime-settings-types.ts",
+    "apps/core/src/config/settings/settings-fleet-import.ts",
+    "apps/core/src/config/settings/settings-revision-document.ts",
+    "apps/core/src/domain/events/events.ts",
+    "apps/core/src/domain/events/runtime-event-types.ts",
+    "apps/core/src/domain/sessions/provider-session-measurement.ts",
+    "apps/core/src/runtime/agent-spawn-host.ts",
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts",
+    "apps/core/src/runtime/group-agent-runner.ts",
+    "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+    "apps/core/test/integration/provider-session-ceiling-operations.postgres.integration.test.ts",
+    "apps/core/test/integration/provider-session-context-high-water-mark.postgres.integration.test.ts",
+    "apps/core/test/integration/settings-desired-state-limits.integration.test.ts",
+    "apps/core/test/unit/config/runtime-limits-settings.test.ts",
+    "apps/core/test/unit/config/settings-import-app-provider-roundtrip.test.ts",
+    "apps/core/test/unit/config/settings-import-service.test.ts",
+    "apps/core/test/unit/domain/runtime-event-types.test.ts",
+    "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+    "apps/core/test/unit/runtime/group-processing.test.ts",
+    "apps/core/test/unit/sessions/provider-session-measurement.test.ts",
+    "docs/architecture/canonical-domain-model.md",
+    "docs/memory/provider-session-ceiling-operations.md"
+  ],
+  "skills_used": [],
+  "rejected_findings": [
+    {
+      "finding": {
+        "category": "bug",
+        "area": "apps/core/src/runtime",
+        "summary": "Derive the high-water mark exclusively from reported model usage (apps/core/src/runtime/group-agent-runner-context-ceiling.ts:49): This prioritizes `contextUsage.totalTokens` over `modelVisibleInputTokens(output.usage)` and even produces a mark when `output.usage` is absent."
+      },
+      "reason": "Same rejection as the P1 it maps to: T2-AC1 is satisfied under decision 0158 section 2, which makes contextUsage.totalTokens the observed value when the run reports it and modelVisibleInputTokens the fallback when it does not. AC1's sentence describes the S4 errored-run case, where no contextUsage exists and the usage-derived figure is the only measurement; its no-usage clause is honoured because the mark resolves to undefined only when both measurements are absent and the raise returns early. The criterion's wording is narrower than the decision it derives from \u2014 a defect in the text I authored, not in the implementation \u2014 and docs/decisions is authoritative over conflicting guidance per AGENTS.md. Correcting the criterion text is recorded as a deferral rather than done here, because amending acceptance_criteria changes the contract digest and would stale this task's grill and approval mid-stage.",
+      "cite": "0158",
+      "rejected_at": "2026-09-12T16:19:06+00:00",
+      "rejected_by": "orchestrator",
+      "task_id": "cache-bug-T2"
+    }
+  ],
+  "aspect": "security",
+  "review_run_id": "724edd924240e71937ccc35e72fe6c393f502ff7ea7f9ea2d623961cb9836bd1",
+  "brief_sha256": "82650d3c23d4d00370d378a7c4a7d8946566d4721d41e8f46a14d1baf75e4b72",
+  "branch_diff_digest": "82ef139a3c5a5fabaf38aa6fe8b4218448921a1d9d9507f4fa9fa3cff0da6a14",
+  "residual_risks": [],
+  "recorded_at": "2026-09-12T19:55:19+00:00",
+  "commit": "5797a10a7b623fd9cf2256edb57989696cb25790"
+}

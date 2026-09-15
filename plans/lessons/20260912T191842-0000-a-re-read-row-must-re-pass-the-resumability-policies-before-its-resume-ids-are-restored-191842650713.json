@@ -1,0 +1,11 @@
+{
+  "topic": "a re-read row must re-pass the resumability policies before its resume ids are restored",
+  "lesson": "recoverLostProviderSessionRetirement validates the refreshed row only on agentSessionId and the null-normalised reset_at generation, then hands back its providerSessionId and externalSessionId when restoreResumeIdentifiers is true. Those two checks establish WHICH row the turn is looking at; they do not establish that the row is resumable. The access-fingerprint match (0158 makes leaving the resumable set 'never optional' for a mismatch) and the mark-versus-cap comparison must BOTH be re-applied to the refreshed row before any resume identifier is returned, because a concurrent writer can install a session created under a different access projection or one already over the cap. Restoring unvalidated ids defeats the fingerprint rule and the ceiling at once. The orchestrator's earlier instruction \u2014 that the re-read is the current truth and so may be resumed \u2014 was wrong: it is the current truth about identity, not about eligibility.",
+  "source": "autoreview security P1 on 108beebf9 (score 4), group-agent-runner-context-ceiling.ts:267",
+  "applies_to": [
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T19:18:42+00:00"
+}

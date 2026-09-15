@@ -143,6 +143,7 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
     exceeded: false,
     enforce: (output: unknown) => output,
   }),
+  getConfiguredProviderSessionMaxInputTokens: () => 150_000,
 }));
 
 vi.mock('@core/runtime/agent-spawn-admission.js', () => ({

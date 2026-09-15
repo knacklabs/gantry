@@ -22,8 +22,7 @@ export function renderAgentDelegatesYaml(
   }
 }
 
-// Optional in-memory per-provider request rate caps. Omitted when no caps are
-// configured (default).
+// Runtime limits and optional in-memory per-provider request rate caps.
 export function renderLimitsSettingsYaml(
   lines: string[],
   limits: RuntimeSettings['limits'],
@@ -31,8 +30,10 @@ export function renderLimitsSettingsYaml(
   const entries = Object.entries(limits.providers).sort(([a], [b]) =>
     a.localeCompare(b),
   );
-  if (entries.length === 0) return;
-  lines.push('limits:');
+  lines.push(
+    'limits:',
+    `  provider_session_max_input_tokens: ${limits.providerSessionMaxInputTokens}`,
+  );
   for (const [providerId, limit] of entries) {
     lines.push(
       `  ${quoteYamlKey(providerId)}:`,

@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-12T15:15:17+00:00", "story": "cache-bug", "detail": "The lost-fingerprint fence regression must be fixed in apps/core/src/runtime/group-agent-runner-context-ceiling.ts and its direct tests, but that source file is absent from T2's supplied write scope; "}

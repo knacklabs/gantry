@@ -1,0 +1,11 @@
+{
+  "topic": "full-vitest-macos-watcher-exhaustion",
+  "lesson": "Full npm test can exhaust macOS file watchers in IPC suites with EMFILE even when focused suites pass; rerun the affected file in isolation and use a task-local npm cache before treating it as product failure.",
+  "source": "cache-bug-T2 verify 2026-09-12",
+  "applies_to": [
+    "apps/core/test/unit/runner/*ipc*.test.ts"
+  ],
+  "severity": "medium",
+  "generated_by": "implementer",
+  "added_at": "2026-09-12T15:38:45+00:00"
+}

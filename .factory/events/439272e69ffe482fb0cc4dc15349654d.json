@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-12T14:55:33+00:00", "story": "cache-bug", "detail": "S-0115-655b: You are right that the brief does not list it, and wrong that it is out of scope \u2014 the brief is stale, not the scope. Both apps/core/src/runtime/group-agent-runner-context-ceiling.ts and apps/core/src"}

@@ -154,7 +154,11 @@ function buildRevisionDocument(
     observability: snakeRecord(settings.observability),
     observer: snakeRecord(settings.observer),
     model_aliases: mapRecord(settings.modelAliases, snakeRecord),
-    limits: mapRecord(settings.limits.providers, snakeRecord),
+    limits: {
+      provider_session_max_input_tokens:
+        settings.limits.providerSessionMaxInputTokens,
+      ...mapRecord(settings.limits.providers, snakeRecord),
+    },
     model_families: settings.modelFamilies,
   }) as Record<string, unknown>;
 }

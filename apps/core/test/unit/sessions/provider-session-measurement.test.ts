@@ -1,29 +1,29 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { ProviderSessionMeasurementError } from '@core/domain/sessions/provider-session-measurement.js';
-import { raiseProviderSessionContextHighWaterMark } from '@core/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.js';
+import {
+  normalizeProviderSessionContextHighWaterMark,
+  ProviderSessionMeasurementError,
+} from '@core/domain/sessions/provider-session-measurement.js';
 
 describe('provider session measurement', () => {
-  it('rejects non-integer and negative values before SQL', async () => {
-    const executor = { update: vi.fn() };
-    const input = {
-      providerSessionId: 'provider-session:1',
-      agentSessionId: 'agent-session:1',
-      provider: 'anthropic:claude-agent-sdk' as never,
-      externalSessionId: 'external-session:1',
-      expectedAgentSessionResetAt: null,
-      contextHighWaterMark: 1.5,
-    };
+  it('clamps a mark above the column integer maximum to 2147483647', () => {
+    expect(normalizeProviderSessionContextHighWaterMark(2_147_483_648)).toBe(
+      2_147_483_647,
+    );
+  });
 
-    await expect(
-      raiseProviderSessionContextHighWaterMark(executor as never, input),
-    ).rejects.toBeInstanceOf(ProviderSessionMeasurementError);
-    await expect(
-      raiseProviderSessionContextHighWaterMark(executor as never, {
-        ...input,
-        contextHighWaterMark: -1,
-      }),
-    ).rejects.toBeInstanceOf(ProviderSessionMeasurementError);
-    expect(executor.update).not.toHaveBeenCalled();
+  it('stores 2147483647 unchanged at the clamp boundary', () => {
+    expect(normalizeProviderSessionContextHighWaterMark(2_147_483_647)).toBe(
+      2_147_483_647,
+    );
+  });
+
+  it('still rejects a negative or non-integer mark', () => {
+    expect(() => normalizeProviderSessionContextHighWaterMark(-1)).toThrow(
+      ProviderSessionMeasurementError,
+    );
+    expect(() => normalizeProviderSessionContextHighWaterMark(1.5)).toThrow(
+      ProviderSessionMeasurementError,
+    );
   });
 });

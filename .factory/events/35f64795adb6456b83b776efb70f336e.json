@@ -1,0 +1,1 @@
+{"event": "signal-blocked", "generated_by": "implementer", "at": "2026-09-12T15:40:07+00:00", "story": "cache-bug", "detail": "Full verify cannot go green in this managed worktree for two unrelated environment failures reproduced in isolation: package-hygiene npm pack --json is prefixed by 'error: could not lock config file /"}

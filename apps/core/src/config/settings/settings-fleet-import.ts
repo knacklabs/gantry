@@ -12,7 +12,6 @@ import type {
   ProviderAccountId,
   ProviderId,
 } from '../../domain/provider/provider.js';
-import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { SettingsDesiredStateService } from './desired-state-service.js';
 import type {
   SettingsDesiredStateOps,
@@ -68,7 +67,7 @@ export interface SettingsFleetProjectionOps {
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 15;
+export const CURRENT_SETTINGS_READER_VERSION = 16;
 
 export interface SettingsImportValidationResult {
   ok: boolean;

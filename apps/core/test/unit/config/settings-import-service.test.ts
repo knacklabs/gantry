@@ -25,6 +25,7 @@ import {
   settingsToRevisionDocument,
 } from '@core/config/settings/settings-import-service.js';
 import { mcpCapabilityGrantTokenKey } from '@core/config/settings/mcp-capability-grant-provenance.js';
+import { SettingsRevisionListener } from '@core/runtime/settings-revision-listener.js';
 
 const {
   addActiveMcpSourcesToRuntimeSettings,
@@ -997,47 +998,90 @@ describe('importFleetSettingsRevision', () => {
     expect(releaseLease).toHaveBeenCalledOnce();
   });
 
-  it('rejects an exact head that requires a newer settings reader', async () => {
-    capabilityErrors = [];
-    leases.tryAcquire.mockClear();
-    releaseLease.mockClear();
-    applyRuntimeSettingsDesiredState.mockReset();
+  it('holds the prior revision and alerts when the revision requires a newer reader version', async () => {
     const settings = createDefaultRuntimeSettings();
     const repo = new FakeRevisionRepo();
     await repo.appendSettingsRevision({
       appId: 'default',
       settingsDocument: settingsToRevisionDocument(settings),
-      minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION - 1,
+      createdBy: 'older-runtime',
+    });
+    const onSkewAlert = vi.fn();
+    const logWarn = vi.fn();
+    const listener = new SettingsRevisionListener({
+      appId: 'default' as never,
+      runtimeHome: '/tmp/gantry-import-test',
+      settingsRevisions: repo,
+      leases: leases as never,
+      ops: {} as never,
+      repositories: {} as never,
+      wakeupSource: {
+        subscribe: () => () => {},
+        close: async () => {},
+      },
+      reloadRuntimeState: async () => {},
+      readerVersion: CURRENT_SETTINGS_READER_VERSION - 1,
+      onSkewAlert,
+      logWarn,
+    });
+    (listener as unknown as { appliedRevision: number }).appliedRevision = 1;
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
       createdBy: 'newer-runtime',
     });
-
-    await expect(
-      importWorkstationSettings(
-        {
-          runtimeHome: '/tmp/gantry-import-test',
-          ops: {} as never,
-          repositories: {} as never,
-          appId: 'default' as never,
-          previousSettings: settings,
-          revisionMirror: {
-            settingsRevisions: repo,
-            createdBy: 'test:fleet',
-          },
-          leases,
-          revisionMirrorRequired: true,
-        },
-        settings,
-      ),
-    ).rejects.toEqual(
-      expect.objectContaining<Partial<SettingsIncompatibleReaderError>>({
-        name: 'SettingsIncompatibleReaderError',
-        revision: 1,
-        minReaderVersion: CURRENT_SETTINGS_READER_VERSION + 1,
-        readerVersion: CURRENT_SETTINGS_READER_VERSION,
+    await expect(listener.applyLatest()).resolves.toEqual({
+      result: 'held',
+      revision: 2,
+    });
+    expect(listener.getAppliedRevision()).toBe(1);
+    expect(onSkewAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        revision: 2,
+        minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+        readerVersion: CURRENT_SETTINGS_READER_VERSION - 1,
       }),
     );
-    expect(applyRuntimeSettingsDesiredState).not.toHaveBeenCalled();
-    expect(releaseLease).toHaveBeenCalledOnce();
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ appliedRevision: 1 }),
+      expect.stringContaining('holding last-applied revision'),
+    );
+  });
+
+  it('applies a revision carrying the cap at reader version 16', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.limits.providerSessionMaxInputTokens = 420_000;
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(settings),
+      minReaderVersion: 16,
+      createdBy: 'reader-16',
+    });
+    const applySettings = vi.fn(async () => ({
+      status: 'applied_no_revision' as const,
+    }));
+
+    const outcome = await applySettingsRevisionWithMcpFenceRecovery({
+      runtimeHome: '/tmp/gantry-import-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'default' as never,
+      revision: repo.rows[0]!,
+      revisionMirror: {
+        settingsRevisions: repo,
+        createdBy: 'startup',
+      },
+      applySettings,
+    });
+
+    expect(CURRENT_SETTINGS_READER_VERSION).toBe(16);
+    expect(outcome.settings.limits.providerSessionMaxInputTokens).toBe(420_000);
+    expect(applySettings.mock.calls[0]?.[1].limits).toMatchObject({
+      providerSessionMaxInputTokens: 420_000,
+    });
   });
 
   it('canonicalizes old revision rows before stale revision comparison', async () => {
@@ -1981,7 +2025,7 @@ describe('importFleetSettingsRevision', () => {
   });
 
   it('appends a revision stamped with the current reader version', async () => {
-    expect(CURRENT_SETTINGS_READER_VERSION).toBe(15);
+    expect(CURRENT_SETTINGS_READER_VERSION).toBe(16);
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();
     const outcome = await importFleetSettingsRevision(

@@ -15,7 +15,7 @@ import {
   resolveSessionAppId,
 } from './canonical-session-repository-helpers.postgres.js';
 import {
-  assertProviderSessionContextHighWaterMark,
+  normalizeProviderSessionContextHighWaterMark,
   type RetiredProviderSessionReference,
 } from '../../../../domain/sessions/provider-session-measurement.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
@@ -58,11 +58,13 @@ export async function raiseProviderSessionContextHighWaterMark(
   executor: CanonicalExecutor,
   input: ProviderSessionContextHighWaterMarkInput,
 ): Promise<boolean> {
-  assertProviderSessionContextHighWaterMark(input.contextHighWaterMark);
+  const contextHighWaterMark = normalizeProviderSessionContextHighWaterMark(
+    input.contextHighWaterMark,
+  );
   const result = await executor
     .update(pgSchema.providerSessionsPostgres)
     .set({
-      contextHighWaterMark: input.contextHighWaterMark,
+      contextHighWaterMark,
       updatedAt: sql`now()`,
     })
     .where(
@@ -81,7 +83,7 @@ export async function raiseProviderSessionContextHighWaterMark(
           pgSchema.providerSessionsPostgres.status,
           RESUMABLE_PROVIDER_SESSION_STATUSES,
         ),
-        sql`(${pgSchema.providerSessionsPostgres.contextHighWaterMark} IS NULL OR ${pgSchema.providerSessionsPostgres.contextHighWaterMark} < ${input.contextHighWaterMark})`,
+        sql`(${pgSchema.providerSessionsPostgres.contextHighWaterMark} IS NULL OR ${pgSchema.providerSessionsPostgres.contextHighWaterMark} < ${contextHighWaterMark})`,
         providerSessionGenerationFence(input),
       ),
     );

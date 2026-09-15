@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-12T15:41:39+00:00", "story": "cache-bug", "detail": "S-0118-b167: Correct on both counts, and both are sandbox limits rather than defects. Verified host-side, which is the resolution \u2014 do NOT chase either, and do not touch those seams.\n\n(1) npm pack --json: on the h"}

@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-12T15:17:17+00:00", "story": "cache-bug", "detail": "S-0116-f2fa: Fixed at the source \u2014 your brief now lists it, so re-read the write scope. apps/core/src/runtime/group-agent-runner-context-ceiling.ts and apps/core/src/runtime/agent-spawn-host.ts have been in this s"}

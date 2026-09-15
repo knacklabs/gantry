@@ -1,0 +1,13 @@
+{
+  "event": "open",
+  "id": "Q-0206-8d49",
+  "profile": "degraded",
+  "reason": "Fix the harness defect that has now cost five scope signals on one task (S-0112-a489, S-0113-561a, S-0114-de08, S-0115-655b, S-0116-f2fa). forge stage amend-scope records added paths in .git/worktrees/<wt>/forge/scope_amendments.json and stage done honours them through amended_scope_paths, but delegate.py's compose_brief builds the brief's write-scope list from task['write_scope'] alone and never consults that function. So every fix round after an amendment hands the worker a stale scope: the file it must edit is blessed by the gate and invisible in the brief at the same time, and the worker correctly refuses. One-line union in compose_brief. factory/ is in workflow_prefixes so this is excluded from the task's measured product diff. Companion is mid-task so delegation cannot make this change.",
+  "started_at": "2026-09-12T15:16:15+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded",
+  "task_id": "cache-bug-T2",
+  "story": "cache-bug"
+}

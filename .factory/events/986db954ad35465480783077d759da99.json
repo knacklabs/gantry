@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-12T13:30:44+00:00", "story": "cache-bug", "detail": "cache-bug-T2 needs apps/core/src/runtime/agent-spawn-host.ts for the existing runtime-to-config accessor boundary and a new apps/core/src/runtime/group-agent-runner-provider-session-ceiling.ts to extr"}

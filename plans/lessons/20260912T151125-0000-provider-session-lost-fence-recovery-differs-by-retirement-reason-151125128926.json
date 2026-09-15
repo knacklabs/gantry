@@ -1,0 +1,12 @@
+{
+  "topic": "provider-session lost-fence recovery differs by retirement reason",
+  "lesson": "A lost active->expired fence does NOT make a fingerprint-invalid session resumable: decision 0158 makes leaving the resumable set 'never optional' for an access-fingerprint mismatch, so the fingerprint path must keep resumeProviderSessionId and resumeExternalSessionId cleared even when the fence is lost. Only the CEILING path may restore resume identifiers from the refreshed context, because there a lost fence means a concurrent writer changed the row and the re-read is the current truth. The shared recovery helper is still correct for the parts both paths agree on \u2014 the non-hydrating re-read, reusing the carried memory block only on a matching agent session id and null-normalised reset_at generation, and refusing replacement persistence \u2014 but it must not hand resume identifiers back to the fingerprint caller. group-processing.test.ts asserts exactly this: no sessionId in the run options after a fingerprint change.",
+  "source": "S-0115-655b + autoreview quality P1 on 656aacc5c",
+  "applies_to": [
+    "apps/core/src/runtime/group-agent-runner-context-ceiling.ts",
+    "apps/core/src/runtime/group-agent-runner.ts"
+  ],
+  "severity": "high",
+  "generated_by": "orchestrator",
+  "added_at": "2026-09-12T15:11:25+00:00"
+}

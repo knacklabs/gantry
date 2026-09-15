@@ -1,0 +1,7 @@
+{
+  "task_id": "cache-bug-T2",
+  "branch": "feat/cache-bug-cache-bug-T2",
+  "base_main_sha": "b1e1ac0b0de56fcf82e0b358607c8e8912d9efab",
+  "commit": "5797a10a7b623fd9cf2256edb57989696cb25790",
+  "sealed_at": "2026-09-12T20:11:00+00:00"
+}

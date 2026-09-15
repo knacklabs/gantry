@@ -10,6 +10,8 @@ export const RUNTIME_EVENT_TYPES = {
   SESSION_COMPACTION_DEGRADED: 'session.compaction.degraded',
   SESSION_COMPACTION_FAILED: 'session.compaction.failed',
   SESSION_COMPACTION_TIMEOUT: 'session.compaction.timeout',
+  SESSION_PROVIDER_RETIRED: 'session.provider.retired',
+  SESSION_PROVIDER_CLEANUP_FAILED: 'session.provider.cleanup_failed',
   CONVERSATION_MESSAGE_INBOUND: 'conversation.message.inbound',
   CONVERSATION_MESSAGE_OUTBOUND: 'conversation.message.outbound',
   IDENTITY_RESOLVED: 'identity.resolved',

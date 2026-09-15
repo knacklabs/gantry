@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-12T13:31:56+00:00", "story": "cache-bug", "detail": "S-0114-de08: SETTLED ALREADY \u2014 this is the same question as S-0112-a489 and S-0113-561a, both resolved 2026-09-11; a fresh delegate thread does not inherit those notes, so here they are again. Do NOT raise it a fo"}
