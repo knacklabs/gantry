@@ -123,6 +123,8 @@ it('keeps Console handoff locked until exact verification and projection complet
   expect(route).toContain("'gantry.onboarding.name'");
   expect(route).toContain('sessionStorage.removeItem(key)');
   expect(route).toContain('setChannelValues({})');
-  expect(route).toContain('enabled: started && step >= 3 && workspaceConnected');
+  expect(route).toContain(
+    'enabled: started && step >= 3 && workspaceConnected',
+  );
   expect(route).toMatch(/disabled=\{verificationStatus !== 'completed'\}/);
 });

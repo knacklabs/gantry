@@ -107,57 +107,59 @@ export function OnboardingWorkspacePhase({
                   <p className="m-0 text-[13px] leading-[1.6] text-text-secondary">
                     Stored credentials will be used to retry discovery.
                   </p>
-                ) : credentialKeys.map((key) => {
-                  const detail = slack ? SLACK_TOKEN_DETAILS[key] : undefined;
-                  const error = credentialErrors[key];
-                  const errorId = `onboarding-${key.toLowerCase()}-error`;
-                  return (
-                    <label
-                      key={key}
-                      className="grid gap-1.5 text-[12px] font-medium text-text"
-                    >
-                      <span className="grid gap-0.5">
-                        <b className="text-[12px] font-medium text-text">
-                          {detail?.label ?? key}
-                        </b>
-                        {detail ? (
-                          <small className="font-mono text-[10px] font-normal tracking-[0.02em] text-text-muted">
-                            {detail.path}
+                ) : (
+                  credentialKeys.map((key) => {
+                    const detail = slack ? SLACK_TOKEN_DETAILS[key] : undefined;
+                    const error = credentialErrors[key];
+                    const errorId = `onboarding-${key.toLowerCase()}-error`;
+                    return (
+                      <label
+                        key={key}
+                        className="grid gap-1.5 text-[12px] font-medium text-text"
+                      >
+                        <span className="grid gap-0.5">
+                          <b className="text-[12px] font-medium text-text">
+                            {detail?.label ?? key}
+                          </b>
+                          {detail ? (
+                            <small className="font-mono text-[10px] font-normal tracking-[0.02em] text-text-muted">
+                              {detail.path}
+                            </small>
+                          ) : null}
+                        </span>
+                        <input
+                          aria-describedby={error ? errorId : undefined}
+                          aria-invalid={Boolean(error)}
+                          autoComplete="off"
+                          className={`h-[38px] w-full rounded-[9px] border bg-surface-muted px-3 font-mono text-[12px] text-text placeholder:text-text-muted focus-visible:border-status-attention focus-visible:outline-2 focus-visible:outline-status-attention-soft focus-visible:outline-offset-1 ${error ? 'border-danger' : 'border-border-strong'}`}
+                          placeholder={detail?.placeholder}
+                          type="password"
+                          value={values[key] ?? ''}
+                          onBlur={() =>
+                            onCredentialError(
+                              key,
+                              slack
+                                ? slackTokenError(key, values[key] ?? '')
+                                : undefined,
+                            )
+                          }
+                          onChange={(event) =>
+                            onCredentialValue(key, event.target.value)
+                          }
+                        />
+                        {error ? (
+                          <small
+                            className="text-[11px] font-normal text-danger"
+                            id={errorId}
+                            role="alert"
+                          >
+                            {error}
                           </small>
                         ) : null}
-                      </span>
-                      <input
-                        aria-describedby={error ? errorId : undefined}
-                        aria-invalid={Boolean(error)}
-                        autoComplete="off"
-                        className={`h-[38px] w-full rounded-[9px] border bg-surface-muted px-3 font-mono text-[12px] text-text placeholder:text-text-muted focus-visible:border-status-attention focus-visible:outline-2 focus-visible:outline-status-attention-soft focus-visible:outline-offset-1 ${error ? 'border-danger' : 'border-border-strong'}`}
-                        placeholder={detail?.placeholder}
-                        type="password"
-                        value={values[key] ?? ''}
-                        onBlur={() =>
-                          onCredentialError(
-                            key,
-                            slack
-                              ? slackTokenError(key, values[key] ?? '')
-                              : undefined,
-                          )
-                        }
-                        onChange={(event) =>
-                          onCredentialValue(key, event.target.value)
-                        }
-                      />
-                      {error ? (
-                        <small
-                          className="text-[11px] font-normal text-danger"
-                          id={errorId}
-                          role="alert"
-                        >
-                          {error}
-                        </small>
-                      ) : null}
-                    </label>
-                  );
-                })}
+                      </label>
+                    );
+                  })
+                )}
                 {slack ? (
                   <button
                     className="inline-flex h-[30px] items-center gap-1.5 justify-self-start border-0 bg-transparent p-0 text-[12px] text-text-secondary underline decoration-text-muted underline-offset-[3px] [@media(hover:hover)_and_(pointer:fine)]:hover:text-text"

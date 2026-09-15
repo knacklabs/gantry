@@ -27,7 +27,11 @@ function HomeRoute() {
   return (
     <Navigate
       replace
-      to={status.data?.firstRun || status.data?.resume ? '/onboarding' : '/overview'}
+      to={
+        status.data?.firstRun || status.data?.resume
+          ? '/onboarding'
+          : '/overview'
+      }
     />
   );
 }
