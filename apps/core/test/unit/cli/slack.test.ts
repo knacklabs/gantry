@@ -161,10 +161,12 @@ describe('Slack install scopes', () => {
       ),
     );
 
-    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject({
-      ok: false,
-      missingScopes: expect.arrayContaining(['commands']),
-    });
+    await expect(validateSlackBotToken('xoxb-existing')).resolves.toMatchObject(
+      {
+        ok: false,
+        missingScopes: expect.arrayContaining(['commands']),
+      },
+    );
   });
 
   it('builds a Slack-ready manifest from the canonical scopes and employee name', () => {
