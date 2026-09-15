@@ -118,6 +118,7 @@ export abstract class SlackChannelState {
   protected readonly opts: ChannelOpts;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();
+  protected slackBotUserCache = new Map<string, boolean>();
   protected channelNameCache = new Map<string, string>();
   protected activeStreams = new Map<string, ActiveStreamState>();
   protected readonly streamResetEpochs = new StreamResetEpochs();

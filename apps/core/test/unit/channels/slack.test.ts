@@ -1260,6 +1260,83 @@ describe('Slack channel', () => {
     );
   });
 
+  it('delivers user-token Slack messages with app provenance', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.users.info.mockResolvedValueOnce({
+      ok: true,
+      user: { is_bot: false, profile: { display_name: 'Suraj' } },
+    });
+
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    await handler!({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000101',
+        user: 'U_SURAJ',
+        bot_id: 'B_SENDER_APP',
+        text: 'hello',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ sender: 'U_SURAJ', content: 'hello' }),
+    );
+  });
+
+  it('drops app-provenance messages from Slack bot users', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.users.info.mockResolvedValueOnce({
+      ok: true,
+      user: { is_bot: true },
+    });
+
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    await handler!({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000102',
+        user: 'U_OTHER_BOT',
+        bot_id: 'B_OTHER_BOT',
+        text: 'automated message',
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('drops app-provenance messages when the sender cannot be verified', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+    appRef.current.client.users.info.mockRejectedValueOnce(
+      new Error('Slack unavailable'),
+    );
+
+    const handler = appRef.current.eventHandlers.get('message')?.[0];
+    await handler!({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000103',
+        user: 'U_UNKNOWN',
+        bot_id: 'B_UNKNOWN',
+        text: 'unverified message',
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
   it('delivers Slack messages for agent-qualified conversations', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
