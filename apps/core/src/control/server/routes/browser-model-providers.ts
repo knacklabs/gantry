@@ -22,7 +22,10 @@ import {
   isAgentHarness,
   type AgentHarness,
 } from '../../../shared/agent-engine.js';
-import { resolveModelSelectionForWorkload } from '../../../shared/model-catalog.js';
+import {
+  listModelCatalogEntries,
+  resolveModelSelectionForWorkload,
+} from '../../../shared/model-catalog.js';
 import { resolveExecutionRoute } from '../../../shared/model-execution-route.js';
 import {
   listSupportedModelCredentialProviders,
@@ -192,18 +195,30 @@ export async function handleBrowserModelProviderRoutes(
       if (hasBody && !candidate) return true;
       const appId = session.appId as AppId;
       if (candidate) {
-        const model = resolveModelSelectionForWorkload(
-          candidate.modelAlias,
-          'chat',
-        );
-        if (!model.ok || model.entry.modelRoute.id !== providerId) {
+        const model = candidate.modelAlias
+          ? resolveModelSelectionForWorkload(candidate.modelAlias, 'chat')
+          : {
+              ok: true as const,
+              entry: listModelCatalogEntries()
+                .filter(
+                  (entry) =>
+                    entry.modelRoute.id === providerId &&
+                    entry.supportedWorkloads.includes('chat'),
+                )
+                .sort((left, right) => left.id.localeCompare(right.id))[0],
+            };
+        if (!model.ok) {
+          sendError(res, 400, 'INCOMPATIBLE_MODEL_PROVIDER', model.message);
+          return true;
+        }
+        if (!model.entry || model.entry.modelRoute.id !== providerId) {
           sendError(
             res,
             400,
             'INCOMPATIBLE_MODEL_PROVIDER',
-            model.ok
+            model.entry
               ? 'The selected model belongs to a different provider.'
-              : model.message,
+              : `Model provider ${providerId} has no chat-capable catalog entry.`,
           );
           return true;
         }
@@ -235,7 +250,7 @@ export async function handleBrowserModelProviderRoutes(
             preflightModelProvider({
               runtimeHome: '',
               providerId,
-              chatAlias: candidate.modelAlias,
+              chatAlias: model.entry.recommendedAlias,
               settings,
               modelCredentials,
               appId,
@@ -334,7 +349,7 @@ async function readModelCandidateBody(
 ): Promise<{
   authMode: string;
   payload: Record<string, unknown>;
-  modelAlias: string;
+  modelAlias?: string;
   agentHarness: AgentHarness;
 } | null> {
   let body: unknown;
@@ -349,8 +364,8 @@ async function readModelCandidateBody(
     !isObject(body.payload) ||
     typeof body.authMode !== 'string' ||
     !body.authMode.trim() ||
-    typeof body.modelAlias !== 'string' ||
-    !body.modelAlias.trim() ||
+    (body.modelAlias !== undefined &&
+      (typeof body.modelAlias !== 'string' || !body.modelAlias.trim())) ||
     !isAgentHarness(body.agentHarness) ||
     Object.keys(body).some(
       (key) =>
@@ -368,7 +383,9 @@ async function readModelCandidateBody(
   return {
     authMode: body.authMode.trim(),
     payload: body.payload,
-    modelAlias: body.modelAlias.trim(),
+    ...(typeof body.modelAlias === 'string'
+      ? { modelAlias: body.modelAlias.trim() }
+      : {}),
     agentHarness: body.agentHarness,
   };
 }

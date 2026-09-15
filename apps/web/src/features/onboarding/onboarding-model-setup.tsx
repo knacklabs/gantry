@@ -163,10 +163,6 @@ export function OnboardingModelSetup({
       }),
     );
     try {
-      const candidateModel = models[0]?.alias;
-      if (!credentialIsStored && (!mode || !candidateModel)) {
-        throw new Error('No compatible model is available for this provider.');
-      }
       const verification = await browserFetch(
         `/ui/api/model-providers/${encodeURIComponent(provider.providerId)}/verify`,
         {
@@ -184,7 +180,6 @@ export function OnboardingModelSetup({
                 body: JSON.stringify({
                   authMode: mode!.id,
                   payload,
-                  modelAlias: candidateModel,
                   agentHarness: 'auto',
                 }),
               }),

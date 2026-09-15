@@ -88,6 +88,8 @@ it('keeps models locked until compatible credentials validate and clears success
   expect(component).toContain("agentHarness: 'auto'");
   expect(component).toContain("method: 'POST'");
   expect(component).toContain('/verify`');
+  expect(component).not.toContain('candidateModel');
+  expect(component).not.toContain('modelAlias: candidateModel');
   expect(component).toContain('setValues({});');
   expect(component).toContain('onCredentialValidated(true);');
   expect(component).toContain('Configuration validated');

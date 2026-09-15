@@ -180,6 +180,15 @@ describe('browser onboarding route', () => {
     expect(modelRouteSource).toContain('service.validateAndSet({');
   });
 
+  it('uses a canonical provider model when onboarding validates first credentials', () => {
+    expect(modelRouteSource).toContain('listModelCatalogEntries()');
+    expect(modelRouteSource).toContain('entry.modelRoute.id === providerId &&');
+    expect(modelRouteSource).toContain(
+      'chatAlias: model.entry.recommendedAlias',
+    );
+    expect(modelRouteSource).toContain('modelAlias?: string;');
+  });
+
   it(
     'accepts only auto anthropic' +
       '_sdk and deepagents with compatible providers',
