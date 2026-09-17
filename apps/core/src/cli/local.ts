@@ -220,7 +220,9 @@ function stopRecordedChildren(home: string): void {
       continue;
     try {
       process.kill(-pid, 'SIGTERM');
-    } catch {}
+    } catch {
+      // The child may have exited between inspection and signalling.
+    }
   }
   fs.unlinkSync(file);
 }
@@ -236,7 +238,7 @@ async function databaseReachable(url: string): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    await client.end().catch(() => {});
+    await client.end().catch(() => undefined);
   }
 }
 function localDatabaseUrl(port: number): string {
@@ -455,12 +457,16 @@ export async function superviseLocal(
         );
         try {
           process.kill(-child.pid!, 'SIGTERM');
-        } catch {}
+        } catch {
+          // The child may have exited between inspection and signalling.
+        }
         await Promise.race([exited, delay(5000, undefined, { ref: false })]);
         if (child.exitCode === null && child.signalCode === null) {
           try {
             process.kill(-child.pid!, 'SIGKILL');
-          } catch {}
+          } catch {
+            // The child may have exited between inspection and signalling.
+          }
           await exited;
         }
       }),
@@ -611,7 +617,9 @@ export async function superviseLocal(
           ready = true;
           break;
         }
-      } catch {}
+      } catch {
+        // Health checks are expected to fail until the core process is ready.
+      }
       await delay(500);
     }
     if (!ready && !stopping)
