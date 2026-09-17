@@ -13,7 +13,6 @@ import {
   ensureRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-
 export const LOCAL_DATABASE_URL =
   'postgres://gantry_app:gantry_app_password@127.0.0.1:5432/gantry?schema=gantry';
 export const LOCAL_RESET_PATHS = [
@@ -30,14 +29,12 @@ const OWNERSHIP_MARKER = '.gantry-owned';
 const RESET_MARKER = '.gantry-reset-in-progress';
 const PID_FILE = '.gantry-local-pids';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
-
 export function validateLocalNode(version = process.versions.node): void {
   if (version.split('.')[0] !== '24')
     throw new Error(
       `Gantry local development requires Node 24 (current: ${version}). Run nvm use 24.`,
     );
 }
-
 export function localSourceRoot(start = process.cwd()): string {
   let root = path.resolve(start);
   while (true) {
@@ -57,14 +54,12 @@ export function localSourceRoot(start = process.cwd()): string {
     root = parent;
   }
 }
-
 export function resolveLocalRuntimeHome(explicit?: string): string {
   const root = localSourceRoot();
   return resolveRuntimeHome(
     explicit || process.env.GANTRY_HOME || path.join(root, '.gantry'),
   );
 }
-
 export function validateLocalHome(home: string, repo: string): void {
   const absolute = path.resolve(home);
   if (
@@ -90,7 +85,6 @@ export function validateLocalHome(home: string, repo: string): void {
       throw new Error(`Refusing symlinked local runtime state: ${target}`);
   }
 }
-
 export function localEnvironment(home: string): NodeJS.ProcessEnv {
   const file = path.join(home, '.env');
   const freshHome = !fs.existsSync(home);
@@ -119,7 +113,6 @@ export function localEnvironment(home: string): NodeJS.ProcessEnv {
     });
     fs.renameSync(temporary, marker);
   }
-  // Source-local development runs the whole runtime, not a fleet service role.
   return {
     ...saved,
     ...process.env,
@@ -127,7 +120,6 @@ export function localEnvironment(home: string): NodeJS.ProcessEnv {
     GANTRY_PROCESS_ROLE: 'all',
   };
 }
-
 export function localOrigin(env: NodeJS.ProcessEnv): string {
   const host = env.GANTRY_CONTROL_HOST || '127.0.0.1';
   const port = Number(env.GANTRY_CONTROL_PORT);
@@ -142,7 +134,6 @@ export function localOrigin(env: NodeJS.ProcessEnv): string {
     );
   return new URL(`http://${host}:${port}`).origin;
 }
-
 export function localDatabase(url: string, reset = false): URL {
   const target = new URL(url);
   if (
@@ -168,7 +159,6 @@ export function localDatabase(url: string, reset = false): URL {
   }
   return target;
 }
-
 export function resetLocalFiles(home: string): void {
   for (const name of LOCAL_RESET_PATHS)
     fs.rmSync(path.join(home, name), { recursive: true, force: true });
@@ -176,14 +166,12 @@ export function resetLocalFiles(home: string): void {
 function resetMarkerPath(home: string): string {
   return path.join(home, RESET_MARKER);
 }
-
 function assertResetOwnership(home: string): void {
   if (!fs.existsSync(path.join(home, OWNERSHIP_MARKER)))
     throw new Error(
       `Local reset refuses unowned runtime home: ${home}. Start a fresh local runtime home first.`,
     );
 }
-
 function clearStaleResetMarker(home: string, acknowledged: boolean): void {
   const marker = resetMarkerPath(home);
   if (!fs.existsSync(marker)) return;
@@ -194,15 +182,12 @@ function clearStaleResetMarker(home: string, acknowledged: boolean): void {
     );
   fs.unlinkSync(marker);
 }
-
 function writeResetMarker(home: string, variant: 'reset' | 'reset-db'): void {
   fs.writeFileSync(resetMarkerPath(home), variant, { mode: 0o600 });
 }
-
 function recordedPidsPath(home: string): string {
   return path.join(home, PID_FILE);
 }
-
 function recordChildPid(home: string, pid: number): void {
   const file = recordedPidsPath(home);
   const pids = fs.existsSync(file)
@@ -212,7 +197,6 @@ function recordChildPid(home: string, pid: number): void {
     mode: 0o600,
   });
 }
-
 function stopRecordedChildren(home: string): void {
   const file = recordedPidsPath(home);
   if (!fs.existsSync(file)) return;
@@ -321,6 +305,18 @@ function ownedPostgres(repo: string, home: string): string | undefined {
   return container.State?.Running ? existing : undefined;
 }
 
+function ownedPostgresPort(repo: string, home: string): number | undefined {
+  const id = ownedPostgres(repo, home);
+  if (!id) return undefined;
+  const [container] = JSON.parse(
+    execFileSync('docker', ['inspect', id], { encoding: 'utf8' }),
+  );
+  const port = Number(
+    container.NetworkSettings?.Ports?.['5432/tcp']?.[0]?.HostPort,
+  );
+  return Number.isInteger(port) && port > 0 ? port : undefined;
+}
+
 export async function ensureLocalDatabase(
   repo: string,
   home: string,
@@ -335,10 +331,14 @@ export async function ensureLocalDatabase(
     );
   }
 
-  // The default source-local database is always the managed Compose service.
-  // A reachable host Postgres must not bypass it.
   const container = ownedPostgres(repo, home);
   const port = Number(new URL(url).port || '5432');
+  const managedPort = ownedPostgresPort(repo, home);
+  if (managedPort && managedPort !== port) {
+    url = localDatabaseUrl(managedPort);
+    env.GANTRY_DATABASE_URL = url;
+    env.GANTRY_POSTGRES_PORT = String(managedPort);
+  }
   if (!container && !(await canBindLoopbackPort(port))) {
     const fallbackPort = await freePort();
     url = localDatabaseUrl(fallbackPort);
