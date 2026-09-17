@@ -6,7 +6,6 @@ import { randomBytes } from 'node:crypto';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
-
 import { readEnvFile, writeEnvFile } from '../config/env/file.js';
 import { resolveRuntimeHome } from '../config/settings/runtime-home.js';
 import {
@@ -115,7 +114,9 @@ export function localEnvironment(home: string): NodeJS.ProcessEnv {
   if (freshHome) {
     const marker = path.join(home, OWNERSHIP_MARKER);
     const temporary = `${marker}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${new Date().toISOString()}\n`, { mode: 0o600 });
+    fs.writeFileSync(temporary, `${new Date().toISOString()}\n`, {
+      mode: 0o600,
+    });
     fs.renameSync(temporary, marker);
   }
   // Source-local development runs the whole runtime, not a fleet service role.
@@ -172,7 +173,6 @@ export function resetLocalFiles(home: string): void {
   for (const name of LOCAL_RESET_PATHS)
     fs.rmSync(path.join(home, name), { recursive: true, force: true });
 }
-
 function resetMarkerPath(home: string): string {
   return path.join(home, RESET_MARKER);
 }
@@ -205,8 +205,12 @@ function recordedPidsPath(home: string): string {
 
 function recordChildPid(home: string, pid: number): void {
   const file = recordedPidsPath(home);
-  const pids = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
-  fs.writeFileSync(file, JSON.stringify([...new Set([...pids, pid])]), { mode: 0o600 });
+  const pids = fs.existsSync(file)
+    ? JSON.parse(fs.readFileSync(file, 'utf8'))
+    : [];
+  fs.writeFileSync(file, JSON.stringify([...new Set([...pids, pid])]), {
+    mode: 0o600,
+  });
 }
 
 function stopRecordedChildren(home: string): void {
@@ -224,7 +228,11 @@ function stopRecordedChildren(home: string): void {
     } catch {
       continue;
     }
-    if (!/apps\/core\/src\/index\.ts|node_modules\/vite\/bin\/vite\.js/.test(command))
+    if (
+      !/apps\/core\/src\/index\.ts|node_modules\/vite\/bin\/vite\.js/.test(
+        command,
+      )
+    )
       continue;
     try {
       process.kill(-pid, 'SIGTERM');
@@ -647,12 +655,8 @@ export async function runLocalCommand(
       console.log('Use gantry local start, reset, reset-db, or stop.');
       return 1;
     }
-    if (
-      !['start', 'reset', 'reset-db', 'stop'].includes(command)
-    )
-      throw new Error(
-        'Use gantry local start, reset, reset-db, or stop.',
-      );
+    if (!['start', 'reset', 'reset-db', 'stop'].includes(command))
+      throw new Error('Use gantry local start, reset, reset-db, or stop.');
     validateLocalNode();
     const env = localEnvironment(home);
     const target = localDatabase(
