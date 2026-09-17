@@ -1435,6 +1435,13 @@
     "maxViolations": 4
   },
   {
+    "file": "apps/core/src/cli/local.ts",
+    "rule": "direct_risky_execution",
+    "reason": "The explicit source-local operator command supervises only Gantry core and Vite child processes; it is not available to agents, jobs, or tools. Capped until local supervision moves behind an application port.",
+    "removeByPhase": "local-supervisor-application-port",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/memory/app-memory-session-scope.ts",
     "rule": "provider_specific_path",
     "reason": "The live-jid scheme discriminator is a closed set of jid prefixes ('teams' matches the provider word scan); the canonical registry lives in channels/, which the memory layer may not import. Capped to this one literal.",
