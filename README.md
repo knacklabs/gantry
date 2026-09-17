@@ -43,7 +43,6 @@ What that buys a team in practice:
 - [SDK docs](docs/sdk/overview.md)
 - [Deployment docs](docs/deployment/aws-terraform.md)
 
-
 ## Status
 
 This repository is being prepared as an open-source project. The intended npm
@@ -76,31 +75,65 @@ sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
 git clone https://github.com/knacklabs/Agent.Gantry.git
 cd Agent.Gantry
 npm ci
+npm run dev
+```
+
+Use Node 24 and npm (not pnpm). `dev` starts/reuses local Postgres, applies all
+migrations, runs core from TypeScript and serves the Web UI through Vite with
+hot reload. The SDK is a client library, not another process. The ready UI link
+is printed in the terminal. No built `dist/ui` assets are used.
+
+Source-local commands:
+
+```bash
+npm run dev        # start the complete source development stack
+npm run reset:db   # reset database schemas, preserve files, restart
+npm run reset      # reset database and known runtime state, restart onboarding
+npm run dev:stop   # stop core, Vite and this home's managed Postgres
+npm run dev:core   # core only (requires an already configured database)
+```
+
+The equivalent CLI commands are `gantry local start`, `gantry local reset-db`,
+`gantry local reset`, and `gantry local stop`, when the CLI is built/linked from
+this checkout. Without a build, use `npm run cli:dev -- local <command>` after
+`npm run build:contracts`. Run these from the source checkout.
+
+Local development defaults to `<repo>/.gantry`, **not** `/gantry` or `~/gantry`.
+Its `.env` is created securely there with local defaults and a generated
+encryption key. Existing values are preserved. An exported `GANTRY_HOME` or
+`--runtime-home` overrides the default directly:
+
+```bash
+export GANTRY_HOME="/absolute/path/to/my-gantry-dev"
+npm run dev
+```
+
+Environment variables override `<GANTRY_HOME>/.env`. Set `GANTRY_CONTROL_HOST`
+(loopback only) and `GANTRY_CONTROL_PORT` (default `3939`) to choose the public
+UI origin. Existing `authentication.canonical_origin` must match it; startup
+prints the exact correction if it does not. After each healthy local start or
+reset, startup prints a fresh short-lived one-time authorization link; existing
+browser sessions remain valid. If link issuance fails, run `gantry ui authorize`
+to retry.
+
+Reset commands run **without confirmation** and print the target first. Only a
+loopback database named `gantry` may be reset. `reset:db` recreates the `gantry`
+and `pgboss` schemas and reapplies every migration. Full reset also removes
+settings, onboarding state, agents, data, store, logs, artifacts and runtime
+projections. Both preserve `.env`, `postgres/` and unknown files. Stop other
+database clients before resetting.
+
+Ctrl-C stops core and Vite but keeps Postgres warm. `dev:stop` also stops the
+verified home-owned `gantry-postgres` container, without deleting its data.
+Custom databases and unrelated containers are never stopped. Docker must be
+running for Gantry to manage its default Postgres container; an unreachable
+custom URL is reported rather than replaced.
+
+Production/bundled startup remains unchanged:
+
+```bash
 npm run build
-```
-
-Create a local runtime environment:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with a local-only Postgres URL and generated secrets. The example
-database password is for loopback development only; do not reuse it in hosted
-or production deployments.
-
-Start Gantry:
-
-```bash
 npm start
-```
-
-For CLI development:
-
-```bash
-npm link
-gantry doctor
-gantry status
 ```
 
 ## Runtime Configuration
@@ -258,7 +291,6 @@ checks.
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
 
 ## Working in this repo — Symphony Forge
 
