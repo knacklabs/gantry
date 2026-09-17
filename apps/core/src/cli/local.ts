@@ -246,15 +246,8 @@ function localDatabaseUrl(port: number): string {
   url.port = String(port);
   return url.toString();
 }
-type ManagedPostgres = {
-  id: string;
-  running: boolean;
-  port?: number;
-};
-function ownedPostgres(
-  repo: string,
-  home: string,
-): ManagedPostgres | undefined {
+type ManagedPg = { id: string; running: boolean; port?: number };
+function ownedPostgres(repo: string, home: string): ManagedPg | undefined {
   let existing: string;
   try {
     existing = execFileSync(
@@ -301,7 +294,7 @@ function ownedPostgres(
     port: Number.isInteger(port) && port > 0 ? port : undefined,
   };
 }
-function composePostgres(
+function composePg(
   repo: string,
   home: string,
   env: NodeJS.ProcessEnv,
@@ -325,19 +318,16 @@ function composePostgres(
     },
   );
 }
-function dockerFailureOutput(error: unknown): string {
-  if (!(error instanceof Error)) return '';
-  const result = error as Error & {
-    stderr?: Buffer | string;
-    stdout?: Buffer | string;
-  };
-  return [result.message, result.stdout, result.stderr]
-    .map((value) => (Buffer.isBuffer(value) ? value.toString() : value || ''))
-    .join('\n');
-}
 function hostPortConflict(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const { stdout, stderr } = error as Error & {
+    stdout?: Buffer | string;
+    stderr?: Buffer | string;
+  };
   return /port is already allocated|address already in use|bind:.*failed/i.test(
-    dockerFailureOutput(error),
+    [error.message, stdout, stderr]
+      .map((value) => String(value || ''))
+      .join('\n'),
   );
 }
 export async function ensureLocalDatabase(
@@ -353,24 +343,20 @@ export async function ensureLocalDatabase(
       'Configured local database is unreachable. Start it or correct GANTRY_DATABASE_URL; Gantry will not replace a custom database target.',
     );
   }
-  let container = ownedPostgres(repo, home);
+  const container = ownedPostgres(repo, home);
   const port = Number(new URL(url).port || '5432');
-  const managedPort = container?.port;
-  if (managedPort && managedPort !== port) {
-    url = localDatabaseUrl(managedPort);
+  if (container?.port && container.port !== port) {
+    url = localDatabaseUrl(container.port);
     env.GANTRY_DATABASE_URL = url;
-    env.GANTRY_POSTGRES_PORT = String(managedPort);
+    env.GANTRY_POSTGRES_PORT = String(container.port);
   }
-  if (container && !container.running) {
-    composePostgres(repo, home, env, 'rm');
-    container = undefined;
-  }
+  if (container && !container.running) composePg(repo, home, env, 'rm');
   try {
-    composePostgres(repo, home, env, 'up');
+    composePg(repo, home, env, 'up');
   } catch (error) {
     if (!hostPortConflict(error)) throw error;
     const partial = ownedPostgres(repo, home);
-    if (partial) composePostgres(repo, home, env, 'rm');
+    if (partial) composePg(repo, home, env, 'rm');
     const fallbackPort = await freePort();
     url = localDatabaseUrl(fallbackPort);
     env.GANTRY_DATABASE_URL = url;
@@ -378,7 +364,7 @@ export async function ensureLocalDatabase(
     console.warn(
       `Port ${port} is unavailable; starting managed Postgres at 127.0.0.1:${fallbackPort}.`,
     );
-    composePostgres(repo, home, env, 'up');
+    composePg(repo, home, env, 'up');
   }
   if (!(await databaseReachable(url)))
     throw new Error(
@@ -708,9 +694,7 @@ export async function runLocalCommand(
       if (env.GANTRY_DATABASE_URL === LOCAL_DATABASE_URL) {
         const container = ownedPostgres(repo, home);
         if (container)
-          execFileSync('docker', ['stop', container.id], {
-            stdio: 'inherit',
-          });
+          execFileSync('docker', ['stop', container.id], { stdio: 'inherit' });
       } else
         console.log('Custom Postgres is externally managed; left running.');
       return 0;
