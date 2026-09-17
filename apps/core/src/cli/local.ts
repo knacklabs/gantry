@@ -27,6 +27,9 @@ export const LOCAL_RESET_PATHS = [
   'artifacts',
   'run',
 ] as const;
+const OWNERSHIP_MARKER = '.gantry-owned';
+const RESET_MARKER = '.gantry-reset-in-progress';
+const PID_FILE = '.gantry-local-pids';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export function validateLocalNode(version = process.versions.node): void {
@@ -91,6 +94,8 @@ export function validateLocalHome(home: string, repo: string): void {
 
 export function localEnvironment(home: string): NodeJS.ProcessEnv {
   const file = path.join(home, '.env');
+  const freshHome = !fs.existsSync(home);
+  if (freshHome) fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   const saved = readEnvFile(file);
   const defaults: Record<string, string> = {
     GANTRY_HOME: home,
@@ -107,6 +112,12 @@ export function localEnvironment(home: string): NodeJS.ProcessEnv {
     }
   }
   if (changed) writeEnvFile(file, saved);
+  if (freshHome) {
+    const marker = path.join(home, OWNERSHIP_MARKER);
+    const temporary = `${marker}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, `${new Date().toISOString()}\n`, { mode: 0o600 });
+    fs.renameSync(temporary, marker);
+  }
   // Source-local development runs the whole runtime, not a fleet service role.
   return {
     ...saved,
@@ -160,6 +171,68 @@ export function localDatabase(url: string, reset = false): URL {
 export function resetLocalFiles(home: string): void {
   for (const name of LOCAL_RESET_PATHS)
     fs.rmSync(path.join(home, name), { recursive: true, force: true });
+}
+
+function resetMarkerPath(home: string): string {
+  return path.join(home, RESET_MARKER);
+}
+
+function assertResetOwnership(home: string): void {
+  if (!fs.existsSync(path.join(home, OWNERSHIP_MARKER)))
+    throw new Error(
+      `Local reset refuses unowned runtime home: ${home}. Start a fresh local runtime home first.`,
+    );
+}
+
+function clearStaleResetMarker(home: string, acknowledged: boolean): void {
+  const marker = resetMarkerPath(home);
+  if (!fs.existsSync(marker)) return;
+  const variant = fs.readFileSync(marker, 'utf8').trim() || 'reset';
+  if (!acknowledged)
+    throw new Error(
+      `A previous ${variant} did not finish cleanly. Inspect ${home}, then rerun with --after-manual-recovery.`,
+    );
+  fs.unlinkSync(marker);
+}
+
+function writeResetMarker(home: string, variant: 'reset' | 'reset-db'): void {
+  fs.writeFileSync(resetMarkerPath(home), variant, { mode: 0o600 });
+}
+
+function recordedPidsPath(home: string): string {
+  return path.join(home, PID_FILE);
+}
+
+function recordChildPid(home: string, pid: number): void {
+  const file = recordedPidsPath(home);
+  const pids = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
+  fs.writeFileSync(file, JSON.stringify([...new Set([...pids, pid])]), { mode: 0o600 });
+}
+
+function stopRecordedChildren(home: string): void {
+  const file = recordedPidsPath(home);
+  if (!fs.existsSync(file)) return;
+  const pids: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!Array.isArray(pids)) throw new Error(`Invalid local PID file: ${file}`);
+  for (const pid of pids) {
+    if (!Number.isSafeInteger(pid) || pid <= 1) continue;
+    let command = '';
+    try {
+      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+        encoding: 'utf8',
+      });
+    } catch {
+      continue;
+    }
+    if (!/apps\/core\/src\/index\.ts|node_modules\/vite\/bin\/vite\.js/.test(command))
+      continue;
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch {
+      /* process already stopped */
+    }
+  }
+  fs.unlinkSync(file);
 }
 
 async function databaseReachable(url: string): Promise<boolean> {
@@ -402,6 +475,7 @@ export async function superviseLocal(
       }),
     );
     control.close();
+    fs.rmSync(recordedPidsPath(home), { force: true });
     finish(code);
   };
   control.on('connection', (socket) => {
@@ -439,6 +513,12 @@ export async function superviseLocal(
       detached: true,
     });
     children.add(child);
+    if (
+      child.pid &&
+      (args.includes('apps/core/src/index.ts') ||
+        args.includes('node_modules/vite/bin/vite.js'))
+    )
+      recordChildPid(home, child.pid);
     return new Promise<number>((resolve) => {
       child.once('error', () => {
         children.delete(child);
@@ -453,8 +533,10 @@ export async function superviseLocal(
   try {
     await ensureLocalDatabase(repo, home, env);
     if (reset) {
+      writeResetMarker(home, reset);
       await resetLocalDatabase(env.GANTRY_DATABASE_URL!);
       if (reset === 'reset') resetLocalFiles(home);
+      fs.rmSync(resetMarkerPath(home), { force: true });
     }
     const settingsPath = path.join(home, 'settings.yaml');
     const origin = localOrigin(env);
@@ -560,14 +642,16 @@ export async function runLocalCommand(
   try {
     const repo = localSourceRoot();
     validateLocalHome(home, repo);
-    const command = args[0] || 'start';
+    const command = args[0];
+    if (!command) {
+      console.log('Use gantry local start, reset, reset-db, or stop.');
+      return 1;
+    }
     if (
-      !['start', 'reset', 'reset-db', 'stop', 'status', 'doctor'].includes(
-        command,
-      )
+      !['start', 'reset', 'reset-db', 'stop'].includes(command)
     )
       throw new Error(
-        'Use gantry local start, reset, reset-db, stop, status, or doctor.',
+        'Use gantry local start, reset, reset-db, or stop.',
       );
     validateLocalNode();
     const env = localEnvironment(home);
@@ -579,10 +663,10 @@ export async function runLocalCommand(
     console.log(
       `Gantry home: ${home}\nDatabase: ${target.hostname}:${target.port || '5432'}${target.pathname}\nUI origin: ${origin}`,
     );
-    if (command === 'status' || command === 'doctor')
-      return (await databaseReachable(env.GANTRY_DATABASE_URL!)) ? 0 : 1;
+    clearStaleResetMarker(home, args.includes('--after-manual-recovery'));
     if (command === 'stop') {
       await stopLocalDevelopment(home);
+      stopRecordedChildren(home);
       if (env.GANTRY_DATABASE_URL === LOCAL_DATABASE_URL) {
         const container = ownedPostgres(repo, home);
         if (container)
@@ -591,7 +675,14 @@ export async function runLocalCommand(
         console.log('Custom Postgres is externally managed; left running.');
       return 0;
     }
-    if (command.startsWith('reset')) await stopLocalDevelopment(home);
+    if (command.startsWith('reset')) {
+      assertResetOwnership(home);
+      if (env.GANTRY_DATABASE_URL !== LOCAL_DATABASE_URL)
+        throw new Error('Local reset requires the managed default database.');
+      await stopLocalDevelopment(home);
+      stopRecordedChildren(home);
+    }
+    if (command === 'start') stopRecordedChildren(home);
     return await superviseLocal(
       repo,
       home,
