@@ -217,6 +217,66 @@ describe('source-local development', () => {
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
+  it('retries an unavailable default port after removing its partial container', async () => {
+    mockDatabase();
+    const home = makeRuntimeHome();
+    let partialContainer = false;
+    const execFileSync = vi.fn((...args: unknown[]) => {
+      const command = args[1] as string[];
+      const options = args[2] as { env?: NodeJS.ProcessEnv } | undefined;
+      if (command[0] === 'container')
+        return partialContainer ? 'container-id' : '';
+      if (command[0] === 'inspect')
+        return JSON.stringify([
+          {
+            Mounts: [
+              {
+                Destination: '/var/lib/postgresql/data',
+                Source: path.join(home, 'postgres'),
+              },
+            ],
+            Config: {
+              Labels: {
+                'com.docker.compose.project.working_dir': process.cwd(),
+              },
+            },
+            State: { Running: false },
+            NetworkSettings: { Ports: { '5432/tcp': [{ HostPort: '5432' }] } },
+          },
+        ]);
+      if (command.includes('up') && !options?.env?.GANTRY_POSTGRES_PORT) {
+        partialContainer = true;
+        throw Object.assign(new Error('compose failed'), {
+          stderr: 'Bind for 127.0.0.1:5432 failed: port is already allocated',
+        });
+      }
+      if (command.includes('rm')) partialContainer = false;
+      return '';
+    });
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+
+    await ensureLocalDatabase(process.cwd(), home, {
+      GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
+    });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'rm', '--stop', '--force', 'postgres']),
+      expect.anything(),
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'up', '--wait', '-d', 'postgres']),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GANTRY_POSTGRES_PORT: expect.any(String),
+        }),
+      }),
+    );
+  });
+
   it('refuses to adopt a foreign named container', async () => {
     const db = mockDatabase();
     db.connect.mockRejectedValueOnce(new Error('not running'));
