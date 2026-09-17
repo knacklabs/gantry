@@ -190,7 +190,6 @@ describe('source-local development', () => {
 
   it('starts managed Compose only for the default target with the selected home', async () => {
     const db = mockDatabase();
-    db.connect.mockRejectedValueOnce(new Error('not running'));
     const execFileSync = vi.fn(() => '');
     vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
     const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
@@ -304,7 +303,10 @@ describe('source-local development', () => {
           return child;
         },
       );
-      vi.doMock('node:child_process', () => ({ spawn, execFileSync: vi.fn() }));
+      vi.doMock('node:child_process', () => ({
+        spawn,
+        execFileSync: vi.fn(() => ''),
+      }));
       vi.spyOn(process, 'kill').mockImplementation((pid) => {
         const child = children.find((entry) => entry.pid === -pid)!;
         child.signalCode = 'SIGTERM';
