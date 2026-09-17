@@ -18,7 +18,7 @@ export default defineConfig({
     strictPort: true,
     ...(coreOrigin && {
       proxy: Object.fromEntries(
-        ['/ui/api', '/auth', '/v1', '/healthz', '/readyz', '/metrics'].map(
+        ['/ui/api', '/ui/auth', '/auth', '/v1', '/healthz', '/readyz', '/metrics'].map(
           (route) => [route, { target: coreOrigin, changeOrigin: false }],
         ),
       ),
