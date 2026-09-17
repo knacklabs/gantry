@@ -172,16 +172,20 @@ describe('source-local development', () => {
     return { query, connect, end };
   }
 
-  it('reuses a reachable database without invoking Docker', async () => {
+  it('starts managed Compose even when a host database is reachable', async () => {
     mockDatabase();
-    const execFileSync = vi.fn();
+    const execFileSync = vi.fn(() => '');
     vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
     const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
       await import('@core/cli/local.js');
     await ensureLocalDatabase(process.cwd(), makeRuntimeHome(), {
       GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
     });
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'up', '--wait', '-d', 'postgres']),
+      expect.anything(),
+    );
   });
 
   it('starts managed Compose only for the default target with the selected home', async () => {

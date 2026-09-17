@@ -225,11 +225,15 @@ export async function ensureLocalDatabase(
 ): Promise<void> {
   const url = env.GANTRY_DATABASE_URL!;
   localDatabase(url);
-  if (await databaseReachable(url)) return;
-  if (url !== LOCAL_DATABASE_URL)
+  if (url !== LOCAL_DATABASE_URL) {
+    if (await databaseReachable(url)) return;
     throw new Error(
       'Configured local database is unreachable. Start it or correct GANTRY_DATABASE_URL; Gantry will not replace a custom database target.',
     );
+  }
+
+  // The default source-local database is always the managed Compose service.
+  // A reachable host Postgres must not bypass it.
   ownedPostgres(repo, home);
   execFileSync(
     'docker',
