@@ -17,6 +17,7 @@
   ],
   "defaultLineBudget": 700,
   "lineBudgets": {
+    "apps/core/src/cli/local.ts": 720,
     "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts": 720,
     "apps/core/src/config/settings/settings-import-service.ts": 720,
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts": 2100,

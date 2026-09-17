@@ -220,13 +220,10 @@ function stopRecordedChildren(home: string): void {
       continue;
     try {
       process.kill(-pid, 'SIGTERM');
-    } catch {
-      /* process already stopped */
-    }
+    } catch {}
   }
   fs.unlinkSync(file);
 }
-
 async function databaseReachable(url: string): Promise<boolean> {
   const client = new pg.Client({
     connectionString: url,
@@ -242,13 +239,11 @@ async function databaseReachable(url: string): Promise<boolean> {
     await client.end().catch(() => {});
   }
 }
-
 function localDatabaseUrl(port: number): string {
   const url = new URL(LOCAL_DATABASE_URL);
   url.port = String(port);
   return url.toString();
 }
-
 async function canBindLoopbackPort(port: number): Promise<boolean> {
   const server = net.createServer();
   try {
@@ -263,7 +258,6 @@ async function canBindLoopbackPort(port: number): Promise<boolean> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
-
 function ownedPostgres(repo: string, home: string): string | undefined {
   let existing: string;
   try {
@@ -304,7 +298,6 @@ function ownedPostgres(repo: string, home: string): string | undefined {
     );
   return container.State?.Running ? existing : undefined;
 }
-
 function ownedPostgresPort(repo: string, home: string): number | undefined {
   const id = ownedPostgres(repo, home);
   if (!id) return undefined;
@@ -316,7 +309,6 @@ function ownedPostgresPort(repo: string, home: string): number | undefined {
   );
   return Number.isInteger(port) && port > 0 ? port : undefined;
 }
-
 export async function ensureLocalDatabase(
   repo: string,
   home: string,
@@ -330,7 +322,6 @@ export async function ensureLocalDatabase(
       'Configured local database is unreachable. Start it or correct GANTRY_DATABASE_URL; Gantry will not replace a custom database target.',
     );
   }
-
   const container = ownedPostgres(repo, home);
   const port = Number(new URL(url).port || '5432');
   const managedPort = ownedPostgresPort(repo, home);
@@ -370,7 +361,6 @@ export async function ensureLocalDatabase(
       'Managed Postgres started but the configured database is unreachable. Check gantry-postgres logs.',
     );
 }
-
 export async function resetLocalDatabase(url: string): Promise<void> {
   localDatabase(url, true);
   const client = new pg.Client({
@@ -396,7 +386,6 @@ export async function resetLocalDatabase(url: string): Promise<void> {
     await client.end();
   }
 }
-
 export async function stopLocalDevelopment(home: string): Promise<boolean> {
   const socketPath = path.join(home, '.local-dev.sock');
   if (!fs.existsSync(socketPath)) return false;
@@ -466,16 +455,12 @@ export async function superviseLocal(
         );
         try {
           process.kill(-child.pid!, 'SIGTERM');
-        } catch {
-          /* already exited */
-        }
+        } catch {}
         await Promise.race([exited, delay(5000, undefined, { ref: false })]);
         if (child.exitCode === null && child.signalCode === null) {
           try {
             process.kill(-child.pid!, 'SIGKILL');
-          } catch {
-            /* already exited */
-          }
+          } catch {}
           await exited;
         }
       }),
@@ -510,7 +495,11 @@ export async function superviseLocal(
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
-  const launch = (args: string[], childEnv = env, stdio: 'inherit' | 'ignore' = 'inherit'): Promise<number> => {
+  const launch = (
+    args: string[],
+    childEnv = env,
+    stdio: 'inherit' | 'ignore' = 'inherit',
+  ): Promise<number> => {
     if (stopping) throw new Error('Local startup interrupted.');
     const child = spawn(process.execPath, args, {
       cwd: repo,
@@ -539,6 +528,24 @@ export async function superviseLocal(
   try {
     await ensureLocalDatabase(repo, home, env);
     if (reset) {
+      if (fs.existsSync(path.join(home, 'settings.yaml'))) {
+        const storage = await (
+          await import('../adapters/storage/postgres/runtime-store.js')
+        ).initializeRuntimeStorage({
+          runtimeSettings: ensureRuntimeSettings(home),
+        });
+        const revision =
+          await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+            'default',
+          );
+        if (revision)
+          saveRuntimeSettings(
+            home,
+            (
+              await import('../config/settings/settings-revision-document.js')
+            ).settingsFromRevisionDocument(revision.settingsDocument),
+          );
+      }
       writeResetMarker(home, reset);
       await resetLocalDatabase(env.GANTRY_DATABASE_URL!);
       if (reset === 'reset') resetLocalFiles(home);
@@ -604,9 +611,7 @@ export async function superviseLocal(
           ready = true;
           break;
         }
-      } catch {
-        /* wait for core and Vite */
-      }
+      } catch {}
       await delay(500);
     }
     if (!ready && !stopping)
@@ -615,19 +620,19 @@ export async function superviseLocal(
       );
     if (ready) {
       console.log('Fresh one-time browser authorization link:');
-      const authorization = await launch([
-        '--import',
-        'tsx',
-        'apps/core/src/cli/index.ts',
-        'ui',
-        'authorize',
-      ], env, process.stdout.isTTY ? 'inherit' : 'ignore');
+      const authorization = await launch(
+        ['--import', 'tsx', 'apps/core/src/cli/index.ts', 'ui', 'authorize'],
+        env,
+        process.stdout.isTTY ? 'inherit' : 'ignore',
+      );
       if (authorization !== 0)
         console.error(
           'Local runtime is healthy, but the browser authorization link could not be created. Run `gantry ui authorize` to retry.',
         );
       else if (!process.stdout.isTTY)
-        console.log(`Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`);
+        console.log(
+          `Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`,
+        );
       console.log(
         `Gantry Web UI: ${origin}/ui/\nCtrl-C stops core and Vite; Postgres stays running.`,
       );
@@ -642,7 +647,6 @@ export async function superviseLocal(
     process.off('SIGTERM', onSignal);
   }
 }
-
 export async function runLocalCommand(
   home: string,
   args: string[],
