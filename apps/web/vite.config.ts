@@ -13,7 +13,7 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   server: {
-    host: process.env.GANTRY_CONTROL_HOST || '127.0.0.1',
+    host: (process.env.GANTRY_CONTROL_HOST || '127.0.0.1').replace(/^\[|\]$/g, ''),
     port: Number(process.env.GANTRY_CONTROL_PORT || 3939),
     strictPort: true,
     ...(coreOrigin && {

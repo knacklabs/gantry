@@ -431,7 +431,6 @@ export async function stopLocalDevelopment(home: string): Promise<boolean> {
     });
   });
 }
-
 async function freePort(): Promise<number> {
   const server = net.createServer();
   await new Promise<void>((resolve, reject) => {
@@ -442,7 +441,6 @@ async function freePort(): Promise<number> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return port;
 }
-
 export async function superviseLocal(
   repo: string,
   home: string,
@@ -512,12 +510,12 @@ export async function superviseLocal(
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
-  const launch = (args: string[], childEnv = env): Promise<number> => {
+  const launch = (args: string[], childEnv = env, stdio: 'inherit' | 'ignore' = 'inherit'): Promise<number> => {
     if (stopping) throw new Error('Local startup interrupted.');
     const child = spawn(process.execPath, args, {
       cwd: repo,
       env: childEnv,
-      stdio: 'inherit',
+      stdio,
       detached: true,
     });
     children.add(child);
@@ -623,11 +621,13 @@ export async function superviseLocal(
         'apps/core/src/cli/index.ts',
         'ui',
         'authorize',
-      ]);
+      ], env, process.stdout.isTTY ? 'inherit' : 'ignore');
       if (authorization !== 0)
         console.error(
           'Local runtime is healthy, but the browser authorization link could not be created. Run `gantry ui authorize` to retry.',
         );
+      else if (!process.stdout.isTTY)
+        console.log(`Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`);
       console.log(
         `Gantry Web UI: ${origin}/ui/\nCtrl-C stops core and Vite; Postgres stays running.`,
       );
