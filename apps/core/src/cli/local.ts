@@ -215,9 +215,10 @@ function ownedPostgres(repo: string, home: string): string | undefined {
       ],
       { encoding: 'utf8' },
     ).trim();
-  } catch {
+  } catch (error) {
     throw new Error(
       'Docker is unavailable. Start Docker, then rerun the local command.',
+      { cause: error },
     );
   }
   if (!existing) return undefined;

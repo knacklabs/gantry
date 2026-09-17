@@ -1018,7 +1018,6 @@ describe('CLI local routing', () => {
   });
 
   it('refuses local development on unsupported Node versions', async () => {
-    const runtimeHome = makeRuntimeHome();
     const note = vi.fn();
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
