@@ -263,7 +263,13 @@ describe('source-local development', () => {
 
     expect(execFileSync).toHaveBeenCalledWith(
       'docker',
-      expect.arrayContaining(['compose', 'rm', '--stop', '--force', 'postgres']),
+      expect.arrayContaining([
+        'compose',
+        'rm',
+        '--stop',
+        '--force',
+        'postgres',
+      ]),
       expect.anything(),
     );
     expect(execFileSync).toHaveBeenCalledWith(

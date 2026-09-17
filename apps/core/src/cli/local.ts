@@ -313,7 +313,9 @@ function composePostgres(
       'compose',
       '-f',
       path.join(repo, 'docker-compose.yml'),
-      ...(action === 'up' ? ['up', '--wait', '-d'] : ['rm', '--stop', '--force']),
+      ...(action === 'up'
+        ? ['up', '--wait', '-d']
+        : ['rm', '--stop', '--force']),
       'postgres',
     ],
     {
@@ -325,7 +327,10 @@ function composePostgres(
 }
 function dockerFailureOutput(error: unknown): string {
   if (!(error instanceof Error)) return '';
-  const result = error as Error & { stderr?: Buffer | string; stdout?: Buffer | string };
+  const result = error as Error & {
+    stderr?: Buffer | string;
+    stdout?: Buffer | string;
+  };
   return [result.message, result.stdout, result.stderr]
     .map((value) => (Buffer.isBuffer(value) ? value.toString() : value || ''))
     .join('\n');
