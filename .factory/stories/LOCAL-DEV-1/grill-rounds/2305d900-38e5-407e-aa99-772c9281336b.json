@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?",
+      "options": [
+        "Harden ordering + orphan detection now (Recommended)",
+        "Defer with a recorded follow-up"
+      ],
+      "chosen": "Harden ordering + orphan detection now (Recommended)"
+    },
+    {
+      "question": "That covers every finding from the cold-read grill. Any remaining gap before I amend the spec to what you've decided and move to the plan gate?",
+      "options": [
+        "No \u2014 proceed to amend and record the grill pass (Recommended)",
+        "Yes \u2014 I have another concern"
+      ],
+      "chosen": "No \u2014 proceed to amend and record the grill pass (Recommended)"
+    }
+  ],
+  "at": "2026-09-17T13:39:21.816428+00:00",
+  "session_id": "ef74e8c0-a202-4161-b1a6-821affc4070f"
+}

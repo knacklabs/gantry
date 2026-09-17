@@ -1,4 +1,9 @@
 ---
+issue: LOCAL-DEV-1
+title: Source-local Gantry development
+status: approved
+saved: 2026-09-17T15:42:23+00:00
+story: LOCAL-DEV-1
 decisions_reviewed:
   - 0000-credential-broker-boundary
   - 0001-agent-runtime-platform
@@ -251,7 +256,7 @@ Workflow: this is one Full Forge story with one implementation task, kept as one
 
 One new decision was created and accepted during plan-gate grilling: `docs/decisions/0162-local-bootstrap-host-port-env-exception.md`, a narrow exception to decision 0006 scoped to `GANTRY_CONTROL_HOST`/`GANTRY_CONTROL_PORT` for the local bootstrap moment before any settings source is reachable. The other plan-gate resolutions (reset-db desired-state recovery copy, the bounded local-operator persistence deviation with one new helper file, and the one-task/one-PR size budget) are implemented as plan text and task scope rather than new decisions, since none establishes policy beyond this story. The spec grill's earlier resolutions were likewise recorded as spec text (`docs/specs/local-dev-launch.md`, confirmed) rather than new decisions, since they implement existing decisions 0025 and 0132.
 
-The operator-supervisor exception is already approved in `docs/specs/local-dev-launch.md` as: “A narrow one-call exception covers the operator-owned source supervisor; agent/tool execution remains behind the existing sandbox boundary.” A count-exact, time-bounded `direct_risky_execution` entry for `apps/core/src/cli/local.ts` already exists in `scripts/architecture-exceptions.json` (`maxViolations: 1`), landed with the prior Lite work, and `python3 scripts/check_architecture.py` currently passes — a fact re-confirmed directly against the file rather than assumed from the earlier (now-stale) grill finding, which read the repository before that entry landed. This task's job is to confirm that entry still holds (count and reason) as the remaining safety work lands, and adjust it only if a genuinely new risky-execution call site is introduced in `local.ts` itself — the `local-postgres.ts` extraction moves only persistence calls (`ownedPostgres`, the revision read, `pg_stat_activity`), not the existing `execFileSync('docker', ...)` spawn, so it does not change what this exception covers.
+The operator-supervisor exception is already approved in `docs/specs/local-dev-launch.md` as: “A narrow one-call exception covers the operator-owned source supervisor; agent/tool execution remains behind the existing sandbox boundary.” This plan and its task own adding the exact, count-exact, time-bounded exception entry to `scripts/architecture-exceptions.json` — the exception does not exist yet on disk (confirmed by the spec grill); do not treat the spec's description of it as already satisfied.
 
 Existing decisions that govern the plan include `0001-agent-runtime-platform` and `0018-provider-neutral-agent-execution-adapter` for the sandbox boundary, `0023-deployment-modes` and `0025-settings-authority` for local vs production runtime shape and settings-revision authority, `0120-local-cli-structured-invocation` for local CLI capability discipline, and `0132-adaptive-browser-authentication-access` for browser auth, the loopback/local-mode requirement, and the one-time authorization token itself — the plan-gate grill found an earlier draft incorrectly attributed token/credential governance to `0143-browser-write-only-secret-ingest` (a different, unrelated secret-ingestion boundary); 0132 is the correct citation and 0143 is removed from this list.
 

@@ -359,10 +359,15 @@ dependencies or SDK/API schema changes are authorized.
 
 ### Architecture boundary
 
-`scripts/architecture-exceptions.json` does not yet carry an exception for
-`apps/core/src/cli/local.ts`'s direct `spawn` calls — this task adds the one,
-count-exact, time-bounded `direct_risky_execution` entry described above; it
-does not exist on disk yet. Separately, decision 0001 forbids CLI adapters
+`scripts/architecture-exceptions.json` already carries a count-exact,
+time-bounded `direct_risky_execution` entry for `apps/core/src/cli/local.ts`
+(`maxViolations: 1`), landed with the prior Lite work; `python3
+scripts/check_architecture.py` currently passes. (An earlier grill round read
+the repository before that entry landed and reported it missing; this is
+corrected against the current file rather than repeated.) This task confirms
+that entry still holds as the remaining safety work lands and adjusts it only
+if a genuinely new risky-execution call site is introduced in `local.ts`
+itself. Separately, decision 0001 forbids CLI adapters
 from directly mutating persistence; the settings-revision read, the
 `pg_stat_activity` check, and `ownedPostgres` are direct Postgres access from
 CLI code. This task takes a bounded, file-scoped deviation rather than a

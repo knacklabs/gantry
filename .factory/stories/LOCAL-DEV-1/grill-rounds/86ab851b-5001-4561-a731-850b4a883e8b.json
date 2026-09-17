@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Decision 0025 makes the Postgres settings_revisions table authoritative over settings.yaml, but reading it requires Postgres to be up \u2014 while the spec also says nothing destructive/mutating runs before authority checks pass. How should startup resolve this chicken-and-egg?",
+      "options": [
+        "Reversible bootstrap-then-check (Recommended)",
+        "Something else"
+      ],
+      "chosen": "Reversible bootstrap-then-check (Recommended)"
+    },
+    {
+      "question": "The implementation exposes undocumented `local status`/`local doctor` (duplicating existing top-level `gantry status`/`gantry doctor`), and bare `gantry local` silently starts the whole dev stack instead of doing nothing. Fix this CLI surface now?",
+      "options": [
+        "Remove duplicates, bare command prints usage (Recommended)",
+        "Leave as-is, defer"
+      ],
+      "chosen": "Remove duplicates, bare command prints usage (Recommended)"
+    },
+    {
+      "question": "The one-time authorization link is a 10-minute admin credential. Right now it always prints to inherited stdout, so shell redirection, IDE task logs, or CI capture could persist it \u2014 contradicting the no-token-in-evidence rule.",
+      "options": [
+        "TTY-gate the raw URL (Recommended)",
+        "Leave as-is, defer"
+      ],
+      "chosen": "TTY-gate the raw URL (Recommended)"
+    },
+    {
+      "question": "Preflight-then-destroy ordering (already decided) prevents refusal-after-partial-mutation, but does nothing for a crash that happens AFTER the DB schema commit and BEFORE filesystem cleanup finishes \u2014 that leaves mixed old/new state with no way to detect or resume it.",
+      "options": [
+        "Add a durable reset-in-progress marker now (Recommended)",
+        "Defer with a recorded follow-up"
+      ],
+      "chosen": "Add a durable reset-in-progress marker now (Recommended)"
+    }
+  ],
+  "at": "2026-09-17T14:40:10.826255+00:00",
+  "session_id": "ef74e8c0-a202-4161-b1a6-821affc4070f"
+}

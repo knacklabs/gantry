@@ -1,0 +1,269 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "user_facing": true,
+  "project": "",
+  "story": "LOCAL-DEV-1",
+  "doc_roots": [
+    "docs/specs/local-dev-launch.md",
+    "plans/active/LOCAL-DEV-1-source-local-gantry-development.md"
+  ],
+  "tasks": [
+    {
+      "id": "LOCAL-DEV-1-T1",
+      "title": "Full local source-dev supervisor closeout",
+      "objective": "Finish the promoted Full Forge local-dev story as a single backend/CLI tooling task: close the destructive-safety, authority, recovery, TTY-safety, and orphan-hardening gaps found by the spec/requirements/plan grills while preserving the already-landed Lite start/stop/dev behavior, and land the narrow architecture exception plus PR-ready proof.",
+      "acceptance_criteria": [
+        "`npm run dev` builds contracts and routes to `gantry local start`; `npm run dev:stop`, `npm run reset`, and `npm run reset:db` route to their local CLI commands; `npm run dev:core` remains the core-only source command.",
+        "`npm run build:core` builds backend artifacts only (contracts, SDK, core `tsc`, migrations copy, CLI executable bit), composed from the same steps `build:runtime` already uses; `npm run build:runtime` and `npm run build` produce the same `dist/` output as today.",
+        "`README.md` documents the full build-command set (`build:contracts`/`build:sdk`/`build:web`/`build:core`/`build:runtime`/`build`) and its separation from the dev/local commands, and drops any obsolete explicit-only authorization guidance \u2014 resolving the `plan-contract-partial` recurring-finding class for this story's documentation surface.",
+        "`gantry local start|reset|reset-db|stop` are visible in top-level CLI help and dispatch through `apps/core/src/cli/local.ts` without forcing normal settings parsing before local bootstrap; `gantry local` with no subcommand prints usage and starts nothing; `local status`/`local doctor` no longer exist as duplicates of the top-level commands.",
+        "Source-local startup validates Node 24 and source checkout, resolves runtime home with precedence `--runtime-home` > `GANTRY_HOME` > `<repo>/.gantry`, creates missing private `.env` defaults, and preserves existing values.",
+        "Every destructive or mutating step (database reset, filesystem reset, migration, container start) is preceded by home safety, Node version, database-target authority (via a reversible bootstrap-then-check against the authoritative Postgres settings revision per decision 0025), and authentication-mode authority checks; a failed check leaves existing state and running children untouched \u2014 no partial reset, no stopped/started children.",
+        "A genuinely fresh runtime home gets a Gantry-written ownership marker at the moment of first bootstrap, never retroactively; filesystem reset refuses on any home without one, with a manual remediation, not an automatic adoption path. Database reset refuses unless the target is the exact verified home-owned managed Postgres container's endpoint (the same check `local stop` already performs), never merely \"a reachable loopback database named `gantry`\", and refuses a non-default `GANTRY_DATABASE_URL` for reset outright.",
+        "Source-local startup refuses, before touching the database or filesystem, when the authoritative settings (latest Postgres revision, or `settings.yaml` for a genuinely fresh home) declare a non-default `storage.postgres.url_env` or `.schema`, or when `GANTRY_SETTINGS_POSTGRES_SCHEMA`/a URL `schema=` param/`GANTRY_DB_SCHEMA` would redirect migrations elsewhere, naming the conflict and how to align it.",
+        "A reset that crashes after the database schema commit but before filesystem cleanup finishes leaves a durable marker naming the interrupted variant; the next start/reset/reset-db refuses with a clear message instead of starting against mixed old/new state, lifted only by an explicit `--after-manual-recovery` flag after the operator inspects local state.",
+        "Local startup validates a loopback control origin, creates or verifies authentication `canonicalOrigin`, runs migrations before starting source core and Vite, proxies browser auth/API traffic through Vite, and prints the stable UI URL only after health is ready (the proxied `/healthz`, not `/readyz`).",
+        "Local DB handling reuses a reachable loopback DB, starts Compose only for the verified home-owned default Postgres container, refuses unreachable custom DBs, and refuses foreign `gantry-postgres` containers.",
+        "`gantry local stop` stops source core and Vite through the local supervisor socket and stops only the verified home-owned managed Postgres container; custom Postgres is left alone; stop refuses to stop that container while an orphaned core process still holds an active database connection after this invocation's own children are shut down.",
+        "Reset commands run every precondition before stopping any verified local children, refuse unsafe homes, non-loopback/non-`gantry` reset targets, and any home/database that fails ownership verification, recreate only `gantry` and `pgboss` under the reset-in-progress marker, preserve `.env`, `postgres/`, unknown files, and unrelated processes, then restart through the same healthy-start path.",
+        "`reset-db` writes the just-validated authoritative settings revision out to `settings.yaml` (the matching recovery copy) before dropping `settings_revisions`, so a post-reset restart reflects the same desired configuration instead of stale/default YAML.",
+        "Every successful start/reset first confirms `authentication.mode` is `local` and the public origin is loopback, then attempts (mandatory-attempt, fail-open) a fresh one-time authorization link via the same in-process issuance path `gantry ui authorize` uses after readiness \u2014 the raw URL only on an interactive TTY, otherwise the stable UI URL plus a `--runtime-home`-inclusive retry command and never the raw token; a failed issuance for any reason leaves the healthy dev stack running.",
+        "`gantry local stop` (and the next `local start`'s preflight) detects and terminates a leftover orphaned Vite process via a recorded PID file, even after the supervisor itself previously crashed.",
+        "Existing sessions remain valid after a restart or a freshly issued link without a reset; `reset`/`reset-db` end all sessions by design. Manual verification proves restart-session-survival without storing raw URLs or tokens in artifacts.",
+        "`python3 scripts/check_architecture.py` passes because `scripts/architecture-exceptions.json` contains a single, time-bounded `direct_risky_execution` exception for `apps/core/src/cli/local.ts`, capped to the current direct spawn count only.",
+        "Full Forge closeout runs required focused tests, deterministic verify, one autoreview pass across quality/performance/security, records evidence, and raises the PR."
+      ],
+      "dependencies": [],
+      "user_facing": true,
+      "plan_contracts": [
+        {
+          "id": "AC1",
+          "statement": "`npm run dev` builds contracts and routes to `gantry local start`; `npm run dev:stop`, `npm run reset`, and `npm run reset:db` route to their local CLI commands; `npm run dev:core` remains the core-only source command.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC2",
+          "statement": "`npm run build:core` builds backend artifacts only (contracts, SDK, core `tsc`, migrations copy, CLI executable bit), composed from the same steps `build:runtime` already uses; `npm run build:runtime` and `npm run build` produce the same `dist/` output as today.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC3",
+          "statement": "`README.md` documents the full build-command set (`build:contracts`/`build:sdk`/`build:web`/`build:core`/`build:runtime`/`build`) and its separation from the dev/local commands, and drops any obsolete explicit-only authorization guidance \u2014 resolving the `plan-contract-partial` recurring-finding class for this story's documentation surface.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC4",
+          "statement": "`gantry local start|reset|reset-db|stop` are visible in top-level CLI help and dispatch through `apps/core/src/cli/local.ts` without forcing normal settings parsing before local bootstrap; `gantry local` with no subcommand prints usage and starts nothing; `local status`/`local doctor` no longer exist as duplicates of the top-level commands.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC5",
+          "statement": "Source-local startup validates Node 24 and source checkout, resolves runtime home with precedence `--runtime-home` > `GANTRY_HOME` > `<repo>/.gantry`, creates missing private `.env` defaults, and preserves existing values.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC6",
+          "statement": "Every destructive or mutating step (database reset, filesystem reset, migration, container start) is preceded by home safety, Node version, database-target authority (via a reversible bootstrap-then-check against the authoritative Postgres settings revision per decision 0025), and authentication-mode authority checks; a failed check leaves existing state and running children untouched \u2014 no partial reset, no stopped/started children.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC7",
+          "statement": "A genuinely fresh runtime home gets a Gantry-written ownership marker at the moment of first bootstrap, never retroactively; filesystem reset refuses on any home without one, with a manual remediation, not an automatic adoption path. Database reset refuses unless the target is the exact verified home-owned managed Postgres container's endpoint (the same check `local stop` already performs), never merely \"a reachable loopback database named `gantry`\", and refuses a non-default `GANTRY_DATABASE_URL` for reset outright.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC8",
+          "statement": "Source-local startup refuses, before touching the database or filesystem, when the authoritative settings (latest Postgres revision, or `settings.yaml` for a genuinely fresh home) declare a non-default `storage.postgres.url_env` or `.schema`, or when `GANTRY_SETTINGS_POSTGRES_SCHEMA`/a URL `schema=` param/`GANTRY_DB_SCHEMA` would redirect migrations elsewhere, naming the conflict and how to align it.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC9",
+          "statement": "A reset that crashes after the database schema commit but before filesystem cleanup finishes leaves a durable marker naming the interrupted variant; the next start/reset/reset-db refuses with a clear message instead of starting against mixed old/new state, lifted only by an explicit `--after-manual-recovery` flag after the operator inspects local state.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC10",
+          "statement": "Local startup validates a loopback control origin, creates or verifies authentication `canonicalOrigin`, runs migrations before starting source core and Vite, proxies browser auth/API traffic through Vite, and prints the stable UI URL only after health is ready (the proxied `/healthz`, not `/readyz`).",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC11",
+          "statement": "Local DB handling reuses a reachable loopback DB, starts Compose only for the verified home-owned default Postgres container, refuses unreachable custom DBs, and refuses foreign `gantry-postgres` containers.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC12",
+          "statement": "`gantry local stop` stops source core and Vite through the local supervisor socket and stops only the verified home-owned managed Postgres container; custom Postgres is left alone; stop refuses to stop that container while an orphaned core process still holds an active database connection after this invocation's own children are shut down.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC13",
+          "statement": "Reset commands run every precondition before stopping any verified local children, refuse unsafe homes, non-loopback/non-`gantry` reset targets, and any home/database that fails ownership verification, recreate only `gantry` and `pgboss` under the reset-in-progress marker, preserve `.env`, `postgres/`, unknown files, and unrelated processes, then restart through the same healthy-start path.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC14",
+          "statement": "`reset-db` writes the just-validated authoritative settings revision out to `settings.yaml` (the matching recovery copy) before dropping `settings_revisions`, so a post-reset restart reflects the same desired configuration instead of stale/default YAML.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC15",
+          "statement": "Every successful start/reset first confirms `authentication.mode` is `local` and the public origin is loopback, then attempts (mandatory-attempt, fail-open) a fresh one-time authorization link via the same in-process issuance path `gantry ui authorize` uses after readiness \u2014 the raw URL only on an interactive TTY, otherwise the stable UI URL plus a `--runtime-home`-inclusive retry command and never the raw token; a failed issuance for any reason leaves the healthy dev stack running.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC16",
+          "statement": "`gantry local stop` (and the next `local start`'s preflight) detects and terminates a leftover orphaned Vite process via a recorded PID file, even after the supervisor itself previously crashed.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC17",
+          "statement": "Existing sessions remain valid after a restart or a freshly issued link without a reset; `reset`/`reset-db` end all sessions by design. Manual verification proves restart-session-survival without storing raw URLs or tokens in artifacts.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC18",
+          "statement": "`python3 scripts/check_architecture.py` passes because `scripts/architecture-exceptions.json` contains a single, time-bounded `direct_risky_execution` exception for `apps/core/src/cli/local.ts`, capped to the current direct spawn count only.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        },
+        {
+          "id": "AC19",
+          "statement": "Full Forge closeout runs required focused tests, deterministic verify, one autoreview pass across quality/performance/security, records evidence, and raises the PR.",
+          "source": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md#Acceptance Criteria"
+        }
+      ],
+      "write_scope": [
+        "package.json",
+        "apps/core/src/cli/index.ts",
+        "apps/core/src/cli/local.ts",
+        "apps/core/src/cli/local-postgres.ts",
+        "apps/web/vite.config.ts",
+        "apps/core/test/unit/cli/index-local-routing.test.ts",
+        "apps/core/test/unit/cli/local-postgres.test.ts",
+        "scripts/architecture-exceptions.json",
+        "README.md",
+        "docs/architecture/overview.md",
+        "docs/SPEC.md",
+        "apps/core/src/adapters/storage/postgres/storage-readiness.ts",
+        "plans/roadmap.json"
+      ],
+      "required_tests": [
+        {
+          "id": "bare gantry local prints usage and starts nothing",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "local status and local doctor no longer exist as duplicate commands",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "filesystem reset refuses a runtime home with no ownership marker",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "full reset rewrites the ownership marker only on an already-marked home",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "database reset refuses a non-default GANTRY_DATABASE_URL outright",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "database reset refuses a reachable custom database coincidentally named gantry",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "reset preconditions run before any already-running child is stopped",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "database-target authority refuses a conflicting storage.postgres.schema before any destructive step",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "authentication-mode authority refuses before any child process starts",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "a stale reset-in-progress marker refuses and names the interrupted variant",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "a stale reset-in-progress marker is cleared only by --after-manual-recovery",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "reset-db writes the validated settings revision to settings.yaml before dropping settings_revisions",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stop refuses to stop Postgres while an orphaned core connection remains",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "stop detects and terminates a leftover orphaned Vite process via the recorded PID file",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "authorization link prints the raw URL only on an interactive TTY",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "authorization issuance failure leaves the healthy dev stack running",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "IPv6 bracketed control host is normalized before binding",
+          "path": "apps/core/test/unit/cli/index-local-routing.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "ownedPostgres verifies the container's published host and port binding",
+          "path": "apps/core/test/unit/cli/local-postgres.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "ownedPostgres is called unconditionally before any reset",
+          "path": "apps/core/test/unit/cli/local-postgres.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        },
+        {
+          "id": "pg_stat_activity check reports any active database client, not only core",
+          "path": "apps/core/test/unit/cli/local-postgres.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run test:unit -- apps/core/test/unit/cli/index-local-routing.test.ts apps/core/test/unit/cli/local-postgres.test.ts",
+        "npm run format:check",
+        "npm run format:check:web",
+        "npm run typecheck",
+        "npm run build:core",
+        "npm run build",
+        "python3 scripts/check_architecture.py",
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Constitution: apply constitution/README.md's coding-standards index (pnp-coding-standards-modular-monolith.md, 03-modular-monolith-structure.md) to local.ts and the new local-postgres.ts \u2014 do not re-derive shape rules, cite them. Task-specific risks: (1) the direct-spawn architecture exception in scripts/architecture-exceptions.json must be count-exact, time-bounded, and scoped to the trusted local operator supervisor only \u2014 never agent/tool/job execution; (2) the ownership marker must never be written to a pre-existing unmarked home (decision 0003) \u2014 full reset may only rewrite a marker that already existed; (3) local-postgres.ts is a bounded, file-scoped deviation from decision 0001 (CLI must not directly mutate persistence) and must never be imported by agent/tool/job code paths; (4) every destructive step (schema drop, filesystem delete, migration, container start against an existing home) must be genuinely preceded by its precondition checks, not merely reordered in appearance \u2014 confirm by tracing the actual call order, not the comments; (5) the raw one-time authorization URL must never appear in any test fixture, log, or captured artifact; (6) confirm the recorded task diff (product code + tests in write_scope, excluding README/docs/Forge evidence) against the plan's 2,000-line target / 4,000-line hard-ceiling size budget; (7) confirm local-postgres.ts's ownedPostgres/settings-revision/pg_stat_activity helpers are the SAME logic moved out of local.ts, not reimplemented, and that local.ts still reads storage and authentication authority from the same revision object (decision 0025, decision 0132)."
+    }
+  ],
+  "epic": "harness-hygiene",
+  "plan_file": "plans/active/LOCAL-DEV-1-source-local-gantry-development.md",
+  "plan_sha256": "ada5d317b0260d33aeb7501ef1e016ffa5a8e433f4ce8cdde45359bf395202d2",
+  "commit": "dcbfe7d4841d9f0c95860faac8efcefc34f60c18"
+}

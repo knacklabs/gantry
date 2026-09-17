@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The cold-read requirements grill found the reset-in-progress marker's remediation (\"rerun the same reset command\") deterministically refuses again on a genuine crash, since the marker never clears itself and the command has no way to know the operator already checked the state by hand. How should recovery actually work?",
+      "options": [
+        "Explicit operator acknowledgment flag (Recommended)",
+        "Make the interrupted step itself resumable"
+      ],
+      "chosen": "Explicit operator acknowledgment flag (Recommended)"
+    },
+    {
+      "question": "The grill found the orphan-hardening requirement is only partly met: the `pg_stat_activity` check catches an orphaned core process (it holds a DB connection) but not an orphaned Vite process, which is detached, holds no DB connection, and can keep squatting the UI port after a supervisor crash even though `local stop` reports success and stops Postgres. Close this gap now or accept it as a known limitation?",
+      "options": [
+        "Track child PIDs in a local file (Recommended)",
+        "Accept as a documented limitation for now"
+      ],
+      "chosen": "Track child PIDs in a local file (Recommended)"
+    }
+  ],
+  "at": "2026-09-17T15:27:01.802659+00:00",
+  "session_id": "5f49947d-d85d-47b5-9e19-d78860755cf3"
+}

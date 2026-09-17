@@ -1,0 +1,1 @@
+{"event": "signal-escalated", "generated_by": "orchestrator", "at": "2026-09-17T14:22:47+00:00", "story": "LOCAL-DEV-1", "detail": "Two consecutive Codex cold-read attempts for the LOCAL-DEV-1 requirements gate stalled inside the shared codex app-server process (30+ min with zero log progress each, confirmed via forge codex status"}

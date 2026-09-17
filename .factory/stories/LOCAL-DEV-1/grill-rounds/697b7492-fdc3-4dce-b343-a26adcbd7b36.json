@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "`reset-db` drops the settings_revisions table it just validated as authoritative, then the plan lets YAML govern restart only for a 'genuinely fresh' home \u2014 so restart either fails after destruction or silently promotes stale YAML. Also, the reset-in-progress marker's remediation ('rerun the same command') could loop forever if the same failure recurs. How should recovery work?",
+      "options": [
+        "Preserve desired state (Recommended)",
+        "Both variants discard the latest revision"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "The plan writes GANTRY_CONTROL_HOST/GANTRY_CONTROL_PORT into .env, but decision 0006 reserves environment values for runtime-owned secrets and puts non-secret config in settings revisions \u2014 there's no existing bind-host/port exception.",
+      "options": [
+        "Record a narrow decision amendment (Recommended)",
+        "Remove from .env, add settings/CLI-owned config"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "Decision 0001 says CLI adapters must not directly mutate persistence, but the plan keeps schema reset, revision reads, and pg_stat_activity queries inside local.ts \u2014 and local.ts is already 569 lines with only 131 left under the unwaivable 700-line architecture ceiling before this safety work even lands.",
+      "options": [
+        "Bounded deviation + one new file (Recommended)",
+        "Full application-service path"
+      ],
+      "chosen": null
+    },
+    {
+      "question": "The current staged diff is already 1,646 additions across eight files before the remaining destructive-safety work, and the sole task covers roughly twenty distinct proof seams \u2014 too large for one bounded task/PR.",
+      "options": [
+        "Split into two sequential tasks/PRs (Recommended)",
+        "Keep one task with an explicit size budget"
+      ],
+      "chosen": "Keep one task with an explicit size budget"
+    }
+  ],
+  "at": "2026-09-17T15:05:25.301921+00:00",
+  "session_id": "ef74e8c0-a202-4161-b1a6-821affc4070f"
+}

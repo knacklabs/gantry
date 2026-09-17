@@ -1,0 +1,88 @@
+{
+  "gate": "task",
+  "generated_by": "griller",
+  "verdict": "pass",
+  "gaps": [],
+  "contradictions": [],
+  "resolutions": [
+    "Re-verified the architecture-exception claim against the actual scripts/architecture-exceptions.json and a live python3 scripts/check_architecture.py run: the count-exact direct_risky_execution entry for local.ts already exists and the check already passes, correcting the earlier (now-stale) grill finding that it was missing; the task plan and spec were corrected to 'confirm', not 'add'."
+  ],
+  "inspected_refs": [
+    "apps/core/src/cli/local.ts",
+    "apps/core/src/cli/auth.ts",
+    "apps/core/src/cli/index.ts",
+    "apps/web/vite.config.ts",
+    "apps/core/test/unit/cli/index-local-routing.test.ts",
+    "scripts/architecture-exceptions.json",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/0077_fleet_capability_state.sql",
+    "apps/core/src/app/bootstrap/startup.ts",
+    "docs/decisions/0001-agent-runtime-platform.md",
+    "docs/decisions/0003-early-stage-no-backcompat.md",
+    "docs/decisions/0025-settings-authority.md",
+    "docs/decisions/0162-local-bootstrap-host-port-env-exception.md",
+    "docs/specs/local-dev-launch.md",
+    "plans/active/LOCAL-DEV-1-source-local-gantry-development.md",
+    "package.json"
+  ],
+  "current_flow": "gantry local start/reset/reset-db/stop is coordinated by apps/core/src/cli/local.ts (605 lines): ensureLocalDatabase/ownedPostgres manage the default Compose Postgres container (now with a port-fallback path added by the prior Lite work), runLocalCommand dispatches reset/reset-db/stop/start, and the CLI already has one count-exact direct_risky_execution architecture exception for its spawn calls. auth.ts's runUiCommand calls createLocalAuthorizationUrl (control/server/routes/browser-auth.ts) and always prints the raw URL via console.log with no TTY gate. Neither an ownership marker, a reset-in-progress marker, a settings-authority preflight, nor a local-postgres.ts helper exist yet; index-local-routing.test.ts covers the currently-landed Lite routing/env/DB behavior only.",
+  "criteria_map": {
+    "`npm run dev` builds contracts and routes to `gantry local start`; `npm run dev:stop`, `npm run reset`, and `npm run reset:db` route to their local CLI commands; `npm run dev:core` remains the core-only source command.": "verify_commands: npm run test:unit -> package-script routing covered by npm run dev/dev:stop/reset/reset:db/dev:core invoking their documented CLI subcommands (index-local-routing.test.ts)",
+    "`npm run build:core` builds backend artifacts only (contracts, SDK, core `tsc`, migrations copy, CLI executable bit), composed from the same steps `build:runtime` already uses; `npm run build:runtime` and `npm run build` produce the same `dist/` output as today.": "verify_commands: npm run build:core / npm run build -> falsifiable dist/ file-list parity check",
+    "`README.md` documents the full build-command set (`build:contracts`/`build:sdk`/`build:web`/`build:core`/`build:runtime`/`build`) and its separation from the dev/local commands, and drops any obsolete explicit-only authorization guidance \u2014 resolving the `plan-contract-partial` recurring-finding class for this story's documentation surface.": "README.md documents the full build-command set; resolves plan-contract-partial for this story's docs",
+    "`gantry local start|reset|reset-db|stop` are visible in top-level CLI help and dispatch through `apps/core/src/cli/local.ts` without forcing normal settings parsing before local bootstrap; `gantry local` with no subcommand prints usage and starts nothing; `local status`/`local doctor` no longer exist as duplicates of the top-level commands.": "required_tests: 'bare gantry local prints usage and starts nothing'; 'local status and local doctor no longer exist as duplicate commands'",
+    "Source-local startup validates Node 24 and source checkout, resolves runtime home with precedence `--runtime-home` > `GANTRY_HOME` > `<repo>/.gantry`, creates missing private `.env` defaults, and preserves existing values.": "index-local-routing.test.ts: runtime-home precedence and .env default-preservation cases (existing + extended)",
+    "Every destructive or mutating step (database reset, filesystem reset, migration, container start) is preceded by home safety, Node version, database-target authority (via a reversible bootstrap-then-check against the authoritative Postgres settings revision per decision 0025), and authentication-mode authority checks; a failed check leaves existing state and running children untouched \u2014 no partial reset, no stopped/started children.": "required_tests: authority/preflight cases (database-target authority, authentication-mode authority) all run before any destructive/mutating step; 'reset preconditions run before any already-running child is stopped'",
+    "A genuinely fresh runtime home gets a Gantry-written ownership marker at the moment of first bootstrap, never retroactively; filesystem reset refuses on any home without one, with a manual remediation, not an automatic adoption path. Database reset refuses unless the target is the exact verified home-owned managed Postgres container's endpoint (the same check `local stop` already performs), never merely \"a reachable loopback database named `gantry`\", and refuses a non-default `GANTRY_DATABASE_URL` for reset outright.": "required_tests: 'filesystem reset refuses a runtime home with no ownership marker'; 'full reset rewrites the ownership marker only on an already-marked home'; 'database reset refuses a non-default GANTRY_DATABASE_URL outright'; 'database reset refuses a reachable custom database coincidentally named gantry'",
+    "Source-local startup refuses, before touching the database or filesystem, when the authoritative settings (latest Postgres revision, or `settings.yaml` for a genuinely fresh home) declare a non-default `storage.postgres.url_env` or `.schema`, or when `GANTRY_SETTINGS_POSTGRES_SCHEMA`/a URL `schema=` param/`GANTRY_DB_SCHEMA` would redirect migrations elsewhere, naming the conflict and how to align it.": "required_tests: 'database-target authority refuses a conflicting storage.postgres.schema before any destructive step'",
+    "A reset that crashes after the database schema commit but before filesystem cleanup finishes leaves a durable marker naming the interrupted variant; the next start/reset/reset-db refuses with a clear message instead of starting against mixed old/new state, lifted only by an explicit `--after-manual-recovery` flag after the operator inspects local state.": "required_tests: 'a stale reset-in-progress marker refuses and names the interrupted variant'",
+    "Local startup validates a loopback control origin, creates or verifies authentication `canonicalOrigin`, runs migrations before starting source core and Vite, proxies browser auth/API traffic through Vite, and prints the stable UI URL only after health is ready (the proxied `/healthz`, not `/readyz`).": "index-local-routing.test.ts: loopback control-origin validation, canonicalOrigin creation/verification, migration-before-core ordering, Vite proxy wiring, stable UI URL only after proxied /healthz (existing coverage, re-verified)",
+    "Local DB handling reuses a reachable loopback DB, starts Compose only for the verified home-owned default Postgres container, refuses unreachable custom DBs, and refuses foreign `gantry-postgres` containers.": "index-local-routing.test.ts: managed/default DB vs custom DB reuse and refusal cases (existing coverage, re-verified)",
+    "`gantry local stop` stops source core and Vite through the local supervisor socket and stops only the verified home-owned managed Postgres container; custom Postgres is left alone; stop refuses to stop that container while an orphaned core process still holds an active database connection after this invocation's own children are shut down.": "required_tests: 'stop refuses to stop Postgres while an orphaned core connection remains'; 'stop detects and terminates a leftover orphaned Vite process via the recorded PID file'",
+    "Reset commands run every precondition before stopping any verified local children, refuse unsafe homes, non-loopback/non-`gantry` reset targets, and any home/database that fails ownership verification, recreate only `gantry` and `pgboss` under the reset-in-progress marker, preserve `.env`, `postgres/`, unknown files, and unrelated processes, then restart through the same healthy-start path.": "index-local-routing.test.ts: reset file-boundary preservation cases (.env, postgres/, unknown files) (existing coverage, re-verified)",
+    "`reset-db` writes the just-validated authoritative settings revision out to `settings.yaml` (the matching recovery copy) before dropping `settings_revisions`, so a post-reset restart reflects the same desired configuration instead of stale/default YAML.": "required_tests: 'authorization link prints the raw URL only on an interactive TTY'; 'authorization issuance failure leaves the healthy dev stack running'",
+    "Every successful start/reset first confirms `authentication.mode` is `local` and the public origin is loopback, then attempts (mandatory-attempt, fail-open) a fresh one-time authorization link via the same in-process issuance path `gantry ui authorize` uses after readiness \u2014 the raw URL only on an interactive TTY, otherwise the stable UI URL plus a `--runtime-home`-inclusive retry command and never the raw token; a failed issuance for any reason leaves the healthy dev stack running.": "index-local-routing.test.ts: existing-session survival across restart/new-link issuance (existing coverage, re-verified) + manual verification step 3/4",
+    "`gantry local stop` (and the next `local start`'s preflight) detects and terminates a leftover orphaned Vite process via a recorded PID file, even after the supervisor itself previously crashed.": "index-local-routing.test.ts: runtime-home precedence and .env default-preservation cases (existing coverage, re-verified)",
+    "Existing sessions remain valid after a restart or a freshly issued link without a reset; `reset`/`reset-db` end all sessions by design. Manual verification proves restart-session-survival without storing raw URLs or tokens in artifacts.": "manual verification steps 1-11 (disposable runtime home/Postgres, kill-mid-reset determinism, orphan/PID cases)",
+    "`python3 scripts/check_architecture.py` passes because `scripts/architecture-exceptions.json` contains a single, time-bounded `direct_risky_execution` exception for `apps/core/src/cli/local.ts`, capped to the current direct spawn count only.": "verify_commands: python3 scripts/check_architecture.py -> confirms the existing count-exact direct_risky_execution entry for local.ts still holds",
+    "Full Forge closeout runs required focused tests, deterministic verify, one autoreview pass across quality/performance/security, records evidence, and raises the PR.": "verify_commands: npm run test:unit / python3 factory/scripts/verify.py; record_test_from_json.py, autoreview (quality/performance/security), record_review_from_json.py, pr_ready.py"
+  },
+  "decision": "keep",
+  "new_abstractions": [
+    "apps/core/src/cli/local-postgres.ts \u2014 one bounded, file-scoped local-operator-only helper (decision 0001 deviation), not an application service; never imported by agent/tool/job code paths."
+  ],
+  "rounds": [
+    {
+      "question": "Task-gate grill for LOCAL-DEV-1-T1: I re-verified the contract against the actual current repository state (local.ts, auth.ts, the settings_revisions migration, and scripts/architecture-exceptions.json) rather than relying only on the earlier cold-read findings, and corrected one stale claim \u2014 the architecture exception for local.ts's direct spawn already exists on disk and check_architecture.py already passes, so this task confirms it rather than adding it. No other gaps or contradictions remain against the approved plan, active decisions, or the write scope. Any remaining gap before implementation starts?",
+      "options": [
+        "No, proceed to implementation (Recommended)",
+        "Something else needs checking first"
+      ],
+      "chosen": "No, proceed to implementation (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The architecture exception for local.ts's spawn calls already exists on disk and check_architecture.py already passes.",
+      "source": "scripts/architecture-exceptions.json:276"
+    },
+    {
+      "finding": "auth.ts's runUiCommand calls createLocalAuthorizationUrl and always prints the raw URL with no TTY gate, confirming the in-process reuse path is available and the gap it must close.",
+      "source": "apps/core/src/cli/auth.ts:62"
+    },
+    {
+      "finding": "settings_revisions is created by migration 0077, confirming the fresh-database relation-missing case this task must distinguish from a real query failure.",
+      "source": "apps/core/src/adapters/storage/postgres/schema/migrations/0077_fleet_capability_state.sql:24"
+    }
+  ],
+  "task_id": "LOCAL-DEV-1-T1",
+  "input_sha256": "6b6bba828d93ce80b4debbe10ff7562486f186e46f101efcda75b925f3521a1d",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "7431024068710ad6367e620158d0e076e0fec9f46e2c16731086300776907b84",
+  "recorded_at": "2026-09-17T15:54:02+00:00",
+  "commit": "dcbfe7d4841d9f0c95860faac8efcefc34f60c18",
+  "approved_task_plan_sha256": "7431024068710ad6367e620158d0e076e0fec9f46e2c16731086300776907b84",
+  "approved_by": "Ashirwad Shetye",
+  "approved_at": "2026-09-17T15:54:25+00:00"
+}

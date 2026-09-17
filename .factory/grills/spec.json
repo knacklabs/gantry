@@ -2,44 +2,124 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "issue": "GRANTED-1",
-  "summary": "Requirements re-read on the stable tree returned a single finding, the hard-overflow edge where even names and ids will not fit. The owner ruled fail closed and both spec and plan carry it.",
+  "summary": "Cold-read grill (gpt-5.6-sol @ high) of docs/specs/local-dev-launch.md found 13 findings, several critical: reset destructive-safety gaps, DB/settings authority conflicts, an authorization-mode gap, CLI/DX bugs, unverified verification claims, and spec-shape mixing of delivery mechanics into behavior. The owner resolved every finding across two AskUserQuestion rounds; the spec is amended to state those resolutions as requirements.",
   "gaps": [
-    "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee."
+    "gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` \u2014 it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?",
+    "core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?",
+    "Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?",
+    "Automated tests mock Postgres/Docker/processes entirely \u2014 they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?",
+    "Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?"
   ],
-  "contradictions": [],
+  "contradictions": [
+    "settings.yaml is classified Read-only/observable in the spec but startup creates it and full reset deletes/recreates it, contradicting decision 0025's settings-authority model"
+  ],
   "resolutions": [
-    "Owner ruled fail closed: the spec and plan now state that when the compact list cannot fit, the run fails before any provider or tool call with a redacted capability_catalog_overflow startup diagnostic naming the granted and renderable counts, and acceptance criterion 4b asserts it."
+    "Owner chose to add ownership verification now: a Gantry-written home sentinel gates destructive filesystem reset, and database reset is scoped to the verified home-owned managed container rather than any reachable loopback DB named gantry.",
+    "Owner chose to enforce local-mode/database-authority defaults now: refuse before any destructive action when settings.yaml declares a non-default postgres urlEnv/schema, and require authentication.mode=local plus a loopback origin before attempting authorization link issuance.",
+    "Owner chose to fix the retry-home and IPv6-bracket bugs within the existing local.ts write scope rather than defer them.",
+    "Owner chose to keep the already-planned mocked unit tests plus manual disposable-home verification as sufficient proof, rather than adding a new Postgres/Docker integration lane.",
+    "Owner chose to harden reset into preflight-then-destroy ordering and add orphan-Postgres-stop refusal now, without introducing new cross-process locking infrastructure.",
+    "settings.yaml reclassified Changed in the Surface Impact table; reset-db and full reset both rely on existing core-startup behavior that imports the settings file as the authoritative revision when no DB revision exists, so no new revision-import code is needed \u2014 only the spec's classification and acceptance criteria needed correcting.",
+    "Spec now states the proxied /healthz endpoint explicitly instead of the ambiguous 'health readiness', matching the code's existing behavior and avoiding a /readyz deadlock on fresh onboarding.",
+    "The false claim of an already-existing architecture exception was removed from the spec's Why section; the plan/task now owns adding the exact, count-exact, time-bounded exception entry.",
+    "Delivery mechanics (file scope, autoreview, commit/PR flow) were removed from the spec's Acceptance Criteria; they remain owned by the plan and Forge harness, not the capability spec."
   ],
   "open_items": [
-    "Extending the catalog to the DeepAgents lane remains follow-up, with its absence asserted so the gap is explicit.",
-    "The document edit contract and decisions 0108 and 0114 remain in the superseded draft awaiting their own spec."
+    "Cross-process, DB-scoped mutual-exclusion locking for concurrent reset attempts remains deferred; track via `./forge defer add` with a revisit trigger.",
+    "Docker-only startup on a dedicated public port remains deferred to a follow-up, as already stated in the original draft.",
+    "Extending browser-authorization support to non-local authentication modes for source-local dev remains out of scope; local mode is required."
   ],
-  "questions_asked": 1,
-  "input_sha256": "c771a919d286892dec872f57ceeeb2380094911b92693c86d2790ea3e2ecfeb8",
-  "rounds": [
-    {
-      "question": "If even the bare name-and-id list of an agent's grants will not fit the prompt, what should the run do?",
-      "options": [
-        "Fail the run before it starts (Recommended)",
-        "Truncate and record it",
-        "Let the prompt grow past the budget"
-      ],
-      "chosen": "Fail the run before it starts (Recommended)",
-      "frontier_empty": true
-    }
-  ],
+  "questions_asked": 6,
   "inspected_refs": [
-    "docs/specs/granted-capability-is-visible.md",
-    "plans/active/GRANTED-1-agents-can-use-what-they-are-granted.md",
-    "apps/core/src/application/agents/prompt-profile-service.ts"
+    "apps/core/src/cli/local.ts",
+    "apps/core/src/cli/auth.ts",
+    "apps/core/src/config/settings/storage.ts",
+    "apps/core/src/app/bootstrap/startup.ts",
+    "docs/decisions/0025-settings-authority.md",
+    "docs/decisions/0132-adaptive-browser-authentication-access.md"
   ],
   "citations": [
     {
-      "finding": "The 'no grant hidden' promise had no behaviour for the case where even the compact name-and-id list exceeds the total prompt budget, so truncation there would violate the spec's own guarantee.",
-      "ref": "apps/core/src/application/agents/prompt-profile-service.ts"
+      "finding": "settings.yaml is classified Read-only/observable in the spec but startup creates it and full reset deletes/recreates it, contradicting decision 0025's settings-authority model",
+      "source": "docs/decisions/0025-settings-authority.md:26"
+    },
+    {
+      "finding": "bare `gantry local` silently changed from read-only status to starting Docker/core/Vite, and existing `setup`/`logs` commands disappear",
+      "source": "apps/core/src/cli/local.ts:520"
+    },
+    {
+      "finding": "the spec said 'health readiness' ambiguously; the code already uses /healthz, not /readyz, and /readyz can legitimately be red during fresh onboarding",
+      "source": "apps/core/src/control/server/system-health.ts:81"
+    },
+    {
+      "finding": "the retry-after-failed-authorization message did not include the resolved --runtime-home, so retrying could target the wrong default home",
+      "source": "apps/core/src/cli/local.ts:501"
+    },
+    {
+      "finding": "the spec claimed a one-call architecture exception already covers the supervisor's direct spawn, but scripts/architecture-exceptions.json contains no such entry and check_architecture.py fails on local.ts's direct spawn",
+      "source": "scripts/architecture-exceptions.json"
+    },
+    {
+      "finding": "GANTRY_CONTROL_HOST accepts the literal bracketed form [::1] as a loopback host, but that bracketed string is not a valid bind-API host",
+      "source": "apps/core/src/cli/local.ts:119"
+    },
+    {
+      "finding": "the spec fixed file scope, exception-file shape, typechecks, Forge recording, autoreview, commit state, and PR creation as spec acceptance criteria, which are delivery mechanics that belong in the plan/harness rather than an implementation-neutral capability spec",
+      "source": "docs/specs/local-dev-launch.md"
     }
   ],
-  "recorded_at": "2026-09-10T16:11:56+00:00",
-  "commit": "123b8df676b7afbbd26d71a9ce23a16a16759e4d"
+  "rounds": [
+    {
+      "question": "gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` \u2014 it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?",
+      "options": [
+        "Add ownership checks now (Recommended)",
+        "Ship current guards, defer the rest"
+      ],
+      "chosen": "Add ownership checks now (Recommended)"
+    },
+    {
+      "question": "core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?",
+      "options": [
+        "Enforce local-mode defaults now (Recommended)",
+        "Spec-text fix only, defer enforcement"
+      ],
+      "chosen": "Enforce local-mode defaults now (Recommended)"
+    },
+    {
+      "question": "Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?",
+      "options": [
+        "Fix now, same write scope (Recommended)",
+        "Defer with a recorded follow-up"
+      ],
+      "chosen": "Fix now, same write scope (Recommended)"
+    },
+    {
+      "question": "Automated tests mock Postgres/Docker/processes entirely \u2014 they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?",
+      "options": [
+        "Keep mocked unit tests + my manual verification (Recommended)",
+        "Add a real Postgres/Docker integration test lane"
+      ],
+      "chosen": "Keep mocked unit tests + my manual verification (Recommended)"
+    },
+    {
+      "question": "Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?",
+      "options": [
+        "Harden ordering + orphan detection now (Recommended)",
+        "Defer with a recorded follow-up"
+      ],
+      "chosen": "Harden ordering + orphan detection now (Recommended)"
+    },
+    {
+      "question": "That covers every finding from the cold-read grill. Any remaining gap before I amend the spec to what you've decided and move to the plan gate?",
+      "options": [
+        "No \u2014 proceed to amend and record the grill pass (Recommended)",
+        "Yes \u2014 I have another concern"
+      ],
+      "chosen": "No \u2014 proceed to amend and record the grill pass (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "04546a1648e6d63b8c0115ffe151dc253c1079d0286a279f78c725bec82c05d2",
+  "recorded_at": "2026-09-17T13:44:10+00:00",
+  "commit": "fa3007ea8576cdf20f839c10c2d1e10ecf4749cd"
 }
