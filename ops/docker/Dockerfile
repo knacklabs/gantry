@@ -66,6 +66,10 @@ RUN find node_modules -name 'sbom.cdx.json' -type f -delete
 # ---------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
 
+# Bump this value when Debian publishes a security update. It deliberately
+# invalidates the cached apt layer while keeping the Node base digest pinned.
+ARG APT_SECURITY_REFRESH=2026-09-18
+
 ENV NODE_ENV=production \
     GANTRY_HOME=/var/lib/gantry \
     GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING=1
@@ -76,7 +80,8 @@ ENV NODE_ENV=production \
 # pip usage at runtime (fleet workers never run a package manager — Python
 # package installs belong to a future bake lane, see TODOS.md) and the Go
 # toolchain (Go-built tools ship as binaries: add the binary here per tool).
-RUN apt-get update \
+RUN echo "Refreshing Debian security packages: ${APT_SECURITY_REFRESH}" \
+    && apt-get update \
     # Pull in pending Debian security updates for base-image packages; the
     # digest-pinned base goes stale between upstream rebuilds (e.g. libexpat1
     # CVE-2026-56408 failed the Trivy gate before its base refresh).
