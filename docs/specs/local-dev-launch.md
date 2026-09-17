@@ -35,6 +35,20 @@ the database commit and filesystem cleanup, and left the one-time
 authorization credential unprotected against non-interactive stdout capture.
 The owner resolved all of it; this revision states those resolutions too.
 
+A third cold-read grill of the requirements round found further gaps:
+recovery-marker semantics that could refuse forever, a settings-authority
+check with no defined behavior on a genuinely fresh (pre-migration) database,
+an ordering ambiguity between "no mutation before checks" and the
+bootstrap-then-check start it depends on, a missing revision-skew check,
+a decision 0006/0162 precedence gap, TTY-safety reachability, a
+self-contradictory-looking ownership-marker lifecycle, incomplete
+orphan-hardening (Vite, not just core), an architecture-exception claim that
+was not yet true on disk, stale mentions of the removed CLI surface
+elsewhere in the docs, and a non-falsifiable build-equivalence criterion. The
+owner resolved the two genuinely open tradeoffs (recovery-marker UX, and
+whether to close the Vite-orphan gap now); every other finding is a spec
+clarification or doc-consistency fix, stated below.
+
 ## Behaviour
 
 ### Commands
@@ -94,9 +108,13 @@ local defaults in its `.env` with private permissions, preserving existing
 values. Generate an encryption key. Use process environment before file values
 for that generated bootstrap `.env` only; existing `.env` values are never
 silently overwritten. Derive public host and port from `GANTRY_CONTROL_HOST`
-and `GANTRY_CONTROL_PORT`, defaulting to loopback port 3939. Fresh
-authentication configuration must match this origin; existing conflicts fail
-with remediation.
+and `GANTRY_CONTROL_PORT`, defaulting to loopback port 3939, under the narrow
+decision 0006 exception recorded in decision 0162: these two bind-time keys
+may live in `.env`, and process environment may override them there
+specifically (0162 §precedence) — no other non-secret configuration moves
+into `.env`, and once a settings revision exists it remains authoritative for
+every other value per decision 0025. Fresh authentication configuration must
+match this origin; existing conflicts fail with remediation.
 
 Reuse the configured reachable loopback database. Start Compose only for the
 managed default database, binding its storage to `<GANTRY_HOME>/postgres`.
@@ -118,6 +136,25 @@ and validate the latest settings revision against local-mode defaults, then
 either continue into migrations/core/Vite or stop that container again
 before returning a precondition failure. No migration, filesystem deletion,
 or application child process runs until this check passes.
+
+"No mutation before checks" governs destructive/mutating steps against
+*existing* state (schema drop, filesystem delete, migration, starting
+application children); it does not forbid the reversible bootstrap-then-check
+start above, which is itself part of the check. For a genuinely fresh home,
+creating the home directory, the ownership marker, the default `.env`, and
+(if needed) the managed container/volume are additive bootstrap steps, not
+destructive ones — they are safe to leave in place if a later check fails.
+On a failed check, stop only a container this invocation itself started
+(tracked for the duration of the command; an already-running container found
+at start is never stopped as a side effect of a failed check), and leave any
+newly created home directory, marker, `.env`, or volume in place: an
+unfinished bootstrap is inert, and rerunning the same command is safe and
+idempotent. Distinguish "the `settings_revisions` table does not exist yet"
+(a genuinely fresh database with no revision — fall back to `settings.yaml`
+authority) from any other query failure (a real error — refuse). When a
+revision exists, enforce the same `min_reader_version` skew rejection normal
+startup already enforces (`apps/core/src/app/bootstrap/startup.ts`) before
+treating it as authoritative for a destructive step.
 
 Run migrations before core, start core on a private loopback port, and expose
 Vite on the public origin. Proxy browser authentication and API traffic to core.
@@ -155,8 +192,17 @@ Reset must not act on a database or directory tree it cannot show it owns.
   exactly the compatibility/adoption path decision 0003 forbids. An unmarked
   home is refused with a manual remediation (move or delete the old home, or
   point `--runtime-home` at a new path, so a fresh, marked home is
-  bootstrapped by `local start`). The marker survives `reset-db` and is
-  rewritten fresh by a full `reset`.
+  bootstrapped by `local start`). The marker is written atomically (temp file
+  plus rename) at `<home>/.gantry-owned`, holding the creation timestamp. It
+  survives `reset-db`. A full `reset` rewrites it fresh only on a home that
+  already carried one — this is re-affirming ownership Gantry already held,
+  not the retroactive first-time marking decision 0003 forbids; a `reset`
+  target with no existing marker is refused exactly like `local reset` above.
+  This marker and the reset-in-progress marker below are local runtime-home
+  bootstrap/operator-tooling state, outside the Postgres-first durable-state
+  boundary (`docs/architecture/durable-state-boundary.md`), which governs
+  canonical application/domain state, not local CLI bootstrap files under the
+  operator's own runtime home — the same category as `.env`.
 - **Database reset ownership.** `local reset` and `local reset-db` may only
   run against the exact verified home-owned managed Postgres container: the
   same ownership check `local stop` already performs, run unconditionally
@@ -175,14 +221,22 @@ Reset must not act on a database or directory tree it cannot show it owns.
 
 A crash between the database schema commit and filesystem cleanup finishing
 must be observable and refused, not silently treated as a clean reset target
-on the next run. Write a durable reset-in-progress marker immediately before
-the destructive database step, and remove it only after filesystem cleanup
-(for a full reset) or after the schema recreation completes (for
-`reset-db`) — whichever is that variant's last destructive step. A
-subsequent `start`/`reset`/`reset-db` that finds a stale marker refuses with
-a clear "a previous reset did not finish cleanly" message and a remediation
-(rerun the same reset command to finish it) rather than starting core
-against mixed old/new state. This is a durable flag and a refusal, not a
+on the next run. Write a durable reset-in-progress marker (`<home>/.gantry-
+reset-in-progress`, recording which variant — `reset` or `reset-db` — is
+running and when it started) immediately before the destructive database
+step, and remove it only after filesystem cleanup (for a full reset) or after
+the schema recreation completes (for `reset-db`) — whichever is that
+variant's last destructive step.
+
+A subsequent `start`/`reset`/`reset-db` that finds a stale marker refuses
+with a clear "a previous reset did not finish cleanly" message naming the
+interrupted variant. Because the underlying cause (an interrupted destructive
+step) cannot be distinguished from "still genuinely broken" by rerunning the
+identical command, the refusal is not lifted by retrying it: the remediation
+names an explicit operator-acknowledgment flag,
+`--after-manual-recovery`, that the operator passes only after manually
+inspecting the disposable local state; passing it clears the stale marker and
+lets the same command proceed. This is a durable flag and a refusal, not a
 cross-process lock — the deferred mutual-exclusion lock (tracked separately)
 is about concurrent reset attempts, not crash recovery.
 
@@ -198,19 +252,42 @@ children this `stop` invocation controls have been shut down, and refuse to
 stop Postgres while any other connection remains, reporting the orphaned
 state with a remediation to locate and stop those processes directly.
 
+The active-connection check covers an orphaned core process (it holds a DB
+connection) but not an orphaned Vite process, which is detached and holds no
+DB connection, so it can keep squatting the UI port after a supervisor crash
+even while the check above reports no orphaned core and `stop` proceeds.
+Close this: `local start` writes core's and Vite's PIDs to a small file under
+the runtime home (e.g. `<home>/.gantry-local-pids`) as they are spawned, and
+`local stop` (and the next `local start`'s preflight) reads it, checks
+whether each recorded PID is still alive and still Gantry's process, and
+terminates a leftover one before proceeding; the file is removed once both
+children are confirmed stopped.
+
 ### Approved automatic local authorization addition
 
 On every successful source-local start, including ordinary restarts and both
-reset variants, print a fresh short-lived (ten-minute), single-use
+reset variants, attempt to print a fresh short-lived (ten-minute), single-use
 authorization link after health readiness — health meaning the public Vite
 origin's proxied `/healthz` responds healthy, not the deeper `/readyz`
 onboarding-readiness check, since fresh onboarding can legitimately leave
-`/readyz` red. Reuse `gantry ui authorize` against the resolved runtime home
-and public origin. Before starting any child process, require
-`authentication.mode` to be `local` — the only mode `gantry ui authorize`
-can ever serve — and a loopback public origin (decision 0132); refuse with
-remediation before startup if not, rather than starting a healthy stack and
-then failing authorization on every retry.
+`/readyz` red. This is a mandatory-attempt, fail-open step: it always runs
+after readiness, but its failure (for any reason, including an inability to
+safely construct a TTY-gated printable link) is logged and never fails the
+command or stops the dev stack — "optional" describes the failure mode, not
+whether the attempt happens.
+
+Issue this through the same underlying authorization-issuance path
+`gantry ui authorize` uses, called in-process so the local supervisor
+receives the URL as a value and fully controls whether and how it is
+printed — it must not merely inherit stdio from a spawned `gantry ui
+authorize` subprocess, which would print the raw URL itself before the
+supervisor's TTY gate could apply. This requires no change to `apps/core/src/
+cli/auth.ts`; both entry points call the same underlying issuance function.
+Before starting any child process, require `authentication.mode` to be
+`local` — the only mode this path can ever serve — and a loopback public
+origin (decision 0132); refuse with remediation before startup if not,
+rather than starting a healthy stack and then failing authorization on every
+retry.
 
 The raw authorization URL is a ten-minute administrator credential. Print it
 in full only when stdout is an interactive terminal (a TTY); when stdout is
@@ -239,7 +316,7 @@ without a reset, not to reset itself.
 | Postgres/runtime projection | Changed | Local reset recreates `gantry`/`pgboss` only against the verified home-owned managed container, guarded by a reset-in-progress marker; auth link issuance inserts hashed single-use authorization state through existing storage. |
 | Control API | Unchanged by design | Existing authorization and redemption paths are reused. |
 | SDK/contracts | Unchanged by design | No client-contract change. |
-| CLI | Changed | Local supervisor invokes existing UI authorization command; `local status`/`local doctor` are removed as duplicates of top-level commands; build commands gain a documented `build:core` composition. |
+| CLI | Changed | Local supervisor invokes the existing UI authorization issuance path in-process; `local status`/`local doctor` are removed as duplicates of top-level commands; build commands gain a documented `build:core` composition; direct Postgres calls move into the new local-operator-only `local-postgres.ts`, covered by a count-exact architecture exception for the coordinator's `spawn` calls. |
 | MCP/admin tools | Unchanged by design | No new administration operations. |
 | Channel/provider adapters | Unchanged by design | Browser login does not alter adapters. |
 | Docs/prompts | Changed | Describe automatic links, database/auth-mode authority, reset crash recovery, and build commands. |
@@ -262,6 +339,14 @@ store, logs, artifacts, and runtime projection paths. Preserve `.env`,
 `postgres/`, unknown files, unrelated processes, and user runtime data
 during verification.
 
+Both `reset` and `reset-db` drop and recreate `settings_revisions`, so the
+just-validated authoritative revision they preflighted against would
+otherwise be gone on restart, leaving only a "genuinely fresh home" fallback
+to stale/default `settings.yaml`. Before that destructive schema step, write
+the validated revision's content out as `settings.yaml` — a matching
+recovery copy of the desired configuration — so a post-reset restart imports
+that same desired state as its first revision instead of stale defaults.
+
 ### Deferred
 
 Docker-only startup on a dedicated port is explicitly deferred to a
@@ -272,6 +357,34 @@ destroy ordering, ownership verification, and the reset-in-progress marker
 are in scope; a new distributed-locking mechanism is not. No additional
 dependencies or SDK/API schema changes are authorized.
 
+### Architecture boundary
+
+`scripts/architecture-exceptions.json` does not yet carry an exception for
+`apps/core/src/cli/local.ts`'s direct `spawn` calls — this task adds the one,
+count-exact, time-bounded `direct_risky_execution` entry described above; it
+does not exist on disk yet. Separately, decision 0001 forbids CLI adapters
+from directly mutating persistence; the settings-revision read, the
+`pg_stat_activity` check, and `ownedPostgres` are direct Postgres access from
+CLI code. This task takes a bounded, file-scoped deviation rather than a
+silent violation or a full application/port seam: those calls move into one
+new file, `apps/core/src/cli/local-postgres.ts`, documented as
+local-operator-only tooling that must not be imported by agent/tool/job code
+paths — narrower than a service layer, but naming and containing the
+deviation instead of spreading raw persistence access through the
+coordinator.
+
+### Documentation and roadmap consistency
+
+Removing `local status`/`local doctor` and changing the authorization-link
+guarantee to a mandatory-attempt/fail-open step must not leave other repo
+surfaces contradicting the new behavior: update any mention of `local
+status`/`local doctor` in `docs/architecture/overview.md` and `docs/SPEC.md`,
+any runtime recovery/guidance message that still names them (including in
+`apps/core/src/adapters/storage/postgres/storage-readiness.ts`), and the
+`plans/roadmap.json` entry for this story so it states the mandatory-attempt/
+fail-open link behavior and the reset/session-survival exception rather than
+an unconditional guarantee.
+
 ## Acceptance criteria
 
 - `npm run dev` / `gantry local start` runs migrations before starting source
@@ -280,7 +393,10 @@ dependencies or SDK/API schema changes are authorized.
 - `npm run build:core` builds backend artifacts only (no web build/copy),
   composed from the same steps `build:runtime` already uses; `npm run
   build:runtime` and `npm run build` produce the same `dist/` output as
-  today.
+  today — falsifiable as: on a clean tree, the sorted relative file-path
+  listing under `dist/` (`find dist -type f | sort`) is identical whether
+  produced by the pre-change or post-change `build:runtime`/`build` scripts,
+  and both exit zero with no new errors/warnings.
 - `gantry local` with no subcommand prints usage and does not start
   anything; `gantry local status`/`gantry local doctor` no longer exist as
   duplicates of the top-level commands.
@@ -304,14 +420,21 @@ dependencies or SDK/API schema changes are authorized.
   to a different schema than core will use — naming the conflict and how to
   align it.
 - A reset that crashes after the database schema commit but before
-  filesystem cleanup finishes leaves a durable marker; the next start/reset
-  refuses with a clear message and a rerun remediation instead of starting
-  against mixed old/new state.
+  filesystem cleanup finishes leaves a durable marker naming the interrupted
+  variant; the next start/reset/reset-db refuses with a clear message instead
+  of starting against mixed old/new state, and proceeds only once the
+  operator passes `--after-manual-recovery` after inspecting local state.
+- `reset`/`reset-db` write the just-validated authoritative settings revision
+  out to `settings.yaml` before the destructive schema step, so a post-reset
+  restart imports that same desired configuration instead of stale/default
+  YAML.
 - `npm run dev:stop` / `gantry local stop` stops source core, Vite, and the
   verified home-owned managed Postgres container only, without deleting data
   or stopping unrelated Docker containers, and refuses to stop that
   container while an orphaned core process still holds an active database
-  connection after this invocation's own children have been shut down;
+  connection after this invocation's own children have been shut down; it
+  also detects and terminates a leftover orphaned Vite process via the
+  recorded PID file even when the supervisor itself previously crashed.
   Ctrl-C leaves Postgres warm.
 - Reset commands stop verified local children only after every precondition
   passes, refuse unsafe home paths, non-loopback databases, databases not

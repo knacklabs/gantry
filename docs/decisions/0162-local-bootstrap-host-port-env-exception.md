@@ -31,6 +31,14 @@ not reopen `.env` to other non-secret configuration, and once a settings
 revision exists it remains authoritative for every other configuration value
 per decision 0025.
 
+Because these two keys resolve the bind address before any settings source
+exists, decision 0006's usual "process env may override runtime `.env` only
+for runtime-owned secrets" restriction does not apply to them: process
+environment may override the `.env` value for exactly `GANTRY_CONTROL_HOST`
+and `GANTRY_CONTROL_PORT`, matching ordinary CLI/env bootstrap ergonomics.
+This is still not a precedent for process-env overrides of any other
+settings-owned value.
+
 ## Consequences
 
 `local.ts` may read/write these two keys in `.env` without tripping the

@@ -178,6 +178,27 @@ async function databaseReachable(url: string): Promise<boolean> {
   }
 }
 
+function localDatabaseUrl(port: number): string {
+  const url = new URL(LOCAL_DATABASE_URL);
+  url.port = String(port);
+  return url.toString();
+}
+
+async function canBindLoopbackPort(port: number): Promise<boolean> {
+  const server = net.createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 function ownedPostgres(repo: string, home: string): string | undefined {
   let existing: string;
   try {
@@ -215,7 +236,7 @@ function ownedPostgres(repo: string, home: string): string | undefined {
     throw new Error(
       'gantry-postgres belongs to another runtime home or checkout. Stop/reconfigure it explicitly, or choose a reachable custom GANTRY_DATABASE_URL.',
     );
-  return existing;
+  return container.State?.Running ? existing : undefined;
 }
 
 export async function ensureLocalDatabase(
@@ -223,7 +244,7 @@ export async function ensureLocalDatabase(
   home: string,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
-  const url = env.GANTRY_DATABASE_URL!;
+  let url = env.GANTRY_DATABASE_URL!;
   localDatabase(url);
   if (url !== LOCAL_DATABASE_URL) {
     if (await databaseReachable(url)) return;
@@ -234,7 +255,17 @@ export async function ensureLocalDatabase(
 
   // The default source-local database is always the managed Compose service.
   // A reachable host Postgres must not bypass it.
-  ownedPostgres(repo, home);
+  const container = ownedPostgres(repo, home);
+  const port = Number(new URL(url).port || '5432');
+  if (!container && !(await canBindLoopbackPort(port))) {
+    const fallbackPort = await freePort();
+    url = localDatabaseUrl(fallbackPort);
+    env.GANTRY_DATABASE_URL = url;
+    env.GANTRY_POSTGRES_PORT = String(fallbackPort);
+    console.warn(
+      `Port ${port} is occupied; starting managed Postgres at 127.0.0.1:${fallbackPort}.`,
+    );
+  }
   execFileSync(
     'docker',
     [

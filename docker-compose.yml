@@ -14,7 +14,7 @@ services:
       GANTRY_SCHEMA: gantry
       PGBOSS_SCHEMA: pgboss
     ports:
-      - '127.0.0.1:5432:5432'
+      - '127.0.0.1:${GANTRY_POSTGRES_PORT:-5432}:5432'
     volumes:
       - ${GANTRY_POSTGRES_DATA:-${HOME}/gantry/postgres}:/var/lib/postgresql/data
       - ./ops/postgres/init:/docker-entrypoint-initdb.d:ro
