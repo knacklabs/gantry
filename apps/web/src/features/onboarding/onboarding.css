@@ -38,7 +38,8 @@
 
   .onboarding-role-roll > span {
     display: block;
-    animation: onboarding-role-roll 16.8s cubic-bezier(0.76, 0, 0.24, 1) infinite;
+    animation: onboarding-role-roll 16.8s cubic-bezier(0.76, 0, 0.24, 1)
+      infinite;
   }
 
   .onboarding-role-roll > .is-paused {
@@ -47,22 +48,28 @@
 }
 
 @keyframes onboarding-role-roll {
-  0%, 12% {
+  0%,
+  12% {
     transform: translateY(0);
   }
-  16%, 28% {
+  16%,
+  28% {
     transform: translateY(-1.5rem);
   }
-  32%, 44% {
+  32%,
+  44% {
     transform: translateY(-3rem);
   }
-  48%, 60% {
+  48%,
+  60% {
     transform: translateY(-4.5rem);
   }
-  64%, 76% {
+  64%,
+  76% {
     transform: translateY(-6rem);
   }
-  80%, 92% {
+  80%,
+  92% {
     transform: translateY(-7.5rem);
   }
   100% {
