@@ -105,6 +105,48 @@ it('requires the standard mutation session before completing onboarding', async 
 
 it('limits the browser route to its two explicit paths', () => {
   expect(isBrowserOnboardingPath('/ui/api/onboarding/status')).toBe(true);
+  expect(isBrowserOnboardingPath('/ui/api/onboarding/channel-manifest')).toBe(
+    true,
+  );
   expect(isBrowserOnboardingPath('/ui/api/onboarding/complete')).toBe(true);
   expect(isBrowserOnboardingPath('/ui/api/onboarding')).toBe(false);
+});
+
+it('returns the administrator-only Slack app manifest without credentials', async () => {
+  activeSession.mockResolvedValue({ ...session, role: 'administrator' });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('GET'),
+    res,
+    '/ui/api/onboarding/channel-manifest',
+    settings,
+    new URL(
+      'http://127.0.0.1:3939/ui/api/onboarding/channel-manifest?providerId=slack&employeeName=Ada%20Lovelace',
+    ),
+  );
+
+  expect(res.statusCode).toBe(200);
+  const body = JSON.parse(res.body);
+  expect(body.manifestJson).toContain('Ada Lovelace');
+  expect(body.manifestJson).toContain('/gantry');
+  expect(body.createUrl).toContain('api.slack.com');
+  expect(body.permissionGroups[0].scopes).toContain('commands');
+});
+
+it('rejects a viewer from reading the Slack app manifest', async () => {
+  activeSession.mockResolvedValue({ ...session, role: 'viewer' });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('GET'),
+    res,
+    '/ui/api/onboarding/channel-manifest',
+    settings,
+    new URL(
+      'http://127.0.0.1:3939/ui/api/onboarding/channel-manifest?providerId=slack',
+    ),
+  );
+
+  expect(res.statusCode).toBe(403);
 });

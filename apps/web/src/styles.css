@@ -39,9 +39,10 @@
   --color-danger-soft: var(--danger-soft);
   --color-overlay: var(--overlay);
   --color-focus-ring: var(--focus-ring);
-  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-sans: 'DM Sans Variable', system-ui, sans-serif;
   --font-mono: 'DM Mono', ui-monospace, monospace;
-  --font-display: 'Schibsted Grotesk', 'DM Sans', system-ui, sans-serif;
+  --font-display:
+    'Schibsted Grotesk Variable', 'DM Sans Variable', system-ui, sans-serif;
   --shadow-control: 0 1px 2px rgb(27 26 24 / 8%);
   --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
   --shadow-popover: 0 24px 48px -20px rgb(27 26 24 / 30%);
@@ -179,13 +180,17 @@
   *,
   *::before,
   *::after {
+    animation: none !important;
+    animation-duration: 1ms !important;
     scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
   }
 }
 
 :root[data-motion='reduced'] *,
 :root[data-motion='reduced'] *::before,
 :root[data-motion='reduced'] *::after {
+  animation: none !important;
   animation-duration: 1ms !important;
   scroll-behavior: auto !important;
   transition-duration: 1ms !important;
@@ -270,7 +275,7 @@
     display: grid;
     min-width: 0;
     min-height: 100dvh;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     overflow: hidden;
     background: var(--canvas);
   }
@@ -391,12 +396,12 @@
     display: grid;
     min-width: 0;
     place-items: center;
-    padding: 3.375rem;
+    padding: clamp(2rem, 6vw, 5rem);
     background: var(--canvas);
   }
 
   .auth-page-card {
-    width: min(100%, 23.125rem);
+    width: min(100%, 25rem);
     --card-spacing: 0;
     background: transparent;
     color: var(--text);
@@ -530,26 +535,47 @@
   }
 
   .auth-google-sign-in-button {
-    display: flex;
-    width: 11.25rem;
-    height: 2.5rem;
+    display: inline-flex;
+    width: 100%;
+    min-height: 2.75rem;
     margin: 0 auto;
-    padding: 0;
-    border: 0;
-    background: transparent;
+    border: 1px solid #747775;
+    border-radius: 0.25rem;
+    background: #fff;
+    color: #1f1f1f;
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
   }
 
   .auth-google-sign-in-button:hover {
-    background: transparent;
+    border-color: #5f6368;
+    background: #f8fafd;
   }
 
   .auth-google-sign-in-button img {
     display: block;
-    width: 100%;
-    height: 100%;
+    width: 1.125rem;
+    height: 1.125rem;
+    flex: none;
   }
 
-  @media (max-width: 60rem) {
+  :root[data-theme='dark'] .auth-google-sign-in-button {
+    border-color: #8e918f;
+    background: #131314;
+    color: #e3e3e3;
+  }
+
+  :root[data-theme='dark'] .auth-google-sign-in-button:hover {
+    background: #2d2f31;
+  }
+
+  @media (max-width: 48rem) {
+    .auth-page-shell {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .auth-page-signal {
       min-height: min(32rem, 60dvh);
       gap: 3rem;

@@ -1,5 +1,3 @@
-import { ChevronRight } from 'lucide-react';
-
 import type { OnboardingDraft } from '../onboarding-state';
 import { Heading } from './create-employee-step';
 
@@ -9,11 +7,9 @@ const approvers = ['You', 'Priya Sharma', 'Lena Kowalski'];
 export function AssignWorkStep({
   draft,
   onChange,
-  onContinue,
 }: {
   draft: OnboardingDraft;
   onChange: (update: Partial<OnboardingDraft>) => void;
-  onContinue: () => void;
 }) {
   return (
     <>
@@ -48,13 +44,6 @@ export function AssignWorkStep({
           Only members verified in this conversation can approve riskier
           actions.
         </small>
-        <button
-          className="onboarding-primary justify-self-start"
-          onClick={onContinue}
-          type="button"
-        >
-          Continue <ChevronRight aria-hidden="true" size={15} />
-        </button>
       </article>
     </>
   );

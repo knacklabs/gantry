@@ -46,8 +46,10 @@ import { handleSkillRoutes } from '@core/control/server/routes/skills.js';
 import { handleSystemRoutes } from '@core/control/server/routes/system.js';
 import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
+import { isBrowserOnboardingPath } from '@core/control/server/routes/browser-onboarding.js';
 
 const expectedControlRoutes = [
+  'GET /ui/api/onboarding/channel-manifest',
   'POST /llm/v1/chat/completions',
   'POST /llm/v1/messages',
   'POST /llm/v1/messages/count_tokens',
@@ -369,6 +371,7 @@ function mockContext(): ControlRouteContext {
 }
 
 async function isRecognizedByRuntime(method: string, pathname: string) {
+  if (method === 'GET' && isBrowserOnboardingPath(pathname)) return true;
   const req = request(method);
   const res = responseRecorder();
   const ctx = mockContext();

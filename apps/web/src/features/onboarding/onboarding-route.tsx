@@ -92,11 +92,7 @@ function OnboardingPreview() {
         />
       ) : null}
       {step === 3 ? (
-        <AssignWorkStep
-          draft={draft}
-          onChange={updateDraft}
-          onContinue={next}
-        />
+        <AssignWorkStep draft={draft} onChange={updateDraft} />
       ) : null}
       {step === 4 ? <SayHelloStep draft={draft} /> : null}
     </OnboardingShell>

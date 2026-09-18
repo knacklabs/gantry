@@ -9,6 +9,7 @@ export function GoogleSignInButton() {
       onClick={() => window.location.assign('/auth/oidc/start')}
     >
       <img alt="" src={googleSignInIcon} />
+      <span>Sign in with Google</span>
     </Button>
   );
 }

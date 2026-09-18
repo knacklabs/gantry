@@ -9,6 +9,15 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  getBrowserOnboardingChannelManifest: {
+    type: 'object',
+    required: ['manifestJson', 'createUrl', 'permissionGroups'],
+    properties: {
+      manifestJson: { type: 'string' },
+      createUrl: { type: 'string', format: 'uri' },
+      permissionGroups: { type: 'array', items: { type: 'object' } },
+    },
+  },
   bindMcpServerToAgent: ref('AgentMcpServerBindingResponse'),
   bindSkillToAgent: ref('AgentSkillBindingResponse'),
   connectMcpServer: ref('McpServerResponse'),

@@ -12,6 +12,10 @@ import {
 import { runtimeSecretKeyForEnv } from '../domain/provider/provider-runtime-secret-keys.js';
 import type { IsoTimestamp } from '../shared/time/primitives.js';
 import { listSlackRecentChats } from '../cli/slack-chat-discovery.js';
+import {
+  slackAppManifestFor,
+  slackManifestPermissionGroups,
+} from '../cli/slack-install-scopes.js';
 import { listTelegramRecentChats } from '../cli/telegram-chat-discovery.js';
 import {
   GraphTeamsSetupDiscoveryClient,
@@ -30,6 +34,22 @@ import {
 import { ApplicationError } from '../application/common/application-error.js';
 
 const createdAt = '2026-04-27T00:00:00.000Z' as IsoTimestamp;
+
+export function channelSetupManifestFor(
+  providerId: string,
+  employeeName: string,
+) {
+  if (normalizeProviderId(providerId) !== 'slack') return undefined;
+  const manifest = slackAppManifestFor(employeeName);
+  const createUrl = new URL('https://api.slack.com/apps');
+  createUrl.searchParams.set('new_app', '1');
+  createUrl.searchParams.set('manifest_json', JSON.stringify(manifest));
+  return {
+    manifestJson: JSON.stringify(manifest, null, 2),
+    createUrl: createUrl.toString(),
+    permissionGroups: slackManifestPermissionGroups(),
+  };
+}
 
 export class BuiltInControlChannelProviderCatalog implements ProviderCatalogPort {
   listProviders(): Provider[] {

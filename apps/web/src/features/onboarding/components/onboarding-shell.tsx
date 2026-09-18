@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { Check, ChevronRight, Moon, Sun } from 'lucide-react';
+import { Check, Moon, Sun } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import {
@@ -15,6 +15,7 @@ import {
 } from '../../../assets/onboarding';
 import { usePreferences } from '../../preferences/preferences-provider';
 import { onboardingSteps, type OnboardingStep } from '../onboarding-state';
+import { OnboardingFooter } from './onboarding-footer';
 
 const railMarks = [
   [gantryRailStepOne, gantryRailStepOneReduced],
@@ -114,26 +115,12 @@ export function OnboardingShell({
         </aside>
         <main className="onboarding-main">
           <section className="onboarding-content">{children}</section>
-          <footer className="onboarding-actions">
-            <button
-              className="onboarding-secondary"
-              onClick={onBack}
-              type="button"
-            >
-              Back
-            </button>
-            {step !== 3 ? (
-              <button
-                className="onboarding-primary"
-                disabled={nextDisabled}
-                onClick={onNext}
-                type="button"
-              >
-                {step === 4 ? 'Open the console' : 'Continue'}
-                <ChevronRight aria-hidden="true" size={15} />
-              </button>
-            ) : null}
-          </footer>
+          <OnboardingFooter
+            busy={nextDisabled}
+            onBack={onBack}
+            onNext={onNext}
+            step={step}
+          />
         </main>
       </div>
     </div>

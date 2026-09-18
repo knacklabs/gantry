@@ -42,5 +42,13 @@ describe('first-run onboarding gate', () => {
     expect(overview).toContain('Do you want to complete onboarding?');
     expect(overview).toContain('to="/onboarding"');
     expect(route).not.toContain('fetch(');
+    expect(route).not.toContain('onContinue={next}');
+    expect(route).toContain('<AssignWorkStep');
+    expect(
+      readFileSync(
+        'src/features/onboarding/components/onboarding-footer.tsx',
+        'utf8',
+      ),
+    ).toContain("step === 4 ? 'Open the console' : 'Continue'");
   });
 });

@@ -140,6 +140,7 @@ export async function handleBrowserControlRoutes(input: {
       input.res,
       input.pathname,
       settings,
+      input.url,
     ))
   )
     return true;

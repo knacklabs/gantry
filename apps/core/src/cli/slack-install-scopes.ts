@@ -19,6 +19,7 @@ export const SLACK_REQUIRED_BOT_SCOPES = [
   'im:history',
   'mpim:read',
   'mpim:history',
+  'commands',
 ] as const;
 
 export const SLACK_APP_MANIFEST = {
@@ -28,6 +29,79 @@ export const SLACK_APP_MANIFEST = {
     },
   },
 } as const;
+
+const SLACK_BOT_EVENTS = [
+  'app_mention',
+  'member_joined_channel',
+  'message.channels',
+  'message.groups',
+  'message.im',
+  'message.mpim',
+] as const;
+
+export function normalizeSlackAppName(raw: string): string {
+  return raw.trim().replace(/\s+/g, ' ').slice(0, 35) || 'Gantry';
+}
+
+export function slackBotDisplayName(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'gantry'
+  );
+}
+
+export function slackAppManifestFor(employeeName: string) {
+  const name = normalizeSlackAppName(employeeName);
+  return {
+    display_information: {
+      name,
+      description: 'Gantry AI employee',
+      background_color: '#1b1a18',
+    },
+    features: {
+      bot_user: {
+        display_name: slackBotDisplayName(employeeName),
+        always_online: true,
+      },
+      slash_commands: [
+        {
+          command: '/gantry',
+          description: 'Open Gantry commands',
+          should_escape: false,
+        },
+      ],
+    },
+    oauth_config: SLACK_APP_MANIFEST.oauth_config,
+    settings: {
+      event_subscriptions: { bot_events: [...SLACK_BOT_EVENTS] },
+      interactivity: { is_enabled: true },
+      socket_mode_enabled: true,
+      token_rotation_enabled: false,
+    },
+  };
+}
+
+export function slackManifestPermissionGroups() {
+  return [
+    {
+      title: 'Core messaging',
+      description:
+        'Read invited conversations, receive mentions, and send replies.',
+      scopes: [...SLACK_REQUIRED_BOT_SCOPES],
+    },
+    {
+      title: 'Files and canvases',
+      description:
+        'Read and create files or canvases when your employee needs them.',
+      scopes: [...SLACK_FEATURE_BOT_SCOPES],
+    },
+  ];
+}
 
 export function missingSlackBotScopes(grantedScopes: readonly string[]): {
   core: string[];

@@ -62,7 +62,10 @@ it('keeps the approved public copy and removes fragment credentials', () => {
   expect(source).toContain('Reauthorize this browser');
   expect(source).toContain('requestLocalAuthorizationUrl');
   expect(rootRoute).toContain('pendingComponent: AuthLoadingPage');
-  expect(styles).toContain('minmax(min(100%, 30rem), 1fr)');
+  expect(styles).toContain(
+    'grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)',
+  );
+  expect(styles).toContain('background: #131314');
 });
 
 it('keeps access changes explicit and restores focus to receipts', () => {

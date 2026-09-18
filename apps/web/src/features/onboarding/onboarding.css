@@ -21,6 +21,36 @@
   }
 }
 
+@keyframes onboarding-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes onboarding-sweep {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(280%);
+  }
+}
+
+@keyframes onboarding-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes onboarding-splash-role-roll {
   0%,
   11% {
@@ -757,6 +787,35 @@
 }
 :root[data-motion='reduced'] .onboarding-splash-mark-reduced {
   display: block;
+}
+:root[data-motion='reduced'] .onboarding-splash-mark-reduced .gantry-mark {
+  grid-template-columns: repeat(3, clamp(20px, 3.4vw, 30px));
+  grid-template-rows: repeat(3, clamp(20px, 3.4vw, 30px));
+  gap: clamp(3px, 0.6vw, 5px);
+}
+:root[data-motion='reduced'] .onboarding-splash-mark-reduced .gantry-mark i {
+  border-radius: 0;
+  background: rgb(240 238 234 / 7%);
+}
+:root[data-motion='reduced']
+  .onboarding-splash-mark-reduced
+  .gantry-mark
+  i:nth-child(3),
+:root[data-motion='reduced']
+  .onboarding-splash-mark-reduced
+  .gantry-mark
+  i:nth-child(5),
+:root[data-motion='reduced']
+  .onboarding-splash-mark-reduced
+  .gantry-mark
+  i:nth-child(7) {
+  background: #f0eeea;
+}
+:root[data-motion='reduced']
+  .onboarding-splash-mark-reduced
+  .gantry-mark
+  i:nth-child(9) {
+  background: #5fae8c;
 }
 :root[data-motion='reduced'] .onboarding-splash-role-list {
   animation: none;
