@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'node:events';
+import net from 'node:net';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -202,6 +203,26 @@ describe('source-local development', () => {
 
     expect(() => localDockerPrerequisites()).toThrow('Docker is not installed');
     expect(() => localDockerPrerequisites()).toThrow('not Homebrew Postgres');
+  });
+
+  it('uses an alternate UI port unless canonical origin pins the occupied port', async () => {
+    const server = net.createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as net.AddressInfo).port;
+    const origin = `http://127.0.0.1:${port}`;
+    const { resolveLocalUiOrigin } = await import('@core/cli/local-doctor.js');
+    const env = {
+      GANTRY_HOME: makeRuntimeHome(),
+      GANTRY_CONTROL_PORT: String(port),
+    };
+
+    await expect(resolveLocalUiOrigin(env, origin)).resolves.not.toBe(origin);
+    await expect(resolveLocalUiOrigin(env, origin, origin)).rejects.toThrow(
+      'authentication.canonical_origin requires',
+    );
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   it('starts managed Compose only for the default target with the selected home', async () => {

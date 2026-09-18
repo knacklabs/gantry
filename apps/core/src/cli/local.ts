@@ -15,8 +15,13 @@ import {
 } from '../config/settings/runtime-settings.js';
 import {
   formatLocalDoctor,
+  formatLocalCommand,
+  formatLocalReady,
   freeLocalPort,
   localDockerPrerequisites,
+  localHostPortConflict,
+  localUrlAtPort,
+  resolveLocalUiOrigin,
 } from './local-doctor.js';
 export const LOCAL_DATABASE_URL =
   'postgres://gantry_app:gantry_app_password@127.0.0.1:5432/gantry?schema=gantry';
@@ -246,11 +251,6 @@ async function databaseReachable(url: string): Promise<boolean> {
     await client.end().catch(() => undefined);
   }
 }
-function localDatabaseUrl(port: number): string {
-  const url = new URL(LOCAL_DATABASE_URL);
-  url.port = String(port);
-  return url.toString();
-}
 type ManagedPg = { id: string; running: boolean; port?: number };
 function ownedPostgres(repo: string, home: string): ManagedPg | undefined {
   let existing: string;
@@ -323,18 +323,6 @@ function composePg(
     },
   );
 }
-function hostPortConflict(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const { stdout, stderr } = error as Error & {
-    stdout?: Buffer | string;
-    stderr?: Buffer | string;
-  };
-  return /port is already allocated|address already in use|bind:.*failed/i.test(
-    [error.message, stdout, stderr]
-      .map((value) => String(value || ''))
-      .join('\n'),
-  );
-}
 export async function ensureLocalDatabase(
   repo: string,
   home: string,
@@ -351,7 +339,7 @@ export async function ensureLocalDatabase(
   const container = ownedPostgres(repo, home);
   const port = Number(new URL(url).port || '5432');
   if (container?.port && container.port !== port) {
-    url = localDatabaseUrl(container.port);
+    url = localUrlAtPort(LOCAL_DATABASE_URL, container.port);
     env.GANTRY_DATABASE_URL = url;
     env.GANTRY_POSTGRES_PORT = String(container.port);
   }
@@ -359,11 +347,11 @@ export async function ensureLocalDatabase(
   try {
     composePg(repo, home, env, 'up');
   } catch (error) {
-    if (!hostPortConflict(error)) throw error;
+    if (!localHostPortConflict(error)) throw error;
     const partial = ownedPostgres(repo, home);
     if (partial) composePg(repo, home, env, 'rm');
     const fallbackPort = await freeLocalPort();
-    url = localDatabaseUrl(fallbackPort);
+    url = localUrlAtPort(LOCAL_DATABASE_URL, fallbackPort);
     env.GANTRY_DATABASE_URL = url;
     env.GANTRY_POSTGRES_PORT = String(fallbackPort);
     console.warn(
@@ -556,7 +544,13 @@ export async function superviseLocal(
       fs.rmSync(resetMarkerPath(home), { force: true });
     }
     const settingsPath = path.join(home, 'settings.yaml');
-    const origin = localOrigin(env);
+    const origin = await resolveLocalUiOrigin(
+      env,
+      localOrigin(env),
+      fs.existsSync(settingsPath)
+        ? ensureRuntimeSettings(home).authentication.canonicalOrigin
+        : undefined,
+    );
     if (!fs.existsSync(settingsPath)) {
       const settings = createDefaultRuntimeSettings();
       settings.authentication.canonicalOrigin = origin;
@@ -629,7 +623,7 @@ export async function superviseLocal(
     }
     if (!ready && !stopping) throw new Error('Core readiness timed out.');
     if (ready) {
-      console.log('Fresh one-time browser authorization link:');
+      console.log('\nFresh one-time browser authorization link:');
       const authorization = await launch(
         ['--import', 'tsx', 'apps/core/src/cli/index.ts', 'ui', 'authorize'],
         env,
@@ -643,9 +637,7 @@ export async function superviseLocal(
         console.log(
           `Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`,
         );
-      console.log(
-        `Gantry local ${reset || 'start'} ready\n  Web UI: ${origin}/ui/\n  Ctrl-C stops core and Vite; Postgres stays running.`,
-      );
+      console.log(formatLocalReady(reset || 'start', origin));
     }
     return await completion;
   } catch (error) {
@@ -687,7 +679,12 @@ export async function runLocalCommand(home: string, args: string[]) {
     const target = localDatabase(databaseUrl, command.startsWith('reset'));
     const origin = localOrigin(env);
     console.log(
-      `Gantry local ${command}\n  Home: ${home}\n  Database: ${target.hostname}:${target.port || '5432'}${target.pathname}\n  UI: ${origin}`,
+      formatLocalCommand(
+        command,
+        home,
+        `${target.hostname}:${target.port || '5432'}${target.pathname}`,
+        origin,
+      ),
     );
     clearStaleResetMarker(home, args.includes('--after-manual-recovery'));
     if (command === 'stop') {
