@@ -51,4 +51,24 @@ describe('first-run onboarding gate', () => {
       ),
     ).toContain("step === 4 ? 'Open the console' : 'Continue'");
   });
+
+  it('keeps step-one provider configuration local to the onboarding preview', () => {
+    const step = readFileSync(
+      'src/features/onboarding/steps/create-employee-step.tsx',
+      'utf8',
+    );
+
+    expect(step).toContain('Google Vertex AI');
+    expect(step).toContain('Claude Code OAuth');
+    expect(step).toContain('OpenAI key');
+    expect(step).toContain('OpenRouter key');
+    expect(step).toContain('Google ADC or workload identity');
+    expect(step).toContain('Service account JSON in Google Secret Manager');
+    expect(step).toContain('AWS role or profile');
+    expect(step).toContain('Bedrock API key in AWS Secrets Manager');
+    expect(step).toContain('Validate configuration');
+    expect(step).toContain('Connected — preview only');
+    expect(step).not.toContain('browserFetch');
+    expect(step).not.toContain('fetch(');
+  });
 });
