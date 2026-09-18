@@ -28,6 +28,7 @@ type OnboardingShellProps = {
   onBack: () => void;
   onNext: () => void;
   onStepChange: (step: OnboardingStep) => void;
+  nextDisabled?: boolean;
   step: OnboardingStep;
 };
 
@@ -36,6 +37,7 @@ export function OnboardingShell({
   onBack,
   onNext,
   onStepChange,
+  nextDisabled,
   step,
 }: OnboardingShellProps) {
   const { effectiveTheme, preferences, setTheme } = usePreferences();
@@ -123,6 +125,7 @@ export function OnboardingShell({
             {step !== 3 ? (
               <button
                 className="onboarding-primary"
+                disabled={nextDisabled}
                 onClick={onNext}
                 type="button"
               >

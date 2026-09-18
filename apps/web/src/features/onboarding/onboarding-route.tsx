@@ -2,7 +2,8 @@ import { Navigate, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 
 import { AuthLoadingPage } from '../auth/auth-pages';
-import { completeOnboarding, useOnboardingEligibility } from './first-run';
+import { toast } from '../../ui/primitives/toast';
+import { useCompleteOnboarding, useOnboardingEligibility } from './first-run';
 import { OnboardingShell } from './components/onboarding-shell';
 import { OnboardingSplash } from './components/onboarding-splash';
 import {
@@ -19,13 +20,14 @@ import './onboarding.css';
 export function OnboardingRoute() {
   const eligibility = useOnboardingEligibility();
   if (eligibility.status === 'loading') return <AuthLoadingPage />;
-  if (eligibility.status === 'complete' || eligibility.status === 'console')
+  if (eligibility.status === 'complete')
     return <Navigate replace to="/overview" />;
   return <OnboardingPreview />;
 }
 
 function OnboardingPreview() {
   const navigate = useNavigate();
+  const completion = useCompleteOnboarding();
   const [draft, setDraft] = useState(initialOnboardingDraft);
   const [paused, setPaused] = useState(false);
   const [started, setStarted] = useState(false);
@@ -53,8 +55,13 @@ function OnboardingPreview() {
 
   function next() {
     if (step === 4) {
-      completeOnboarding();
-      void navigate({ to: '/overview' });
+      completion.mutate(undefined, {
+        onSuccess: () => void navigate({ to: '/overview' }),
+        onError: () =>
+          toast.error('Gantry could not save your onboarding progress.', {
+            action: { label: 'Retry', onClick: next },
+          }),
+      });
       return;
     }
     setStep((current) => (current + 1) as OnboardingStep);
@@ -65,6 +72,7 @@ function OnboardingPreview() {
       onBack={back}
       onNext={next}
       onStepChange={setStep}
+      nextDisabled={step === 4 && completion.isPending}
       step={step}
     >
       {step === 1 ? (

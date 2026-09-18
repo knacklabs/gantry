@@ -1,12 +1,30 @@
-import { queryOptions, useQuery } from '@tanstack/react-query';
+import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { browserFetch } from '../../lib/auth/browser-auth';
+import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
 import { toast } from '../../ui/primitives/toast';
 
-export const ONBOARDING_COMPLETE_KEY = 'gantry.onboarding.ui-v2-complete';
-
 type AgentPage = { total: number };
+type OnboardingStatus = { completed: boolean };
+
+export const onboardingStatusQuery = queryOptions({
+  queryKey: ['onboarding', 'status'],
+  queryFn: async (): Promise<OnboardingStatus> => {
+    const response = await browserFetch('/ui/api/onboarding/status', {
+      credentials: 'same-origin',
+    });
+    if (!response.ok)
+      throw new Error('Gantry could not check your onboarding status.');
+    return response.json() as Promise<OnboardingStatus>;
+  },
+  retry: 3,
+  retryDelay: (attempt) => [500, 1_000, 2_000][attempt] ?? 2_000,
+});
 
 export const firstRunAgentQuery = queryOptions({
   queryKey: ['onboarding', 'first-run-agent-count'],
@@ -21,37 +39,52 @@ export const firstRunAgentQuery = queryOptions({
   retryDelay: (attempt) => [500, 1_000, 2_000][attempt] ?? 2_000,
 });
 
-export function hasCompletedOnboarding() {
-  try {
-    return localStorage.getItem(ONBOARDING_COMPLETE_KEY) === 'true';
-  } catch {
-    return false;
-  }
+async function completeOnboarding() {
+  const response = await browserFetch('/ui/api/onboarding/complete', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: browserCsrfHeader(),
+  });
+  if (!response.ok)
+    throw new Error('Gantry could not save your onboarding progress.');
 }
 
-export function completeOnboarding() {
-  try {
-    localStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
-  } catch {
-    // A private browser can still enter the console for this visit.
-  }
+export function useCompleteOnboarding() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: completeOnboarding,
+    onSuccess: () => {
+      queryClient.setQueryData(onboardingStatusQuery.queryKey, {
+        completed: true,
+      });
+    },
+  });
 }
 
 export function useOnboardingEligibility() {
-  const completed = hasCompletedOnboarding();
-  const query = useQuery({ ...firstRunAgentQuery, enabled: !completed });
+  const statusQuery = useQuery(onboardingStatusQuery);
+  const query = useQuery({
+    ...firstRunAgentQuery,
+    enabled: statusQuery.data?.completed === false,
+  });
 
   useEffect(() => {
-    if (!query.isError) return;
+    if (!statusQuery.isError && !query.isError) return;
     toast.error('Could not confirm whether Gantry already has an employee.', {
       id: 'onboarding-agent-check',
-      action: { label: 'Retry', onClick: () => void query.refetch() },
+      action: {
+        label: 'Retry',
+        onClick: () =>
+          void Promise.all([statusQuery.refetch(), query.refetch()]),
+      },
     });
-  }, [query.isError, query.refetch]);
+  }, [query.isError, query.refetch, statusQuery.isError, statusQuery.refetch]);
 
-  if (completed) return { status: 'complete' as const, query };
+  if (statusQuery.isPending) return { status: 'loading' as const, query };
+  if (statusQuery.isError || query.isError)
+    return { status: 'fallback' as const, query };
+  if (statusQuery.data.completed) return { status: 'complete' as const, query };
   if (query.isPending) return { status: 'loading' as const, query };
-  if (query.isError) return { status: 'fallback' as const, query };
   return {
     status:
       query.data.total === 0 ? ('onboarding' as const) : ('console' as const),

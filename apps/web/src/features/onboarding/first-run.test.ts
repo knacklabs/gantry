@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import { firstRunAgentQuery, ONBOARDING_COMPLETE_KEY } from './first-run';
+import { firstRunAgentQuery, onboardingStatusQuery } from './first-run';
 
 describe('first-run onboarding gate', () => {
   it('uses the existing agent directory with bounded retries', () => {
@@ -19,19 +19,27 @@ describe('first-run onboarding gate', () => {
     expect(retryDelay(2, new Error())).toBe(2_000);
   });
 
-  it('keeps completion browser-local and setup actions transport-free', () => {
+  it('uses the authenticated completion endpoint instead of browser storage', () => {
     const gate = readFileSync('src/features/onboarding/first-run.ts', 'utf8');
     const route = readFileSync(
       'src/features/onboarding/onboarding-route.tsx',
       'utf8',
     );
-
-    expect(ONBOARDING_COMPLETE_KEY).toBe('gantry.onboarding.ui-v2-complete');
-    expect(gate).toContain('/ui/api/agents?page=1&pageSize=1');
-    expect(gate).toContain(
-      "localStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true')",
+    const overview = readFileSync(
+      'src/features/operations/routes/overview-route.tsx',
+      'utf8',
     );
+
+    expect(onboardingStatusQuery.queryKey).toEqual(['onboarding', 'status']);
+    expect(gate).toContain('/ui/api/agents?page=1&pageSize=1');
+    expect(gate).toContain('/ui/api/onboarding/status');
+    expect(gate).toContain('/ui/api/onboarding/complete');
+    expect(gate).not.toContain('localStorage');
     expect(route).toContain("navigate({ to: '/overview' })");
+    expect(route).not.toContain("eligibility.status === 'console'");
+    expect(overview).toContain('Dismiss onboarding reminder');
+    expect(overview).toContain('Do you want to complete onboarding?');
+    expect(overview).toContain('to="/onboarding"');
     expect(route).not.toContain('fetch(');
   });
 });
