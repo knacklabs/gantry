@@ -120,14 +120,16 @@ export function OnboardingShell({
             >
               Back
             </button>
-            <button
-              className="onboarding-primary"
-              onClick={onNext}
-              type="button"
-            >
-              {step === 4 ? 'Open the console' : 'Continue'}
-              <ChevronRight aria-hidden="true" size={15} />
-            </button>
+            {step !== 3 ? (
+              <button
+                className="onboarding-primary"
+                onClick={onNext}
+                type="button"
+              >
+                {step === 4 ? 'Open the console' : 'Continue'}
+                <ChevronRight aria-hidden="true" size={15} />
+              </button>
+            ) : null}
           </footer>
         </main>
       </div>

@@ -32,7 +32,6 @@ function OnboardingPreview() {
   const [step, setStep] = useState<OnboardingStep>(1);
   const [previewReady, setPreviewReady] = useState(false);
   const [workspaceConnected, setWorkspaceConnected] = useState(false);
-  const [assigned, setAssigned] = useState(false);
   const updateDraft = (update: Partial<OnboardingDraft>) =>
     setDraft((current) => ({ ...current, ...update }));
 
@@ -86,10 +85,9 @@ function OnboardingPreview() {
       ) : null}
       {step === 3 ? (
         <AssignWorkStep
-          assigned={assigned}
           draft={draft}
           onChange={updateDraft}
-          setAssigned={setAssigned}
+          onContinue={next}
         />
       ) : null}
       {step === 4 ? <SayHelloStep draft={draft} /> : null}

@@ -276,6 +276,182 @@
     font-size: 14.5px;
     line-height: 1.6;
   }
+  .onboarding-card {
+    display: grid;
+    gap: 12px;
+    width: min(100%, 560px);
+    margin: auto;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--shadow-panel);
+    padding: 16px;
+  }
+  .onboarding-model-card {
+    gap: 0;
+    padding: 0;
+  }
+  .onboarding-field {
+    display: grid;
+    gap: 6px;
+  }
+  .onboarding-field > span {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .onboarding-field input,
+  .onboarding-field select {
+    width: 100%;
+    height: 34px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface-muted);
+    color: var(--text);
+    padding: 0 11px;
+    font: inherit;
+    font-size: 13px;
+  }
+  .onboarding-provider-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .onboarding-provider-heading > span:last-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--status-attention);
+    border-radius: 999px;
+    background: var(--status-attention-soft);
+    padding: 3px 10px;
+    color: var(--status-attention);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+  .onboarding-provider-heading > span:last-child i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: onboarding-pulse 1.9s ease-in-out infinite;
+  }
+  .onboarding-provider-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+    gap: 8px;
+    padding: 13px 16px;
+  }
+  .onboarding-provider-options button {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 7px 9px;
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+  }
+  .onboarding-provider-options button.is-selected {
+    border: 2px solid var(--ink);
+  }
+  .onboarding-provider-mark {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    place-items: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-muted);
+    color: var(--text-secondary);
+  }
+  .onboarding-provider-mark svg {
+    width: 17px;
+    height: 17px;
+  }
+  .onboarding-provider-options button.is-selected > .onboarding-provider-mark {
+    border-color: var(--status-attention);
+    background: var(--status-attention-soft);
+  }
+  .onboarding-model-choice {
+    display: grid;
+    gap: 12px;
+    margin-top: 2px;
+    border-top: 1px solid var(--border);
+    padding: 13px 16px 16px;
+  }
+  .onboarding-validate {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 7px;
+    height: 34px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface-muted);
+    color: var(--text);
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .onboarding-help {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .onboarding-hello {
+    justify-items: center;
+    padding: 22px 18px;
+    text-align: center;
+  }
+  .onboarding-ping {
+    display: flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 9px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+    background: var(--surface-muted);
+    padding: 7px 9px 7px 13px;
+  }
+  .onboarding-ping code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+  .onboarding-sweep {
+    width: min(100%, 230px);
+    height: 3px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--surface-strong);
+  }
+  .onboarding-sweep i {
+    display: block;
+    width: 40%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--status-attention);
+    animation: onboarding-sweep 1.9s ease-in-out infinite;
+  }
   .onboarding-actions {
     display: flex;
     width: min(100%, 560px);
