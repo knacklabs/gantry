@@ -5,18 +5,44 @@ import {
 } from '@tanstack/react-router';
 
 import { PreferencesRoute } from '../../features/preferences/preferences-route';
+import { AuthLoadingPage } from '../../features/auth/auth-pages';
+import { useOnboardingEligibility } from '../../features/onboarding/first-run';
 import { rootRoute } from '../root-route';
+
+function HomeRoute() {
+  const eligibility = useOnboardingEligibility();
+  if (eligibility.status === 'loading') return <AuthLoadingPage />;
+  return (
+    <Navigate
+      replace
+      to={
+        eligibility.status === 'onboarding' || eligibility.status === 'fallback'
+          ? '/onboarding'
+          : '/overview'
+      }
+    />
+  );
+}
 
 const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: () => <Navigate replace to="/overview" />,
+  component: HomeRoute,
 });
 
 const profileRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'profile',
   component: PreferencesRoute,
+});
+
+const onboardingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'onboarding',
+  component: lazyRouteComponent(
+    () => import('../../features/onboarding/onboarding-route'),
+    'OnboardingRoute',
+  ),
 });
 
 const componentLabRoute = import.meta.env.DEV
@@ -41,7 +67,7 @@ const interactionLabRoute = import.meta.env.DEV
     })
   : undefined;
 
-export const foundationRoutes = [homeRoute, profileRoute];
+export const foundationRoutes = [homeRoute, profileRoute, onboardingRoute];
 export const developmentRoutes = [
   componentLabRoute,
   interactionLabRoute,

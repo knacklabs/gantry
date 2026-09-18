@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="KnackLabs">
+  <rect width="24" height="24" rx="6" fill="#65E8AA"/>
+  <g fill="none" stroke="#17342B" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4">
+    <path d="m6.1 6.2 2 2M9.8 6.2v3.7H6.1M14.4 6.2l-3 3M17.9 6.2l-4.3 4.3 4.3 4.3M6.1 17.8l2-2M9.8 17.8v-3.7H6.1M14.4 17.8l-3-3"/>
+  </g>
+</svg>

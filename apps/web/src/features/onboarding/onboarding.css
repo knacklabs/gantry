@@ -1,0 +1,65 @@
+@layer components {
+  .onboarding-splash {
+    background:
+      linear-gradient(118deg, rgb(19 18 17 / 95%), rgb(25 23 20 / 73%)),
+      repeating-linear-gradient(
+        90deg,
+        transparent 0 53px,
+        rgb(240 238 234 / 4.5%) 54px 55px
+      ),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0 53px,
+        rgb(240 238 234 / 4%) 54px 55px
+      ),
+      #131211;
+  }
+
+  .onboarding-brand-mark {
+    width: 19px;
+    height: 19px;
+    background:
+      linear-gradient(var(--ink) 0 0) 100% 0 / 7px 7px no-repeat,
+      linear-gradient(var(--ink) 0 0) 50% 50% / 7px 7px no-repeat,
+      linear-gradient(var(--status-attention) 0 0) 100% 100% / 7px 7px no-repeat,
+      linear-gradient(var(--ink) 0 0) 0 100% / 7px 7px no-repeat;
+  }
+
+  .onboarding-role-roll {
+    display: inline-block;
+    max-width: min(29ch, 68vw);
+    overflow: hidden;
+    color: #f0eeea;
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    animation: onboarding-role-roll 16.8s cubic-bezier(0.76, 0, 0.24, 1)
+      infinite;
+  }
+
+  .onboarding-role-roll.is-paused {
+    animation-play-state: paused;
+  }
+}
+
+@keyframes onboarding-role-roll {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-34%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-role-roll {
+    animation: none;
+  }
+}
+
+:root[data-motion='reduced'] .onboarding-role-roll {
+  animation: none;
+}
