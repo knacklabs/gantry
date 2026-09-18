@@ -41,11 +41,24 @@ export function OnboardingSplash({
         <div className="grid gap-2 text-[clamp(14px,1.8vw,16px)] leading-[1.5] text-[#b5b1aa]">
           <span>Your organisation’s new</span>
           <span className="flex items-center justify-center gap-2">
-            <span
-              className={`onboarding-role-roll ${paused ? 'is-paused' : ''}`}
-            >
-              HR assistant · support desk · research analyst · ops watchdog ·
-              note taker · executive assistant
+            <span aria-live="off" className="onboarding-role-roll">
+              <span
+                className={`onboarding-role-roll ${paused ? 'is-paused' : ''}`}
+              >
+                {[
+                  'HR assistant',
+                  'support desk',
+                  'research analyst',
+                  'ops watchdog',
+                  'note taker',
+                  'executive assistant',
+                  'HR assistant',
+                ].map((role, index) => (
+                  <span className="block h-6" key={`${role}-${index}`}>
+                    {role}
+                  </span>
+                ))}
+              </span>
             </span>
             <button
               aria-label={

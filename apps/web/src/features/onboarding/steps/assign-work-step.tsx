@@ -1,4 +1,5 @@
 import { Check, Hash, ShieldCheck, Users } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { Button } from '../../../ui/primitives/button';
 import type { OnboardingDraft } from '../onboarding-state';
@@ -90,7 +91,7 @@ function ChoiceCard({
   icon: Icon,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   icon: typeof Hash;
   title: string;
 }) {

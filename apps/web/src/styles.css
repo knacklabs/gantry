@@ -44,7 +44,7 @@
   --font-display: 'Schibsted Grotesk', 'DM Sans', system-ui, sans-serif;
   --shadow-control: 0 1px 2px rgb(27 26 24 / 8%);
   --shadow-panel: 0 1px 2px rgb(27 26 24 / 5%);
-  --shadow-popover: 0 16px 40px -16px rgb(27 26 24 / 30%);
+  --shadow-popover: 0 24px 48px -20px rgb(27 26 24 / 30%);
   --shadow-drawer: 12px 0 28px rgb(27 26 24 / 16%);
   --shadow-lift: 0 18px 34px -22px rgb(27 26 24 / 34%);
   --ease-gantry: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -73,7 +73,7 @@
   --danger: #a85439;
   --danger-soft: #f2e0d8;
   --status-idle: #8a6a3c;
-  --overlay: rgb(27 26 24 / 42%);
+  --overlay: rgb(27 26 24 / 40%);
   --focus-ring: #2f6b55;
   --table-panel-header-height: 3.375rem;
   --table-panel-padding-inline: 0.9375rem;
@@ -111,6 +111,11 @@
   --status-idle: #c0985f;
   --overlay: rgb(0 0 0 / 62%);
   --focus-ring: #6fbb99;
+  --shadow-control: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-popover: 0 24px 48px -20px rgb(0 0 0 / 75%);
+  --shadow-drawer: 12px 0 28px rgb(0 0 0 / 55%);
+  --shadow-lift: 0 18px 34px -22px rgb(0 0 0 / 80%);
 }
 
 @layer base {
@@ -239,6 +244,20 @@
     background: var(--surface-strong);
     color: var(--text);
   }
+
+  .gantry-toast-action {
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--ink);
+    padding: 0.375rem 0.5rem;
+    color: var(--ink-on);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .gantry-toast-action:hover {
+    background: var(--ink-hover);
+  }
 }
 
 @layer components {
@@ -281,7 +300,7 @@
     justify-content: space-between;
     overflow: hidden;
     padding: 2.5rem;
-    color: #f0eeea;
+    color: var(--ink-on);
     background:
       linear-gradient(118deg, rgb(19 18 17 / 95%), rgb(25 23 20 / 73%)),
       repeating-linear-gradient(
@@ -354,14 +373,14 @@
 
   .auth-page-signal-copy p {
     margin: 0.9375rem 0 0;
-    color: #b5b1aa;
+    color: color-mix(in srgb, var(--ink-on) 74%, transparent);
     font-size: 1rem;
     line-height: 1.55;
   }
 
   .auth-page-metadata {
     margin: 0;
-    color: #807c75;
+    color: color-mix(in srgb, var(--ink-on) 52%, transparent);
     font-family: var(--font-mono);
     font-size: 0.6875rem;
     letter-spacing: 0.09em;
@@ -379,7 +398,7 @@
     width: min(100%, 23.125rem);
     --card-spacing: 0;
     background: transparent;
-    color: #1b1a18;
+    color: var(--text);
     box-shadow: none;
   }
 

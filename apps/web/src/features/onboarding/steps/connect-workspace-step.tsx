@@ -10,6 +10,7 @@ import { Button } from '../../../ui/primitives/button';
 import { toast } from '../../../ui/primitives/toast';
 import type { OnboardingDraft } from '../onboarding-state';
 import { Heading } from './create-employee-step';
+import { WorkspaceGuideDrawer } from '../components/workspace-guide-drawer';
 
 const channels = [
   [
@@ -50,6 +51,7 @@ export function ConnectWorkspaceStep({
   setConnected: (value: boolean) => void;
 }) {
   const [open, setOpen] = useState('create');
+  const [guideOpen, setGuideOpen] = useState(false);
   const selected = channels.find(([id]) => id === draft.channel) ?? channels[0];
   return (
     <div className="grid gap-6">
@@ -126,11 +128,7 @@ export function ConnectWorkspaceStep({
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button
-                      onClick={() =>
-                        toast.message(
-                          'Preview only—no external workspace was opened.',
-                        )
-                      }
+                      onClick={() => setGuideOpen(true)}
                       type="button"
                       variant="outline"
                     >
@@ -156,6 +154,11 @@ export function ConnectWorkspaceStep({
           );
         })}
       </section>
+      <WorkspaceGuideDrawer
+        channel={selected[1]}
+        onOpenChange={setGuideOpen}
+        open={guideOpen}
+      />
     </div>
   );
 }

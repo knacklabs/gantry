@@ -43,6 +43,7 @@ function AppToaster() {
       toastOptions={{
         unstyled: true,
         classNames: {
+          actionButton: 'gantry-toast-action',
           closeButton: 'gantry-toast-close',
           content: 'gantry-toast-content',
           error: 'gantry-toast-error',

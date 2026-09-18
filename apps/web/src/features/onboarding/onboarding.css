@@ -28,38 +28,54 @@
   .onboarding-role-roll {
     display: inline-block;
     max-width: min(29ch, 68vw);
+    height: 1.5rem;
     overflow: hidden;
     color: #f0eeea;
     font-family: var(--font-display);
     font-weight: 700;
     letter-spacing: -0.02em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    animation: onboarding-role-roll 16.8s cubic-bezier(0.76, 0, 0.24, 1)
-      infinite;
   }
 
-  .onboarding-role-roll.is-paused {
+  .onboarding-role-roll > span {
+    display: block;
+    animation: onboarding-role-roll 16.8s cubic-bezier(0.76, 0, 0.24, 1) infinite;
+  }
+
+  .onboarding-role-roll > .is-paused {
     animation-play-state: paused;
   }
 }
 
 @keyframes onboarding-role-roll {
-  0%,
-  100% {
-    transform: translateX(0);
+  0%, 12% {
+    transform: translateY(0);
   }
-  50% {
-    transform: translateX(-34%);
+  16%, 28% {
+    transform: translateY(-1.5rem);
+  }
+  32%, 44% {
+    transform: translateY(-3rem);
+  }
+  48%, 60% {
+    transform: translateY(-4.5rem);
+  }
+  64%, 76% {
+    transform: translateY(-6rem);
+  }
+  80%, 92% {
+    transform: translateY(-7.5rem);
+  }
+  100% {
+    transform: translateY(-9rem);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-role-roll {
+  .onboarding-role-roll > span {
     animation: none;
   }
 }
 
-:root[data-motion='reduced'] .onboarding-role-roll {
+:root[data-motion='reduced'] .onboarding-role-roll > span {
   animation: none;
 }
