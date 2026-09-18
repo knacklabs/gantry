@@ -47,7 +47,7 @@ export function AuthCard({
       </a>
       <aside className="auth-page-signal" aria-label="Gantry console access">
         <div className="auth-page-brand">
-          <GantryLogo className="h-6 w-[102px] text-[#c0985f]" />
+          <GantryLogo className="h-6 w-[102px] text-status-attention" />
         </div>
         <div className="auth-page-signal-copy">
           <h1>{signalTitle}</h1>
