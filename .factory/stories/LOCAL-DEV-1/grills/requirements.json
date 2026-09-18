@@ -1,0 +1,107 @@
+{
+  "generated_by": "griller",
+  "gate": "requirements",
+  "verdict": "pass",
+  "summary": "Third cold-read requirements grill (gpt-5.6-sol @ high) re-read docs/specs/local-dev-launch.md against current repository state. Found 13 findings spanning recovery-marker semantics, fresh-database settings-authority ordering, a missing revision-skew check, a decision 0006/0162 precedence gap, TTY-safety reachability, a self-contradictory-looking ownership-marker lifecycle, incomplete orphan-hardening, a false architecture-exception claim, stale doc mentions of removed CLI surface, and a non-falsifiable build-equivalence criterion. The owner resolved the two genuine tradeoffs (recovery-marker UX, Vite-orphan scope) via AskUserQuestion; every other finding was repository-answerable and fixed directly in the amended spec (docs/specs/local-dev-launch.md) and decision 0162.",
+  "gaps": [
+    "The reset-in-progress marker's remediation (\"rerun the same reset command\") deterministically refuses again on a genuine crash, since the marker never clears itself and the command has no way to know the operator already checked the state by hand.",
+    "The orphan-hardening requirement is only partly met: the pg_stat_activity check catches an orphaned core process but not an orphaned Vite process, which holds no DB connection and can keep squatting the UI port after a supervisor crash.",
+    "reset-db drops the settings_revisions table it just validated as authoritative, and the spec let settings.yaml govern restart only for a genuinely fresh home, with no recovery-copy behavior stated in the requirements even though the draft plan already resolved it.",
+    "The spec forbade migrations until settings_revisions is checked, but that table does not exist on a genuinely fresh database (created by migration 0077), and the spec did not distinguish a missing table from a failed query.",
+    "The 'no mutation before checks' rule appeared to contradict the reversible bootstrap-then-check start it depends on, and fresh-home bootstrap (.env, marker, container, volume creation) had the same unresolved ordering ambiguity.",
+    "Decision 0025's min_reader_version revision-skew rejection, already enforced by normal startup, was not stated as required for the local preflight settings read.",
+    "The spec let process environment override runtime .env for GANTRY_CONTROL_HOST/PORT, but decision 0006 forbids process-env overrides for settings-owned values and decision 0162 did not yet say these two keys were exempt.",
+    "The TTY safety requirement was not reachable as written: gantry ui authorize always prints the raw URL as a subprocess, and apps/core/src/cli/auth.ts was outside the write scope, so the supervisor's TTY gate could not actually apply; the link was also inconsistently described as both guaranteed and optional.",
+    "The ownership-marker lifecycle read as self-contradictory: 'never' written after first bootstrap, but also 'rewritten fresh' by full reset, with no stated marker path, atomic-creation method, or reset-variant payload.",
+    "The spec claimed a one-call architecture exception for local.ts already existed; scripts/architecture-exceptions.json has no such entry, and decision 0001 forbids CLI-owned persistence mutation while the requirements placed revision reads, pg_stat_activity, and schema resets directly in CLI code with only a spawn exception named.",
+    "The verification section's exemption from the repository's disposable-Postgres integration-test law needed re-confirmation now that this task reads settings revisions, queries pg_stat_activity, and recreates schemas.",
+    "Removing local status/local doctor left docs/architecture/overview.md, docs/SPEC.md, and a runtime recovery message advertising the removed commands, and the roadmap entry still described an unconditional link guarantee.",
+    "The build-equivalence acceptance criterion ('produces the same dist/ output as today') named no falsifiable check, so both builds could exit successfully while silently differing."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Owner chose an explicit operator-acknowledgment flag (--after-manual-recovery): the marker records the interrupted variant; the refusal is lifted only when the operator passes that flag after manually inspecting local state, not by blindly rerunning the same command.",
+    "Owner chose to close the gap now: local start writes core/Vite PIDs to a local file under the runtime home; stop and the next start's preflight detect and terminate a leftover orphaned Vite process from it.",
+    "Spec now states the reset-db/reset desired-state recovery copy: before the destructive schema step, the validated authoritative revision is written out as settings.yaml so post-reset restart imports the same desired configuration.",
+    "Spec now distinguishes a missing settings_revisions table (genuinely fresh database, fall back to settings.yaml) from any other query failure (a real error, refuse).",
+    "Spec now clarifies 'no mutation before checks' governs destructive steps against existing state only; the reversible bootstrap-then-check start, and additive fresh-home bootstrap steps (home dir, marker, .env, container/volume), are not destructive and are safe to leave in place if a later check fails; only a container this invocation itself started is stopped on failure.",
+    "Spec now requires the same min_reader_version skew rejection normal startup enforces before treating a read revision as authoritative for a destructive step.",
+    "Decision 0162 amended to state process environment may override .env specifically for GANTRY_CONTROL_HOST/GANTRY_CONTROL_PORT, narrowly, matching ordinary bootstrap ergonomics; spec cross-references this.",
+    "Spec now requires the in-process authorization-issuance path (the same function gantry ui authorize uses) rather than inheriting a spawned subprocess's stdio, so the supervisor's TTY gate can actually apply without modifying auth.ts; link issuance is stated as mandatory-attempt/fail-open, not optional.",
+    "Spec now states the marker path (<home>/.gantry-owned), atomic write method, and clarifies a full reset only rewrites an ALREADY-marked home (re-affirming existing ownership, not first-time retroactive marking); both markers are classified as local runtime-home bootstrap state, outside the Postgres-first durable-state boundary.",
+    "Spec now states the architecture exception does not yet exist on disk and this task adds it; decision 0001's persistence-mutation restriction is resolved via the plan-gate's already-decided bounded deviation: one new file, apps/core/src/cli/local-postgres.ts, local-operator-only, never imported by agent/tool/job code.",
+    "Re-affirmed the prior recorded resolution (requirements grill, 2026-09-17): manual verification against a real disposable Postgres container satisfies the repository's DB-backed-change law here, since the behavior under test is CLI/process lifecycle, not application-layer queries; no new automated integration-test lane is required.",
+    "Spec now scopes doc-consistency fixes: docs/architecture/overview.md, docs/SPEC.md, the storage-readiness.ts recovery message, and the plans/roadmap.json entry are updated to drop references to the removed CLI surface and to state the mandatory-attempt/fail-open link behavior.",
+    "Spec now defines the falsifiable build-equivalence check: identical sorted dist/ relative file-path listings between pre- and post-change build:runtime/build, both exiting zero with no new errors/warnings."
+  ],
+  "open_items": [],
+  "rounds": [
+    {
+      "question": "The cold-read requirements grill found the reset-in-progress marker's remediation (\"rerun the same reset command\") deterministically refuses again on a genuine crash, since the marker never clears itself and the command has no way to know the operator already checked the state by hand. How should recovery actually work?",
+      "options": [
+        "Explicit operator acknowledgment flag (Recommended)",
+        "Make the interrupted step itself resumable"
+      ],
+      "chosen": "Explicit operator acknowledgment flag (Recommended)"
+    },
+    {
+      "question": "The grill found the orphan-hardening requirement is only partly met: the `pg_stat_activity` check catches an orphaned core process (it holds a DB connection) but not an orphaned Vite process, which is detached, holds no DB connection, and can keep squatting the UI port after a supervisor crash even though `local stop` reports success and stops Postgres. Close this gap now or accept it as a known limitation?",
+      "options": [
+        "Track child PIDs in a local file (Recommended)",
+        "Accept as a documented limitation for now"
+      ],
+      "chosen": "Track child PIDs in a local file (Recommended)",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "reset-db drops the settings_revisions table it just validated as authoritative, and the spec let settings.yaml govern restart only for a genuinely fresh home, with no recovery-copy behavior stated in the requirements even though the draft plan already resolved it.",
+      "source": "docs/local-dev-full-plan-draft.md:158"
+    },
+    {
+      "finding": "The spec forbade migrations until settings_revisions is checked, but that table does not exist on a genuinely fresh database (created by migration 0077), and the spec did not distinguish a missing table from a failed query.",
+      "source": "apps/core/src/adapters/storage/postgres/schema/migrations/0077_fleet_capability_state.sql:24"
+    },
+    {
+      "finding": "The 'no mutation before checks' rule appeared to contradict the reversible bootstrap-then-check start it depends on, and fresh-home bootstrap (.env, marker, container, volume creation) had the same unresolved ordering ambiguity.",
+      "source": "docs/specs/local-dev-launch.md:106"
+    },
+    {
+      "finding": "Decision 0025's min_reader_version revision-skew rejection, already enforced by normal startup, was not stated as required for the local preflight settings read.",
+      "source": "apps/core/src/app/bootstrap/startup.ts:308"
+    },
+    {
+      "finding": "The spec let process environment override runtime .env for GANTRY_CONTROL_HOST/PORT, but decision 0006 forbids process-env overrides for settings-owned values and decision 0162 did not yet say these two keys were exempt.",
+      "source": "docs/decisions/0006-config-secret-source-boundary.md:39"
+    },
+    {
+      "finding": "The TTY safety requirement was not reachable as written: gantry ui authorize always prints the raw URL as a subprocess, and apps/core/src/cli/auth.ts was outside the write scope, so the supervisor's TTY gate could not actually apply; the link was also inconsistently described as both guaranteed and optional.",
+      "source": "apps/core/src/cli/auth.ts:24"
+    },
+    {
+      "finding": "The ownership-marker lifecycle read as self-contradictory: 'never' written after first bootstrap, but also 'rewritten fresh' by full reset, with no stated marker path, atomic-creation method, or reset-variant payload.",
+      "source": "docs/specs/local-dev-launch.md:144"
+    },
+    {
+      "finding": "The spec claimed a one-call architecture exception for local.ts already existed; scripts/architecture-exceptions.json has no such entry, and decision 0001 forbids CLI-owned persistence mutation while the requirements placed revision reads, pg_stat_activity, and schema resets directly in CLI code with only a spawn exception named.",
+      "source": "scripts/architecture-exceptions.json:276"
+    },
+    {
+      "finding": "The verification section's exemption from the repository's disposable-Postgres integration-test law needed re-confirmation now that this task reads settings revisions, queries pg_stat_activity, and recreates schemas.",
+      "source": "docs/architecture/current-verification-commands.md:173"
+    },
+    {
+      "finding": "Removing local status/local doctor left docs/architecture/overview.md, docs/SPEC.md, and a runtime recovery message advertising the removed commands, and the roadmap entry still described an unconditional link guarantee.",
+      "source": "docs/architecture/overview.md:676"
+    },
+    {
+      "finding": "The build-equivalence acceptance criterion ('produces the same dist/ output as today') named no falsifiable check, so both builds could exit successfully while silently differing.",
+      "source": "docs/specs/local-dev-launch.md:280"
+    }
+  ],
+  "issue": "LOCAL-DEV-1",
+  "input_sha256": "03f94a27b532af207abf627bea0954f3eb7eb906383c28a3ca18ae144075c0ba",
+  "recorded_at": "2026-09-17T15:42:23+00:00",
+  "commit": "1a74d670baa5e4f71e7093131b0820d8e90fff16"
+}

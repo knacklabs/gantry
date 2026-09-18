@@ -275,9 +275,9 @@
   {
     "file": "apps/core/src/cli/local.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+    "reason": "Bounded source-local supervisor access to the canonical settings-revision recovery document; capped until the planned local-postgres extraction moves persistence out of the CLI.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 3
+    "maxViolations": 4
   },
   {
     "file": "apps/core/src/cli/memory-health.ts",
@@ -1433,6 +1433,13 @@
     "reason": "anthropic_sdk is a deliberate sentinel token of the agent-harness selection contract (decision 0028); relocation would force a forbidden application-to-adapter import. Exact ratchet; review trigger ledgered as deferral D-0004.",
     "removeByPhase": "agent-harness-vocabulary-supersedes-0028",
     "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/cli/local.ts",
+    "rule": "direct_risky_execution",
+    "reason": "The explicit source-local operator command supervises only Gantry core and Vite child processes; it is not available to agents, jobs, or tools. Capped until local supervision moves behind an application port.",
+    "removeByPhase": "local-supervisor-application-port",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/memory/app-memory-session-scope.ts",

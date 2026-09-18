@@ -1,4 +1,4 @@
-# Cold-read grill — gate: requirements — requirements for GRANTED-1 (docs/specs/granted-capability-is-visible.md)
+# Cold-read grill — gate: requirements — requirements for LOCAL-DEV-1 (docs/specs/local-dev-launch.md)
 
 You did NOT write what follows. Read it cold, as an adversary trying to break the handover, never as its author defending it. You are READ-ONLY: return findings, change nothing.
 
@@ -11,13 +11,29 @@ name: grilling
 description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.
 ---
 
-Interview me relentlessly about every aspect of this until we reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
 
-Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
+Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.
 
-If a *fact* can be found by exploring the environment (filesystem, tools, etc.), look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
+Format a round like so:
 
-Do not act on it until I confirm we have reached a shared understanding.
+```
+❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
+
+➡️ <your recommended answer>
+
+---
+
+❓ **Q2** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
+
+➡️ <your recommended answer>
+```
+
+Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
+
+Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it; don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report; ask the rest of the frontier now. The _decisions_ are the user's: put each to them and wait.
+
+The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
 
 
 ## Harness grill contract
@@ -359,6 +375,7 @@ downstream implementation inherits whatever you let through.
 
 
 
+
 ## Already answered on this story — verify, do not re-ask
 
 These questions were put to the human and answered. Two obligations:
@@ -382,6 +399,8 @@ These questions were put to the human and answered. Two obligations:
   A: Owner for persona; administrator for access (Recommended)
 - Q: Anything else to settle before I confirm these eleven specs and open the PR?
   A: No — confirm and open the PR (Recommended)
+- Q: Which change should the artifact reflect?
+  A: The new task-level loop from PR 443 (story → tasks → task plan in plan mode → task grill)
 - Q: If the job card itself can't be created for a request (DB down, no group route), what should the run get?
   A: Deny the tool call with a plain reason (Recommended)
 - Q: Anything else to settle for JOBPERM-2 before I confirm the spec and plan it?
@@ -390,193 +409,391 @@ These questions were put to the human and answered. Two obligations:
   A: Keep separate (Recommended)
 - Q: The independent cold read found no contradictions. Is the current Skills UI spec ready to confirm?
   A: Confirm spec (Recommended)
+- Q: Reviewers want a ~2-minute demo right after the problem statement. What anchor can you actually deliver on stage?
+  A: Live Telegram demo (Recommended)
+- Q: Srix: title and talk didn't match; the strong anchor is "OpenClaw, but for the org". What's the new title direction?
+  A: OpenClaw-anchored (Recommended)
+- Q: Where do I build the rewritten deck?
+  A: Update same design canvas (Recommended)
 - Q: Should re-enabling a disabled provider preserve omitted stored fields through the existing sparse PATCH flow?
   A: Preserve via PATCH (Recommended)
 - Q: Should first setup prevent saving or constructing a request until a multi-method provider’s authentication method is explicitly selected?
   A: Require selection (Recommended)
-- Q: Before the plan goes to the board, what happens to the held pull request 500?
-  A: Land it now as a stopgap (Recommended)
-- Q: If an agent's granted capabilities will not fit the prompt section, what should it see?
-  A: Names always, details degrade (Recommended)
-- Q: Six reads in, the two halves are behaving like different-sized problems. Split them?
-  A: Split the spec (Recommended)
-- Q: An argument shape can contain a fixed operand like a config path. What should the agent be shown?
-  A: Never show argument shapes
-- Q: A reviewed argument shape can contain a fixed operand like a config path or account id. What should the agent be shown?
-  A: Show the reviewed shape as-is
-- Q: Before this hands off to the plan, the live five-run check on the real job: gate or evidence?
-  A: Evidence, not a gate (Recommended)
-- Q: The two runtimes name tools differently. Should the catalog serve both, or just the one the job runs on?
-  A: Render a neutral name and let each lane translate
+- Q: gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` — it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?
+  A: Add ownership checks now (Recommended)
+- Q: core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?
+  A: Enforce local-mode defaults now (Recommended)
+- Q: Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?
+  A: Fix now, same write scope (Recommended)
+- Q: Automated tests mock Postgres/Docker/processes entirely — they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?
+  A: Keep mocked unit tests + my manual verification (Recommended)
+- Q: Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?
+  A: Harden ordering + orphan detection now (Recommended)
+- Q: That covers every finding from the cold-read grill. Any remaining gap before I amend the spec to what you've decided and move to the plan gate?
+  A: No — proceed to amend and record the grill pass (Recommended)
+- Q: Two consecutive Codex cold-read attempts for the LOCAL-DEV-1 requirements gate stalled for 30+ minutes each inside the shared codex app-server process (the same process also serving your ChatGPT desktop app), producing zero output before I had to stop them. This tripped the harness's 2-attempt escalation cap. How would you like to proceed?
+  A: Retry once more now (Recommended)
+- Q: Decision 0025 makes the Postgres settings_revisions table authoritative over settings.yaml, but reading it requires Postgres to be up — while the spec also says nothing destructive/mutating runs before authority checks pass. How should startup resolve this chicken-and-egg?
+  A: Reversible bootstrap-then-check (Recommended)
+- Q: The implementation exposes undocumented `local status`/`local doctor` (duplicating existing top-level `gantry status`/`gantry doctor`), and bare `gantry local` silently starts the whole dev stack instead of doing nothing. Fix this CLI surface now?
+  A: Remove duplicates, bare command prints usage (Recommended)
+- Q: The one-time authorization link is a 10-minute admin credential. Right now it always prints to inherited stdout, so shell redirection, IDE task logs, or CI capture could persist it — contradicting the no-token-in-evidence rule.
+  A: TTY-gate the raw URL (Recommended)
+- Q: Preflight-then-destroy ordering (already decided) prevents refusal-after-partial-mutation, but does nothing for a crash that happens AFTER the DB schema commit and BEFORE filesystem cleanup finishes — that leaves mixed old/new state with no way to detect or resume it.
+  A: Add a durable reset-in-progress marker now (Recommended)
+- Q: That's everything from this cold read plus the repo-answerable fixes I'll make myself (settings-authority check via the DB revision not just YAML, the correct snake_case settings key, narrowing the session-preservation criterion to exclude reset, removing the decision-0003-violating retroactive ownership marker, binding reset to the exact managed endpoint, covering the extra schema-override env vars, reusing the DB active-connection check for orphan detection instead of a public health probe, fixing reset's stop-before-preflight ordering, and registering the deferred items with `forge defer add`). Any remaining gap before I amend the spec/plan and record this gate?
+  A: No — proceed to amend and record (Recommended)
+- Q: The current staged diff is already 1,646 additions across eight files before the remaining destructive-safety work, and the sole task covers roughly twenty distinct proof seams — too large for one bounded task/PR.
+  A: Keep one task with an explicit size budget
 
-## The artifact under interrogation (requirements for GRANTED-1 (docs/specs/granted-capability-is-visible.md))
+## The artifact under interrogation (requirements for LOCAL-DEV-1 (docs/specs/local-dev-launch.md))
 
 ---
-slug: granted-capability-is-visible
-title: A granted capability is visible to the agent that holds it
+slug: local-dev-launch
+title: Local development launch and reset
 status: confirmed
-saved: 2026-09-10T13:44:12+00:00
+saved: 2026-09-17T13:16:48+00:00
 ---
 
-# A granted capability is visible to the agent that holds it
+# Local development launch and reset
 
 ## Why
 
-The KnackLabs lead-maintenance job holds a reviewed grant for
-`google.sheets.values.get`, a semantic capability bound to a local CLI. In seven
-consecutive runs the agent opened every run by burning failed calls before its
-first successful sheet read: an MCP server that does not exist, a tool that does
-not exist, then arguments outside the reviewed template. Only the fourth attempt
-worked. The job prompt (3,513 characters) never mentions that machinery, so the
-probing is the model's own.
+The Lite local-development change has already landed in this worktree; the
+user approved promoting it to Full Forge on 2026-09-17, with the scope
+limited to `package.json`, the CLI index, CLI local, Vite configuration,
+CLI local-routing tests, `scripts/architecture-exceptions.json`, plus
+documentation and Forge proof. A narrow one-call architecture exception
+covers the operator-owned source supervisor; agent/tool execution remains
+behind the existing sandbox boundary. Production start and service behavior
+stay unchanged.
 
-The cause is located, and it is not enforcement. A scheduled run never receives a
-capability catalog at all. The catalog is built only on the chat path
-(`apps/core/src/runtime/group-agent-access-context.ts:44`, consumed at
-`apps/core/src/runtime/group-agent-runner.ts:365`); the job path loads the access
-snapshot and the semantic capabilities and then omits `capabilityCatalog` from its
-spawn input (`apps/core/src/jobs/execution-phases-run.ts:179` and `:287`), while
-prompt compilation renders only what that input carries
-(`apps/core/src/runtime/agent-spawn-prompt.ts:87`). The job agent is told nothing
-about what it holds.
+Approved addition: `npm run dev:stop` / `gantry local stop` stops source
+core, Vite, and the verified home-owned managed Postgres container without
+deleting data or stopping unrelated Docker containers. Ctrl-C leaves
+Postgres warm.
 
-The dispatcher itself was always reachable: `capability_run` is not removed from
-autonomous surfaces (`apps/core/src/shared/admin-mcp-tools.ts:96`, filtered at
-`apps/core/src/runner/gantry-mcp-tool-surface.ts:152`), and the failing run's own
-fourth attempt succeeded through it. What is missing is knowledge, not exposure.
-
-Commit 97ded3746 tried to close this by adding a per-capability block to the
-runner's runtime capability context (`apps/core/src/runner/mcp/context.ts:412`).
-It deployed and changed nothing, because that context is a different surface from
-the catalog the model reads, and on a job run that catalog was empty anyway.
-
-Even on the chat path the catalog is insufficient: its entry shape carries no
-invocation data (`apps/core/src/application/agents/agent-prompt-capability-catalog.ts:23`),
-and its renderer drops the stable reference and can collapse ready entries into a
-summary count (`apps/core/src/application/agents/agent-prompt-capability-guidance.ts:241`),
-so a grant can be hidden by overflow or rendered without a usable call shape.
-
-Decision 0161 settles the direction: discovery is the defect, and argv validation
-remains the enforcement boundary. Decisions 0120 and 0130 stand unamended, so
-nothing here adds a classifier-derived or cached allow to `capability_run` or
-relaxes a reviewed template. Decision 0109's ordering consequence was amended so
-this ships first.
+A cold-read spec grill found the original draft under-specified
+destructive-operation safety and authority boundaries; the owner resolved
+every finding, and this revision states those resolutions as requirements.
+A second cold-read grill of the requirements round (re-reading this spec
+against current repository reality — the actual `local.ts`, decision 0025,
+and decision 0003) found further gaps: the spec checked the wrong settings
+authority, proposed an ownership-marker design that would have violated
+decision 0003's no-backcompat-adoption rule, missed a crash window between
+the database commit and filesystem cleanup, and left the one-time
+authorization credential unprotected against non-interactive stdout capture.
+The owner resolved all of it; this revision states those resolutions too.
 
 ## Behaviour
 
-**A scheduled run receives a catalog.** It is built from the same access snapshot
-the chat path uses, carried on the existing spawn-input field, and rendered by the
-same compiler. One builder serves both lanes.
+### Commands
 
-**The tool the descriptor names is present in what the provider builds.** The
-dispatcher is already reachable on autonomous runs
-(`apps/core/src/shared/admin-mcp-tools.ts:96`, filtered at
-`apps/core/src/runner/gantry-mcp-tool-surface.ts:152`), and the failing run's own
-fourth attempt proved it. This spec pins that rather than assuming it: the tool a
-descriptor names is asserted present in the provider's real tool projection
-(`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:353`)
-for a scheduled run, including when tool search is active.
+- `npm run dev` / `gantry local start`: start source core and Vite with HMR,
+  ensuring Postgres is available and all current migrations have completed.
+- `npm run reset` / `gantry local reset`: reset both Gantry database schemas,
+  remove known Gantry runtime state, migrate, and restart into fresh onboarding.
+- `npm run reset:db` / `gantry local reset-db`: reset both schemas, migrate,
+  and restart while preserving runtime filesystem state.
+- Keep the old core-only source command as `npm run dev:core`.
+- `npm run dev:stop` / `gantry local stop`: stop source core, Vite, and the
+  verified home-owned managed Postgres container only.
+- `gantry local` with no subcommand prints usage and exits; it must not
+  start Docker/core/Vite. `gantry local status`/`gantry local doctor` are
+  removed — the existing top-level `gantry status`/`gantry doctor` already
+  cover this, and a duplicate under `local` is an undocumented, redundant
+  CLI surface.
 
-**Every granted capability carries a usable descriptor.** For each grant the
-catalog carries its display name, its stable capability id, the tool that reaches
-it, and the reviewed argument shape where its binding has one. The implementation-kind union has four
-usable members (`tool_rule`, `mcp_pattern`, `adapter`, `local_cli`); `mcp_tool`
-is retained only so legacy rows fail validation and never reaches the catalog.
-Skill actions are not a binding kind: a skill-action capability is a `tool_rule`
-binding distinguished by its source, and decision 0129's terminal-wildcard
-semantics govern its rule.
+Local dev commands run source directly (`tsx`, no core/web *production*
+build and no root `dist/ui`) and stay entirely separate from artifact build
+commands (below) and from the production commands `npm run build` / `npm
+start`, which this change does not alter. (Every local command still runs
+`build:contracts` to produce the typed contracts workspace output the CLI
+itself depends on — that workspace build is not what "no build step" means
+here.)
 
-- `local_cli` — the dispatcher tool name, the capability id, and the reviewed
-  argument patterns exactly as reviewed.
-- `mcp_pattern` — the MCP proxy tool the agent actually calls and the connected
-  server name, since a pattern alone is not something the model can invoke.
-- `tool_rule` — the tool name the rule authorizes, including skill actions.
-- `adapter` — the dispatcher tool name and the capability id, because the adapter
-  reference is opaque and must never be rendered.
+### Build commands
 
-**The reviewed argument shape renders as reviewed.** The owner ruled this
-explicitly, having been shown the tradeoff: a reviewed template may contain a
-fixed operand such as a config path or an account identifier, and rendering it
-verbatim places that operand in the prompt. That is accepted, on the grounds that
-these operands are already visible on the approval card a human reviewed and are
-not credentials. The rendering carries no executable path, no hash and no
-credential: it is the argument remainder the reviewed template defines, the same
-text the mismatch denial already returns to the model.
+Building deployable artifacts is a distinct concern from running source
+locally, and stays that way: `npm run dev`/`local start` never builds the
+core/web production `dist/`, and building `dist/` never starts a dev server.
+Document the existing build commands so the separation and the reuse are
+explicit rather than implicit:
 
-**No grant is ever hidden.** The capability guidance section has a default
-character budget and a ceiling, and the ceiling is never smaller than the compact
-representation of the granted set: display name and stable id for every grant.
-The two therefore cannot conflict for any grant set. Material is shed in a fixed
-order: non-granted entries first, then descriptions, then descriptors. Past the
-ceiling every grant still renders its display name and stable id, and the render
-records an overflow diagnostic on the run's startup event. A grant is never
-reduced to a count and never omitted.
+- `npm run build:contracts` / `npm run build:sdk` / `npm run build:web`:
+  build one workspace's own artifacts. Unchanged.
+- `npm run build:core`: build only the backend runtime artifacts (contracts,
+  SDK, the core `tsc` output, migrations copy, CLI executable bit) with no
+  web build or copy step — the artifact-build counterpart to `npm run
+  dev:core`. New: extracted out of `build:runtime` so backend-only artifacts
+  can be built independently of the web bundle, reusing the exact same
+  underlying steps.
+- `npm run build:runtime`: `build:core` plus `build:web` plus copying the
+  web build into `dist/ui`. Behaviorally identical to today — restated as a
+  composition of `build:core` and `build:web` instead of its own inlined
+  step list.
+- `npm run build`: `build:runtime` plus the SDK example build. Unchanged.
+- `npm start`: `db:migrate` then run the built `dist/index.js`. Unchanged —
+  production startup is untouched by this change.
 
-**One mechanism owns the job.** The per-capability block added by 97ded3746 is
-removed, and the dispatcher's description points at the catalog instead. Its input
-schema, risk classification and host enforcement are unchanged.
+### Environment and lifecycle
 
-**Enforcement is untouched.** Argv validation, executable identity, structured
-argv with no shell, size and NUL limits, and the sandboxed executor all stay as
-0120 and 0130 define them.
+Source development defaults to gitignored `<repo>/.gantry`, with explicit
+`--runtime-home` and exported `GANTRY_HOME` taking precedence. Create missing
+local defaults in its `.env` with private permissions, preserving existing
+values. Generate an encryption key. Use process environment before file values
+for that generated bootstrap `.env` only; existing `.env` values are never
+silently overwritten. Derive public host and port from `GANTRY_CONTROL_HOST`
+and `GANTRY_CONTROL_PORT`, defaulting to loopback port 3939. Fresh
+authentication configuration must match this origin; existing conflicts fail
+with remediation.
+
+Reuse the configured reachable loopback database. Start Compose only for the
+managed default database, binding its storage to `<GANTRY_HOME>/postgres`.
+Never silently replace an unavailable custom database or adopt a foreign
+container by its name. Validate Node 24 and source-checkout prerequisites.
+
+Before any destructive or mutating step (database reset, filesystem reset,
+migration, container start), complete every precondition check: home safety,
+Node version, database-target authority (below), and authentication-mode
+authority (below). A precondition failure must leave existing state
+untouched and exit before anything is deleted, migrated, or started.
+
+Decision 0025 makes the Postgres `settings_revisions` table authoritative
+over `settings.yaml`, but reading it requires Postgres to be reachable, and
+authority must be confirmed before anything destructive runs. Resolve this
+with a reversible bootstrap-then-check: start (or confirm running) only the
+verified home-owned managed container as a preflight bootstrap step, read
+and validate the latest settings revision against local-mode defaults, then
+either continue into migrations/core/Vite or stop that container again
+before returning a precondition failure. No migration, filesystem deletion,
+or application child process runs until this check passes.
+
+Run migrations before core, start core on a private loopback port, and expose
+Vite on the public origin. Proxy browser authentication and API traffic to core.
+Print the stable resolved UI URL when healthy. Ctrl-C stops children and leaves
+Postgres warm. A child failure stops its sibling and exits nonzero. Development
+must not fall back to built UI assets.
+
+### Database-target authority
+
+The database the local supervisor migrates and resets must be the same
+database core will actually use at runtime, and that determination follows
+decision 0025: the latest Postgres settings revision is authoritative when
+one exists (read during the reversible bootstrap-then-check above), and the
+runtime-home `settings.yaml` is authoritative only for a genuinely fresh
+home with no revision yet. If the authoritative settings declare a
+non-default `storage.postgres.url_env` (the actual settings key; not
+`urlEnv`) or `storage.postgres.schema`, or if `GANTRY_SETTINGS_POSTGRES_SCHEMA`,
+a `schema=` query parameter, or `GANTRY_DB_SCHEMA` would redirect migrations
+to a different schema than core will use, source-local startup must refuse
+before touching the database or filesystem, naming the conflicting setting
+and how to align it, rather than silently operating on
+`GANTRY_DATABASE_URL`/`gantry` while core would use something else.
+
+### Reset ownership
+
+Reset must not act on a database or directory tree it cannot show it owns.
+
+- **Filesystem reset ownership.** Gantry writes a marker at the moment it
+  bootstraps a genuinely new runtime home (a home directory that did not
+  exist before this command created it) — never at any later point, and
+  never onto a home that already existed. `local reset` refuses to touch
+  `LOCAL_RESET_PATHS` under any home lacking that marker; there is no
+  automatic or retroactive way to mark an existing, unmarked home, because
+  treating an unrecognized directory as reset-authorized after the fact is
+  exactly the compatibility/adoption path decision 0003 forbids. An unmarked
+  home is refused with a manual remediation (move or delete the old home, or
+  point `--runtime-home` at a new path, so a fresh, marked home is
+  bootstrapped by `local start`). The marker survives `reset-db` and is
+  rewritten fresh by a full `reset`.
+- **Database reset ownership.** `local reset` and `local reset-db` may only
+  run against the exact verified home-owned managed Postgres container: the
+  same ownership check `local stop` already performs, run unconditionally
+  before reset regardless of whether the target was already reachable, and
+  bound to the specific container's published connection endpoint — not
+  merely "a reachable loopback database named `gantry`". A reachable custom
+  database that matches the name coincidentally is refused, not reset, and a
+  non-default `GANTRY_DATABASE_URL` is refused for reset outright since its
+  ownership cannot be verified.
+- **Preflight-then-destroy ordering.** Every check above, and every stop of
+  already-running local children, completes before the schema is dropped or
+  any file is removed — reset must not stop the running supervisor and then
+  discover a precondition failure with children already stopped.
+
+### Reset crash recovery
+
+A crash between the database schema commit and filesystem cleanup finishing
+must be observable and refused, not silently treated as a clean reset target
+on the next run. Write a durable reset-in-progress marker immediately before
+the destructive database step, and remove it only after filesystem cleanup
+(for a full reset) or after the schema recreation completes (for
+`reset-db`) — whichever is that variant's last destructive step. A
+subsequent `start`/`reset`/`reset-db` that finds a stale marker refuses with
+a clear "a previous reset did not finish cleanly" message and a remediation
+(rerun the same reset command to finish it) rather than starting core
+against mixed old/new state. This is a durable flag and a refusal, not a
+cross-process lock — the deferred mutual-exclusion lock (tracked separately)
+is about concurrent reset attempts, not crash recovery.
+
+### Orphan and stale-state recovery
+
+`local stop` must not stop the managed Postgres container while a Gantry
+core process it does not control is still using it. Core binds its own
+loopback port privately behind Vite, so a public-origin health probe cannot
+see an orphaned core process if Vite or the supervisor died — the check must
+use the database itself: reuse the existing active-connection check (already
+used by `resetLocalDatabase` via `pg_stat_activity`) after the managed
+children this `stop` invocation controls have been shut down, and refuse to
+stop Postgres while any other connection remains, reporting the orphaned
+state with a remediation to locate and stop those processes directly.
+
+### Approved automatic local authorization addition
+
+On every successful source-local start, including ordinary restarts and both
+reset variants, print a fresh short-lived (ten-minute), single-use
+authorization link after health readiness — health meaning the public Vite
+origin's proxied `/healthz` responds healthy, not the deeper `/readyz`
+onboarding-readiness check, since fresh onboarding can legitimately leave
+`/readyz` red. Reuse `gantry ui authorize` against the resolved runtime home
+and public origin. Before starting any child process, require
+`authentication.mode` to be `local` — the only mode `gantry ui authorize`
+can ever serve — and a loopback public origin (decision 0132); refuse with
+remediation before startup if not, rather than starting a healthy stack and
+then failing authorization on every retry.
+
+The raw authorization URL is a ten-minute administrator credential. Print it
+in full only when stdout is an interactive terminal (a TTY); when stdout is
+not a TTY (redirected to a file, captured by an IDE task runner, or CI),
+keep the healthy development stack running and print only the stable UI URL
+plus the resolved manual retry command (`gantry ui authorize
+--runtime-home <home>`) — never the raw token — so non-interactive capture
+can never persist the credential. Keep the stable UI URL available for
+browsers with valid sessions regardless; issuing a new link must not revoke
+those sessions. Do not persist plaintext authorization URLs in runtime
+files. If link issuance fails for a reason other than an unsupported mode,
+keep the healthy development stack running and print an actionable retry
+command that includes the resolved `--runtime-home` flag, so retrying
+targets the same home instead of a different default.
+
+Existing browser sessions remain valid after ordinary restarts and after a
+new link is issued without a reset. `reset` and `reset-db` both drop and
+recreate the `gantry` schema, which holds session state, so no session can
+survive either reset variant — the requirement is scoped to restart/relaunch
+without a reset, not to reset itself.
+
+| Surface | Classification | Reason |
+| --- | --- | --- |
+| Runtime behavior | Changed | Issues an optional link after each healthy launch; preflights mode/origin/database authority first via a reversible bootstrap-then-check. |
+| settings.yaml | Changed | Source-local startup creates it when missing, and full reset deletes and recreates it; the file is authoritative only for a genuinely fresh home with no settings revision yet — otherwise the latest Postgres settings revision (decision 0025) governs, and startup's existing bootstrap imports the file as that revision when none exists. |
+| Postgres/runtime projection | Changed | Local reset recreates `gantry`/`pgboss` only against the verified home-owned managed container, guarded by a reset-in-progress marker; auth link issuance inserts hashed single-use authorization state through existing storage. |
+| Control API | Unchanged by design | Existing authorization and redemption paths are reused. |
+| SDK/contracts | Unchanged by design | No client-contract change. |
+| CLI | Changed | Local supervisor invokes existing UI authorization command; `local status`/`local doctor` are removed as duplicates of top-level commands; build commands gain a documented `build:core` composition. |
+| MCP/admin tools | Unchanged by design | No new administration operations. |
+| Channel/provider adapters | Unchanged by design | Browser login does not alter adapters. |
+| Docs/prompts | Changed | Describe automatic links, database/auth-mode authority, reset crash recovery, and build commands. |
+| Audit/events | Unchanged by design | Existing authorization flow owns its events. |
+| Tests/verification | Changed | Check readiness ordering, resolved environment, ownership/authority refusals, preflight ordering, orphan-stop refusal, reset-crash-marker refusal, TTY-gated token output, and issuance failure. |
+
+Search README for obsolete explicit-only authorization guidance.
+
+### Reset boundaries
+
+Both commands run every precondition check (home safety, Node version,
+database-target authority, authentication-mode authority) and stop verified
+local children before any destructive step. They print the resolved home
+and redacted database target. Refuse unsafe home paths, non-loopback
+databases, databases not named `gantry`, and any database/home that fails
+the ownership checks above. Recreate only `gantry` and `pgboss` under a
+reset-in-progress marker, then run the complete current migration chain.
+Full reset additionally removes known settings, onboarding, agents, data,
+store, logs, artifacts, and runtime projection paths. Preserve `.env`,
+`postgres/`, unknown files, unrelated processes, and user runtime data
+during verification.
+
+### Deferred
+
+Docker-only startup on a dedicated port is explicitly deferred to a
+follow-up (D-0092); this change retains reachable configured loopback
+database reuse. A cross-process, DB-scoped mutual-exclusion lock for
+concurrent reset attempts is explicitly deferred (D-0093) — preflight-then-
+destroy ordering, ownership verification, and the reset-in-progress marker
+are in scope; a new distributed-locking mechanism is not. No additional
+dependencies or SDK/API schema changes are authorized.
 
 ## Acceptance criteria
 
-1. A scheduled run's spawn input carries a capability catalog built from its access
-   snapshot, proven by a hermetic test over the real job execution path asserting
-   the field is populated where it is absent today.
-2. The rendered guidance for that run contains, for a granted capability, its
-   display name, stable id, the tool that reaches it and its reviewed argument
-   shape, asserted against the exact rendered text.
-3. A descriptor is produced for each of the four usable binding kinds, asserted
-   per kind: the adapter reference never appears in output, an MCP pattern renders
-   the proxy tool and server name, and a skill-action capability renders through
-   its tool rule with decision 0129's terminal-wildcard semantics intact. A legacy
-   `mcp_tool` binding still fails validation and never reaches the catalog.
-3b. A local-CLI descriptor renders the reviewed argument patterns verbatim,
-   asserted byte-for-byte against the same helper the mismatch denial uses, and
-   carries no executable path, hash or credential.
-4. With a granted set exceeding the default budget, non-granted material is shed
-   first and every grant still renders with its descriptor. Past the ceiling every
-   grant still renders display name and stable id, and the overflow diagnostic is
-   recorded. No grant is reduced to a count or omitted. The budget is a named
-   constant and the ceiling is derived as at least the compact representation of
-   the granted set, asserted for a grant set large enough to exceed any fixed
-   value.
-5. The materialization the replay runs against is the provider's real projection
-   for a scheduled run, not hand-fed text: the test builds it through the
-   production path and asserts the dispatcher is present in it. A deterministic
-   replay then drives the runner adapter with a named recorded fixture and a stub
-   that selects tools only from that projection, with no live model call. Its
-   first tool action is a well-formed dispatcher call, with no preceding call to
-   any tool or server absent from the projection. A negative control removes the
-   descriptor and asserts the same harness does not produce that call.
-6. The per-capability block added by 97ded3746 no longer exists; the dispatcher's
-   description points at the catalog; and its input schema, risk classification and
-   host enforcement are pinned unchanged by test.
-7. Enforcement is unchanged: a template mismatch is still refused, no
-   classifier-derived or cached allow reaches `capability_run`, and executable
-   identity, structured argv, size and NUL limits still apply. The existing proofs
-   for 0120 and 0130 stay green.
-8. Live smoke, stated separately and explicitly not a merge gate: five serial runs
-   of `job-knacklabs-lead-maintenance-43527c192a6e` on the deployed runtime, whose
-   existence is verified before the runs are treated as evidence. Each run must
-   contain at least one successful capability invocation and zero `tool.activity`
-   rows with phase `failure` of ANY tool before it, not merely the two families
-   seen in the original incident. Evidence is the per-run event query and the
-   startup diagnostic, retained redacted.
-9. Focused proof by name: the capability catalog, capability guidance, agent spawn
-   prompt, job execution phases, capability structured invocation and locked
-   introspection suites, plus the new replay suite. `npm run typecheck`,
-   `npm run lint`, `npm run format:check`, `npm run check:architecture` and
-   `verify.py` green.
-
-## Out of scope
-
-Document reading and editing, including slice reads, exact-span replacement,
-revision fencing and the persisted job owner, move to their own spec. Relaxing
-argv validation stays future direction, gated by decision 0161 on a replacement
-boundary that must supersede 0120 and 0130 explicitly.
+- `npm run dev` / `gantry local start` runs migrations before starting source
+  core and Vite together, and production startup (`npm start`) is unchanged.
+- `npm run dev:core` remains available as the old core-only source command.
+- `npm run build:core` builds backend artifacts only (no web build/copy),
+  composed from the same steps `build:runtime` already uses; `npm run
+  build:runtime` and `npm run build` produce the same `dist/` output as
+  today.
+- `gantry local` with no subcommand prints usage and does not start
+  anything; `gantry local status`/`gantry local doctor` no longer exist as
+  duplicates of the top-level commands.
+- Every destructive or mutating step is preceded by home safety, Node
+  version, database-target authority (checked against the authoritative
+  Postgres settings revision when one exists, via a reversible
+  bootstrap-then-check), and authentication-mode authority checks; a failed
+  check leaves existing state untouched, with local children stopped only
+  after every check passes.
+- A genuinely fresh runtime home gets a Gantry-written ownership marker at
+  the moment of its first bootstrap; filesystem reset refuses on any home
+  without one, with no retroactive marking path. Database reset refuses
+  unless the target is the exact verified home-owned managed Postgres
+  container's endpoint, never merely "a reachable loopback database named
+  `gantry`", and refuses outright for a non-default `GANTRY_DATABASE_URL`.
+- Source-local startup refuses, before touching the database or filesystem,
+  when the authoritative settings (the latest Postgres revision, or
+  `settings.yaml` for a genuinely fresh home) declare a non-default
+  `storage.postgres.url_env`/`schema`, or when `GANTRY_SETTINGS_POSTGRES_SCHEMA`
+  / a URL `schema=` parameter / `GANTRY_DB_SCHEMA` would redirect migrations
+  to a different schema than core will use — naming the conflict and how to
+  align it.
+- A reset that crashes after the database schema commit but before
+  filesystem cleanup finishes leaves a durable marker; the next start/reset
+  refuses with a clear message and a rerun remediation instead of starting
+  against mixed old/new state.
+- `npm run dev:stop` / `gantry local stop` stops source core, Vite, and the
+  verified home-owned managed Postgres container only, without deleting data
+  or stopping unrelated Docker containers, and refuses to stop that
+  container while an orphaned core process still holds an active database
+  connection after this invocation's own children have been shut down;
+  Ctrl-C leaves Postgres warm.
+- Reset commands stop verified local children only after every precondition
+  passes, refuse unsafe home paths, non-loopback databases, databases not
+  named `gantry`, and any home/database that fails ownership verification,
+  recreate only `gantry` and `pgboss`, preserve `.env`, `postgres/`, unknown
+  files, and unrelated processes, then restart through the same
+  healthy-start path.
+- Every successful start or reset first confirms `authentication.mode` is
+  `local` and the public origin is loopback, then prints a fresh
+  short-lived, single-use browser authorization link after health readiness
+  (proxied `/healthz`, not `/readyz`) via `gantry ui authorize` — the raw
+  link only when stdout is an interactive TTY, otherwise the stable UI URL
+  plus a retry command that includes the resolved `--runtime-home`, never
+  the raw token. A failed issuance for any other reason keeps the healthy
+  dev stack running.
+- Existing sessions remain valid after a restart or a freshly issued link
+  without a reset; `reset` and `reset-db` both end all existing sessions by
+  design, since they recreate the `gantry` schema. Manual verification
+  proves session survival on restart without storing raw URLs or tokens in
+  artifacts.
+- Source development resolves the runtime home with precedence
+  `--runtime-home` > `GANTRY_HOME` > `<repo>/.gantry`, creates missing
+  private `.env` defaults while preserving existing values, and validates
+  Node 24 and source-checkout prerequisites.
+- Verification covers home/env precedence, bootstrap preservation, database
+  reuse/startup, migration ordering, origin/proxy wiring, signal/child
+  cleanup, reset deletion/ownership boundaries, unsafe-target refusal,
+  database/auth-mode authority refusal, reset-crash-marker refusal,
+  orphan-stop refusal, TTY-gated token output, and restart, using disposable
+  state only — including at least one manual pass against a real disposable
+  Docker Postgres container, satisfying the repository's DB-backed-change
+  verification requirement without a new automated integration-test lane.
 
 
 ## What to return

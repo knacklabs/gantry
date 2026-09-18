@@ -1,0 +1,39 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` \u2014 it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?",
+      "options": [
+        "Add ownership checks now (Recommended)",
+        "Ship current guards, defer the rest"
+      ],
+      "chosen": "Add ownership checks now (Recommended)"
+    },
+    {
+      "question": "core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?",
+      "options": [
+        "Enforce local-mode defaults now (Recommended)",
+        "Spec-text fix only, defer enforcement"
+      ],
+      "chosen": "Enforce local-mode defaults now (Recommended)"
+    },
+    {
+      "question": "Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?",
+      "options": [
+        "Fix now, same write scope (Recommended)",
+        "Defer with a recorded follow-up"
+      ],
+      "chosen": "Fix now, same write scope (Recommended)"
+    },
+    {
+      "question": "Automated tests mock Postgres/Docker/processes entirely \u2014 they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?",
+      "options": [
+        "Keep mocked unit tests + my manual verification (Recommended)",
+        "Add a real Postgres/Docker integration test lane"
+      ],
+      "chosen": "Keep mocked unit tests + my manual verification (Recommended)"
+    }
+  ],
+  "at": "2026-09-17T13:36:54.018586+00:00",
+  "session_id": "ef74e8c0-a202-4161-b1a6-821affc4070f"
+}

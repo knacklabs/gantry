@@ -1,0 +1,7 @@
+{
+  "task_id": "LOCAL-DEV-1-T1",
+  "branch": "feat/local-dev-launch-full",
+  "base_main_sha": "fa3007ea8576cdf20f839c10c2d1e10ecf4749cd",
+  "commit": "c3b5d68f9b29c059a8f56a697d0d7e794773c189",
+  "sealed_at": "2026-09-17T16:25:00Z"
+}

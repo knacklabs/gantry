@@ -2556,6 +2556,24 @@
       ],
       "origin": "adhoc",
       "spec_debt_reason": "Follow-up to GRANTED-1, which binds the lane-neutral tool reference to the Anthropic runtime only and asserts the DeepAgents entry absent so the gap cannot drift silently. This story adds that lane's mapping and its proof."
+    },
+    {
+      "key": "LOCAL-DEV-1",
+      "title": "Source-local Gantry launch, reset, and browser authorization",
+      "story": "As a Gantry contributor, I start and reset a source-local runtime with one command and get a hot-reloading UI and fresh login link.",
+      "acceptance_criteria": [
+        "Source start runs migrations before core and Vite; production startup is unchanged.",
+        "Reset boundaries preserve env and unrelated data; local stop controls only owned processes and managed Postgres.",
+        "Each healthy start prints a fresh single-use browser authorization link without revoking existing sessions.",
+        "A bounded architecture exception and deterministic evidence make the implementation PR-ready."
+      ],
+      "order": 123,
+      "status": "active",
+      "epic": "harness-hygiene",
+      "skill": "backend",
+      "depends_on": [],
+      "origin": "adhoc",
+      "spec": "docs/specs/local-dev-launch.md"
     }
   ],
   "epics": [
@@ -2662,5 +2680,5 @@
       ]
     }
   ],
-  "updated_at": "2026-09-11T13:04:16+00:00"
+  "updated_at": "2026-09-17T13:44:36+00:00"
 }

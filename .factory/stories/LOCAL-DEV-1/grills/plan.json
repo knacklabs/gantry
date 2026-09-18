@@ -1,0 +1,127 @@
+{
+  "generated_by": "griller",
+  "gate": "plan",
+  "verdict": "pass",
+  "summary": "Cold-read plan-gate grill (gpt-5.6-sol @ high, launch-ea82a7d8acae43c2aab7f572df2bf68c) interrogated docs/local-dev-full-plan-draft.md against the roadmap acceptance criteria, the active decision corpus, and docs/architecture/. It raised four owner decisions (reset-db recovery/marker semantics, decision 0006 host/port precedent, decision 0001 CLI-persistence boundary, and one-task-vs-split sizing) plus eleven repository-answerable amendments (circular preflight ordering, home-bootstrap-before-checks separation, storage/auth reading the same revision, the ownership-marker 'never'-vs-'rewritten' contradiction, TTY reachability without touching auth.ts, ownedPostgres endpoint verification, pg_stat_activity wording precision, a stale roadmap criterion, user_facing/functional-check misclassification, a missing README acceptance criterion, a wrong verify-script path plus missing verification cases, a non-deterministic manual crash test, and a wrong decision citation/toolchain-justification gap). The owner chose all four recommended options; every other finding was resolved directly in the amended plan.",
+  "gaps": [
+    "reset-db drops the settings_revisions table it just treated as authoritative, and every command refuses a stale reset marker while the remediation says to rerun the same command -- an endless refusal loop.",
+    "The plan writes GANTRY_CONTROL_HOST and GANTRY_CONTROL_PORT into .env, but decision 0006 reserves environment values for runtime-owned secrets and places non-secret configuration in settings revisions; no existing bind-host/port exception covered this.",
+    "Decision 0001 says CLI adapters must not directly mutate persistence, while the plan kept schema reset, revision reads, and pg_stat_activity queries inside local.ts with only a spawn exception named, and local.ts was already close to the 700-line architecture ceiling.",
+    "The current staged change is already 1,646 additions across eight files before the remaining safety work, and the sole task covers roughly twenty distinct proof seams.",
+    "The preflight contract read as circular: container start must follow authority validation, but authority validation requires Postgres, with no stated reversible-exception/restore-prior-state handling.",
+    "localEnvironment creates the home and writes .env before authority checks, with no stated separation between additive bootstrap and destructive/mutating preconditions.",
+    "Storage and authentication authority were checked from different sources (storage from the settings revision, authentication from YAML) instead of the same authoritative revision with the min_reader_version fence.",
+    "The ownership marker lifecycle read as self-contradictory: 'bootstrap only, never later' versus 'rewritten by full reset', with no reconciling rule.",
+    "The settled TTY rule appeared to require adding apps/core/src/cli/auth.ts to write scope, since gantry ui authorize as a spawned subprocess always prints the raw URL unconditionally.",
+    "ownedPostgres verifies mount and checkout identity, not the promised published host/port endpoint, so host/port binding verification was missing.",
+    "pg_stat_activity detects any active database client, not specifically an orphaned core process, and the spec/plan wording did not say so.",
+    "The roadmap's session/link acceptance criterion is stale against the settled non-TTY and mandatory-attempt/fail-open semantics.",
+    "The root decomposition's user_facing flag and functional-check requirement did not reflect that the acceptance path includes a real browser-session redemption, even though no React component changed.",
+    "README/build documentation lacked a stated acceptance criterion, repeating the active plan-contract-partial recurring finding class.",
+    "The Verify Plan named a nonexistent .agents/scripts/verify.py path, omitted format:check:web, real-Postgres authority/orphan verification cases, and package-script routing proof and build-artifact-parity checks; the manual crash test was timing-dependent and could collide with an existing runtime home; and the Decisions section cited decision 0143 instead of 0132 for authorization-token governance with no toolchain-choice justification stated."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Owner chose 'Preserve desired state': before the destructive schema step, write the validated authoritative revision out as settings.yaml (a matching recovery copy); a separate, later requirements re-grill further resolved the marker refusal loop with an explicit --after-manual-recovery operator-acknowledgment flag, now stated in the plan's Technical Approach and Acceptance Criteria and in the amended spec.",
+    "Owner chose 'Record a narrow decision amendment': docs/decisions/0162-local-bootstrap-host-port-env-exception.md (accepted), scoping the exception to exactly GANTRY_CONTROL_HOST/GANTRY_CONTROL_PORT for the bootstrap moment before any settings source is reachable, later amended further to state process-env precedence for these same two keys.",
+    "Owner chose 'Record a bounded local-operator deviation and allow one suffixed repository file': apps/core/src/cli/local-postgres.ts now holds ownedPostgres, the latest-settings-revision read, and the pg_stat_activity check, documented as local-operator-only and never imported by agent/tool/job code; added to write scope and size budget.",
+    "Owner chose to keep one task with an explicit size budget rather than split: Task Decomposition now states a 2,000-added-line target ceiling across the product-code/test write scope, a 2x (4,000-line) ceiling before stage-done's hard refusal, and NOTE-not-refusal treatment in between.",
+    "Plan now states the reversible bootstrap-then-check start is itself part of the check, not a mutation it must follow; on a failed check only a container this invocation itself started is stopped, never an already-running one.",
+    "Plan now separates additive fresh-home bootstrap (home directory, .env, marker, container/volume creation) from destructive/mutating preconditioned steps; additive steps may precede authority checks and are safe to leave in place if a check later fails.",
+    "Plan now requires storage and authentication authority to be read from the SAME authoritative revision object, using the canonical revision parser and min_reader_version skew rejection normal startup already enforces.",
+    "Plan now states a full reset rewrites the ownership marker only on a home that already carried one (re-affirming existing ownership), never on a home with no marker (refused exactly like filesystem reset) -- reconciling 'never after bootstrap' with 'rewritten by full reset'.",
+    "Plan now requires the in-process authorization-issuance path (the same function gantry ui authorize uses) rather than inheriting a spawned subprocess's stdio, so the TTY gate applies without adding apps/core/src/cli/auth.ts to write scope.",
+    "Plan now extends the ownedPostgres check to verify the container's actual published host/port binding matches the endpoint being reset, not just mount/checkout identity.",
+    "Plan and spec now state the active-connection check detects any active database client, which includes but is not limited to an orphaned core process.",
+    "Plan now includes updating the stale roadmap session/link criterion (and other stale doc mentions of the removed CLI surface) in its Technical Approach and CLI-surface-reduction bullet.",
+    "Plan now records the task's user_facing flag as true (root decomposition), requiring the functional-checker to walk the start-to-browser-session path and the implementer to attest emil-design-eng/frontend-design as reviewed-with-no-visual-changes.",
+    "Plan now adds an explicit README acceptance criterion documenting the full build-command set and dropping obsolete explicit-only authorization guidance.",
+    "Plan's Verify Plan now uses the correct factory/scripts/verify.py path, adds format:check:web, package-script routing proof, and a falsifiable dist/ build-equivalence check; Manual Verification adds real-Postgres schema-conflict/orphan-core/orphan-Vite cases and a deterministic crash test using a repo-built CLI against a freshly created temporary parent; the Decisions section now cites 0132 (not 0143) for authorization-token governance and states the reused-toolchain and CLI-output-is-not-structured-logging rationale."
+  ],
+  "open_items": [],
+  "rounds": [
+    {
+      "question": "`reset-db` drops the settings_revisions table it just validated as authoritative, then the plan lets YAML govern restart only for a 'genuinely fresh' home \u2014 so restart either fails after destruction or silently promotes stale YAML. Also, the reset-in-progress marker's remediation ('rerun the same command') could loop forever if the same failure recurs. How should recovery work?",
+      "options": [
+        "Preserve desired state (Recommended)",
+        "Both variants discard the latest revision"
+      ],
+      "chosen": "Preserve desired state (Recommended)"
+    },
+    {
+      "question": "The plan writes GANTRY_CONTROL_HOST/GANTRY_CONTROL_PORT into .env, but decision 0006 reserves environment values for runtime-owned secrets and puts non-secret config in settings revisions \u2014 there's no existing bind-host/port exception.",
+      "options": [
+        "Record a narrow decision amendment (Recommended)",
+        "Remove from .env, add settings/CLI-owned config"
+      ],
+      "chosen": "Record a narrow decision amendment (Recommended)"
+    },
+    {
+      "question": "Decision 0001 says CLI adapters must not directly mutate persistence, but the plan keeps schema reset, revision reads, and pg_stat_activity queries inside local.ts \u2014 and local.ts is already 569 lines with only 131 left under the unwaivable 700-line architecture ceiling before this safety work even lands.",
+      "options": [
+        "Bounded deviation + one new file (Recommended)",
+        "Full application-service path"
+      ],
+      "chosen": "Bounded deviation + one new file (Recommended)"
+    },
+    {
+      "question": "The current staged diff is already 1,646 additions across eight files before the remaining destructive-safety work, and the sole task covers roughly twenty distinct proof seams \u2014 too large for one bounded task/PR.",
+      "options": [
+        "Split into two sequential tasks/PRs (Recommended)",
+        "Keep one task with an explicit size budget"
+      ],
+      "chosen": "Keep one task with an explicit size budget",
+      "frontier_empty": true
+    }
+  ],
+  "citations": [
+    {
+      "finding": "The preflight contract read as circular: container start must follow authority validation, but authority validation requires Postgres, with no stated reversible-exception/restore-prior-state handling.",
+      "source": "docs/local-dev-full-plan-draft.md:233"
+    },
+    {
+      "finding": "localEnvironment creates the home and writes .env before authority checks, with no stated separation between additive bootstrap and destructive/mutating preconditions.",
+      "source": "apps/core/src/cli/local.ts:92"
+    },
+    {
+      "finding": "Storage and authentication authority were checked from different sources (storage from the settings revision, authentication from YAML) instead of the same authoritative revision with the min_reader_version fence.",
+      "source": "apps/core/src/app/bootstrap/startup.ts:294"
+    },
+    {
+      "finding": "The ownership marker lifecycle read as self-contradictory: 'bootstrap only, never later' versus 'rewritten by full reset', with no reconciling rule.",
+      "source": "docs/specs/local-dev-launch.md:148"
+    },
+    {
+      "finding": "The settled TTY rule appeared to require adding apps/core/src/cli/auth.ts to write scope, since gantry ui authorize as a spawned subprocess always prints the raw URL unconditionally.",
+      "source": "apps/core/src/cli/auth.ts:62"
+    },
+    {
+      "finding": "ownedPostgres verifies mount and checkout identity, not the promised published host/port endpoint, so host/port binding verification was missing.",
+      "source": "apps/core/src/cli/local.ts:181"
+    },
+    {
+      "finding": "pg_stat_activity detects any active database client, not specifically an orphaned core process, and the spec/plan wording did not say so.",
+      "source": "apps/core/src/cli/local.ts:329"
+    },
+    {
+      "finding": "The roadmap's session/link acceptance criterion is stale against the settled non-TTY and mandatory-attempt/fail-open semantics.",
+      "source": "plans/roadmap.json:2567"
+    },
+    {
+      "finding": "The root decomposition's user_facing flag and functional-check requirement did not reflect that the acceptance path includes a real browser-session redemption, even though no React component changed.",
+      "source": "harness.yaml:140"
+    },
+    {
+      "finding": "README/build documentation lacked a stated acceptance criterion, repeating the active plan-contract-partial recurring finding class.",
+      "source": "README.md:1"
+    },
+    {
+      "finding": "The Verify Plan named a nonexistent .agents/scripts/verify.py path, omitted format:check:web, real-Postgres authority/orphan verification cases, and package-script routing proof and build-artifact-parity checks; the manual crash test was timing-dependent and could collide with an existing runtime home; and the Decisions section cited decision 0143 instead of 0132 for authorization-token governance with no toolchain-choice justification stated.",
+      "source": "factory/scripts/verify.py:1"
+    }
+  ],
+  "input_sha256": "ada5d317b0260d33aeb7501ef1e016ffa5a8e433f4ce8cdde45359bf395202d2",
+  "issue": "LOCAL-DEV-1",
+  "recorded_at": "2026-09-17T15:41:53+00:00",
+  "commit": "1a74d670baa5e4f71e7093131b0820d8e90fff16"
+}

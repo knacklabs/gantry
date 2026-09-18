@@ -1,10 +1,13 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { EventEmitter } from 'node:events';
+import net from 'node:net';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const runtimeHomes: string[] = [];
+const originalHome = process.env.GANTRY_HOME;
 
 function makeRuntimeHome(): string {
   const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-cli-db-'));
@@ -13,6 +16,10 @@ function makeRuntimeHome(): string {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  if (originalHome === undefined) delete process.env.GANTRY_HOME;
+  else process.env.GANTRY_HOME = originalHome;
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('@core/infrastructure/service/manager.js');
@@ -35,9 +42,485 @@ afterEach(() => {
   vi.doUnmock('@core/postgres-migrate.js');
   vi.doUnmock('@core/config/preflight.js');
   vi.doUnmock('@clack/prompts');
+  vi.doUnmock('pg');
+  vi.doUnmock('node:child_process');
   for (const runtimeHome of runtimeHomes.splice(0)) {
     fs.rmSync(runtimeHome, { recursive: true, force: true });
   }
+});
+
+describe('source-local development', () => {
+  it('uses repo-local home, exported home, then explicit home', async () => {
+    const { localSourceRoot, resolveLocalRuntimeHome } =
+      await import('@core/cli/local.js');
+    vi.stubEnv('GANTRY_HOME', undefined);
+    expect(resolveLocalRuntimeHome()).toBe(
+      path.join(localSourceRoot(), '.gantry'),
+    );
+    vi.stubEnv('GANTRY_HOME', '/private/tmp/exported-gantry');
+    expect(resolveLocalRuntimeHome()).toBe('/private/tmp/exported-gantry');
+    expect(resolveLocalRuntimeHome('/private/tmp/explicit-gantry')).toBe(
+      '/private/tmp/explicit-gantry',
+    );
+    expect(() => localSourceRoot(os.tmpdir())).toThrow('source checkout');
+  });
+
+  it('creates secure environment defaults and preserves existing values', async () => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', undefined);
+    const { localEnvironment } = await import('@core/cli/local.js');
+    const home = makeRuntimeHome();
+    vi.stubEnv('GANTRY_PROCESS_ROLE', 'control');
+    const first = localEnvironment(home);
+    expect(first.GANTRY_PROCESS_ROLE).toBe('all');
+    expect(Buffer.from(first.SECRET_ENCRYPTION_KEY!, 'base64')).toHaveLength(
+      32,
+    );
+    expect(fs.statSync(path.join(home, '.env')).mode & 0o777).toBe(0o600);
+    expect(first.GANTRY_HOME).toBe(home);
+    const saved = fs.readFileSync(path.join(home, '.env'), 'utf8');
+    vi.stubEnv('GANTRY_CONTROL_PORT', '54321');
+    expect(localEnvironment(home).GANTRY_CONTROL_PORT).toBe('54321');
+    expect(fs.readFileSync(path.join(home, '.env'), 'utf8')).toBe(saved);
+    expect(localEnvironment(home).SECRET_ENCRYPTION_KEY).toBe(
+      first.SECRET_ENCRYPTION_KEY,
+    );
+  });
+
+  it('fills missing keys without replacing existing config', async () => {
+    const { localEnvironment } = await import('@core/cli/local.js');
+    const home = makeRuntimeHome();
+    fs.writeFileSync(
+      path.join(home, '.env'),
+      'CUSTOM_VALUE=keep\nGANTRY_CONTROL_PORT=49999\n',
+    );
+    vi.stubEnv('GANTRY_CONTROL_PORT', undefined);
+    expect(localEnvironment(home)).toMatchObject({
+      CUSTOM_VALUE: 'keep',
+      GANTRY_CONTROL_PORT: '49999',
+    });
+  });
+
+  it('validates public origins and refuses unsafe database reset targets', async () => {
+    const { localOrigin, localDatabase } = await import('@core/cli/local.js');
+    expect(
+      localOrigin({
+        GANTRY_CONTROL_HOST: '127.0.0.1',
+        GANTRY_CONTROL_PORT: '49999',
+      }),
+    ).toBe('http://127.0.0.1:49999');
+    expect(
+      localOrigin({
+        GANTRY_CONTROL_HOST: '[::1]',
+        GANTRY_CONTROL_PORT: '3939',
+      }),
+    ).toBe('http://[::1]:3939');
+    expect(() =>
+      localOrigin({
+        GANTRY_CONTROL_HOST: '0.0.0.0',
+        GANTRY_CONTROL_PORT: '3939',
+      }),
+    ).toThrow('loopback');
+    expect(() => localOrigin({ GANTRY_CONTROL_PORT: '0' })).toThrow('65535');
+    for (const url of [
+      'postgres://x@example.com/gantry',
+      'postgres://x@127.0.0.1/other',
+      'postgres://x@127.0.0.1/gantry?host=remote',
+      'postgres://x@127.0.0.1/gantry?schema=other',
+    ])
+      expect(() => localDatabase(url, true)).toThrow();
+    expect(() =>
+      localDatabase('postgres://x@127.0.0.1/gantry', true),
+    ).not.toThrow();
+  });
+
+  it('full reset deletes only known state and refuses unsafe homes or symlinks', async () => {
+    const {
+      LOCAL_RESET_PATHS,
+      resetLocalFiles,
+      validateLocalHome,
+      localSourceRoot,
+    } = await import('@core/cli/local.js');
+    const home = fs.realpathSync(makeRuntimeHome());
+    for (const name of [...LOCAL_RESET_PATHS, '.env', 'unknown.txt'])
+      fs.writeFileSync(path.join(home, name), 'keep');
+    fs.mkdirSync(path.join(home, 'postgres'));
+    resetLocalFiles(home);
+    for (const name of LOCAL_RESET_PATHS)
+      expect(fs.existsSync(path.join(home, name))).toBe(false);
+    for (const name of ['.env', 'postgres', 'unknown.txt'])
+      expect(fs.existsSync(path.join(home, name))).toBe(true);
+    expect(() => validateLocalHome('/', localSourceRoot())).toThrow('Unsafe');
+    expect(() =>
+      validateLocalHome(localSourceRoot(), localSourceRoot()),
+    ).toThrow('Unsafe');
+    fs.symlinkSync(path.join(home, 'missing'), path.join(home, 'agents'));
+    expect(() => validateLocalHome(home, localSourceRoot())).toThrow('symlink');
+  });
+
+  function mockDatabase() {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const connect = vi.fn(async () => {});
+    const end = vi.fn(async () => {});
+    vi.doMock('pg', () => ({
+      default: {
+        Client: class {
+          query = query;
+          connect = connect;
+          end = end;
+        },
+      },
+    }));
+    return { query, connect, end };
+  }
+
+  it('starts managed Compose even when a host database is reachable', async () => {
+    mockDatabase();
+    const execFileSync = vi.fn(() => '');
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+    await ensureLocalDatabase(process.cwd(), makeRuntimeHome(), {
+      GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
+    });
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'up', '--wait', '-d', 'postgres']),
+      expect.anything(),
+    );
+  });
+
+  it('explains missing Docker prerequisites before local startup', async () => {
+    const execFileSync = vi.fn(() => {
+      const error = new Error('spawn docker ENOENT') as Error & {
+        code: string;
+      };
+      error.code = 'ENOENT';
+      throw error;
+    });
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { localDockerPrerequisites } =
+      await import('@core/cli/local-doctor.js');
+
+    expect(() => localDockerPrerequisites()).toThrow('Docker is not installed');
+    expect(() => localDockerPrerequisites()).toThrow('not Homebrew Postgres');
+  });
+
+  it('uses an alternate UI port unless canonical origin pins the occupied port', async () => {
+    const server = net.createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as net.AddressInfo).port;
+    const origin = `http://127.0.0.1:${port}`;
+    const { resolveLocalUiOrigin } = await import('@core/cli/local-doctor.js');
+    const env = {
+      GANTRY_HOME: makeRuntimeHome(),
+      GANTRY_CONTROL_PORT: String(port),
+    };
+
+    await expect(resolveLocalUiOrigin(env, origin)).resolves.not.toBe(origin);
+    await expect(resolveLocalUiOrigin(env, origin, origin)).rejects.toThrow(
+      'authentication.canonical_origin requires',
+    );
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('starts managed Compose only for the default target with the selected home', async () => {
+    const db = mockDatabase();
+    const execFileSync = vi.fn(() => '');
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+    const home = makeRuntimeHome();
+    await ensureLocalDatabase(process.cwd(), home, {
+      GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
+    });
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'up', '--wait', '-d', 'postgres']),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GANTRY_POSTGRES_DATA: path.join(home, 'postgres'),
+        }),
+      }),
+    );
+    execFileSync.mockClear();
+    db.connect.mockRejectedValueOnce(new Error('unreachable'));
+    await expect(
+      ensureLocalDatabase(process.cwd(), home, {
+        GANTRY_DATABASE_URL: 'postgres://x@127.0.0.1:5434/gantry',
+      }),
+    ).rejects.toThrow('custom database');
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('retries an unavailable default port after removing its partial container', async () => {
+    mockDatabase();
+    const home = makeRuntimeHome();
+    let partialContainer = false;
+    const execFileSync = vi.fn((...args: unknown[]) => {
+      const command = args[1] as string[];
+      const options = args[2] as { env?: NodeJS.ProcessEnv } | undefined;
+      if (command[0] === 'container')
+        return partialContainer ? 'container-id' : '';
+      if (command[0] === 'inspect')
+        return JSON.stringify([
+          {
+            Mounts: [
+              {
+                Destination: '/var/lib/postgresql/data',
+                Source: path.join(home, 'postgres'),
+              },
+            ],
+            Config: {
+              Labels: {
+                'com.docker.compose.project.working_dir': process.cwd(),
+              },
+            },
+            State: { Running: false },
+            NetworkSettings: { Ports: { '5432/tcp': [{ HostPort: '5432' }] } },
+          },
+        ]);
+      if (command.includes('up') && !options?.env?.GANTRY_POSTGRES_PORT) {
+        partialContainer = true;
+        throw Object.assign(new Error('compose failed'), {
+          stderr: 'Bind for 127.0.0.1:5432 failed: port is already allocated',
+        });
+      }
+      if (command.includes('rm')) partialContainer = false;
+      return '';
+    });
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+
+    await ensureLocalDatabase(process.cwd(), home, {
+      GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
+    });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining([
+        'compose',
+        'rm',
+        '--stop',
+        '--force',
+        'postgres',
+      ]),
+      expect.anything(),
+    );
+    expect(execFileSync).toHaveBeenCalledWith(
+      'docker',
+      expect.arrayContaining(['compose', 'up', '--wait', '-d', 'postgres']),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GANTRY_POSTGRES_PORT: expect.any(String),
+        }),
+      }),
+    );
+  });
+
+  it('refuses to adopt a foreign named container', async () => {
+    const db = mockDatabase();
+    db.connect.mockRejectedValueOnce(new Error('not running'));
+    const execFileSync = vi
+      .fn()
+      .mockReturnValueOnce('container-id')
+      .mockReturnValueOnce(
+        JSON.stringify([
+          {
+            Mounts: [
+              {
+                Destination: '/var/lib/postgresql/data',
+                Source: '/someone/else',
+              },
+            ],
+          },
+        ]),
+      );
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { ensureLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+    await expect(
+      ensureLocalDatabase(process.cwd(), makeRuntimeHome(), {
+        GANTRY_DATABASE_URL: LOCAL_DATABASE_URL,
+      }),
+    ).rejects.toThrow('another runtime');
+    expect(execFileSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('resets exactly two schemas and refuses an active foreign DB client', async () => {
+    const db = mockDatabase();
+    const { resetLocalDatabase, LOCAL_DATABASE_URL } =
+      await import('@core/cli/local.js');
+    await resetLocalDatabase(LOCAL_DATABASE_URL);
+    expect(db.query).toHaveBeenCalledWith(
+      'DROP SCHEMA IF EXISTS gantry CASCADE; DROP SCHEMA IF EXISTS pgboss CASCADE; CREATE SCHEMA gantry; CREATE SCHEMA pgboss;',
+    );
+    db.query.mockClear();
+    db.query.mockResolvedValueOnce({ rows: [{ pid: 123 }] } as never);
+    await expect(resetLocalDatabase(LOCAL_DATABASE_URL)).rejects.toThrow(
+      'another process',
+    );
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [undefined, 0],
+    ['reset-db', 0],
+    ['reset', 0],
+    [undefined, 1],
+  ] as const)(
+    'supervises %s with migrations first, a fresh auth link, and verified stop/restart (auth exit %i)',
+    async (reset, authorizationCode) => {
+      mockDatabase();
+      const children: Array<
+        EventEmitter & {
+          pid: number;
+          exitCode: number | null;
+          signalCode: string | null;
+        }
+      > = [];
+      const spawn = vi.fn(
+        (
+          _node: string,
+          args: string[],
+          _options: { env: NodeJS.ProcessEnv },
+        ) => {
+          const child = Object.assign(new EventEmitter(), {
+            pid: 900000 + children.length,
+            exitCode: null as number | null,
+            signalCode: null as string | null,
+          });
+          children.push(child);
+          if (
+            args.includes('apps/core/src/postgres-migrate.ts') ||
+            args.includes('apps/core/src/cli/index.ts')
+          )
+            queueMicrotask(() => {
+              child.exitCode = args.includes('apps/core/src/cli/index.ts')
+                ? authorizationCode
+                : 0;
+              child.emit('exit', child.exitCode);
+            });
+          return child;
+        },
+      );
+      vi.doMock('node:child_process', () => ({
+        spawn,
+        execFileSync: vi.fn(() => ''),
+      }));
+      vi.spyOn(process, 'kill').mockImplementation((pid) => {
+        const child = children.find((entry) => entry.pid === -pid)!;
+        child.signalCode = 'SIGTERM';
+        child.emit('exit', null);
+        return true;
+      });
+      const health = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ status: 'ok' }),
+      }));
+      vi.stubGlobal('fetch', health);
+      const error = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      const { superviseLocal, stopLocalDevelopment, localEnvironment } =
+        await import('@core/cli/local.js');
+      const home = fs.realpathSync(makeRuntimeHome());
+      const env = localEnvironment(home);
+      fs.mkdirSync(path.join(home, 'artifacts'));
+      fs.writeFileSync(path.join(home, 'artifacts', 'marker'), 'preserve');
+      fs.writeFileSync(path.join(home, 'unknown'), 'preserve');
+      const savedEnv = fs.readFileSync(path.join(home, '.env'), 'utf8');
+      const running = superviseLocal(process.cwd(), home, env, reset);
+      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(4));
+      expect(spawn.mock.calls[0][1]).toContain(
+        'apps/core/src/postgres-migrate.ts',
+      );
+      expect(spawn.mock.calls[1][1]).toContain('apps/core/src/index.ts');
+      expect(spawn.mock.calls[2][1]).toContain('node_modules/vite/bin/vite.js');
+      expect(spawn.mock.calls[3][1]).toEqual([
+        '--import',
+        'tsx',
+        'apps/core/src/cli/index.ts',
+        'ui',
+        'authorize',
+      ]);
+      expect(spawn.mock.calls[3][2]).toMatchObject({
+        env: expect.objectContaining({
+          GANTRY_HOME: home,
+          GANTRY_DATABASE_URL: env.GANTRY_DATABASE_URL,
+          GANTRY_CONTROL_HOST: env.GANTRY_CONTROL_HOST,
+          GANTRY_CONTROL_PORT: env.GANTRY_CONTROL_PORT,
+          GANTRY_PROCESS_ROLE: 'all',
+        }),
+      });
+      expect(health).toHaveBeenCalledWith(
+        expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/healthz$/),
+        expect.anything(),
+      );
+      expect(spawn.mock.invocationCallOrder[3]).toBeGreaterThan(
+        health.mock.invocationCallOrder[0],
+      );
+      if (authorizationCode === 0)
+        expect(error).not.toHaveBeenCalledWith(
+          expect.stringContaining(
+            'browser authorization link could not be created',
+          ),
+        );
+      else
+        expect(error).toHaveBeenCalledWith(
+          'Local runtime is healthy, but the browser authorization link could not be created. Run `gantry ui authorize` to retry.',
+        );
+      expect(fs.existsSync(path.join(home, 'artifacts', 'marker'))).toBe(
+        reset !== 'reset',
+      );
+      expect(fs.readFileSync(path.join(home, '.env'), 'utf8')).toBe(savedEnv);
+      expect(fs.existsSync(path.join(home, 'unknown'))).toBe(true);
+      expect(await stopLocalDevelopment(home)).toBe(true);
+      expect(await running).toBe(0);
+      expect(process.kill).toHaveBeenCalledWith(-children[1].pid, 'SIGTERM');
+      expect(process.kill).toHaveBeenCalledWith(-children[2].pid, 'SIGTERM');
+    },
+  );
+
+  it('resets without starting core or Vite when restart is disabled', async () => {
+    mockDatabase();
+    const spawn = vi.fn((_node: string, _args: string[]) => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 900000,
+        exitCode: null as number | null,
+        signalCode: null as string | null,
+      });
+      queueMicrotask(() => {
+        child.exitCode = 0;
+        child.emit('exit', 0);
+      });
+      return child;
+    });
+    vi.doMock('node:child_process', () => ({
+      spawn,
+      execFileSync: vi.fn(() => ''),
+    }));
+    const { localEnvironment, superviseLocal } =
+      await import('@core/cli/local.js');
+    const home = fs.realpathSync(makeRuntimeHome());
+
+    await expect(
+      superviseLocal(
+        process.cwd(),
+        home,
+        localEnvironment(home),
+        'reset',
+        false,
+      ),
+    ).resolves.toBe(0);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0][1]).toContain(
+      'apps/core/src/postgres-migrate.ts',
+    );
+  });
 });
 
 describe('CLI local routing', () => {
@@ -528,7 +1011,7 @@ describe('CLI local routing', () => {
     );
   });
 
-  it('bypasses top-level settings validation for local status and prints Compose guidance', async () => {
+  it('bypasses top-level settings validation for local commands', async () => {
     const runtimeHome = makeRuntimeHome();
     fs.writeFileSync(
       path.join(runtimeHome, 'settings.yaml'),
@@ -549,13 +1032,15 @@ describe('CLI local routing', () => {
     }));
 
     const { main } = await import('@core/cli/index.js');
+    const runLocalCommand = vi.fn(async () => 0);
+    vi.doMock('@core/cli/local.js', () => ({
+      resolveLocalRuntimeHome: () => runtimeHome,
+      runLocalCommand,
+    }));
     const code = await main(['--runtime-home', runtimeHome, 'local', 'status']);
 
     expect(code).toBe(0);
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('docker-compose.yml'),
-      'Local Status',
-    );
+    expect(runLocalCommand).toHaveBeenCalledWith(runtimeHome, ['status']);
   });
 
   it('lets runtime startup handle revision authority before start preflight', async () => {
@@ -653,7 +1138,7 @@ describe('CLI local routing', () => {
     expect(note).toHaveBeenCalledWith('ready', 'Status');
   });
 
-  it('does not stop local Docker services from the Gantry CLI', async () => {
+  it('refuses unknown local commands without contacting Docker', async () => {
     const runtimeHome = makeRuntimeHome();
     const note = vi.fn();
     vi.doMock('@clack/prompts', () => ({
@@ -670,17 +1155,14 @@ describe('CLI local routing', () => {
     }));
 
     const { runLocalCommand } = await import('@core/cli/local.js');
-    const code = await runLocalCommand(runtimeHome, ['stop']);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const code = await runLocalCommand(runtimeHome, ['unknown']);
 
-    expect(code).toBe(0);
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('docker compose stop'),
-      'Local Stop',
-    );
+    expect(code).toBe(1);
+    expect(note).not.toHaveBeenCalled();
   });
 
-  it('points local logs to docker compose without requiring configured services', async () => {
-    const runtimeHome = makeRuntimeHome();
+  it('refuses local development on unsupported Node versions', async () => {
     const note = vi.fn();
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
@@ -695,14 +1177,10 @@ describe('CLI local routing', () => {
       })),
     }));
 
-    const { runLocalCommand } = await import('@core/cli/local.js');
-    const code = await runLocalCommand(runtimeHome, ['logs']);
-
-    expect(code).toBe(0);
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('docker compose logs'),
-      'Local Logs',
-    );
+    const { validateLocalNode } = await import('@core/cli/local.js');
+    expect(() => validateLocalNode('22.0.0')).toThrow('requires Node 24');
+    expect(() => validateLocalNode('24.15.0')).not.toThrow();
+    expect(note).not.toHaveBeenCalled();
   });
 
   it('routes top-level channel commands to the channel command family', async () => {

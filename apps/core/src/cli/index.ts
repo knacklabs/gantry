@@ -89,7 +89,7 @@ function usage(): string {
     '  gantry logs',
     '  gantry ui [authorize]',
     '  gantry auth access approve <reference> --role administrator|viewer',
-    '  gantry local setup|start|stop|status|logs|doctor',
+    '  gantry local start|reset [--no-start]|reset-db|stop|doctor',
     '  gantry provider list|connect|doctor|account',
     '  gantry conversation info|approvers  # direct/private and group/channel permission approvers',
     '  gantry agent list|info|name|add|remove|trigger|policy|access|harness|profile',
@@ -474,7 +474,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 0;
   }
 
-  const runtimeHome = resolveRuntimeHome(parsed.runtimeHomeArg);
+  const runtimeHome =
+    parsed.command[0] === 'local'
+      ? (await import('./local.js')).resolveLocalRuntimeHome(
+          parsed.runtimeHomeArg,
+        )
+      : resolveRuntimeHome(parsed.runtimeHomeArg);
   process.env.GANTRY_HOME = runtimeHome;
   const [command, ...rest] = parsed.command;
   const subcommand = rest[0];
