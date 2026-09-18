@@ -2574,27 +2574,6 @@
       "depends_on": [],
       "origin": "adhoc",
       "spec": "docs/specs/local-dev-launch.md"
-    },
-    {
-      "key": "CACHE-2",
-      "title": "Make Claude sessions process-local across runner restarts",
-      "story": "As anyone chatting with a Claude-backed agent, I want a restarted runner to rebuild one bounded, current context instead of reopening and duplicating old provider context, so follow-ups stay complete, fast, and affordable.",
-      "acceptance_criteria": [
-        "Claude worker and inline lanes continue live queries only inside one runner process; a later runner starts fresh from the bounded channel/thread snapshot plus recent digests, active durable memory, and active jobs.",
-        "Adapter-owned continuity capability keeps DeepAgents durable resume unchanged while Claude ignores and never persists cross-process provider-session handles, including failover and public status projections.",
-        "/compact chooses fresh-checkpoint before provider locking for Claude and keeps durable session-compaction admission and deduplication.",
-        "Claude session-bearing SDK files are ephemeral per runner, and drained rollout removes only Claude provider-session rows/pointers while preserving DeepAgents continuity.",
-        "Automated tests cover late/intervening messages, runner restart, compaction, failover, cleanup, and unchanged scheduled-job behavior."
-      ],
-      "order": 124,
-      "status": "pending",
-      "epic": "post-cutover",
-      "skill": "backend",
-      "kind": "refactor",
-      "depends_on": [
-        "cache-bug"
-      ],
-      "spec": "docs/specs/process-local-claude-continuity.md"
     }
   ],
   "epics": [
@@ -2701,5 +2680,5 @@
       ]
     }
   ],
-  "updated_at": "2026-09-18T06:59:25+00:00"
+  "updated_at": "2026-09-18T06:32:55+00:00"
 }
