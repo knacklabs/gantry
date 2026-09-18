@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The fresh T3A task grill found six blockers. The contract is now amended so: (1) live recovery and inline-task lifecycle are scoped as continuity consumers; (2) every concrete and integration-test adapter must declare continuity explicitly; (3) chat /status gets a status-only filter that does not change /compact before T3C; (4) real DeepAgents checkpoint resume plus Claude and DeepAgents scheduled-job leaves are mandatory; (5) unknown or removed provider rows are excluded fail-closed from read-only status/resume projections before order and limit; and (6) the review budget is raised to 40 files and 3600 lines for the complete producer-consumer update. Confirm all six resolutions and close the T3A task frontier?",
+      "options": [
+        "Confirm all six resolutions",
+        "Reopen \u2014 another concern"
+      ],
+      "chosen": "Confirm all six resolutions"
+    }
+  ],
+  "at": "2026-09-18T09:14:44.285775+00:00",
+  "session_id": "a148d87d-4cd6-4a52-b9ca-2baecd88877a"
+}

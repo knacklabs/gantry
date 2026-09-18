@@ -26,11 +26,12 @@ In scope:
 
 - the adapter capability and exhaustive declarations;
 - turn-context selection before `live-execution.ts` creates a run;
+- the live-recovery coordinator and inline-task lifecycle turn-context reads;
 - run linkage, runner resume selection, provider-row lifecycle, result
   persistence, and failover attempt isolation;
 - Claude worker and inline SDK calls with `persistSession: false` and no
   `resume`;
-- session/status/public resume projection filtering;
+- session interaction, chat `/status`, and public resume projection filtering;
 - same-process worker MessageStream continuation;
 - same-PR architecture/runtime docs and a hermetic restart agent-e2e.
 
@@ -102,12 +103,15 @@ type ProviderSessionContinuity = 'process_local' | 'durable_resume';
 
 and a required readonly `providerSessionContinuity` field to
 `AgentExecutionAdapter`. Claude declares `process_local`; DeepAgents declares
-`durable_resume`. Test adapters must declare one explicitly so new adapters
-cannot accidentally inherit durable persistence.
+`durable_resume`. Every concrete and test adapter—including the claim-protocol,
+runtime-host-child-process, and inline-agent-runtime integration fixtures—must
+declare one explicitly so a cast cannot silently turn `undefined` into a
+durable default.
 
 ### Admission and repository selection
 
-Resolve the adapter before the turn-context read in live admission. Extend the
+Resolve the adapter before every turn-context read that can create or recover a
+run: live admission, live recovery, and inline-task lifecycle. Extend the
 turn-context domain port, canonical ops facade, application service, and
 Postgres repository input with the capability (or the minimal typed selection
 policy derived from it). The Postgres operation must avoid maintenance-lock
@@ -155,9 +159,18 @@ The provider-session repository port gains a capability-aware query input, and
 the production control-server wiring supplies the execution-adapter continuity
 resolver to `SessionInteractionModule`. Filtering occurs in
 `session-repositories.postgres.ts` before order/limit, so a newer stale Claude
-row cannot mask an older valid DeepAgents row. `hasProviderResume` and public
-resume projections are false/absent for stale Claude rows left by an incomplete
-rollout. This is a read-policy fence, not a destructive cleanup.
+row cannot mask an older valid DeepAgents row. The query receives the registered
+`durable_resume` provider-id allowlist; an unknown or removed provider is
+excluded fail-closed instead of throwing during a read-only status request or
+being treated as durable. `hasProviderResume` and public resume projections are
+false/absent for stale Claude and unknown-provider rows. This is a read-policy
+fence, not a destructive cleanup.
+
+Chat `/status` has a separate status-only continuity read. It must hide
+process-local ready/maintenance provider state before formatting the
+compaction status, while `/compact` continues to use its existing provider
+locking path until T3C. Do not apply a global filter to the shared command
+context that would silently implement part of T3C in this task.
 
 ### Canon
 
@@ -222,13 +235,20 @@ rollout deletion, and HTTP typing are separate tasks with different harnesses.
   stream. Pin same-process continuation separately from restart behavior.
 - Filtering stale rows only in the public DTO leaves ceiling/delta lifecycle
   active. Test selection and every lifecycle entry, not just output shape.
+- Reusing the status filter for `/compact` would cross the T3C boundary. Pin a
+  chat `/status` test that hides Claude state while the `/compact` dependency
+  remains unchanged.
+- Registry lookup is strict on execution paths, but read-only projections must
+  not 500 on removed adapters. Build the durable provider allowlist from
+  registered adapters and exclude unknown rows before order/limit.
 
 ## Verify Plan
 
 - Run every required leaf rendered from the protected decomposition.
 - Run `npm run typecheck` and `npm run lint:changed`.
 - Run the relevant unit/integration suites for runner ceiling, live admission,
-  Claude SDK boundary, failover, and session interaction.
+  live recovery, inline task lifecycle, Claude SDK boundary, failover, session
+  interaction, and chat `/status`.
 - Run the provider-session continuity Postgres integration leaf; fail if a
   process-local read releases a maintenance lock, promotes/selects a row, or
   lets a newer stale row mask an older durable row.
@@ -236,6 +256,9 @@ rollout deletion, and HTTP typing are separate tasks with different harnesses.
   fresh briefing and no provider-session association, while the live-stream
   scenario still continues.
 - Run scheduled-job regressions unchanged.
+- Run the real Postgres-backed DeepAgents checkpoint create/resume leaf and the
+  Claude and DeepAgents scheduled-job leaves as required stage tests, not only
+  as broad-suite expectations.
 - Run `python3 factory/scripts/verify.py`.
 - Fail the task if any Claude path selects, attaches, resumes, persists,
   promotes, delta-replays, retires, or projects a provider session; if any
@@ -281,11 +304,18 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts
 - apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts
 - apps/core/src/app/bootstrap/live-execution.ts
+- apps/core/src/app/bootstrap/live-recovery-coordinator.ts
+- apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts
 - apps/core/src/control/server/index.ts
 - apps/core/src/runtime
+- apps/core/src/session/session-commands.ts
 - apps/core/test/unit
+- apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts
 - apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts
+- apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts
+- apps/core/test/integration/inline-agent-runtime.integration.test.ts
 - apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts
+- apps/core/test/integration/runtime-host-child-process.integration.test.ts
 - apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts
 - docs/architecture/session-resume.md
 - docs/architecture/runtime-components.md
@@ -297,13 +327,20 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 
 - `continues a live Claude worker without provider persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runner/agent-runner-ipc.test.ts)
 - `starts a recovered Claude worker without a resume id or persisted handle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `keeps recovered process-local turns detached from provider sessions` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/bootstrap/live-recovery-coordinator.test.ts)
+- `keeps inline process-local task turns detached from provider sessions` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts)
 - `starts every Claude inline attempt without resume or persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `filters a stale process-local row before run creation and lifecycle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `keeps provider-session state attempt-local across DeepAgents to Claude failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `reselects durable state without rehydrating memory across Claude to DeepAgents failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `selects no process-local row or lifecycle side effect while preserving a durable row` -- `VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts)
 - `hides stale process-local rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
+- `excludes unknown provider rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
+- `hides process-local provider compaction state from status without changing compact` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/session/session-commands.test.ts)
 - `preserves durable DeepAgents resume and context ceiling behavior` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts)
+- `streams runner frames from a gateway-backed OpenAI run and persists the session` -- `VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts)
+- `does not resume or persist SDK sessions for scheduled job turns` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runner/agent-runner-ipc.test.ts)
+- `runs scheduled jobs without opening a checkpoint session` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/adapters/deepagents-inline-lane.test.ts)
 - `restarts Claude without duplicate provider history` -- `VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts)
 
 **Verify commands**
@@ -313,5 +350,5 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - `npm run test:e2e:agent:hermetic`
 - `python3 factory/scripts/verify.py`
 
-**Review budget.** 30 files / 2600 lines -- The task crosses admission, adapter setup, failover, lifecycle, projection, docs, and focused proof because one capability must fence every provider-session side effect atomically. Reconstruction, SDK filesystem lifetime, compaction, release, rollout cleanup, and the settings API are explicitly split into later tasks.
+**Review budget.** 40 files / 3600 lines -- The task crosses live admission, recovery, inline task lifecycle, adapter setup, failover, repository lifecycle, public and chat status projection, exhaustive test adapters, docs, and focused proof because one capability must fence every provider-session side effect atomically. The task grill expanded the budget from 30/2600 after finding mandatory consumers and integration fixtures outside the first scope; reconstruction, SDK filesystem lifetime, compaction admission, release, rollout cleanup, and the settings API remain split into later tasks.
 <!-- /forge:contract -->

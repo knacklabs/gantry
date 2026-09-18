@@ -368,6 +368,7 @@ The plan must design AROUND these. A plan that ignores one is not merely unlucky
 - Risky tool execution must pass through deterministic permission evaluation and sandbox policy before any provider callback or runner grants access.
 - When memory IPC auth scope includes per-run reviewer authority, every runner boundary must forward memoryReviewerIsControlApprover into the Gantry MCP server env; otherwise approver runs sign memory_search and continuity_summary requests with a different scope than runtime verification.
 - Fleet compose rehearsal must run settings-seed through the normal Docker entrypoint so local auto-secrets are exported, and seed desired-state via the import service rather than the broad CLI bootstrap; the CLI bootstrap can close the shared runtime storage pool before settings import validation finishes. Docker-internal first-party Postgres hostnames need explicit plaintext allowance while real remote Postgres still requires sslmode=require.
+- When Docker access is denied, a disposable local PostgreSQL 17 cluster can still be blocked during initdb because the sandbox rejects SysV shared memory; shared_memory_type and dynamic_shared_memory_type mmap options do not affect the bootstrap subprocess.
 - Managed command policy can reject required VITEST_JUNIT/FORGE_TEST_ID commands when the exact testcase identifier contains a literal greater-than separator. Report the wrapper lane as blocked and do not call it passing.
 - A focused Vitest selector can complete its test but still exit 1 when the macOS watcher hits EMFILE; treat this as blocked verification and rerun with the canonical wrapper or a watcher-safe environment.
 - Postgres JSONB normalizes object key order and drops undefined; any equality check against persisted state (JSON.stringify ===) silently fails in prod while structuredClone-based fakes keep it green. Compare with util.isDeepStrictEqual and make repository fakes persist through a JSONB-faithful round trip (see test/unit/application/jsonb-round-trip.ts).
@@ -412,13 +413,19 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 
 - apps/core/src/application/agent-execution
 - apps/core/src/application/sessions
+- apps/core/src/domain/repositories/ops-repo.ts
+- apps/core/src/domain/ports/repositories.ts
 - apps/core/src/adapters/llm/anthropic-claude-agent
 - apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts
 - apps/core/src/adapters/storage/postgres/repositories
+- apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts
+- apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts
 - apps/core/src/app/bootstrap/live-execution.ts
+- apps/core/src/control/server/index.ts
 - apps/core/src/runtime
 - apps/core/test/unit
 - apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts
+- apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts
 - apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts
 - docs/architecture/session-resume.md
 - docs/architecture/runtime-components.md
@@ -433,6 +440,8 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - `starts every Claude inline attempt without resume or persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `filters a stale process-local row before run creation and lifecycle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `keeps provider-session state attempt-local across DeepAgents to Claude failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `reselects durable state without rehydrating memory across Claude to DeepAgents failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `selects no process-local row or lifecycle side effect while preserving a durable row` -- `VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts)
 - `hides stale process-local rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
 - `preserves durable DeepAgents resume and context ceiling behavior` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts)
 - `restarts Claude without duplicate provider history` -- `VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts)
@@ -581,6 +590,8 @@ These questions were put to the human and answered. Two obligations:
   A: Confirm all eleven resolutions — frontier empty
 - Q: The independent plan grill found fifteen blockers. The plan has now been structurally rewritten so: (1) it uses all nine required Forge sections with concrete failure-oriented verification; (2) Surface Impact uses the supported seven-surface taxonomy; (3) process-local filtering happens in turn-context selection before live-execution creates a run and all selection/repository/port files are owned; (4) /new publishes one successful retirement event per committed retired row; (5) T4 owns route metadata, operation schemas, and OpenAPI components; (6) the desired-state DTO is a typed envelope while the core runtime parser remains the sole full-document authority; (7) Claude materialization has inner session cleanup plus final whole-run-directory cleanup per decision 0010; (8) only the worker MessageStream promises live continuation, while inline attempts are fresh; (9) reconstruction tests prove canonical runs/events are retained but not replayed; (10) rollout filesystem cleanup has a concrete dry-run/apply Node helper with allowed-root, symlink, path-escape, idempotence, and sentinel tests; (11) task dependencies now name only real consumed behavior and each extra split states its bounded-review force; (12) every backend task is user_facing false; (13) each runtime PR carries its own canon changes and hermetic agent-e2e delta, or an explicit non-agent justification; (14) the Anthropic materialization architecture document is owned; and (15) a recurring contract-partial tripwire requires producer/consumer enumeration and escalation on recurrence. Confirm these fifteen resolutions and close the plan frontier?
   A: Confirm all fifteen — frontier empty
+- Q: The T3A task grill found five blockers. The task contract is now amended so: (1) the full turn-context chain—domain ops port, canonical Postgres ops facade, canonical session ops service, and selecting repository—is scoped, and process-local filtering happens before maintenance-lock release, ready-row promotion, ordering, or selection; (2) public status filtering has a capability-aware provider-session port plus production control-server resolver wiring, with filtering before order/limit so a stale Claude row cannot mask a valid DeepAgents row; (3) failover proof covers both DeepAgents-to-Claude and Claude-to-DeepAgents, with candidate-specific non-hydrating fenced re-reads and persistence state; (4) a real Postgres integration leaf proves no process-local lifecycle side effect while durable rows remain selectable; and (5) reviewer focus cites the provider-pattern and modular-monolith constitutions and retains the recurring partial-contract tripwire. Confirm these five resolutions and close the T3A task frontier?
+  A: Confirm all five resolutions
 
 ## The artifact under interrogation (task plan cache-bug-T3A)
 
@@ -645,18 +656,24 @@ flowchart TD
     N --> G
 ```
 
-The capability is resolved before `getAgentTurnContext`. The turn-context
-port/service/repository receives a continuity filter and does not return a
-process-local provider row. Consequently `live-execution.ts` creates the run
-with no provider association. The runner repeats the guard defensively before
+The capability is resolved before `getAgentTurnContext`. The full production
+chain is owned: `domain/repositories/ops-repo.ts`,
+`schema/canonical-ops-repo.postgres.ts`,
+`services/canonical-session-ops-service.ts`, and the canonical session
+repository. The repository applies the continuity predicate before releasing
+maintenance locks, promoting a ready row, ordering candidates, or selecting a
+row; a post-fetch filter is forbidden. Consequently `live-execution.ts`
+creates the run with no provider association. The runner repeats the guard defensively before
 promotion, delta replay, ceiling/fingerprint retirement, input construction,
 run metadata update, and result persistence.
 
-Failover creates isolated attempt state. Each attempt computes its resume input
-and persistence permission from its own adapter. A DeepAgents handle may not
-flow into a Claude fallback, and output from a Claude attempt may not replace a
-DeepAgents provider association. A successful DeepAgents attempt keeps its
-existing persistence behavior.
+Failover creates isolated attempt state. Each candidate performs a
+non-hydrating, generation-fenced turn-context re-read and computes resume input
+and persistence permission from its own adapter; the already-hydrated Gantry
+memory block is reused only under decision 0078's existing fence. A DeepAgents
+handle may not flow into a Claude fallback, and a Claude-first attempt may not
+leave persistence disabled for a successful DeepAgents fallback. A successful
+DeepAgents attempt keeps its existing resume/lifecycle/persistence behavior.
 
 The worker lane preserves only the already-live MessageStream. A later worker
 starts fresh. The inline lane has no long-lived stream and every invocation is
@@ -688,9 +705,12 @@ cannot accidentally inherit durable persistence.
 ### Admission and repository selection
 
 Resolve the adapter before the turn-context read in live admission. Extend the
-turn-context application input with the capability (or the minimal typed
-selection policy derived from it) and have the Postgres query join/select a
-provider row only for `durable_resume`. The process-local branch still returns
+turn-context domain port, canonical ops facade, application service, and
+Postgres repository input with the capability (or the minimal typed selection
+policy derived from it). The Postgres operation must avoid maintenance-lock
+release, ready-row promotion, ordering, and provider-row selection entirely for
+`process_local`; this is stronger than hiding fields after the query. The
+process-local branch still returns
 the canonical agent session and hydrated Gantry state; only provider-session
 fields are absent.
 
@@ -728,11 +748,13 @@ persistent inline stream.
 
 ### Projection
 
-The session interaction application service asks the provider-session
-repository only for durable-resume continuity (or applies the same typed
-repository input). `hasProviderResume` and public resume projections must be
-false/absent for stale Claude rows left by an incomplete rollout. This is a
-read-policy fence, not a destructive cleanup.
+The provider-session repository port gains a capability-aware query input, and
+the production control-server wiring supplies the execution-adapter continuity
+resolver to `SessionInteractionModule`. Filtering occurs in
+`session-repositories.postgres.ts` before order/limit, so a newer stale Claude
+row cannot mask an older valid DeepAgents row. `hasProviderResume` and public
+resume projections are false/absent for stale Claude rows left by an incomplete
+rollout. This is a read-policy fence, not a destructive cleanup.
 
 ### Canon
 
@@ -753,6 +775,11 @@ provider-id switch.
 Existing TypeScript, Drizzle repository patterns, Vitest, and the hermetic
 agent-e2e harness are the selected tools under decision 0005; no dependency is
 added.
+
+The provider boundary follows
+`constitution/pnp-provider-pattern-for-integration.md`; the port/service/
+adapter dependency direction and policy placement follow
+`constitution/pnp-coding-standards-modular-monolith.md`.
 
 Recurring `contract-partial` tripwire: enumerate every producer and consumer
 of `providerSessionContinuity`. If review finds any selection, linkage,
@@ -786,7 +813,8 @@ rollout deletion, and HTTP typing are separate tasks with different harnesses.
   new process-local adapter appears. Audit for ids/literals in changed core
   code.
 - A shared mutable failover variable can carry a DeepAgents handle into Claude.
-  Construct and assert per-attempt state.
+  Construct and assert per-attempt state in both directions; Claude-to-
+  DeepAgents must reselect durable state without rehydrating memory.
 - Setting `persistSession: false` could accidentally disable the live worker
   stream. Pin same-process continuation separately from restart behavior.
 - Filtering stale rows only in the public DTO leaves ceiling/delta lifecycle
@@ -798,6 +826,9 @@ rollout deletion, and HTTP typing are separate tasks with different harnesses.
 - Run `npm run typecheck` and `npm run lint:changed`.
 - Run the relevant unit/integration suites for runner ceiling, live admission,
   Claude SDK boundary, failover, and session interaction.
+- Run the provider-session continuity Postgres integration leaf; fail if a
+  process-local read releases a maintenance lock, promotes/selects a row, or
+  lets a newer stale row mask an older durable row.
 - Run `npm run test:e2e:agent:hermetic`; the restart scenario must show one
   fresh briefing and no provider-session association, while the live-stream
   scenario still continues.
@@ -839,13 +870,19 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 
 - apps/core/src/application/agent-execution
 - apps/core/src/application/sessions
+- apps/core/src/domain/repositories/ops-repo.ts
+- apps/core/src/domain/ports/repositories.ts
 - apps/core/src/adapters/llm/anthropic-claude-agent
 - apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts
 - apps/core/src/adapters/storage/postgres/repositories
+- apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts
+- apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts
 - apps/core/src/app/bootstrap/live-execution.ts
+- apps/core/src/control/server/index.ts
 - apps/core/src/runtime
 - apps/core/test/unit
 - apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts
+- apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts
 - apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts
 - docs/architecture/session-resume.md
 - docs/architecture/runtime-components.md
@@ -860,6 +897,8 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - `starts every Claude inline attempt without resume or persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `filters a stale process-local row before run creation and lifecycle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
 - `keeps provider-session state attempt-local across DeepAgents to Claude failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `reselects durable state without rehydrating memory across Claude to DeepAgents failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `selects no process-local row or lifecycle side effect while preserving a durable row` -- `VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts)
 - `hides stale process-local rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
 - `preserves durable DeepAgents resume and context ceiling behavior` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts)
 - `restarts Claude without duplicate provider history` -- `VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts)

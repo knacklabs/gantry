@@ -606,11 +606,18 @@
         "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
         "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
         "apps/core/src/app/bootstrap/live-execution.ts",
+        "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts",
         "apps/core/src/control/server/index.ts",
         "apps/core/src/runtime",
+        "apps/core/src/session/session-commands.ts",
         "apps/core/test/unit",
+        "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
         "apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+        "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+        "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
         "apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts",
+        "apps/core/test/integration/runtime-host-child-process.integration.test.ts",
         "apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts",
         "docs/architecture/session-resume.md",
         "docs/architecture/runtime-components.md",
@@ -627,6 +634,16 @@
         {
           "id": "starts a recovered Claude worker without a resume id or persisted handle",
           "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "keeps recovered process-local turns detached from provider sessions",
+          "path": "apps/core/test/unit/bootstrap/live-recovery-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "keeps inline process-local task turns detached from provider sessions",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
         },
         {
@@ -660,8 +677,33 @@
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
         },
         {
+          "id": "excludes unknown provider rows from status and public resume projection",
+          "path": "apps/core/test/unit/application/sessions/session-interaction-module.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "hides process-local provider compaction state from status without changing compact",
+          "path": "apps/core/test/unit/session/session-commands.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
           "id": "preserves durable DeepAgents resume and context ceiling behavior",
           "path": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "streams runner frames from a gateway-backed OpenAI run and persists the session",
+          "path": "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "does not resume or persist SDK sessions for scheduled job turns",
+          "path": "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "runs scheduled jobs without opening a checkpoint session",
+          "path": "apps/core/test/unit/adapters/deepagents-inline-lane.test.ts",
           "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
         },
         {
@@ -676,11 +718,11 @@
         "npm run test:e2e:agent:hermetic",
         "python3 factory/scripts/verify.py"
       ],
-      "reviewer_focus": "Load-bearing canon: constitution/pnp-provider-pattern-for-integration.md requires provider behavior behind the adapter seam, and constitution/pnp-coding-standards-modular-monolith.md requires policy to remain out of storage adapters and dependencies to point inward. Reject any provider-id branch in core policy, any process-local row selected or lifecycle-mutated before live-execution creates a run, any Claude resume/persist option in either lane, either failover direction sharing resume/persistence state, any post-query filter that lets a newer stale row mask an older durable row, or any producer/consumer omitted from the continuity capability audit. If review again finds a partial contract update, stop and escalate under the plan's recurring contract-partial tripwire.",
+      "reviewer_focus": "Load-bearing canon: constitution/pnp-provider-pattern-for-integration.md requires provider behavior behind the adapter seam, and constitution/pnp-coding-standards-modular-monolith.md requires policy to remain out of storage adapters and dependencies to point inward. Reject any provider-id branch in core policy, any process-local row selected or lifecycle-mutated before live admission, live recovery, or inline-task execution creates a run, any Claude resume/persist option in either lane, either failover direction sharing resume/persistence state, any post-query filter that lets a newer stale or unknown-provider row mask an older durable row, any chat /status filter that changes /compact admission, or any producer/consumer/test adapter omitted from the continuity capability audit. If review again finds a partial contract update, stop and escalate under the plan's recurring contract-partial tripwire.",
       "review_budget": {
-        "max_changed_files": 30,
-        "max_changed_lines": 2600,
-        "reason": "The task crosses admission, adapter setup, failover, lifecycle, projection, docs, and focused proof because one capability must fence every provider-session side effect atomically. Reconstruction, SDK filesystem lifetime, compaction, release, rollout cleanup, and the settings API are explicitly split into later tasks."
+        "max_changed_files": 40,
+        "max_changed_lines": 3600,
+        "reason": "The task crosses live admission, recovery, inline task lifecycle, adapter setup, failover, repository lifecycle, public and chat status projection, exhaustive test adapters, docs, and focused proof because one capability must fence every provider-session side effect atomically. The task grill expanded the budget from 30/2600 after finding mandatory consumers and integration fixtures outside the first scope; reconstruction, SDK filesystem lifetime, compaction admission, release, rollout cleanup, and the settings API remain split into later tasks."
       }
     },
     {
@@ -780,6 +822,6 @@
       "cache-bug-T3E"
     ]
   ],
-  "commit": "db70455da5c249d11458708e58bbdee136c9e2db",
+  "commit": "d6407c946cd4de8e3ac9fed71a6d89806cdda521",
   "plan_sha256": "98a2f2193ce6f02db02b955bb8ebba83bc78591094f51183147415c95010abf5"
 }
