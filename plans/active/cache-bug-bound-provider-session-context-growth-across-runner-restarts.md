@@ -212,11 +212,14 @@ that serves it.
   `agent-runner-ipc.test.ts` live-turn persist/resume,
   `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user message,
   `deepagents-memory-context.test.ts`) stay green and untouched.
-- S7 (T2) `limits.provider_session_max_input_tokens` parses next to provider
+- S7 (T2 for the setting and its pipeline; T4 for the typed HTTP contract)
+  `limits.provider_session_max_input_tokens` parses next to provider
   entries, defaults to 150,000, rejects outside 20,000–900,000 with a
   path-level error, round-trips through export and the revision document, is
   applied from a new revision by a current worker, and a worker below the
-  bumped reader version holds its prior revision and alerts.
+  bumped reader version holds its prior revision and alerts. T4 gives
+  `/v1/settings/desired-state` the typed request and response DTO and the
+  OpenAPI registry entry for the payload this key changes.
 - S8 (T3) DeepAgents Postgres integration: for ceiling, missing-session,
   fingerprint and `/new`, the retired thread's rows leave all three tables,
   `checkpoint_migrations` and other threads remain, a second call is a no-op,
@@ -230,7 +233,7 @@ that serves it.
   or `runId` as stated, and is not dropped. Split deliberately: a single
   owner could not finish it, because the event types and the handlers sit in
   different tasks.
-- S10 (T1, T2, T3) scheduled-job tests untouched and green.
+- S10 (T1, T2, T3, T4) scheduled-job tests untouched and green.
 - S11 (all) `verify.py` green, now including the diff-scoped
   `npm run lint:changed`.
 - S12 (T2) operator procedures and recipe in `docs/memory/`; the query is
@@ -347,7 +350,10 @@ release coordinator `apps/core/src/runtime/provider-session-release.ts`:
 resolve the adapter via `resolveAgentExecutionAdapter` by
 `executionProviderId`, run after the turn's final reply path has unblocked
 (queued from ceiling and fingerprint preflight and from the missing-session
-retry, drained once at the end of `runAgent`), sanitise the error (strip the
+retry, drained once in `group-processing.ts` after the complete
+primary-plus-fallback delivery attempt settles — NOT at the end of
+`runAgent`, which is awaited before the fallback reply and would precede or
+delay it; see the T3 task section), sanitise the error (strip the
 external session id, thread id and any `postgres://` URL), and publish
 `session.provider.cleanup_failed` best-effort. `resetScope` (T1) returns the
 retired references selected `FOR UPDATE` before delete and returned after
@@ -618,7 +624,10 @@ configured — all installed and the only fit for this repo.
 
 4. `cache-bug-T4` — The desired-state settings contract. `user_facing:
    false`. Depends on T2 (the key must exist before its contract is typed).
-   Serves the API half of S4.
+   Serves the API half of S7 — the public payload of
+   `/v1/settings/desired-state`, whose typed request and response DTO and
+   OpenAPI registry entry T4 adds. (An earlier draft said "the API half of
+   S4"; S4 is the post-run measurement raise and has no API surface.)
 
    The new key changes the public payload of `/v1/settings/desired-state`,
    and that surface is currently untyped: the route accepts
