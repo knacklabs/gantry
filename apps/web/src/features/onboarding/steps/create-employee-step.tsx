@@ -33,10 +33,10 @@ export function CreateEmployeeStep({
 }: CreateEmployeeStepProps) {
   const models = modelOptions[draft.provider];
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-4">
       <Heading
-        body="Give your employee a name, say what it handles, and choose a model for this local preview. Nothing is saved yet."
-        title="Create your first employee"
+        body="Give it a model to think with. All of it can change later."
+        title="Onboard Your First Agent"
       />
       <div className="grid gap-5 rounded-2xl border border-border bg-surface p-5 shadow-panel sm:p-6">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -168,13 +168,9 @@ function Field({
 
 export function Heading({ body, title }: { body: string; title: string }) {
   return (
-    <header className="grid justify-items-center gap-1 text-center">
-      <h1 className="m-0 text-balance font-display text-[clamp(26px,3.2vw,34px)] font-bold leading-[1.05] tracking-[-0.04em]">
-        {title}
-      </h1>
-      <p className="m-0 max-w-[48ch] text-pretty text-[14.5px] leading-6 text-text-secondary">
-        {body}
-      </p>
+    <header className="onboarding-heading">
+      <h1>{title}</h1>
+      <p>{body}</p>
     </header>
   );
 }

@@ -12,10 +12,16 @@ export type OnboardingDraft = {
 };
 
 export const onboardingSteps = [
-  ['Create Employee', 'Name, responsibilities, and model'],
-  ['Connect Workspace', 'Choose where your team already works'],
-  ['Assign Work', 'Pick a channel and approver'],
-  ['Say Hello', 'Review the preview setup'],
+  [
+    'Create Employee',
+    'Give it a model to think with. All of it can change later.',
+  ],
+  ['Connect Workspace', 'Install Gantry where your team already talks.'],
+  [
+    'Assign Work',
+    'Choose the channel it works in and who signs off on anything risky.',
+  ],
+  ['Say Hello', 'Mention it once to confirm messages reach it and it replies.'],
 ] as const;
 
 export const initialOnboardingDraft: OnboardingDraft = {
