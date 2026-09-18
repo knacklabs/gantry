@@ -1,3 +1,6 @@
+import path from 'path';
+import { pathToFileURL } from 'url';
+
 import { PostgresStorageService } from './adapters/storage/postgres/storage-service.js';
 import { fleetRehearsalPlaintextPostgresHosts } from './adapters/storage/postgres/url.js';
 import { readEnvFile } from './config/env/file.js';
@@ -53,8 +56,7 @@ export async function runPostgresMigrations(
 
 const isDirectRun =
   process.argv[1] &&
-  new URL(import.meta.url).pathname ===
-    new URL(`file://${process.argv[1]}`).pathname;
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isDirectRun) {
   runPostgresMigrations().catch((err) => {
