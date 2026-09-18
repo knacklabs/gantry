@@ -21,6 +21,10 @@ import {
 } from './routes/browser-mcp-servers.js';
 import { handleBrowserModelProviderRoutes } from './routes/browser-model-providers.js';
 import {
+  handleBrowserOnboardingRoutes,
+  isBrowserOnboardingPath,
+} from './routes/browser-onboarding.js';
+import {
   handleBrowserNavigationSummary,
   isBrowserNavigationSummaryPath,
 } from './routes/browser-navigation-summary.js';
@@ -41,6 +45,7 @@ type BrowserSettings = Parameters<typeof handleBrowserAgentRoutes>[5] &
   Parameters<typeof handleBrowserChannelAccountRoutes>[4] &
   Parameters<typeof handleBrowserMcpServerRoutes>[4] &
   Parameters<typeof handleBrowserModelProviderRoutes>[3] &
+  Parameters<typeof handleBrowserOnboardingRoutes>[3] &
   Parameters<typeof handleBrowserNavigationSummary>[4] &
   Parameters<typeof handleBrowserPeopleRoutes>[3] &
   Parameters<typeof handleBrowserRuntimeStatus>[4] &
@@ -55,6 +60,7 @@ function isBrowserControlPath(pathname: string): boolean {
     isBrowserAgentsPath(pathname) ||
     isBrowserChannelAccountsPath(pathname) ||
     isBrowserPeoplePath(pathname) ||
+    isBrowserOnboardingPath(pathname) ||
     pathname.startsWith('/ui/api/model-providers') ||
     isBrowserMcpServerPath(pathname) ||
     isBrowserSkillsPath(pathname)
@@ -122,6 +128,16 @@ export async function handleBrowserControlRoutes(input: {
       input.req,
       input.res,
       input.ctx,
+      input.pathname,
+      settings,
+    ))
+  )
+    return true;
+  if (
+    isBrowserOnboardingPath(input.pathname) &&
+    (await handleBrowserOnboardingRoutes(
+      input.req,
+      input.res,
       input.pathname,
       settings,
     ))

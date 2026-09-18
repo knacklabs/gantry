@@ -34,6 +34,10 @@ export const usersPostgres = pgTable(
     agentId: text('agent_id'),
     displayName: text('display_name'),
     status: text('status').notNull().default('active'),
+    onboardingCompletedAt: timestamp('onboarding_completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

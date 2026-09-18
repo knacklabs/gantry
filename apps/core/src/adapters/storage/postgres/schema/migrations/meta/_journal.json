@@ -1037,6 +1037,13 @@
       "when": 1788953932534,
       "tag": "20260909113852_provider_session_context_high_water_mark",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1789725076643,
+      "tag": "20260918095116_onboarding_completion",
+      "breakpoints": true
     }
   ]
 }

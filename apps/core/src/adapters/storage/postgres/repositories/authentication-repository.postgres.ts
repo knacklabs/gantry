@@ -590,6 +590,39 @@ export class PostgresAuthenticationRepository {
     });
   }
 
+  async onboardingCompletedAt(input: { appId: string; userId: string }) {
+    const [user] = await this.db
+      .select({ completedAt: schema.usersPostgres.onboardingCompletedAt })
+      .from(schema.usersPostgres)
+      .where(
+        and(
+          eq(schema.usersPostgres.appId, input.appId),
+          eq(schema.usersPostgres.id, input.userId),
+        ),
+      )
+      .limit(1);
+    return user?.completedAt ?? null;
+  }
+
+  async markOnboardingCompleted(input: {
+    appId: string;
+    userId: string;
+    now: string;
+  }): Promise<boolean> {
+    const [user] = await this.db
+      .update(schema.usersPostgres)
+      .set({ onboardingCompletedAt: input.now, updatedAt: input.now })
+      .where(
+        and(
+          eq(schema.usersPostgres.appId, input.appId),
+          eq(schema.usersPostgres.id, input.userId),
+          isNull(schema.usersPostgres.onboardingCompletedAt),
+        ),
+      )
+      .returning({ id: schema.usersPostgres.id });
+    return user !== undefined;
+  }
+
   async getActiveSession(input: {
     sessionHash: string;
     now: string;

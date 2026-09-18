@@ -110,6 +110,9 @@ describe('authentication repository', () => {
     expect(source).toContain('reauthenticateSessionHash');
     expect(source).toContain('browserSessionsPostgres.revokedAt');
     expect(source).toContain('revokeInvitationById');
+    expect(source).toContain('onboardingCompletedAt');
+    expect(source).toContain('markOnboardingCompleted');
+    expect(source).toContain('usersPostgres.onboardingCompletedAt');
     expect(source).not.toContain('count(*)::int');
   });
 });
