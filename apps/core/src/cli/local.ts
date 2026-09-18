@@ -445,6 +445,7 @@ export async function superviseLocal(
   home: string,
   env: NodeJS.ProcessEnv,
   reset?: 'reset' | 'reset-db',
+  restart = true,
 ): Promise<number> {
   const children = new Set<ChildProcess>();
   let stopping = false;
@@ -585,6 +586,11 @@ export async function superviseLocal(
       ])) !== 0
     )
       throw new Error('Local database migrations failed.');
+    if (!restart) {
+      console.log('Local runtime reset. Run `gantry local start` when ready.');
+      await shutdown(0);
+      return 0;
+    }
     const port = await freePort();
     const core = launch(['--import', 'tsx', 'apps/core/src/index.ts'], {
       ...env,
@@ -677,6 +683,12 @@ export async function runLocalCommand(
     }
     if (!['start', 'reset', 'reset-db', 'stop'].includes(command))
       throw new Error('Use gantry local start, reset, reset-db, or stop.');
+    const noStart = args[1] === '--no-start';
+    if (
+      args.length > 1 &&
+      (command !== 'reset' || !noStart || args.length !== 2)
+    )
+      throw new Error('Use `gantry local reset --no-start` only with reset.');
     validateLocalNode();
     const env = localEnvironment(home);
     const target = localDatabase(
@@ -712,6 +724,7 @@ export async function runLocalCommand(
       home,
       env,
       command === 'start' ? undefined : (command as 'reset' | 'reset-db'),
+      !noStart,
     );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

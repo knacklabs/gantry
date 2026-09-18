@@ -442,6 +442,44 @@ describe('source-local development', () => {
       expect(process.kill).toHaveBeenCalledWith(-children[2].pid, 'SIGTERM');
     },
   );
+
+  it('resets without starting core or Vite when restart is disabled', async () => {
+    mockDatabase();
+    const spawn = vi.fn((_node: string, _args: string[]) => {
+      const child = Object.assign(new EventEmitter(), {
+        pid: 900000,
+        exitCode: null as number | null,
+        signalCode: null as string | null,
+      });
+      queueMicrotask(() => {
+        child.exitCode = 0;
+        child.emit('exit', 0);
+      });
+      return child;
+    });
+    vi.doMock('node:child_process', () => ({
+      spawn,
+      execFileSync: vi.fn(() => ''),
+    }));
+    const { localEnvironment, superviseLocal } =
+      await import('@core/cli/local.js');
+    const home = fs.realpathSync(makeRuntimeHome());
+
+    await expect(
+      superviseLocal(
+        process.cwd(),
+        home,
+        localEnvironment(home),
+        'reset',
+        false,
+      ),
+    ).resolves.toBe(0);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(spawn.mock.calls[0][1]).toContain(
+      'apps/core/src/postgres-migrate.ts',
+    );
+  });
 });
 
 describe('CLI local routing', () => {
