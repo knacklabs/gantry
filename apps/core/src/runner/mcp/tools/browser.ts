@@ -235,6 +235,13 @@ function browserTimeoutMs(args: Record<string, unknown>): number {
   );
 }
 
+function navigationTimeoutMs(args: Record<string, unknown>): number {
+  // Public sites can legitimately take longer than a model's conventional
+  // 30-second timeout. Navigation must get the safe bounded budget; the
+  // enclosing job deadline remains authoritative.
+  return Math.max(DEFAULT_BROWSER_TOOL_TIMEOUT_MS, browserTimeoutMs(args));
+}
+
 async function callBrowserBackend(
   publicToolName: PublicBrowserToolName,
   action: BrowserBackendAction,
@@ -442,7 +449,7 @@ export function registerBrowserTools(server: McpServer): void {
         'browser_open',
         'navigate',
         { url: args.url },
-        timeoutMs,
+        navigationTimeoutMs(args),
       );
     },
   );
@@ -515,7 +522,9 @@ export function registerBrowserTools(server: McpServer): void {
         'browser_act',
         actBackendAction(action),
         actBackendPayload(action, actionPayload),
-        browserTimeoutMs(args),
+        action === 'navigate'
+          ? navigationTimeoutMs(args)
+          : browserTimeoutMs(args),
       );
     },
   );

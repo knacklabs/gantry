@@ -587,15 +587,17 @@ async function spawnAgentWithContext(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    const hasDurableExternalOperation = input.semanticCapabilities?.some(
+    const hasManagedCapabilityOperation = input.semanticCapabilities?.some(
       (capability) =>
         capability.operations?.some(
-          (operation) => operation.executionMode === 'durable_async',
+          (operation) =>
+            operation.executionMode === 'durable_async' ||
+            operation.executionMode === 'gantry_hosted',
         ),
     );
     if (
       options?.asyncTaskRepositoryAvailable === true &&
-      !hasDurableExternalOperation
+      !hasManagedCapabilityOperation
     ) {
       env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
     } else {

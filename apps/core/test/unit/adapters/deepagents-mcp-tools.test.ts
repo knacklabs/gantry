@@ -205,10 +205,36 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     await connected.close();
   });
 
-  it('does not expose workspace file mutation tools to durable external-capability jobs', async () => {
+  it.each([
+    {
+      label: 'admitted operation deadline',
+      deadlineMs: 30 * 60_000,
+      expectedTimeoutMs: 30 * 60_000 + 20_000,
+    },
+    {
+      label: 'default operation deadline',
+      deadlineMs: undefined,
+      expectedTimeoutMs: 60_000 + 20_000,
+    },
+    {
+      label: 'short admitted operation deadline',
+      deadlineMs: 30_000,
+      expectedTimeoutMs: 30_000 + 20_000,
+    },
+  ])('extends Gantry-hosted capability calls to the $label', async ({
+    deadlineMs,
+    expectedTimeoutMs,
+  }) => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
-    vi.stubEnv('GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED', '1');
-    mcpState.serverTools = { gantry: [] };
+    const invoke = vi.fn(
+      async (_input, config?: { timeout?: number }) => config,
+    );
+    const externalCapabilityCall = structuredTool(
+      'external_capability_call',
+      'Run a managed capability.',
+      invoke as never,
+    );
+    mcpState.serverTools = { gantry: [externalCapabilityCall] };
 
     const connected = await connectGantryAndThirdPartyMcpTools({
       configuredAllowedTools: [],
@@ -216,7 +242,12 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         {
           capabilityId: 'example.evaluator',
           version: '1',
-          operations: [{ executionMode: 'durable_async' }],
+          operations: [
+            {
+              executionMode: 'gantry_hosted',
+              ...(deadlineMs === undefined ? {} : { deadlineMs }),
+            },
+          ],
         },
       ] as never,
       hideAuthorityTools: false,
@@ -229,11 +260,147 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       } as never,
     });
 
-    expect(connected.tools.map(({ name }) => name)).not.toEqual(
-      expect.arrayContaining(['FileRead', 'FileEdit', 'FileWrite']),
+    await connected.tools
+      .find(({ name }) => name === 'external_capability_call')
+      ?.invoke({} as never);
+    expect(invoke).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeout: expectedTimeoutMs }),
+    );
+    expect(mcpState.clientConfigs).toEqual([
+      expect.objectContaining({
+        mcpServers: expect.objectContaining({
+          gantry: expect.objectContaining({
+            env: expect.objectContaining({
+              GANTRY_EXTERNAL_CAPABILITY_CALL_WAIT_MS: String(
+                expectedTimeoutMs - 5_000,
+              ),
+            }),
+          }),
+        }),
+      }),
+    ]);
+    await connected.close();
+  });
+
+  it('supports the largest Gantry-hosted deadline representable by the Node timer', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    const invoke = vi.fn(
+      async (_input, config?: { timeout?: number }) => config,
+    );
+    mcpState.serverTools = {
+      gantry: [
+        structuredTool(
+          'external_capability_call',
+          'Run a managed capability.',
+          invoke as never,
+        ),
+      ],
+    };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      semanticCapabilities: [
+        {
+          capabilityId: 'example.evaluator',
+          version: '1',
+          operations: [
+            {
+              executionMode: 'gantry_hosted',
+              deadlineMs: 2_147_483_647 - 20_000,
+            },
+          ],
+        },
+      ] as never,
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+
+    await connected.tools
+      .find(({ name }) => name === 'external_capability_call')
+      ?.invoke({} as never);
+    expect(invoke).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeout: 2_147_483_647 }),
     );
     await connected.close();
   });
+
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    null,
+    -1,
+    1.5,
+    2_147_483_647 - 20_000 + 1,
+    Number.MAX_SAFE_INTEGER,
+  ])(
+    'rejects invalid Gantry-hosted deadline %s before opening MCP connections',
+    async (deadlineMs) => {
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+
+      await expect(
+        connectGantryAndThirdPartyMcpTools({
+          configuredAllowedTools: [],
+          semanticCapabilities: [
+            {
+              capabilityId: 'example.evaluator',
+              version: '1',
+              operations: [{ executionMode: 'gantry_hosted', deadlineMs }],
+            },
+          ] as never,
+          hideAuthorityTools: false,
+          gate: {
+            workspaceFolder: 'group',
+            memoryBlock: '',
+            gateContext: { conversationId: 'tg:group' },
+            permissionEnv: {},
+            lockedAccessPreset: false,
+          } as never,
+        }),
+      ).rejects.toThrow('Invalid Gantry-hosted capability deadlineMs');
+      expect(mcpState.clientConfigs).toHaveLength(0);
+    },
+  );
+
+  it.each(['durable_async', 'gantry_hosted'] as const)(
+    'does not expose workspace file mutation tools to %s capability jobs',
+    async (executionMode) => {
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+      vi.stubEnv('GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED', '1');
+      mcpState.serverTools = { gantry: [] };
+
+      const connected = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: [],
+        semanticCapabilities: [
+          {
+            capabilityId: 'example.evaluator',
+            version: '1',
+            operations: [{ executionMode }],
+          },
+        ] as never,
+        hideAuthorityTools: false,
+        gate: {
+          workspaceFolder: 'group',
+          memoryBlock: '',
+          gateContext: { conversationId: 'tg:group' },
+          permissionEnv: {},
+          lockedAccessPreset: false,
+        } as never,
+      });
+
+      expect(connected.tools.map(({ name }) => name)).not.toEqual(
+        expect.arrayContaining(['FileRead', 'FileEdit', 'FileWrite']),
+      );
+      await connected.close();
+    },
+  );
 
   it('extends the MCP timeout only for projected callable-agent tools', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');

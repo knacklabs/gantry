@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  callerResolvedToolFailureCode,
   resolveCallerResolvedRunId,
   resolveCallerResolvedToolInputSchema,
 } from '@core/jobs/ipc-caller-resolved-tool-handler.js';
@@ -64,5 +65,23 @@ describe('caller-resolved tool input contracts', () => {
       required: ['completionAttempt', 'proposedResult'],
       additionalProperties: false,
     });
+  });
+});
+
+describe('caller-resolved tool failure classification', () => {
+  it('separates interaction expiry from recipe and generic tool failures', () => {
+    expect(
+      callerResolvedToolFailureCode(
+        new Error('Caller tool interaction expired.'),
+      ),
+    ).toBe('interaction_timeout');
+    expect(
+      callerResolvedToolFailureCode(
+        new Error('Caller tool interaction cancelled.'),
+      ),
+    ).toBe('interaction_cancelled');
+    expect(callerResolvedToolFailureCode(new Error('upstream failed'))).toBe(
+      'caller_tool_failed',
+    );
   });
 });

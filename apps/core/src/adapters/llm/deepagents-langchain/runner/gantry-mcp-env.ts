@@ -13,7 +13,7 @@ import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-c
 const BROWSER_GATEWAY_TOOL_NAME_SET = new Set<string>(
   GATED_GANTRY_MCP_TOOL_NAMES,
 );
-const DURABLE_EXTERNAL_CAPABILITY_TOOL_NAMES = [
+const MANAGED_CAPABILITY_TOOL_NAMES = [
   'file',
   'job_checkpoint_status',
   'job_checkpoint_save',
@@ -96,16 +96,14 @@ export function buildGantryMcpProjection(
   const semanticCapabilities =
     input.semanticCapabilities ??
     parseSemanticCapabilities(env.GANTRY_SEMANTIC_CAPABILITIES_JSON);
-  const durableCapabilityToolNames = hasDurableExternalCapability(
-    semanticCapabilities,
-  )
-    ? DURABLE_EXTERNAL_CAPABILITY_TOOL_NAMES
+  const managedCapabilityToolNames = hasManagedCapability(semanticCapabilities)
+    ? MANAGED_CAPABILITY_TOOL_NAMES
     : [];
   const selectedToolNames = browserIpcEnabled
     ? [
         ...new Set([
           ...selectedToolNamesBase,
-          ...durableCapabilityToolNames,
+          ...managedCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
         ]),
@@ -115,7 +113,7 @@ export function buildGantryMcpProjection(
           ...selectedToolNamesBase.filter(
             (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
           ),
-          ...durableCapabilityToolNames,
+          ...managedCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
         ]),
@@ -230,12 +228,14 @@ function parseSemanticCapabilities(
   }
 }
 
-function hasDurableExternalCapability(
+function hasManagedCapability(
   capabilities: readonly SemanticCapabilityDefinition[],
 ): boolean {
   return capabilities.some((capability) =>
     capability.operations?.some(
-      (operation) => operation.executionMode === 'durable_async',
+      (operation) =>
+        operation.executionMode === 'durable_async' ||
+        operation.executionMode === 'gantry_hosted',
     ),
   );
 }

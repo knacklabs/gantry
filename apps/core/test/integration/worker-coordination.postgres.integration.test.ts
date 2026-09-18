@@ -903,6 +903,7 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
       runtime.ops.getJobById('job-stale-job-lease'),
     ).resolves.toMatchObject({
       status: 'active',
+      next_run: expect.any(String),
       lease_run_id: null,
       lease_expires_at: null,
     });

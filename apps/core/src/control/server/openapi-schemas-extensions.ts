@@ -571,6 +571,18 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       operation: { type: 'string' },
     },
   },
+  CapabilityTaskArtifactReadRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['completionToken', 'artifactId'],
+    properties: {
+      completionToken: { type: 'string' },
+      artifactId: {
+        type: 'string',
+        pattern: '^file-artifact:[0-9a-fA-F-]{36}$',
+      },
+    },
+  },
   CapabilityTaskSettlementResponse: {
     type: 'object',
     required: ['outcome', 'taskId', 'status', 'resumed'],
@@ -592,6 +604,17 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       completionToken: { type: 'string' },
       status: { type: 'string', enum: ['waiting_external'] },
       created: { type: 'boolean', const: false },
+    },
+  },
+  CapabilityTaskArtifactReadResponse: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['artifactId', 'contentHash', 'contentType', 'value'],
+    properties: {
+      artifactId: { type: 'string' },
+      contentHash: { type: 'string' },
+      contentType: { type: 'string' },
+      value: {},
     },
   },
 };

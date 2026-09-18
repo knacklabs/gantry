@@ -1263,6 +1263,68 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
   });
 
+  it('projects the trusted envelope idempotency key into a capability schema that declares it', async () => {
+    vi.useFakeTimers();
+    const inputSchema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string' },
+        idempotencyKey: { type: 'string' },
+      },
+      required: ['title', 'idempotencyKey'],
+    };
+    mockCreateIssueToolDetail({ inputSchema });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: externalCapabilityToolRepository(inputSchema),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        envelopeIdempotencyKey: 'invocation-1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      arguments: { title: 'Bug', idempotencyKey: 'invocation-1' },
+    });
+  });
+
+  it('does not project the envelope key into schemas that do not declare idempotencyKey', async () => {
+    vi.useFakeTimers();
+    const inputSchema = reviewedCreateIssueInputSchema();
+    mockCreateIssueToolDetail({ inputSchema });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: externalCapabilityToolRepository(inputSchema),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        envelopeIdempotencyKey: 'invocation-1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      arguments: { title: 'Bug' },
+    });
+  });
+
   it('returns bounded redacted diagnostics for invalid external capability input', async () => {
     vi.useFakeTimers();
     const inputSchema = reviewedCreateIssueInputSchema();
@@ -1533,6 +1595,36 @@ describe('McpToolProxy', () => {
         'Selected reviewed capability github.search.read does not cover this tool; ' +
         'a reviewed capability covering it must be provisioned before it can be used.',
     );
+  });
+
+  it('executes a private host operation under its reviewed parent operation authority', async () => {
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: toolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'validation_commit',
+        authorizationToolName: 'create_issue',
+        authorizationArguments: { title: 'Reviewed parent input' },
+        arguments: { proof: 'host-only-result' },
+      }),
+    ).resolves.toEqual({ content: [] });
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      {
+        name: 'validation_commit',
+        arguments: { proof: 'host-only-result' },
+      },
+      undefined,
+      { timeout: 60_000 },
+    );
+    expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
   });
 
   it('says no reviewed capability covers the server when none is selected', async () => {

@@ -14,6 +14,7 @@ import { jobArtifactScope } from '../domain/ports/job-semantic-checkpoints.js';
 import type { JobSemanticCheckpointPayload } from '../domain/ports/job-semantic-checkpoints.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
+import { FileArtifactNotFoundError } from '../domain/file-artifacts/file-artifact.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 import { resolveRunnerIpcRoute } from '../runtime/ipc-route-authorization.js';
@@ -34,6 +35,11 @@ import { ExternalCapabilityTaskService } from '../application/capabilities/exter
 import { suspendForExternalCapability } from './external-capability-suspension.js';
 import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 import { stableSha256Json } from '../shared/stable-hash.js';
+import { nowIso } from '../shared/time/datetime.js';
+import {
+  HostedCapabilityCommitUncertainError,
+  HostedCapabilityExecutionDeadlineError,
+} from '../runtime/gantry-hosted-capability-module-runner.js';
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
@@ -146,9 +152,25 @@ function externalCapabilityCallToolHandler(
       !idempotencyKey ||
       !resolvedArguments
     ) {
-      reject(
-        'serverName, toolName, capabilityId, idempotencyKey, and exactly one of object arguments or argumentsArtifactId are required.',
-        'invalid_request',
+      const missingFields = [
+        ...input.missingFields,
+        ...(!capabilityId ? ['capabilityId'] : []),
+        ...(!idempotencyKey ? ['idempotencyKey'] : []),
+        ...(!resolvedArguments ? ['arguments or argumentsArtifactId'] : []),
+      ];
+      const message = `Correct the capability call before resubmitting: ${missingFields.length ? `missing or invalid ${missingFields.join(', ')}. ` : ''}${input.invalidArguments ? 'arguments must be a JSON object, not text or an array. ' : ''}Supply exactly one of object arguments or argumentsArtifactId. No task was admitted or executed; do not change the candidate or evidence to repair this call.`;
+      const code = 'CAPABILITY_INPUT_SCHEMA_INVALID';
+      // Payload mistakes are model-correctable results, not transport failures.
+      // Authentication, route, reserved-context and lease denials stay fatal.
+      acceptData(
+        message,
+        {
+          ...externalCapabilityArgumentsArtifactError(code, message),
+          missingFields,
+          recoverable: true,
+          error: { code, message },
+        },
+        code,
       );
       return;
     }
@@ -167,9 +189,12 @@ function externalCapabilityCallToolHandler(
       );
       return;
     }
-    if (Object.hasOwn(expandedArguments.arguments, '_gantryCapabilityTask')) {
+    if (
+      Object.hasOwn(expandedArguments.arguments, '_gantryCapabilityTask') ||
+      Object.hasOwn(expandedArguments.arguments, '_gantryRuntimeContext')
+    ) {
       reject(
-        '_gantryCapabilityTask is reserved for Gantry.',
+        '_gantryCapabilityTask and _gantryRuntimeContext are reserved for Gantry.',
         'invalid_request',
       );
       return;
@@ -187,7 +212,7 @@ function externalCapabilityCallToolHandler(
       return;
     }
     const agentId = agentIdForMcpTask(data, sourceAgentFolder);
-    const args = expandedArguments.arguments;
+    let args = expandedArguments.arguments;
     let proxy: McpToolProxy;
     let preflight: Awaited<
       ReturnType<McpToolProxy['preflightExternalCapabilityCall']>
@@ -212,6 +237,7 @@ function externalCapabilityCallToolHandler(
         toolName: input.toolName,
         arguments: args,
         capabilityId,
+        envelopeIdempotencyKey: idempotencyKey,
       });
     } catch (error) {
       const message =
@@ -243,6 +269,7 @@ function externalCapabilityCallToolHandler(
       acceptData(preflight.message, preflight, preflight.code);
       return;
     }
+    args = preflight.arguments ?? args;
     if (preflight.operation.executionMode === 'sync') {
       try {
         const result = await proxy.callTool({
@@ -281,6 +308,414 @@ function externalCapabilityCallToolHandler(
       }
       return;
     }
+    if (preflight.operation.executionMode === 'gantry_hosted') {
+      const runner = deps.getGantryHostedCapabilityRunner?.();
+      if (!runner) {
+        acceptData(
+          'The reviewed Gantry-hosted capability runner is unavailable.',
+          {
+            status: 'rejected',
+            code: 'GANTRY_HOSTED_CAPABILITY_UNAVAILABLE',
+            repairable: false,
+            retryable: true,
+            retrySamePayload: true,
+          },
+          'GANTRY_HOSTED_CAPABILITY_UNAVAILABLE',
+        );
+        return;
+      }
+      const repository = deps.getAsyncTaskRepository?.();
+      if (!repository) {
+        reject(
+          'Durable Gantry-hosted capability tasks are unavailable.',
+          'unavailable',
+        );
+        return;
+      }
+      const invocationRef = `invocation:${idempotencyKey}`;
+      const service = new ExternalCapabilityTaskService(repository, () =>
+        notifyAsyncTaskChange(repository),
+      );
+      let acceptance;
+      try {
+        acceptance = await service.accept({
+          appId: data.appId,
+          agentId,
+          conversationId: targetJid,
+          threadId: data.authThreadId || data.threadId || null,
+          jobId,
+          runId,
+          capabilityId,
+          operation: input.toolName,
+          contentDigest: `sha256:${stableSha256Json(args)}`,
+          invocationRef,
+          idempotencyKey,
+          executionMode: 'gantry_hosted',
+          summary:
+            toTrimmedString(payload.summary, { maxLen: 1000 }) || undefined,
+        });
+        if (!acceptance.created && acceptance.status === 'completed') {
+          acceptData('Gantry-hosted capability replay returned its result.', {
+            status: 'completed',
+            result: acceptance.result ?? {},
+          });
+          return;
+        }
+        if (!acceptance.created && acceptance.status === 'waiting_external') {
+          const recovered = await service.recover({
+            appId: data.appId,
+            idempotencyKey,
+            capabilityId,
+            operation: input.toolName,
+          });
+          if (!recovered) {
+            throw new Error(
+              'The Gantry-hosted capability invocation is being recovered by another run.',
+            );
+          }
+          acceptance = recovered;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Gantry-hosted capability idempotency check failed.';
+        acceptData(
+          message,
+          {
+            status: 'rejected',
+            code: 'GANTRY_HOSTED_CAPABILITY_IDEMPOTENCY_CONFLICT',
+            message,
+            repairable: true,
+            retryable: false,
+            retrySamePayload: false,
+          },
+          'GANTRY_HOSTED_CAPABILITY_IDEMPOTENCY_CONFLICT',
+        );
+        return;
+      }
+      const job = await deps.opsRepository?.getJobById(jobId);
+      let replayArtifact;
+      try {
+        const store = deps.getFileArtifactStore?.();
+        if (!store)
+          throw new Error('Hosted invocation artifact storage is unavailable.');
+        const virtualScope = jobArtifactScope(jobId);
+        const virtualPath = `capability-invocations/${acceptance.taskId}/arguments.json`;
+        let saved;
+        try {
+          saved = await store.readFileArtifact({
+            appId: data.appId,
+            agentId,
+            virtualScope,
+            virtualPath,
+            version: 1,
+          });
+        } catch (error) {
+          if (!(error instanceof FileArtifactNotFoundError)) throw error;
+        }
+        if (saved) {
+          const text =
+            typeof saved.content === 'string'
+              ? saved.content
+              : Buffer.from(saved.content).toString('utf8');
+          if (
+            saved.artifact.virtualScope !== virtualScope ||
+            stableSha256Json(JSON.parse(text)) !== stableSha256Json(args)
+          ) {
+            throw new Error(
+              'Retained hosted invocation arguments do not match the admitted input.',
+            );
+          }
+          replayArtifact = saved.artifact;
+        } else {
+          replayArtifact = await store.writeFileArtifact({
+            appId: data.appId,
+            agentId,
+            virtualScope,
+            virtualPath,
+            content: JSON.stringify(args),
+            contentType: 'application/json',
+            createdBy: 'gantry-runtime',
+            expectedVersion: 0,
+          });
+        }
+      } catch {
+        acceptData(
+          'Hosted invocation inputs could not be retained. No execution was started; retry the identical inputs under valid run authority.',
+          {
+            status: 'rejected',
+            code: 'GANTRY_HOSTED_INPUT_RETENTION_FAILED',
+            repairable: false,
+            retryable: true,
+            retrySamePayload: true,
+          },
+          'GANTRY_HOSTED_INPUT_RETENTION_FAILED',
+        );
+        return;
+      }
+      if (preflight.operation.suspensionCheckpoint) {
+        const checkpoint = await persistExternalCapabilitySuspensionCheckpoint({
+          context,
+          appId: data.appId,
+          agentId,
+          jobId,
+          runId,
+          leaseToken: data.runLeaseToken ?? '',
+          invocationRef,
+          contract: preflight.operation.suspensionCheckpoint,
+          replay: {
+            artifactId: replayArtifact.id,
+            contentHash: replayArtifact.contentHash,
+            call: {
+              serverName: input.serverName,
+              toolName: input.toolName,
+              capabilityId,
+              idempotencyKey,
+              argumentsArtifactId: replayArtifact.id,
+            },
+          },
+        });
+        if (!checkpoint.ok) {
+          if (acceptance.completionToken) {
+            await service.cancel({
+              appId: data.appId,
+              taskId: acceptance.taskId,
+              completionToken: acceptance.completionToken,
+              cancellationId: `checkpoint-failed:${data.taskId ?? acceptance.taskId}`,
+              reason: checkpoint.message,
+            });
+          }
+          acceptData(
+            checkpoint.message,
+            {
+              status: 'rejected',
+              code: checkpoint.code,
+              message: checkpoint.message,
+              repairable: false,
+              retryable: true,
+              retrySamePayload: true,
+            },
+            checkpoint.code,
+          );
+          return;
+        }
+      }
+      try {
+        const runtimeContext = {
+          ...(job?.agent_task?.trustedCapabilityContext ?? {}),
+          gantryJobId: jobId,
+          gantryRunId: runId,
+          idempotencyKey,
+          capabilityTaskIdentity: {
+            taskId: acceptance.taskId,
+            capabilityId,
+            operation: input.toolName,
+          },
+        };
+        const result = await runner.execute(
+          {
+            appId: data.appId,
+            agentId,
+            conversationId: targetJid,
+            threadId: data.authThreadId || data.threadId || null,
+            jobId,
+            runId,
+            capabilityId,
+            operation: input.toolName,
+            arguments: args,
+            runtimeContext,
+            parentRunLease: {
+              leaseToken: data.runLeaseToken ?? '',
+              fencingVersion: data.runLeaseFencingVersion ?? 0,
+            },
+            ...(preflight.operation.deadlineMs === undefined
+              ? {}
+              : { deadlineMs: preflight.operation.deadlineMs }),
+          },
+          async (commitOperation, payload) => {
+            if (
+              !(await isActiveRunLeaseForInteraction({
+                runId,
+                runLeaseToken: data.runLeaseToken,
+                runLeaseFencingVersion: data.runLeaseFencingVersion,
+              }))
+            ) {
+              throw new Error(
+                'Hosted validation cannot commit after parent run lease loss.',
+              );
+            }
+            const completionToken = acceptance.completionToken;
+            const serverName = input.serverName;
+            if (!completionToken || !serverName) {
+              throw new Error(
+                'Gantry-hosted capability commit context is unavailable.',
+              );
+            }
+            return externalCapabilityStructuredContent(
+              await proxy.callTool({
+                appId: data.appId as never,
+                agentId,
+                ...routeScope,
+                serverName,
+                toolName: commitOperation,
+                authorizationToolName: input.toolName,
+                arguments: {
+                  ...payload,
+                  _gantryCapabilityTask: {
+                    taskId: acceptance.taskId,
+                    completionToken,
+                  },
+                  _gantryRuntimeContext: runtimeContext,
+                },
+                authorizationArguments: args,
+                timeoutMs: preflight.operation.deadlineMs,
+              }),
+            );
+          },
+        );
+        const resultEnvelope = validateExternalCapabilityResultEnvelope(
+          result,
+          preflight.operation.resultEnvelopeSchema,
+        );
+        if (!resultEnvelope.ok) {
+          acceptData(
+            resultEnvelope.message,
+            resultEnvelope,
+            resultEnvelope.code,
+          );
+          return;
+        }
+        const completedResult =
+          resultEnvelope.value &&
+          typeof resultEnvelope.value === 'object' &&
+          !Array.isArray(resultEnvelope.value)
+            ? (resultEnvelope.value as Record<string, unknown>)
+            : {};
+        if (!acceptance.completionToken) {
+          throw new Error(
+            'Gantry-hosted capability recovery did not provide a completion token.',
+          );
+        }
+        if (
+          !(await isActiveRunLeaseForInteraction({
+            runId,
+            runLeaseToken: data.runLeaseToken,
+            runLeaseFencingVersion: data.runLeaseFencingVersion,
+          }))
+        ) {
+          throw new Error(
+            'Hosted validation cannot settle after parent run lease loss.',
+          );
+        }
+        const completion = await service.complete({
+          appId: data.appId,
+          taskId: acceptance.taskId,
+          completionToken: acceptance.completionToken,
+          completionId: `hosted:${stableSha256Json(completedResult)}`,
+          resultRef: invocationRef,
+          summary: 'Gantry-hosted capability completed.',
+          result: completedResult,
+        });
+        if (
+          completion.outcome === 'completed' ||
+          completion.outcome === 'idempotent'
+        ) {
+          await wakeParentJobAfterHostedCompletion({
+            context,
+            appId: data.appId,
+            jobId,
+            taskId: acceptance.taskId,
+          });
+        } else {
+          const task = await repository.getTask(acceptance.taskId);
+          const recoverable = task?.status === 'waiting_external';
+          acceptData(
+            'Gantry-hosted capability settlement was rejected.',
+            {
+              status: 'rejected',
+              code: 'GANTRY_HOSTED_CAPABILITY_SETTLEMENT_REJECTED',
+              outcome: completion.outcome,
+              repairable: false,
+              retryable: recoverable,
+              retrySamePayload: recoverable,
+            },
+            'GANTRY_HOSTED_CAPABILITY_SETTLEMENT_REJECTED',
+          );
+          return;
+        }
+        acceptData('Gantry-hosted capability completed.', {
+          status: 'completed',
+          result: completedResult,
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Gantry-hosted capability failed.';
+        const durableTask = await repository.getTask(acceptance.taskId);
+        if (durableTask?.status === 'completed') {
+          await wakeParentJobAfterHostedCompletion({
+            context,
+            appId: data.appId,
+            jobId,
+            taskId: acceptance.taskId,
+          });
+          acceptData(
+            'Gantry-hosted capability recovered its durable completion.',
+            {
+              status: 'completed',
+              result: durableTask.privateCorrelationJson.result ?? {},
+            },
+          );
+          return;
+        }
+        const transient =
+          /\b(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EPIPE)\b|network connection (?:lost|reset)|fetch failed|socket hang up/iu.test(
+            `${message} ${error && typeof error === 'object' && 'code' in error ? String(error.code) : ''}`,
+          );
+        const executionDeadline =
+          error instanceof HostedCapabilityExecutionDeadlineError;
+        const recoverable =
+          (transient ||
+            executionDeadline ||
+            error instanceof HostedCapabilityCommitUncertainError ||
+            Boolean(durableTask?.privateCorrelationJson.hostedCommit)) &&
+          durableTask?.status === 'waiting_external';
+        if (!recoverable && acceptance.completionToken) {
+          await service.cancel({
+            appId: data.appId,
+            taskId: acceptance.taskId,
+            completionToken: acceptance.completionToken,
+            cancellationId: `hosted-failed:${data.taskId ?? acceptance.taskId}`,
+            reason: message,
+          });
+        }
+        acceptData(
+          message,
+          {
+            status: 'rejected',
+            code: executionDeadline
+              ? 'GANTRY_HOSTED_CAPABILITY_EXECUTION_DEADLINE'
+              : 'GANTRY_HOSTED_CAPABILITY_FAILED',
+            message,
+            repairable: executionDeadline,
+            retryable: recoverable,
+            retrySamePayload: recoverable,
+            ...(recoverable ? { argumentsArtifactId: replayArtifact.id } : {}),
+            retryGuidance: executionDeadline
+              ? `The hosted execution window elapsed before completion. Retain all durable validation case checkpoints and resume this exact invocation with argumentsArtifactId=${replayArtifact.id} and the same idempotency key while the parent job remains active; do not request human review solely for this timeout.`
+              : recoverable
+                ? `Under valid parent run authority, reconcile using argumentsArtifactId=${replayArtifact.id} and the same idempotency key; omit inline arguments. Administrator continuation may be required after lease loss.`
+                : 'This invocation cannot resume with the same key. Inspect the failure before starting a new invocation.',
+          },
+          executionDeadline
+            ? 'GANTRY_HOSTED_CAPABILITY_EXECUTION_DEADLINE'
+            : 'GANTRY_HOSTED_CAPABILITY_FAILED',
+        );
+      }
+      return;
+    }
     const repository = deps.getAsyncTaskRepository?.();
     if (!repository) {
       reject(
@@ -293,7 +728,7 @@ function externalCapabilityCallToolHandler(
     const service = new ExternalCapabilityTaskService(repository, () =>
       notifyAsyncTaskChange(repository),
     );
-    const acceptance = await service.accept({
+    let acceptance = await service.accept({
       appId: data.appId,
       agentId,
       conversationId: targetJid,
@@ -302,12 +737,43 @@ function externalCapabilityCallToolHandler(
       runId,
       capabilityId,
       operation: input.toolName,
+      contentDigest: `sha256:${stableSha256Json(args)}`,
       invocationRef,
       idempotencyKey,
       summary: toTrimmedString(payload.summary, { maxLen: 1000 }) || undefined,
     });
+    if (!acceptance.created && acceptance.status === 'completed') {
+      acceptData('External capability replay returned its durable result.', {
+        status: 'completed',
+        result: acceptance.result ?? {},
+      });
+      return;
+    }
+    if (!acceptance.created && acceptance.status === 'waiting_external') {
+      const recovered = await service.recover({
+        appId: data.appId,
+        idempotencyKey,
+        capabilityId,
+        operation: input.toolName,
+      });
+      if (!recovered) {
+        acceptData(
+          'The waiting capability task is being recovered by another invocation.',
+          {
+            status: 'rejected',
+            code: 'CAPABILITY_RECOVERY_CONFLICT',
+            retryable: true,
+            retrySamePayload: true,
+          },
+          'CAPABILITY_RECOVERY_CONFLICT',
+        );
+        return;
+      }
+      acceptance = recovered;
+    }
     try {
-      if (acceptance.created) {
+      if (acceptance.completionToken) {
+        const job = await deps.opsRepository?.getJobById(jobId);
         const result = await proxy.callTool({
           appId: data.appId as never,
           agentId,
@@ -320,6 +786,17 @@ function externalCapabilityCallToolHandler(
               taskId: acceptance.taskId,
               completionToken: acceptance.completionToken,
             },
+            _gantryRuntimeContext: {
+              ...(job?.agent_task?.trustedCapabilityContext ?? {}),
+              gantryJobId: jobId,
+              gantryRunId: runId,
+              idempotencyKey,
+              capabilityTaskIdentity: {
+                taskId: acceptance.taskId,
+                capabilityId,
+                operation: input.toolName,
+              },
+            },
           },
           authorizationArguments: args,
           timeoutMs: preflight.operation.deadlineMs,
@@ -330,6 +807,31 @@ function externalCapabilityCallToolHandler(
         );
         if (!resultEnvelope.ok) {
           throw new Error(resultEnvelope.message);
+        }
+        const immediateResult =
+          resultEnvelope.value &&
+          typeof resultEnvelope.value === 'object' &&
+          !Array.isArray(resultEnvelope.value)
+            ? (resultEnvelope.value as Record<string, unknown>)
+            : {};
+        if (immediateResult.status === 'revision_required') {
+          await service.complete({
+            appId: data.appId,
+            taskId: acceptance.taskId,
+            completionToken: acceptance.completionToken,
+            completionId: `preflight:${stableSha256Json(immediateResult)}`,
+            resultRef: invocationRef,
+            summary: 'Recipe validation requires a candidate revision.',
+            result: immediateResult,
+          });
+          acceptData(
+            'External capability completed during deterministic preflight.',
+            {
+              status: 'completed',
+              result: immediateResult,
+            },
+          );
+          return;
         }
       }
     } catch (error) {
@@ -423,6 +925,34 @@ function externalCapabilityCallToolHandler(
   };
 }
 
+async function wakeParentJobAfterHostedCompletion(input: {
+  context: TaskContext;
+  appId: string;
+  jobId: string;
+  taskId: string;
+}): Promise<void> {
+  const job = await input.context.deps.opsRepository.getJobById(input.jobId);
+  const appSession = job?.session_id
+    ? await input.context.deps
+        .getJobControl?.()
+        ?.getAppSessionById(job.session_id)
+    : undefined;
+  if (
+    !job ||
+    appSession?.appId !== input.appId ||
+    job.status !== 'paused' ||
+    !job.pause_reason?.includes(input.taskId)
+  ) {
+    return;
+  }
+  await input.context.deps.opsRepository.updateJob(input.jobId, {
+    status: 'active',
+    next_run: nowIso(),
+    pause_reason: null,
+  });
+  input.context.deps.onSchedulerChanged(input.jobId);
+}
+
 async function persistExternalCapabilitySuspensionCheckpoint(input: {
   context: TaskContext;
   appId: string;
@@ -431,6 +961,11 @@ async function persistExternalCapabilitySuspensionCheckpoint(input: {
   runId: string;
   leaseToken: string;
   invocationRef: string;
+  replay?: {
+    artifactId: string;
+    contentHash: string;
+    call: Record<string, unknown>;
+  };
   contract: {
     milestone: string;
     payloadPatch: Record<string, unknown>;
@@ -440,12 +975,13 @@ async function persistExternalCapabilitySuspensionCheckpoint(input: {
   | { ok: true }
   | {
       ok: false;
-      code: 'CAPABILITY_CHECKPOINT_UNAVAILABLE' | 'CAPABILITY_CHECKPOINT_REJECTED';
+      code:
+        | 'CAPABILITY_CHECKPOINT_UNAVAILABLE'
+        | 'CAPABILITY_CHECKPOINT_REJECTED';
       message: string;
     }
 > {
-  const repository =
-    input.context.deps.getJobSemanticCheckpointRepository?.();
+  const repository = input.context.deps.getJobSemanticCheckpointRepository?.();
   const job = input.context.deps.opsRepository
     ? await input.context.deps.opsRepository.getJobById(input.jobId)
     : null;
@@ -486,6 +1022,25 @@ async function persistExternalCapabilitySuspensionCheckpoint(input: {
     unknown
   >;
   Object.assign(payload, structuredClone(input.contract.payloadPatch));
+  if (input.replay) {
+    const refs = Array.isArray(payload.artifactRefs)
+      ? payload.artifactRefs
+      : [];
+    payload.artifactRefs = [
+      ...refs.filter(
+        (ref) =>
+          !ref ||
+          typeof ref !== 'object' ||
+          (ref as Record<string, unknown>).kind !== 'capability_arguments',
+      ),
+      {
+        artifactId: input.replay.artifactId,
+        contentHash: input.replay.contentHash,
+        kind: 'capability_arguments',
+      },
+    ];
+    payload.nextAction = `Under valid run authority replay external_capability_call with exactly ${JSON.stringify(input.replay.call)}. Do not reconstruct inline arguments or change the idempotency key.`;
+  }
   if (
     !setCheckpointPath(
       payload,
@@ -499,7 +1054,9 @@ async function persistExternalCapabilitySuspensionCheckpoint(input: {
       message: 'The suspension checkpoint invocationRefPath is unsafe.',
     };
   }
-  const validation = z.fromJSONSchema(checkpointContract.schema).safeParse(payload);
+  const validation = z
+    .fromJSONSchema(checkpointContract.schema)
+    .safeParse(payload);
   if (!validation.success) {
     return {
       ok: false,
@@ -824,15 +1381,12 @@ async function expandExternalCapabilityArtifactIncludes(input: {
           `${JSON_ARTIFACT_INCLUDE_KEY} must reference an artifact containing valid JSON.`,
         );
       }
-      return expand(
-        parsed,
-        depth + 1,
-        new Set([...ancestors, artifactId]),
-      );
+      return expand(parsed, depth + 1, new Set([...ancestors, artifactId]));
     }
     if (Array.isArray(value)) {
       const expanded: unknown[] = [];
-      for (const item of value) expanded.push(await expand(item, depth, ancestors));
+      for (const item of value)
+        expanded.push(await expand(item, depth, ancestors));
       return expanded;
     }
     if (value && typeof value === 'object') {
@@ -875,11 +1429,11 @@ function isJsonArtifactInclude(
 ): value is Record<typeof JSON_ARTIFACT_INCLUDE_KEY, string> {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      Object.keys(value).length === 1 &&
-      typeof (value as Record<string, unknown>)[JSON_ARTIFACT_INCLUDE_KEY] ===
-        'string',
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    typeof (value as Record<string, unknown>)[JSON_ARTIFACT_INCLUDE_KEY] ===
+      'string',
   );
 }
 
@@ -888,9 +1442,9 @@ function isExternalCapabilityArgumentsArtifactError(
 ): value is ReturnType<typeof externalCapabilityArgumentsArtifactError> {
   return Boolean(
     value &&
-      typeof value === 'object' &&
-      (value as Record<string, unknown>).status === 'rejected' &&
-      typeof (value as Record<string, unknown>).code === 'string',
+    typeof value === 'object' &&
+    (value as Record<string, unknown>).status === 'rejected' &&
+    typeof (value as Record<string, unknown>).code === 'string',
   );
 }
 

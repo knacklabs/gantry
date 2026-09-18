@@ -123,10 +123,12 @@ function callerResolvedToolGuidance(agentInput: AgentInput): string {
     .filter((name) => /^[A-Za-z0-9_.-]+$/u.test(name));
   const allowSelectedMcpToolCalls =
     agentInput.callerResolvedTools?.allowSelectedMcpToolCalls === true;
-  const hasDurableExternalOperation = agentInput.semanticCapabilities?.some(
+  const hasManagedCapabilityOperation = agentInput.semanticCapabilities?.some(
     (capability) =>
       capability.operations?.some(
-        (operation) => operation.executionMode === 'durable_async',
+        (operation) =>
+          operation.executionMode === 'durable_async' ||
+          operation.executionMode === 'gantry_hosted',
       ),
   );
   if (toolNames.length === 0 && !allowSelectedMcpToolCalls) return '';
@@ -134,9 +136,9 @@ function callerResolvedToolGuidance(agentInput: AgentInput): string {
     '# Caller-resolved job tools',
     'The following exact names are direct Gantry host tools mounted for this job. Call them directly. Never pass them to mcp_call_tool, and never use MCP inventory or search tools to find them.',
     ...toolNames.map((name) => `- mcp__gantry__${name}`),
-    ...(hasDurableExternalOperation
+    ...(hasManagedCapabilityOperation
       ? [
-          '- mcp__gantry__external_capability_call — invoke an operation registered as durable asynchronous and suspend this job; call it directly, never through mcp_call_tool.',
+          '- mcp__gantry__external_capability_call — invoke a reviewed Gantry-hosted or durable external operation; call it directly, never through mcp_call_tool.',
         ]
       : []),
     ...(allowSelectedMcpToolCalls

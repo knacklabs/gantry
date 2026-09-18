@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
+const TrustedCapabilityContextSchema = JsonObjectSchema.refine(
+  (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= 256 * 1024,
+  'trustedCapabilityContext must not exceed 256 KiB',
+);
 const NetworkHostSchema = z
   .string()
   .min(1)
@@ -95,6 +99,7 @@ export const JobAgentTaskSchema = z
       })
       .strict()
       .optional(),
+    trustedCapabilityContext: TrustedCapabilityContextSchema.optional(),
     browserAllowedNetworkHosts: z
       .array(NetworkHostSchema)
       .min(1)

@@ -505,6 +505,33 @@ describe('reviewed MCP pattern bindings', () => {
     });
   });
 
+  it('allows a suspension checkpoint for a Gantry-hosted operation', () => {
+    const inputSchema = { type: 'object', additionalProperties: false };
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...mcpPatternCapability({
+          kind: 'mcp_pattern',
+          mcpServer: 'manipal',
+          mcpToolPatterns: ['validate_recipe'],
+        }),
+        operations: [
+          {
+            mcpTool: 'mcp__manipal__validate_recipe',
+            schemaDialect: 'json-schema-draft-07',
+            inputSchema,
+            inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
+            executionMode: 'gantry_hosted',
+            suspensionCheckpoint: {
+              milestone: 'validation_submitted',
+              payloadPatch: { safePhase: 'validating' },
+              invocationRefPath: ['evaluatorInvocationRef'],
+            },
+          },
+        ],
+      }),
+    ).toEqual({ ok: true });
+  });
+
   it('rejects pattern bindings without reviewed patterns', () => {
     expect(
       validateSemanticCapabilityDefinition(

@@ -94,6 +94,7 @@ function createMcpFixture(): {
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const channelsDir = path.join(root, 'channels');
   const applicationMcpDir = path.join(root, 'application', 'mcp');
+  const domainPortsDir = path.join(root, 'domain', 'ports');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const guidedActionsDir = path.join(root, 'application', 'guided-actions');
@@ -112,6 +113,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(applicationMcpDir, { recursive: true });
+  fs.mkdirSync(domainPortsDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
@@ -142,6 +144,10 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/application/mcp/mcp-tool-output-bounds.ts'),
     path.join(applicationMcpDir, 'mcp-tool-output-bounds.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/domain/ports/job-semantic-checkpoints.ts'),
+    path.join(domainPortsDir, 'job-semantic-checkpoints.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/channels/provider-delivery-labels.ts'),

@@ -5,6 +5,16 @@ import { peopleOpenApiRouteDocs } from './openapi-people.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
+    'post',
+    '/v1/capability-tasks/{taskId}/artifacts/read',
+    'readCapabilityTaskArtifact',
+    'Jobs',
+    'Read a capability task artifact',
+    'Reads one JSON FileArtifact for a waiting task using a capability-audience-restricted API key and fenced task token.',
+    ['capability-artifacts:read'],
+    { body: 'json', parameters: [ids.capabilityTask] },
+  ),
+  doc(
     'get',
     '/v1/usage',
     'queryUsage',

@@ -51,6 +51,10 @@ export function processBrowserRequestDirectory(input: {
         'browser-requests',
       );
       for (const file of browserFiles) {
+        // Do not claim work that cannot start. Claimed requests are terminally
+        // failed on an exception; leaving excess files pending lets the next
+        // IPC sweep service them after an active browser action settles.
+        if (inFlightBrowserIpc >= MAX_IN_FLIGHT_BROWSER_IPC) break;
         processOneBrowserRequest({
           ipcBaseDir,
           sourceAgentFolder,
@@ -122,9 +126,6 @@ function processOneBrowserRequest(input: {
       !canProcessIpcFile(sourceAgentFolder, 'browser')
     ) {
       throw new Error('Browser IPC rate limit exceeded');
-    }
-    if (inFlightBrowserIpc >= MAX_IN_FLIGHT_BROWSER_IPC) {
-      throw new Error('Browser IPC concurrency limit exceeded');
     }
     // Resolve BEFORE taking an in-flight slot. A refusal here throws
     // synchronously, which would bypass the promise cleanup that releases the

@@ -27,7 +27,20 @@ interface BrowserNetworkEntry {
   status?: number;
   ok?: boolean;
   failureText?: string;
+  requestBody?: BrowserNetworkBody;
+  responseBody?: BrowserNetworkBody;
 }
+
+interface BrowserNetworkBody {
+  contentType: string;
+  value: unknown;
+  truncated: boolean;
+}
+
+const MAX_NETWORK_REQUEST_BODY_CHARS = 16_384;
+const MAX_NETWORK_RESPONSE_BODY_CHARS = 65_536;
+const SENSITIVE_BODY_KEY =
+  /(?:authorization|cookie|credential|password|passwd|secret|token|captcha|csrf|xsrf|session|api[-_]?key)/i;
 
 export interface BrowserPageState {
   console: BrowserConsoleEntry[];
@@ -219,13 +232,23 @@ export function observePage(page: Page): void {
     const state = pageState(page);
     const id = String(state.nextRequestId++);
     state.requestIds.set(request, id);
-    state.network.push({
+    const entry: BrowserNetworkEntry = {
       id,
       method: request.method(),
       url: request.url(),
       resourceType: request.resourceType(),
       timestamp: toIso(nowMs()),
-    });
+    };
+    const requestBody = request.postData();
+    const requestContentType = request.headers()['content-type'];
+    if (requestBody && isInspectableNetworkContentType(requestContentType)) {
+      entry.requestBody = captureNetworkBody(
+        requestBody,
+        requestContentType,
+        MAX_NETWORK_REQUEST_BODY_CHARS,
+      );
+    }
+    state.network.push(entry);
     if (state.network.length > 500) state.network.shift();
   });
   page.on('requestfinished', async (request) => {
@@ -235,6 +258,17 @@ export function observePage(page: Page): void {
     if (entry && response) {
       entry.status = response.status();
       entry.ok = response.ok();
+      const contentType = response.headers()['content-type'];
+      if (isInspectableNetworkContentType(contentType)) {
+        const responseBody = await response.text().catch(() => undefined);
+        if (responseBody) {
+          entry.responseBody = captureNetworkBody(
+            responseBody,
+            contentType,
+            MAX_NETWORK_RESPONSE_BODY_CHARS,
+          );
+        }
+      }
     }
   });
   page.on('requestfailed', (request) => {
@@ -242,6 +276,89 @@ export function observePage(page: Page): void {
     const entry = findNetworkEntry(state, request);
     if (entry) entry.failureText = request.failure()?.errorText;
   });
+}
+
+function captureNetworkBody(
+  body: string,
+  contentType: string | undefined,
+  maxChars: number,
+): BrowserNetworkBody {
+  const normalizedContentType = normalizeNetworkContentType(contentType);
+  const truncated = body.length > maxChars;
+  const sanitized = parseAndRedactNetworkBody(body, normalizedContentType);
+  const serialized =
+    typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized);
+  return {
+    contentType: normalizedContentType,
+    value:
+      serialized.length > maxChars
+        ? `${serialized.slice(0, maxChars)}…[TRUNCATED]`
+        : sanitized,
+    truncated: truncated || serialized.length > maxChars,
+  };
+}
+
+function parseAndRedactNetworkBody(body: string, contentType: string): unknown {
+  if (isJsonLikeNetworkBody(contentType, body)) {
+    try {
+      return redactNetworkValue(JSON.parse(body));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      return body;
+    }
+  }
+  if (contentType === 'application/x-www-form-urlencoded') {
+    return Object.fromEntries(
+      [...new URLSearchParams(body)].map(([key, value]) => [
+        key,
+        SENSITIVE_BODY_KEY.test(key) ? '[REDACTED]' : value,
+      ]),
+    );
+  }
+  return body;
+}
+
+function redactNetworkValue(value: unknown, depth = 0): unknown {
+  if (depth >= 12) return '[TRUNCATED_DEPTH]';
+  if (Array.isArray(value)) {
+    return value.map((item) => redactNetworkValue(item, depth + 1));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        SENSITIVE_BODY_KEY.test(key)
+          ? '[REDACTED]'
+          : redactNetworkValue(item, depth + 1),
+      ]),
+    );
+  }
+  return value;
+}
+
+function normalizeNetworkContentType(contentType: string | undefined): string {
+  return contentType?.split(';', 1)[0]?.trim().toLowerCase() || 'text/plain';
+}
+
+function isInspectableNetworkContentType(contentType: string | undefined) {
+  const normalized = normalizeNetworkContentType(contentType);
+  return (
+    normalized === 'application/json' ||
+    normalized.endsWith('+json') ||
+    normalized === 'text/json' ||
+    normalized === 'text/plain' ||
+    normalized === 'application/x-www-form-urlencoded'
+  );
+}
+
+function isJsonLikeNetworkBody(contentType: string, body: string): boolean {
+  if (!body.trim()) return false;
+  if (contentType === 'application/json' || contentType.endsWith('+json') || contentType === 'text/json') {
+    return true;
+  }
+  if (contentType !== 'text/plain') return false;
+  const first = body.trimStart()[0];
+  return first === '{' || first === '[';
 }
 
 export function pageState(page: Page): BrowserPageState {

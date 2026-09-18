@@ -119,6 +119,77 @@ function makeAppOneControl(): JobControlPort {
 }
 
 describe('job application use cases', () => {
+  it('preserves trusted authority for a no-op origin replay on a recovering job', () => {
+    const context = {
+      requestId: 'request-1',
+      allowedOrigins: ['https://example.test'],
+    };
+    const job = makeJob({
+      status: 'active',
+      agent_task: { trustedCapabilityContext: context },
+    });
+    const updates = buildJobUpdates(
+      job,
+      { addCapabilityAllowedOrigins: ['https://example.test'] } as never,
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+    expect(
+      updates.agent_task?.trustedCapabilityContext ??
+        job.agent_task?.trustedCapabilityContext,
+    ).toEqual(context);
+    expect(
+      updates.agent_task?.trustedCapabilityContext?.allowedMethodsByOrigin,
+    ).toBeUndefined();
+  });
+  it('extends exact trusted validation origins without changing identity or granting POST', () => {
+    const job = makeJob({
+      status: 'paused',
+      agent_task: {
+        executionPolicy: { totalTimeoutMs: 7_200_000 },
+        trustedCapabilityContext: {
+          requestId: 'request-1',
+          attemptId: 'attempt-1',
+          allowedOrigins: ['https://www.example.test'],
+        },
+      },
+    });
+    const updates = buildJobUpdates(
+      job,
+      { addCapabilityAllowedOrigins: ['https://example.test'] } as never,
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+    expect(updates.agent_task?.trustedCapabilityContext).toEqual({
+      requestId: 'request-1',
+      attemptId: 'attempt-1',
+      allowedOrigins: ['https://www.example.test', 'https://example.test'],
+      allowedMethodsByOrigin: { 'https://example.test': ['GET', 'HEAD'] },
+    });
+    expect(() =>
+      buildJobUpdates(
+        { ...job, status: 'active' },
+        { addCapabilityAllowedOrigins: ['https://example.test'] } as never,
+        runtimeJobSchedulePlanner,
+        { now: () => '2026-05-15T00:00:00.000Z' },
+      ),
+    ).toThrow(/paused/);
+    for (const origin of [
+      'https://example.test/path',
+      'https://u:p@example.test',
+      'ftp://example.test',
+      ' https://example.test',
+    ]) {
+      expect(() =>
+        buildJobUpdates(
+          job,
+          { addCapabilityAllowedOrigins: [origin] } as never,
+          runtimeJobSchedulePlanner,
+          { now: () => '2026-05-15T00:00:00.000Z' },
+        ),
+      ).toThrow(/origin/);
+    }
+  });
   it('extends cumulative agent runtime monotonically and idempotently', () => {
     const job = makeJob({
       agent_task: {

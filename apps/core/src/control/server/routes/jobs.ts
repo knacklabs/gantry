@@ -634,6 +634,9 @@ export async function handleJobRoutes(
           ...(body.callerResolvedTools !== undefined
             ? { callerResolvedTools: body.callerResolvedTools }
             : {}),
+          ...(body.addCapabilityAllowedOrigins !== undefined
+            ? { addCapabilityAllowedOrigins: body.addCapabilityAllowedOrigins }
+            : {}),
           ...(body.modelControls !== undefined
             ? { modelControls: body.modelControls }
             : {}),

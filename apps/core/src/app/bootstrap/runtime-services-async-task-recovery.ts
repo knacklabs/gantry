@@ -33,12 +33,16 @@ import {
 import { McpToolProxy } from '../../application/mcp/mcp-tool-proxy.js';
 import { resolveMcpCredentialEnvForAgent } from '../../application/capability-secrets/mcp-secret-projection.js';
 import type { AsyncTaskRecord } from '../../domain/ports/async-tasks.js';
+import type { Job } from '../../domain/job-types.js';
 import type {
   RuntimeAgentSessionRepository,
+  RuntimeJobRepository,
   RuntimeMessageRepository,
 } from '../../domain/repositories/ops-repo.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { conversationBoundAgentRoute } from '../../application/core-tools/callable-agent-tools.js';
+
+const GANTRY_HOSTED_CAPABILITY_RECOVERY_STALE_MS = 60_000;
 
 interface AsyncTaskRecoveryDeps extends Partial<
   Pick<
@@ -59,10 +63,12 @@ interface AsyncTaskRecoveryDeps extends Partial<
     | 'publishRuntimeEvent'
     | 'runAgent'
     | 'runnerSandboxProvider'
+    | 'onSchedulerChanged'
   >
 > {
   logger: Pick<Logger, 'warn'>;
   opsRepository?: RuntimeAgentSessionRepository &
+    RuntimeJobRepository &
     Pick<RuntimeMessageRepository, 'storeMessageWithLiveAdmission'>;
 }
 
@@ -133,6 +139,24 @@ export async function recoverStaleAsyncCommandTasks(
         'Recovered stale session compaction tasks',
       );
     }
+    const hostedJobs = await recoverPausedGantryHostedCapabilityJobs(
+      appId,
+      deps,
+    );
+    if (hostedJobs > 0) {
+      deps.logger.warn(
+        { recovered: hostedJobs },
+        'Recovered jobs paused on interrupted Gantry-hosted capabilities',
+      );
+    }
+    const orphanedHostedTasks =
+      await terminalizeOrphanedGantryHostedCapabilityTasks(appId, deps);
+    if (orphanedHostedTasks > 0) {
+      deps.logger.warn(
+        { recovered: orphanedHostedTasks },
+        'Terminalized orphaned Gantry-hosted capability tasks',
+      );
+    }
     const recovered = await service.recoverStaleTasks({
       appId,
       staleAfterMs: ASYNC_TASK_STALE_AFTER_MS,
@@ -156,6 +180,211 @@ export async function recoverStaleAsyncCommandTasks(
   } catch (err) {
     deps.logger.warn({ err }, 'Failed to recover stale async command tasks');
   }
+}
+
+export async function recoverPausedGantryHostedCapabilityJobs(
+  appId: string,
+  deps: AsyncTaskRecoveryDeps,
+): Promise<number> {
+  const repository = deps.getAsyncTaskRepository?.();
+  const ops = deps.opsRepository;
+  if (!repository || !ops) return 0;
+  const jobs = await ops.listJobs({
+    statuses: ['paused'],
+    limit: 200,
+  });
+  let recovered = 0;
+  for (const job of jobs) {
+    const match = /^Waiting for external capability task ([^\s.]+)\.$/u.exec(
+      job.pause_reason ?? '',
+    );
+    if (!match) continue;
+    const task = await repository.getTask(match[1]!);
+    if (
+      !task ||
+      task.appId !== appId ||
+      task.kind !== 'external_capability' ||
+      task.parentJobId !== job.id
+    ) {
+      continue;
+    }
+    const correlation = task.privateCorrelationJson;
+    const isHosted =
+      correlation.executionMode === 'gantry_hosted' ||
+      (correlation.hostedValidation !== null &&
+        typeof correlation.hostedValidation === 'object' &&
+        !Array.isArray(correlation.hostedValidation));
+    if (!isHosted) continue;
+    if (await hostedParentHasLiveExecution(ops, job, task)) continue;
+    // A submitted or locally acknowledged proof is deliberately resumed on
+    // the *same* task. The hosted runner reconciles it with its product
+    // boundary before it can execute a browser session or create new proof.
+    // Do not terminalize it: doing so loses the only identity which can bind
+    // reconciliation to the original immutable payload.
+    if (hasUnsettledHostedCommit(task)) {
+      if (task.status !== 'waiting_external' || !isHostedTaskStale(task)) {
+        continue;
+      }
+      const now = new Date().toISOString();
+      await ops.updateJob(job.id, {
+        status: 'active',
+        next_run: now,
+        pause_reason: null,
+      });
+      deps.onSchedulerChanged?.(job.id);
+      recovered += 1;
+      continue;
+    }
+    const alreadyInterrupted =
+      task.status === 'timed_out' &&
+      correlation.gantryHostedRecovery === 'interrupted';
+    if (!alreadyInterrupted) {
+      if (task.status !== 'waiting_external' || !isHostedTaskStale(task)) {
+        continue;
+      }
+      const terminalized = await terminalizeInterruptedHostedTask(
+        repository,
+        task,
+      );
+      if (!terminalized) continue;
+    }
+    const now = new Date().toISOString();
+    await ops.updateJob(job.id, {
+      status: 'active',
+      next_run: now,
+      pause_reason: null,
+    });
+    deps.onSchedulerChanged?.(job.id);
+    recovered += 1;
+  }
+  return recovered;
+}
+
+export async function terminalizeOrphanedGantryHostedCapabilityTasks(
+  appId: string,
+  deps: AsyncTaskRecoveryDeps,
+): Promise<number> {
+  const repository = deps.getAsyncTaskRepository?.();
+  const ops = deps.opsRepository;
+  if (!repository || !ops) return 0;
+  const tasks = await repository.listTasks({
+    appId,
+    kind: 'external_capability',
+    statuses: ['waiting_external'],
+    order: 'oldest_first',
+    limit: 200,
+  });
+  let recovered = 0;
+  for (const task of tasks) {
+    const correlation = task.privateCorrelationJson;
+    const isHosted =
+      correlation.executionMode === 'gantry_hosted' ||
+      (correlation.hostedValidation !== null &&
+        typeof correlation.hostedValidation === 'object' &&
+        !Array.isArray(correlation.hostedValidation));
+    if (!isHosted || hasUnsettledHostedCommit(task) || !isHostedTaskStale(task))
+      continue;
+    const parent = task.parentJobId
+      ? await ops.getJobById(task.parentJobId)
+      : undefined;
+    if (await hostedParentHasLiveExecution(ops, parent, task)) continue;
+    if (
+      parent?.status === 'paused' &&
+      parent.pause_reason === `Waiting for external capability task ${task.id}.`
+    ) {
+      continue;
+    }
+    if (await terminalizeInterruptedHostedTask(repository, task))
+      recovered += 1;
+  }
+  return recovered;
+}
+
+async function hostedParentHasLiveExecution(
+  ops: RuntimeJobRepository,
+  parent: Job | undefined,
+  task: AsyncTaskRecord,
+): Promise<boolean> {
+  const now = Date.now();
+  let live = Boolean(
+    parent?.lease_run_id && Date.parse(parent.lease_expires_at ?? '') > now,
+  );
+  const runIds = new Set([
+    parent?.lease_run_id,
+    task.parentJobRunId ?? task.parentRunId,
+  ]);
+  for (const runId of runIds) {
+    if (!runId) continue;
+    const run = await ops.getJobRunById(runId);
+    if (run && (run.run_id !== runId || run.job_id !== task.parentJobId)) {
+      throw new Error('Hosted validation parent run identity is inconsistent.');
+    }
+    if (
+      run?.status === 'running' &&
+      !run.ended_at &&
+      Date.parse(run.lease_expires_at ?? '') > now
+    )
+      live = true;
+  }
+  return live;
+}
+
+function isHostedTaskStale(task: AsyncTaskRecord): boolean {
+  const taskActivityAt = Date.parse(task.updatedAt ?? task.createdAt);
+  return (
+    !Number.isFinite(taskActivityAt) ||
+    taskActivityAt < Date.now() - GANTRY_HOSTED_CAPABILITY_RECOVERY_STALE_MS
+  );
+}
+
+function hasUnsettledHostedCommit(task: AsyncTaskRecord): boolean {
+  const state = task.privateCorrelationJson.hostedCommit;
+  return Boolean(
+    state &&
+    typeof state === 'object' &&
+    !Array.isArray(state) &&
+    ['submitted', 'acknowledged'].includes(
+      String((state as Record<string, unknown>).status),
+    ),
+  );
+}
+
+async function terminalizeInterruptedHostedTask(
+  repository: NonNullable<
+    ReturnType<NonNullable<AsyncTaskRecoveryDeps['getAsyncTaskRepository']>>
+  >,
+  task: AsyncTaskRecord,
+): Promise<AsyncTaskRecord | null> {
+  const now = new Date().toISOString();
+  const reason =
+    'Gantry-hosted capability execution was interrupted; the parent job may resume from its durable checkpoint.';
+  return repository.transitionTask({
+    taskId: task.id,
+    leaseToken: task.leaseToken,
+    fencingVersion: task.fencingVersion,
+    status: 'timed_out',
+    now,
+    terminalAt: now,
+    errorSummary: reason,
+    expectedUpdatedAt: task.updatedAt,
+    expectedPrivateCorrelationJson: task.privateCorrelationJson,
+    privateCorrelationJson: {
+      ...task.privateCorrelationJson,
+      gantryHostedRecovery: 'interrupted',
+      progress: {
+        phase: 'timed_out',
+        lastProgress: reason,
+        lastToolSummary: task.summary ?? task.id,
+      },
+    },
+    receiptJson: {
+      completed: 'timed out',
+      used: String(task.authoritySnapshotJson.capabilityId ?? 'capability'),
+      changed: 'none',
+      delegated: 'no',
+      needsAttention: reason,
+    },
+  });
 }
 
 export async function recoverStaleSessionCompactionTasks(

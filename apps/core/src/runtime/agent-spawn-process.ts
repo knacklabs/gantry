@@ -42,6 +42,7 @@ import {
 } from './agent-spawn-log-sanitization.js';
 import { createRunnerStartupTiming } from './agent-spawn-startup-timing.js';
 import { publishRunnerProcessStartupDiagnostic } from './agent-spawn-process-diagnostic.js';
+import { hasVerifiedHostedCapabilityWait } from './hosted-capability-wait.js';
 const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 
@@ -175,6 +176,7 @@ export function executeRunnerProcess(
     let timedOut = false;
     let timeoutReason: RunnerTimeoutReason = 'timeout';
     let lastScheduledJobHeartbeat: ScheduledJobHeartbeatPayload | null = null;
+    let idleAuthorityCheckPending = false;
     const scheduledJobIdleMs = scheduledJobIdleTimeoutMs();
     let hadStreamingOutput = false;
     const configuredTimeout =
@@ -275,24 +277,51 @@ export function executeRunnerProcess(
               if (
                 pendingPermissions === 0 &&
                 !waitingOnAtomicHumanInteraction &&
-                idleForMs >= scheduledJobIdleMs
+                idleForMs >= scheduledJobIdleMs &&
+                !idleAuthorityCheckPending
               ) {
-                timedOut = true;
-                timeoutReason = 'scheduled_job_idle_stall';
-                logger.error(
-                  {
-                    group: group.name,
-                    processName,
-                    idleForMs,
-                    scheduledJobIdleMs,
-                    lastTool: heartbeat.lastTool ?? heartbeat.currentTool,
-                    lastActivityAt: heartbeat.lastActivityAt,
-                    totalToolCalls: heartbeat.totalToolCalls,
-                    ...runnerContextPayload(input),
-                  },
-                  `${runnerLabel} scheduled job idle stall, stopping`,
-                );
-                runner.kill('SIGKILL');
+                idleAuthorityCheckPending = true;
+                const stopIfStillIdle = () => {
+                  const latest = lastScheduledJobHeartbeat;
+                  if (
+                    timedOut ||
+                    (latest?.pendingPermissionRequests ?? 0) > 0 ||
+                    (latest?.lastActivityAgoMs ?? 0) < scheduledJobIdleMs ||
+                    (latest?.currentTool ?? latest?.lastTool) ===
+                      'job_checkpoint_save'
+                  )
+                    return;
+                  timedOut = true;
+                  timeoutReason = 'scheduled_job_idle_stall';
+                  logger.error(
+                    {
+                      group: group.name,
+                      processName,
+                      idleForMs,
+                      scheduledJobIdleMs,
+                      lastTool: heartbeat.lastTool ?? heartbeat.currentTool,
+                      lastActivityAt: heartbeat.lastActivityAt,
+                      totalToolCalls: heartbeat.totalToolCalls,
+                      ...runnerContextPayload(input),
+                    },
+                    `${runnerLabel} scheduled job idle stall, stopping`,
+                  );
+                  runner.kill('SIGKILL');
+                };
+                void hasVerifiedHostedCapabilityWait(input)
+                  .then((active) => {
+                    if (!active) stopIfStillIdle();
+                  })
+                  .catch(() => {
+                    logger.warn(
+                      { runId: input.runId },
+                      'Hosted wait check failed; preserving idle watchdog',
+                    );
+                    stopIfStillIdle();
+                  })
+                  .finally(() => {
+                    idleAuthorityCheckPending = false;
+                  });
               }
             }
             if (isRunnerCompletionEvidenceFrame(parsed)) {

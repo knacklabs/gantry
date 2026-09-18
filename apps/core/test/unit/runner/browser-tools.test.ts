@@ -263,6 +263,24 @@ describe('runner browser MCP gateway tools', () => {
     });
   });
 
+  it('does not let a model-requested short timeout make public navigation brittle', async () => {
+    requestBrowserAction.mockResolvedValueOnce({ ok: true, data: { ok: true } });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    await server.tools.get('browser_act')?.({
+      action: 'navigate',
+      payload: { url: 'https://slow-public.example/listing' },
+      timeout_ms: 30_000,
+    });
+
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'navigate',
+      { url: 'https://slow-public.example/listing' },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+  });
+
   it('maps compact inspect modes to backend actions', async () => {
     requestBrowserAction.mockResolvedValue({ ok: true, data: { ok: true } });
     const server = new TestMcpServer();

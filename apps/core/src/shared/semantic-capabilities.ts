@@ -58,7 +58,7 @@ export interface SemanticCapabilityOperationContract {
   inputSchemaDigest: string;
   resultEnvelopeSchema?: Record<string, unknown>;
   resultEnvelopeSchemaDigest?: string;
-  executionMode?: 'sync' | 'durable_async';
+  executionMode?: 'sync' | 'durable_async' | 'gantry_hosted';
   requiresActiveJob?: boolean;
   deadlineMs?: number;
   suspensionCheckpoint?: {
@@ -546,11 +546,12 @@ function validateSemanticCapabilityOperations(
     }
     if (
       operation.suspensionCheckpoint &&
-      operation.executionMode !== 'durable_async'
+      operation.executionMode !== 'durable_async' &&
+      operation.executionMode !== 'gantry_hosted'
     ) {
       return {
         ok: false,
-        reason: `Capability operation suspensionCheckpoint requires durable_async execution: ${operation.mcpTool}`,
+        reason: `Capability operation suspensionCheckpoint requires durable_async or gantry_hosted execution: ${operation.mcpTool}`,
       };
     }
   }
