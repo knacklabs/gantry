@@ -1,7 +1,7 @@
 ---
 slug: process-local-claude-continuity
 title: Process-local Claude continuity with fresh cross-runner context
-status: draft
+status: confirmed
 saved: 2026-09-18T06:35:08+00:00
 ---
 

@@ -2,124 +2,84 @@
   "generated_by": "griller",
   "gate": "spec",
   "verdict": "pass",
-  "summary": "Cold-read grill (gpt-5.6-sol @ high) of docs/specs/local-dev-launch.md found 13 findings, several critical: reset destructive-safety gaps, DB/settings authority conflicts, an authorization-mode gap, CLI/DX bugs, unverified verification claims, and spec-shape mixing of delivery mechanics into behavior. The owner resolved every finding across two AskUserQuestion rounds; the spec is amended to state those resolutions as requirements.",
+  "summary": "Independent Forge cold read (./forge grill run --gate spec) of docs/specs/process-local-claude-continuity.md produced nine findings: resume-transcript accumulation vs. the retire-after-crossing ceiling, provider-id branching risk, process-local rows mutating lifecycle before being ignored, /compact lock/dedup ownership, failover handle carry-over, Claude SDK storage lifecycle vs. stable config/skills/credentials, deployment row-cleanup scope and stale-row reopen, read-model/status leakage on incomplete cleanup, and the decision-0158 ceiling / new-setting relationship. The amended spec resolves all nine as stated requirements; the human confirmed the two open design choices (per-runner ephemeral session-bearing SDK files; transactional Claude-only provider-session row/pointer deletion preserving DeepAgents rows). One closing AskUserQuestion round returned a clean frontier.",
   "gaps": [
-    "gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` \u2014 it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?",
-    "core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?",
-    "Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?",
-    "Automated tests mock Postgres/Docker/processes entirely \u2014 they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?",
-    "Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?"
+    "Cold read: the current design resumes the full Claude provider transcript and re-appends bounded briefings each runner, so overlapping briefing copies accumulate; the 150k ceiling is retire-after-observed-crossing, so a new runner can still reopen and reread a large transcript before retirement. Is cross-process provider continuity actually required, given Gantry already owns canonical continuity in Postgres?",
+    "Cold read: does core runtime decide this behaviour by branching on an Anthropic/Claude provider id? A provider-id branch is brittle and would not generalise to DeepAgents or future adapters.",
+    "Cold read: for a process-local adapter, could an existing active/ready/maintenance-compaction provider-session row still mutate lifecycle state, replay a compaction delta, affect /status, or set hasProviderResume before it is ignored?",
+    "Cold read: for /compact on a process-local adapter, who owns admission and deduplication, and is a provider-session lock required or created when no provider row exists?",
+    "Cold read: in a failover loop, could a Claude handle be carried into or persisted by the wrong attempt (e.g. a DeepAgents-to-Claude failover writing a Claude provider session)?",
+    "Cold read (confirmed choice 1): what is the lifecycle of Claude session-bearing SDK storage across runners, and does wiping it also remove stable non-session configuration, skills, and credentials that must remain materialized?",
+    "Cold read (confirmed choice 2): what exactly does deployment cleanup delete, and can incomplete cleanup leave stale Claude rows that a later runtime reopens or reports? Must DeepAgents rows be preserved?",
+    "Cold read: do public session-resume projections and /status exclude process-local provider-session rows even when cleanup was incomplete, or could they leak stale Claude rows?"
   ],
   "contradictions": [
-    "settings.yaml is classified Read-only/observable in the spec but startup creates it and full reset deletes/recreates it, contradicting decision 0025's settings-authority model"
+    "Cold read: the change appears to conflict with decision 0158's Claude-specific cross-process continuation and its context ceiling, and it is unclear whether a new runtime setting is introduced or whether limits.provider_session_max_input_tokens still applies to durable-resume adapters."
   ],
   "resolutions": [
-    "Owner chose to add ownership verification now: a Gantry-written home sentinel gates destructive filesystem reset, and database reset is scoped to the verified home-owned managed container rather than any reachable loopback DB named gantry.",
-    "Owner chose to enforce local-mode/database-authority defaults now: refuse before any destructive action when settings.yaml declares a non-default postgres urlEnv/schema, and require authentication.mode=local plus a loopback origin before attempting authorization link issuance.",
-    "Owner chose to fix the retry-home and IPv6-bracket bugs within the existing local.ts write scope rather than defer them.",
-    "Owner chose to keep the already-planned mocked unit tests plus manual disposable-home verification as sufficient proof, rather than adding a new Postgres/Docker integration lane.",
-    "Owner chose to harden reset into preflight-then-destroy ordering and add orphan-Postgres-stop refusal now, without introducing new cross-process locking infrastructure.",
-    "settings.yaml reclassified Changed in the Surface Impact table; reset-db and full reset both rely on existing core-startup behavior that imports the settings file as the authoritative revision when no DB revision exists, so no new revision-import code is needed \u2014 only the spec's classification and acceptance criteria needed correcting.",
-    "Spec now states the proxied /healthz endpoint explicitly instead of the ambiguous 'health readiness', matching the code's existing behavior and avoiding a /readyz deadlock on fresh onboarding.",
-    "The false claim of an already-existing architecture exception was removed from the spec's Why section; the plan/task now owns adding the exact, count-exact, time-bounded exception entry.",
-    "Delivery mechanics (file scope, autoreview, commit/PR flow) were removed from the spec's Acceptance Criteria; they remain owned by the plan and Forge harness, not the capability spec."
+    "Resolved in spec Why + Behaviour 1-3 and AC 1-2/4: Claude interactive lanes (worker and inline) start a fresh non-persistent SDK query (persistSession: false, no resume id, no persisted AgentInput.sessionId); a later runner rebuilds model-visible continuity from the bounded channel/thread snapshot plus the hydrated continuity block (recent scoped session digests, active durable memory, active jobs); runs/events stay canonical evidence but are not replayed. Cross-process provider continuity is dropped in favour of Postgres-owned canonical continuity.",
+    "Resolved in Behaviour 4 and AC 12: core runtime chooses behaviour from an adapter-owned provider-session continuity capability and never branches on an Anthropic/Claude provider id; Claude declares process-local continuity while DeepAgents keeps durable resume.",
+    "Resolved in Behaviour 5 and AC 3/11: the continuity capability is consulted before selecting or promoting a provider-session row; for process-local adapters active/ready/maintenance-compaction rows are ignored before they can mutate lifecycle, replay a delta, affect /status, set hasProviderResume, attach to runs, or raise context marks; read-model and /status exclude these rows even on incomplete cleanup.",
+    "Resolved in Behaviour 6 and AC 7: /compact selects the adapter strategy before any lock; for a process-local adapter the canonical durable session-compaction task is the admission/dedup owner, no provider-session lock is required or created, fresh-checkpoint behaviour captures the current canonical boundary best-effort and discards provider context, and concurrent commands return the existing already-running response.",
+    "Resolved in Behaviour 8 and AC 8: provider-session continuity belongs to the adapter for the active attempt; each attempt independently decides resume input and output persistence. Claude-to-DeepAgents failover may persist the successful DeepAgents checkpoint; DeepAgents-to-Claude failover must not carry or write a Claude provider session, and run/context marking identify the successful durable attempt only.",
+    "Resolved in Behaviour 9 and AC 9 (human-confirmed): Claude worker and inline session-bearing SDK storage is per-run and removed during normal runner cleanup, while stable non-session configuration, skills, and credentials remain materialized through their existing paths; legacy transcript/session directories are included in drained rollout cleanup.",
+    "Resolved in Behaviour 10 and AC 10 (human-confirmed): deployment transactionally deletes only Claude execution-provider session rows and clears their latest pointers while workers are stopped; DeepAgents rows survive; runtime independently ignores stale Claude rows so incomplete cleanup cannot reopen or report them; rollback starts fresh Claude contexts and never restores deleted transcripts.",
+    "Resolved in Behaviour 5 and AC 11: public session-resume projections and /status exclude process-local provider-session rows even when cleanup was incomplete; durable-resume adapters retain current reporting.",
+    "Resolved in Behaviour 11 and AC 12: no new runtime setting is introduced and limits.provider_session_max_input_tokens remains available for durable-resume adapters; a new accepted decision supersedes only decision 0158's Claude-specific cross-process continuation and rejected-alternative language while preserving its ceiling for durable-resume adapters."
   ],
-  "open_items": [
-    "Cross-process, DB-scoped mutual-exclusion locking for concurrent reset attempts remains deferred; track via `./forge defer add` with a revisit trigger.",
-    "Docker-only startup on a dedicated public port remains deferred to a follow-up, as already stated in the original draft.",
-    "Extending browser-authorization support to non-local authentication modes for source-local dev remains out of scope; local mode is required."
-  ],
-  "questions_asked": 6,
+  "questions_asked": 1,
   "inspected_refs": [
-    "apps/core/src/cli/local.ts",
-    "apps/core/src/cli/auth.ts",
-    "apps/core/src/config/settings/storage.ts",
-    "apps/core/src/app/bootstrap/startup.ts",
-    "docs/decisions/0025-settings-authority.md",
-    "docs/decisions/0132-adaptive-browser-authentication-access.md"
+    "docs/specs/process-local-claude-continuity.md",
+    "docs/decisions/0158-provider-session-context-ceiling.md",
+    "docs/decisions/0011-provider-session-artifact-store.md"
   ],
   "citations": [
     {
-      "finding": "settings.yaml is classified Read-only/observable in the spec but startup creates it and full reset deletes/recreates it, contradicting decision 0025's settings-authority model",
-      "source": "docs/decisions/0025-settings-authority.md:26"
+      "finding": "resume-transcript accumulation vs. retire-after-observed-crossing ceiling",
+      "source": "docs/specs/process-local-claude-continuity.md:10"
     },
     {
-      "finding": "bare `gantry local` silently changed from read-only status to starting Docker/core/Vite, and existing `setup`/`logs` commands disappear",
-      "source": "apps/core/src/cli/local.ts:520"
+      "finding": "core runtime must not branch on an Anthropic/Claude provider id; behaviour is adapter-capability driven",
+      "source": "docs/specs/process-local-claude-continuity.md:42"
     },
     {
-      "finding": "the spec said 'health readiness' ambiguously; the code already uses /healthz, not /readyz, and /readyz can legitimately be red during fresh onboarding",
-      "source": "apps/core/src/control/server/system-health.ts:81"
+      "finding": "process-local rows ignored before promotion, delta replay, run attachment, status projection, and resume-state projection",
+      "source": "docs/specs/process-local-claude-continuity.md:46"
     },
     {
-      "finding": "the retry-after-failed-authorization message did not include the resolved --runtime-home, so retrying could target the wrong default home",
-      "source": "apps/core/src/cli/local.ts:501"
+      "finding": "/compact fresh-checkpoint strategy for process-local adapters with no provider-session lock",
+      "source": "docs/specs/process-local-claude-continuity.md:55"
     },
     {
-      "finding": "the spec claimed a one-call architecture exception already covers the supervisor's direct spawn, but scripts/architecture-exceptions.json contains no such entry and check_architecture.py fails on local.ts's direct spawn",
-      "source": "scripts/architecture-exceptions.json"
+      "finding": "per-attempt adapter ownership of resume input/output in failover; DeepAgents-to-Claude must not carry a Claude handle",
+      "source": "docs/specs/process-local-claude-continuity.md:64"
     },
     {
-      "finding": "GANTRY_CONTROL_HOST accepts the literal bracketed form [::1] as a loopback host, but that bracketed string is not a valid bind-API host",
-      "source": "apps/core/src/cli/local.ts:119"
+      "finding": "Claude session-bearing SDK storage is per-run/ephemeral while stable config, skills, and credentials remain materialized",
+      "source": "docs/specs/process-local-claude-continuity.md:70"
     },
     {
-      "finding": "the spec fixed file scope, exception-file shape, typechecks, Forge recording, autoreview, commit state, and PR creation as spec acceptance criteria, which are delivery mechanics that belong in the plan/harness rather than an implementation-neutral capability spec",
-      "source": "docs/specs/local-dev-launch.md"
+      "finding": "drained rollout transactionally deletes only Claude provider-session rows/pointers; DeepAgents rows survive",
+      "source": "docs/specs/process-local-claude-continuity.md:74"
+    },
+    {
+      "finding": "no new runtime setting; ceiling preserved for durable-resume adapters; new decision supersedes only decision 0158's Claude-specific cross-process continuation",
+      "source": "docs/decisions/0158-provider-session-context-ceiling.md"
     }
   ],
   "rounds": [
     {
-      "question": "gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` \u2014 it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?",
+      "question": "The amended spec resolves all nine Forge cold-read findings, and you've confirmed the two remaining design choices. Lock them in and close the spec grill: (1) Claude session-bearing SDK files are ephemeral per runner while stable config, skills, and credentials stay materialized; (2) drained rollout transactionally deletes only Claude provider-session rows and their pointers while DeepAgents rows survive. Any remaining gap before I record the spec-grill pass?",
       "options": [
-        "Add ownership checks now (Recommended)",
-        "Ship current guards, defer the rest"
+        "Confirm both \u2014 ephemeral SDK sessions + Claude-only row deletion (Recommended)",
+        "Ephemeral SDK sessions only; revisit deletion scope",
+        "Reopen \u2014 I have another concern"
       ],
-      "chosen": "Add ownership checks now (Recommended)"
-    },
-    {
-      "question": "core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?",
-      "options": [
-        "Enforce local-mode defaults now (Recommended)",
-        "Spec-text fix only, defer enforcement"
-      ],
-      "chosen": "Enforce local-mode defaults now (Recommended)"
-    },
-    {
-      "question": "Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?",
-      "options": [
-        "Fix now, same write scope (Recommended)",
-        "Defer with a recorded follow-up"
-      ],
-      "chosen": "Fix now, same write scope (Recommended)"
-    },
-    {
-      "question": "Automated tests mock Postgres/Docker/processes entirely \u2014 they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?",
-      "options": [
-        "Keep mocked unit tests + my manual verification (Recommended)",
-        "Add a real Postgres/Docker integration test lane"
-      ],
-      "chosen": "Keep mocked unit tests + my manual verification (Recommended)"
-    },
-    {
-      "question": "Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?",
-      "options": [
-        "Harden ordering + orphan detection now (Recommended)",
-        "Defer with a recorded follow-up"
-      ],
-      "chosen": "Harden ordering + orphan detection now (Recommended)"
-    },
-    {
-      "question": "That covers every finding from the cold-read grill. Any remaining gap before I amend the spec to what you've decided and move to the plan gate?",
-      "options": [
-        "No \u2014 proceed to amend and record the grill pass (Recommended)",
-        "Yes \u2014 I have another concern"
-      ],
-      "chosen": "No \u2014 proceed to amend and record the grill pass (Recommended)",
+      "chosen": "Confirm both \u2014 ephemeral SDK sessions + Claude-only row deletion (Recommended)",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "04546a1648e6d63b8c0115ffe151dc253c1079d0286a279f78c725bec82c05d2",
-  "recorded_at": "2026-09-17T13:44:10+00:00",
-  "commit": "fa3007ea8576cdf20f839c10c2d1e10ecf4749cd"
+  "input_sha256": "63c5d45a41c3a49ecc7b30143dbf4f06156343d72547cfc90a7f967919e793c3",
+  "recorded_at": "2026-09-18T06:57:23+00:00",
+  "commit": "e77b69088f5e2a15e34b44832b0f7c38d3238f7b"
 }
