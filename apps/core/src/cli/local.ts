@@ -489,10 +489,8 @@ export async function superviseLocal(
     socket.once('data', (data) => {
       try {
         const request = JSON.parse(data.toString());
-        if (request.command !== 'stop' || request.home !== home) {
-          socket.destroy();
-          return;
-        }
+        if (request.command !== 'stop' || request.home !== home)
+          return socket.destroy();
         socket.setTimeout(0);
         void shutdown(0).then(() => socket.end('gantry-local-stopped'));
       } catch {
@@ -505,9 +503,7 @@ export async function superviseLocal(
     control.listen(socketPath, resolve);
   });
   fs.chmodSync(socketPath, 0o600);
-  const onSignal = () => {
-    void shutdown(0);
-  };
+  const onSignal = () => void shutdown(0);
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   const launch = (
@@ -523,12 +519,10 @@ export async function superviseLocal(
       detached: true,
     });
     children.add(child);
-    if (
-      child.pid &&
-      (args.includes('apps/core/src/index.ts') ||
-        args.includes('node_modules/vite/bin/vite.js'))
-    )
-      recordChildPid(home, child.pid);
+    const recordsPid =
+      args.includes('apps/core/src/index.ts') ||
+      args.includes('node_modules/vite/bin/vite.js');
+    if (child.pid && recordsPid) recordChildPid(home, child.pid);
     return new Promise<number>((resolve) => {
       child.once('error', () => {
         children.delete(child);
@@ -691,10 +685,8 @@ export async function runLocalCommand(
       throw new Error('Use `gantry local reset --no-start` only with reset.');
     validateLocalNode();
     const env = localEnvironment(home);
-    const target = localDatabase(
-      env.GANTRY_DATABASE_URL!,
-      command.startsWith('reset'),
-    );
+    const databaseUrl = env.GANTRY_DATABASE_URL!;
+    const target = localDatabase(databaseUrl, command.startsWith('reset'));
     const origin = localOrigin(env);
     console.log(
       `Gantry home: ${home}\nDatabase: ${target.hostname}:${target.port || '5432'}${target.pathname}\nUI origin: ${origin}`,
@@ -717,15 +709,10 @@ export async function runLocalCommand(
         throw new Error('Local reset requires the managed default database.');
       await stopLocalDevelopment(home);
       stopRecordedChildren(home);
-    }
-    if (command === 'start') stopRecordedChildren(home);
-    return await superviseLocal(
-      repo,
-      home,
-      env,
-      command === 'start' ? undefined : (command as 'reset' | 'reset-db'),
-      !noStart,
-    );
+    } else if (command === 'start') stopRecordedChildren(home);
+    const reset =
+      command === 'start' ? undefined : (command as 'reset' | 'reset-db');
+    return await superviseLocal(repo, home, env, reset, !noStart);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
