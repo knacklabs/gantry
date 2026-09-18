@@ -26,13 +26,13 @@ export function RouteTabs<T extends string>({
       >
         {tabs.map((tab) => (
           <TabsTrigger
-            className="relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-xs font-semibold text-text-secondary hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:bottom-0 data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-text"
+            className="relative inline-flex h-10 shrink-0 items-center gap-2 border-0 bg-transparent px-3 text-meta font-medium text-text-secondary hover:text-text data-[state=active]:text-text data-[state=active]:after:absolute data-[state=active]:after:right-2 data-[state=active]:after:bottom-0 data-[state=active]:after:left-2 data-[state=active]:after:h-0.5 data-[state=active]:after:bg-text"
             key={tab.value}
             value={tab.value}
           >
             {tab.label}
             {tab.count === undefined ? null : (
-              <span className="font-mono text-[10px] text-text-muted">
+              <span className="font-mono text-caption text-text-muted">
                 {tab.count}
               </span>
             )}

@@ -12,6 +12,8 @@ import {
   MessagesSquare,
   MessageCircle,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   PlugZap,
   Gauge,
   ExternalLink,
@@ -20,7 +22,8 @@ import {
   Workflow,
 } from 'lucide-react';
 
-import { GantryLogo } from '../ui/compositions/gantry-logo';
+import { GantryMark } from '../ui/compositions/gantry-logo';
+import { Button } from '../ui/primitives/button';
 import {
   navigationSummaryQuery,
   type NavigationSummary,
@@ -33,30 +36,28 @@ import {
 
 const navigation = [
   {
-    label: 'Operations',
+    label: 'Today',
     items: [
       { to: '/overview', label: 'Overview', icon: LayoutDashboard },
       { to: '/interactions', label: 'Waiting on you', icon: CircleHelp },
       { to: '/conversations', label: 'Conversations', icon: MessagesSquare },
-      { to: '/diagnostics', label: 'Diagnostics', icon: Activity },
     ],
   },
   {
-    label: 'Configure',
+    label: 'Employees',
     items: [
-      { to: '/providers', label: 'Model providers', icon: PlugZap },
-      { to: '/mcp-servers', label: 'MCP servers', icon: Boxes },
+      { to: '/agents', label: 'Roster', icon: Bot },
       { to: '/skills', label: 'Skills', icon: PackageCheck },
-      {
-        to: '/channel-accounts',
-        label: 'Channel accounts',
-        icon: MessagesSquare,
-      },
     ],
   },
   {
-    label: 'Administration',
-    items: [{ to: '/agents', label: 'Directory', icon: Bot }],
+    label: 'Workspace',
+    items: [
+      { to: '/people', label: 'People', icon: Bot },
+      { to: '/providers', label: 'Model providers', icon: PlugZap },
+      { to: '/mcp-servers', label: 'Tools', icon: Boxes },
+      { to: '/channel-accounts', label: 'Channel accounts', icon: MessagesSquare },
+    ],
   },
   {
     label: 'Conversations',
@@ -69,6 +70,7 @@ const navigation = [
     label: 'Runtime',
     items: [
       { to: '/jobs', label: 'Jobs', icon: CalendarClock },
+      { to: '/diagnostics', label: 'Diagnostics', icon: Activity },
       { to: '/runtime/models', label: 'Models', icon: Boxes },
       { to: '/runtime/memory', label: 'Memory engine', icon: BrainCircuit },
       { to: '/runtime/capacity', label: 'Capacity', icon: Gauge },
@@ -90,31 +92,45 @@ const navigation = [
 ] as const;
 
 const NAV_ITEM_CLASS_NAME =
-  'flex min-h-9 items-center gap-2.5 rounded-md border border-transparent px-2.5 text-[13px] font-medium text-text-secondary no-underline hover:bg-surface-muted hover:text-text';
+  'flex min-h-[31px] items-center gap-2.5 rounded-[7px] border border-transparent px-[9px] text-ui font-normal text-text-secondary no-underline hover:bg-surface-muted hover:text-text';
 const NAV_ITEM_ACTIVE_CLASS_NAME =
   'border-border-strong bg-surface-strong text-text';
 
-export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
+export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse }: { collapsed?: boolean; onNavigate?: () => void; onToggleCollapse?: () => void }) {
   const summary = useQuery(navigationSummaryQuery);
   return (
     <div className="flex h-full flex-col">
-      <Link
-        aria-label="Gantry"
-        className="inline-flex min-h-10 items-center px-2 text-ink no-underline"
-        to="/overview"
-        onClick={onNavigate}
-      >
-        <GantryLogo className="h-6 w-[102px]" />
-      </Link>
+      <div className="flex min-h-[34px] flex-wrap items-center justify-center gap-x-[9px] gap-y-[14px] px-[5px] pt-1">
+        <Link aria-label="Gantry home" className={`inline-flex min-h-7 min-w-0 items-center text-ink no-underline ${collapsed ? 'flex-none gap-0' : 'flex-1 gap-[9px]'}`} to="/overview" onClick={onNavigate}>
+          <GantryMark className="size-4" />
+          <span className={`overflow-hidden font-display text-[16px] font-bold tracking-[-0.04em] whitespace-nowrap transition-[max-width,opacity] duration-[180ms] ease-gantry ${collapsed ? 'max-w-0 opacity-0' : 'max-w-24 opacity-100'}`}>Gantry</span>
+        </Link>
+        <Button
+          aria-controls="primary-navigation"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          className={`relative z-20 mx-auto flex-none ${collapsed ? 'size-[38px] p-3' : 'size-[30px] p-2'}`}
+          size="icon-sm"
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          variant="ghost"
+          onClick={onToggleCollapse}
+        >
+          {collapsed ? (
+            <PanelLeftOpen aria-hidden="true" size={14} />
+          ) : (
+            <PanelLeftClose aria-hidden="true" size={14} />
+          )}
+        </Button>
+      </div>
 
-      <div className="mt-6 grid gap-5">
+      <div className={`grid gap-[13px] ${collapsed ? 'mt-[36px]' : 'mt-[14px]'}`}>
         {navigation.map((group) => (
           <nav
             aria-label={group.label}
             className="grid gap-1"
             key={group.label}
           >
-            <p className="mt-0 mb-1 px-2 font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
+            <p className={`mt-0 mb-[3px] overflow-hidden px-[9px] font-mono text-micro font-medium tracking-[0.18em] whitespace-nowrap text-text-muted uppercase transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
               {group.label}
             </p>
             {group.items.map(({ to, label, icon: Icon }) => (
@@ -126,12 +142,13 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
                 to={to}
                 onClick={onNavigate}
               >
-                <Icon size={17} aria-hidden="true" />
-                <span>{label}</span>
+                {collapsed ? <Tooltip><TooltipTrigger asChild><span><Icon size={17} aria-hidden="true" /></span></TooltipTrigger><TooltipContent side="right">{label}</TooltipContent></Tooltip> : <Icon size={17} aria-hidden="true" />}
+                <span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>{label}</span>
                 <NavigationCount
                   item={to}
                   summary={summary.data}
                   pending={summary.isPending}
+                  hidden={collapsed}
                 />
               </Link>
             ))}
@@ -149,8 +166,7 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
           to="/profile"
           onClick={onNavigate}
         >
-          <Settings2 size={17} aria-hidden="true" />
-          <span>Profile</span>
+          <Settings2 size={17} aria-hidden="true" /><span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>Profile</span>
         </Link>
         <Link
           activeProps={{ className: NAV_ITEM_ACTIVE_CLASS_NAME }}
@@ -158,8 +174,7 @@ export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
           to="/settings/authentication-access"
           onClick={onNavigate}
         >
-          <ShieldCheck size={17} aria-hidden="true" />
-          <span>Authentication &amp; Access</span>
+          <ShieldCheck size={17} aria-hidden="true" /><span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>Authentication &amp; Access</span>
         </Link>
       </nav>
     </div>
@@ -170,11 +185,14 @@ function NavigationCount({
   item,
   summary,
   pending,
+  hidden = false,
 }: {
   item: string;
   summary?: NavigationSummary;
   pending: boolean;
+  hidden?: boolean;
 }) {
+  if (hidden) return null;
   const details = navigationCountDetails(item, summary);
   if (!details) {
     return pending &&

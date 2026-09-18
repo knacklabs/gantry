@@ -87,7 +87,7 @@ export function DataTable<TData>({
               >
                 {headerGroup.headers.map((header) => (
                   <th
-                    className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-semibold text-text-secondary"
+                    className="h-[var(--table-header-height)] px-[var(--table-cell-padding-inline)] font-mono text-micro font-medium tracking-[0.07em] text-text-muted uppercase"
                     key={header.id}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (

@@ -20,6 +20,7 @@ import {
   browserFetch,
 } from '../../../lib/auth/browser-auth';
 import { PageState } from '../../../ui/compositions/page-state';
+import { GantryMark } from '../../../ui/compositions/gantry-logo';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
@@ -136,29 +137,19 @@ export function AgentDetailRoute() {
         : 'enable';
   const label = action === 'disable' ? 'Disable' : 'Enable';
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] gap-4">
+    <div className="grid w-full gap-4">
       <Link
         className="inline-flex min-h-8 w-fit items-center gap-1 text-xs font-semibold text-text-secondary no-underline hover:text-text"
         to="/agents"
-        search={{
-          tab: 'agents',
-          kind: 'all',
-          q: '',
-          status: 'all',
-          page: 1,
-          pageSize: 25,
-          role: 'all',
-          sort: 'name',
-          desc: false,
-        }}
+        search={{ tab: 'agents', page: 1, pageSize: 25, q: '', status: 'all', role: 'all', sort: 'name', desc: false, kind: 'employees' }}
       >
         <ArrowLeft size={15} aria-hidden="true" /> Back to AI employees
       </Link>
-      <section className="overflow-hidden rounded-lg border border-border bg-surface shadow-panel">
-        <header className="flex flex-col gap-4 border-b border-border px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
+      <section className="overflow-hidden rounded-[11px] border border-border bg-surface shadow-panel">
+        <header className="flex flex-col gap-4 border-b border-border px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-status-attention/40 bg-status-attention-soft font-mono text-sm font-semibold text-status-attention">
-              {initials(agent.name)}
+            <span className="grid size-11 shrink-0 place-items-center rounded-[11px] border border-border bg-surface-strong text-text">
+              <GantryMark className="size-5" />
             </span>
             <div className="min-w-0">
               <p className="mb-1 font-mono text-[10px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
@@ -211,6 +202,11 @@ export function AgentDetailRoute() {
             ) : null}
           </div>
         </header>
+        <section aria-label="Employee connections" className="grid gap-px border-b border-border bg-border lg:grid-cols-[1fr_auto_1fr]">
+          <div className="bg-surface px-6 py-4"><p className="m-0 font-mono text-[10px] font-semibold tracking-[0.12em] text-text-muted uppercase">Inputs</p><p className="mt-2 mb-0 text-sm text-text-secondary">{ownedAccounts.length ? `${ownedAccounts.length} channel account${ownedAccounts.length === 1 ? '' : 's'}` : 'No channel account assigned'}</p></div>
+          <div className="grid min-w-36 place-items-center bg-surface-strong px-5 py-4 text-center"><GantryMark className="size-5 text-text" /><span className="mt-1 text-sm font-semibold text-text">{agent.name}</span></div>
+          <div className="bg-surface px-6 py-4 text-right"><p className="m-0 font-mono text-[10px] font-semibold tracking-[0.12em] text-text-muted uppercase">Outputs</p><p className="mt-2 mb-0 text-sm text-text-secondary">{installedCount ? `${installedCount} active conversation${installedCount === 1 ? '' : 's'}` : 'No conversation assignments'}</p></div>
+        </section>
         <DetailTabs
           value={search.tab}
           onValueChange={(tab) => void navigate({ search: { tab } })}
@@ -1348,14 +1344,6 @@ function Impact({ icon, text }: { icon: ReactNode; text: string }) {
       {text}
     </p>
   );
-}
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
 }
 function formatDate(value: string) {
   const date = new Date(value);
