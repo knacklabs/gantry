@@ -62,7 +62,7 @@ export function OverviewRoute() {
         <section className="flex items-center gap-3 rounded-xl border border-status-attention/35 bg-status-attention-soft px-3 py-3">
           <button
             aria-label="Dismiss onboarding reminder"
-            className="grid size-8 shrink-0 place-items-center rounded-md text-status-attention hover:bg-status-attention/15 disabled:opacity-50"
+            className="grid size-8 shrink-0 place-items-center rounded-md text-status-attention hover:bg-status-attention/15 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:opacity-50"
             disabled={completion.isPending}
             onClick={dismissOnboardingReminder}
             type="button"
@@ -73,7 +73,7 @@ export function OverviewRoute() {
             Do you want to complete onboarding?
           </p>
           <Link
-            className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground no-underline hover:bg-primary/80"
+            className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground no-underline hover:bg-primary/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring"
             to="/onboarding"
           >
             Yes
