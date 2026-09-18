@@ -102,7 +102,7 @@ Rules:
   simpler technical approach, the plan SAYS SO and why — that rejection is
   a Decision. The grill hunts simpler shapes; a plan that over-builds fails
   it before any code exists.
-- Planning model is high-reasoning.
+- Planning uses `gpt-5.6-sol` at `high` reasoning.
 - Treat the in-repo docs as the system of record.
 - Run `./forge findings patterns` before drafting. If a RECURRING class
   touches this story's area, the plan must either include the consolidation

@@ -282,7 +282,6 @@ def _rounds_since_last_pass(base: Path, ledger_id: str, gate: str,
         from factory_lib import (
             evidence_path, load_json, run_state_path,
         )
-        from .delegate import load_delegations
         from grill_gates import get_gate
 
         story = load_json(run_state_path(base), default={}).get("issue_key", "")
@@ -290,13 +289,10 @@ def _rounds_since_last_pass(base: Path, ledger_id: str, gate: str,
             evidence_path(base, story if get_gate(gate).story_scoped else "",
                           get_gate(gate).evidence_name(task_id)), default={})
         since = str(record.get("recorded_at") or "")
-        launches = {
-            row.get("launch_id") for row in load_delegations(base)
-            if row.get("task") == ledger_id
-            and row.get("launch_id")
-            and str(row.get("at") or "") > since
-        }
-        return len(launches)
+        return sum(
+            row.get("launch_status") != "failed"
+            for row in _latest_launch_rows(base, ledger_id, since)
+        )
     except (Exception, SystemExit):
         # SystemExit is NOT an Exception: load_delegations calls fail() on a
         # malformed ledger. Never let the counter refuse a grill it cannot
@@ -352,6 +348,15 @@ def _launch_rows(base: Path, ledger_id: str, since: str) -> list[dict]:
     )
 
 
+def _latest_launch_rows(base: Path, ledger_id: str, since: str) -> list[dict]:
+    """Latest ledger row for each launch after `since`."""
+    latest: dict[str, dict] = {}
+    for row in _launch_rows(base, ledger_id, since):
+        if launch_id := row.get("launch_id"):
+            latest[launch_id] = row
+    return list(latest.values())
+
+
 def _last_pass_at(base: Path, gate: str, task_id: str) -> str:
     """When this gate last recorded a pass. Empty if never."""
     from factory_lib import evidence_path, load_json, run_state_path
@@ -383,7 +388,7 @@ def _refuse_a_second_cold_read(base: Path, ledger_id: str, gate: str,
         return
     try:
         since = _last_pass_at(base, gate, task_id)
-        cold = [row for row in _launch_rows(base, ledger_id, since)
+        cold = [row for row in _latest_launch_rows(base, ledger_id, since)
                 if row.get("launch_status") != "failed"]
         if not cold:
             return

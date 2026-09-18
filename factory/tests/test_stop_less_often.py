@@ -148,40 +148,15 @@ def test_forge_next_repeats_the_split_where_it_is_needed():
 
 # ------------------------------------------------------- reachable escalation
 def test_the_effort_escalation_harness_yaml_documents_is_reachable(repo: Path):
-    """harness.yaml named an escalation the parser could not perform.
+    """Decision 0074 pins managed implementation to Sol/medium."""
+    from forge_cli.delegate import pinned_run_config
 
-        reasoning: "medium (escalate effort to high for migrations/
-                    cross-domain/security-sensitive)"
-
-    The parser takes the first word, so the parenthetical was unreachable
-    prose, and no flag existed either. A task that qualified on all three
-    counts — migrations, two module boundaries and access control — ran at
-    medium regardless. A rule with no mechanism, like the round floors and the
-    board review before it.
-    """
-    forge = (HARNESS / "factory" / "scripts" / "forge.py").read_text(
-        encoding="utf-8")
-    assert '"--effort"' in forge, "delegate has no way to raise the effort"
-
-    delegate = (HARNESS / "factory" / "scripts" / "forge_cli" / "delegate.py"
-                ).read_text(encoding="utf-8")
-    assert "ALLOWED_EFFORTS" in delegate
-    assert "override" in delegate
-
-    # And the pin no longer pretends the parenthetical does the work.
-    harness = (HARNESS / "harness.yaml").read_text(encoding="utf-8")
-    assert "escalate effort to high for migrations" not in harness.split(
-        "reasoning:")[-1].split("\n")[0]
-    assert "--effort high" in harness, (
-        "the pin must name the command that raises it")
-
-
-def test_an_unknown_effort_is_refused(repo: Path, tmp_path):
-    # A silently ignored override is worse than none: the run reports an
-    # effort it did not use.
-    code, out = run(repo, "forge.py", "delegate", "T1", "--effort", "maximum")
-    assert code != 0
-    assert "invalid choice" in out or "must be one of" in out
+    assert pinned_run_config(HARNESS) == ("gpt-5.6-sol", "medium")
+    for args in (("--effort", "low"), ("--effort", "medium"),
+                 ("--effort", "high"), ("--effort", "xhigh"),
+                 ("--effort", "maximum"), ("--effort=medium",)):
+        code, out = run(repo, "forge.py", "delegate", "T1", *args)
+        assert code != 0 and "unrecognized arguments" in out, args
 
 
 # ------------------------------------------- caught in planning, not later --

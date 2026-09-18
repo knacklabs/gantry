@@ -1,13 +1,5 @@
-# Implementation default (what /codex:rescue runs): the GPT-5.6 flagship at
-# medium effort — bounded tasks with approved plans rarely need more; escalate
-# effort to high for migrations/cross-domain/concurrency/security-sensitive
-# work. Code EXPLORATION goes through /codex:rescue --model gpt-5.6-terra
-# --effort high (read-only by default); explore.config.toml serves
-# Codex-native sessions — raw codex exec is hook-blocked, no exceptions.
-# Agents under .codex/agents/ override per-role.
-model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-plan_mode_reasoning_effort = "high"
+# Forge-managed team model routing is committed here and in agents/*.toml.
+# The user and host select the main coordinator model and reasoning.
 # Terse output: artifacts and diffs carry the substance, not prose.
 model_verbosity = "low"
 model_reasoning_summary = "concise"
@@ -35,6 +27,68 @@ skills = true
 [agents]
 max_threads = 6
 max_depth = 1
+default_subagent_model = "gpt-5.6-sol"
+default_subagent_reasoning_effort = "medium"
+
+[agents.architect]
+config_file = "agents/architect.toml"
+description = "Use for high-level system design and architecture decisions."
+
+[agents.frontend]
+config_file = "agents/frontend.toml"
+description = "Use for frontend UI and UX implementation."
+
+[agents.backend]
+config_file = "agents/backend.toml"
+description = "Use for server-side APIs, data, and business logic implementation."
+
+[agents.debugger]
+config_file = "agents/debugger.toml"
+description = "Use for root-cause analysis and targeted implementation fixes."
+
+[agents.tester]
+config_file = "agents/tester.toml"
+description = "Use for writing and improving automated tests."
+
+[agents.security]
+config_file = "agents/security.toml"
+description = "Use for security review and remediation guidance."
+
+[agents.refactorer]
+config_file = "agents/refactorer.toml"
+description = "Use for behavior-preserving implementation refactors."
+
+[agents.performance]
+config_file = "agents/performance.toml"
+description = "Use for performance diagnosis and review."
+
+[agents.explorer]
+config_file = "agents/explorer.toml"
+description = "Use for bounded read-only codebase exploration."
+
+[agents.planner]
+config_file = "agents/planner.toml"
+description = "Use for implementation planning and contract reconciliation."
+
+[agents.griller]
+config_file = "agents/griller.toml"
+description = "Use for independent read-only plan and handover grilling."
+
+[agents.lite]
+config_file = "agents/lite.toml"
+description = "Use only for formal Symphony Forge Lite fixes."
+
+[agents.planner-high]
+config_file = "agents/planner-high.toml"
+description = "Use for repository-grounded implementation planning."
+
+[agents.docs-decomposer]
+config_file = "agents/docs-decomposer.toml"
+description = "Use for bounded decomposition from approved plans."
+
+[agents.functional-checker]
+config_file = "agents/functional-checker.toml"
+description = "Use for user-visible functional verification."
 
 [projects."/workspace"]
 trust_level = "trusted"

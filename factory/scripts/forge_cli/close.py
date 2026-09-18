@@ -24,8 +24,8 @@ import argparse
 from pathlib import Path
 
 from factory_lib import (
-    load_json, product_delta_digest, repo_root, run_state_path,
-    task_seal_shared_problems,
+    load_json, repo_root, run_state_path,
+    task_proof_problems, task_seal_shared_problems,
 )
 
 from .common import fail
@@ -39,7 +39,7 @@ def cmd_task_close(args: argparse.Namespace) -> None:
     from .review import _product_dirty, review_task
     from .stages import (
         _find, _finish_stage, load_stages, reopen_stage_for_review_fix,
-        run_stage_proof, stage_baseline, stamp_is_fresh, task_for,
+        run_stage_proof, stamp_is_fresh, task_for,
     )
     from .tasks import seal_task
     from .delegate import delegation_exclusion
@@ -72,7 +72,8 @@ def cmd_task_close(args: argparse.Namespace) -> None:
               "resolve them, then run close again")
 
     # 3. One identity for everything that follows.
-    delta_id = product_delta_digest(base, stage_baseline(base, stage))
+    from .stages import stage_review_binding
+    delta_id = stage_review_binding(base, stage, task)["delta_id"]
 
     # 4. A done stage whose diff moved (a post-seal fix) reopens itself. No
     #    separate verb, no hidden state flip.
@@ -92,21 +93,45 @@ def cmd_task_close(args: argparse.Namespace) -> None:
 
         # 6. Review only if no stamp covers THIS delta.
         if not stamp_is_fresh(base, stage, task):
+            from factory_lib import selected_review_problems
+            if story and not selected_review_problems(base, story, task_id, delta_id):
+                from .stages import stamp_stage_review
+                with delegation_exclusion(base, task_id, kind="review-selection"):
+                    if selected_review_problems(base, story, task_id, delta_id):
+                        fail("selected review changed before its stamp could be restored")
+                    stamp_stage_review(
+                        base, task_id, lenses=("quality", "performance", "security"),
+                    )
+                stage = _find(load_stages(base), task_id)
+        if not stamp_is_fresh(base, stage, task):
             outcome = review_task(
                 base, task_id, engine=getattr(args, "engine", "codex"),
-                max_priority=getattr(args, "max_priority", "P2"),
-                skill=getattr(args, "skill", None),
-                parallel=not getattr(args, "sequential", False))
+                max_priority=getattr(args, "max_priority", "P3"),
+                skill=getattr(args, "skill", None))
             if outcome["blocking"]:
                 _stop("review", f"{outcome['blocking']} blocking finding(s)",
                       f"delegate the fixes (`./forge delegate {task_id}`), commit, "
-                      "run close again -- it re-reviews only the new diff")
+                      "run close again -- it reviews the whole task delta, "
+                      "base to tip, and records one new generation")
             stage = _find(load_stages(base), task_id)
         else:
             print(f"{task_id}: review stamp covers this diff ({delta_id[:12]}); "
                   "no review needed.")
 
-        # 7. Measure (notes), close. Same lock and same checks `stage done`
+        # 7. The task-owned proof bundle must be complete before the stage is
+        #    made done. In particular, a user-facing task may run its functional
+        #    check after the code review; close stops here, keeps the fresh stamp,
+        #    and resumes without paying for another review after that proof is
+        #    recorded.
+        proof_problems = task_proof_problems(base, story, task, preseal=True)
+        if proof_problems:
+            _stop(
+                "task proof", "; ".join(proof_problems),
+                "record the missing or refreshed task-owned proof, then run close "
+                "again -- an unchanged product delta keeps the current review",
+            )
+
+        # 8. Measure (notes), close. Same lock and same checks `stage done`
         #    holds; the proof is the one already run.
         class _Done:
             pass
@@ -123,5 +148,5 @@ def cmd_task_close(args: argparse.Namespace) -> None:
             _finish_stage(base, done_args, data, current, task_for(base, task_id),
                           proof=proof)
 
-    # 8. Seal: marker, push, PR. Idempotent.
+    # 9. Seal: marker, push, PR. Idempotent.
     seal_task(base, task_id)

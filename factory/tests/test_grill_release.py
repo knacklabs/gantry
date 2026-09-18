@@ -46,7 +46,7 @@ def test_grill_runs_through_the_ledgered_launcher_read_only(repo, tmp_path):
     # The model pin lives in harness.yaml beside every other pin, not in code.
     from forge_cli.delegate import mode_run_config  # noqa: E402
     model, effort, _ = mode_run_config(repo, "grill")
-    assert (model, effort) == ("gpt-5.6-terra", "xhigh")
+    assert (model, effort) == ("gpt-5.6-sol", "high")
 
     # A gate whose artifact is absent refuses, naming the command that makes it.
     code, out = run(repo, "forge.py", "grill", "run", "--gate", "task")

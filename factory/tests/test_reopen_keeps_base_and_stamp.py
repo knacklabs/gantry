@@ -19,7 +19,9 @@ from test_gates import (  # noqa: I001 — test_gates puts factory/scripts on sy
     sign_off, skeletal_stage_task, write_stages,
 )
 from factory_lib import load_json, protected_decomposition_state_path  # noqa: E402
-from forge_cli.stages import load_stages, task_digest  # noqa: E402
+from forge_cli.stages import (  # noqa: E402
+    clear_story_authority, load_stages, load_story_stages, task_digest,
+)
 
 __all__ = ["repo"]
 
@@ -124,3 +126,46 @@ def test_reopen_accepts_an_active_stage_that_closed_incomplete(repo, tmp_path):
     })
     code, out = run(repo, "forge.py", "task", "reopen", "T1")
     assert code != 0 and "not done" in out, out
+
+
+def test_re_recording_keeps_seals_after_the_git_local_authority_is_cleared(
+        repo, tmp_path):
+    """The #171 preservation read only the git-local authority, which
+    `clear_story_authority` deletes once a story ships — that is its job. So
+    ship a task, close, then add a task to the same live story and every
+    shipped stage was rewritten `pending` with its seals dropped. The durable
+    per-story snapshot carries the same state and must be the fallback."""
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(
+        repo, [skeletal_stage_task("T1"), skeletal_stage_task("T2")])
+    stamp = {"score": 9, "brief_sha256": "b" * 64, "product_tree_digest": "p" * 64}
+    recorded = load_json(protected_decomposition_state_path(repo), default={})
+    t1_contract = next(t for t in recorded["tasks"] if t["id"] == "T1")
+    sealed = {"id": "T1", "title": "first", "status": "done",
+              "task_sha256": task_digest(t1_contract),
+              "base_sha": "c" * 40, "local_review_stamp": stamp}
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [sealed, {"id": "T2", "title": "second", "status": "pending"}],
+    })
+    # T1 shipped: its seals are in the committed per-story snapshot, and the
+    # git-local authority is dropped.
+    assert any(s["id"] == "T1" and s["status"] == "done"
+               for s in load_story_stages(repo, "ENG-1")["stages"])
+    clear_story_authority(repo)
+    assert load_stages(repo) == {}
+
+    # Author T3's contract for the same story: the decomposition re-records.
+    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
+        {**DECOMP, "tasks": [skeletal_stage_task("T1"), skeletal_stage_task("T2"),
+                             skeletal_stage_task("T3")]}))
+    assert code == 0, out
+    t1 = next(s for s in load_story_stages(repo, "ENG-1")["stages"]
+              if s["id"] == "T1")
+    assert t1["status"] == "done", t1
+    assert t1["local_review_stamp"] == stamp
+    assert t1["base_sha"] == "c" * 40
+    assert next(s for s in load_story_stages(repo, "ENG-1")["stages"]
+                if s["id"] == "T3")["status"] == "pending"

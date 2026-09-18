@@ -120,23 +120,26 @@ def test_board_memo_reuses_git_facts_until_the_files_that_decide_them_change(
         repo, tmp_path, monkeypatch):
     trunk = _with_origin(repo, tmp_path)
     git(repo, "fetch", "-q", "origin")
-    seen = _count_git(monkeypatch, ("cat-file", "remote", "ls-tree", "ls-files"))
+    marker_identity = {"task_id": "T1", "branch": git(repo, "branch", "--show-current"),
+                       "base_main_sha": git(repo, "rev-parse", f"origin/{trunk}"), "commit": head(repo),
+                       "sealed_at": "2026-09-10T00:00:00+00:00", "reconciled": True}
+    seen = _count_git(monkeypatch, ("rev-parse", "remote", "ls-tree", "ls-files"))
     fscache.invalidate_all()
     monkeypatch.setattr(lib, "BOARD_MEMO", True)
 
     # Shipped marker: asked twice, answered once; the ref moving re-asks.
     assert lib.task_marker_on_main(repo, "ENG-1", "T1", refresh=False) is False
     assert lib.task_marker_on_main(repo, "ENG-1", "T1", refresh=False) is False
-    assert seen["cat-file"] == 1
+    assert seen["rev-parse"] == 1
     marker = repo / lib.task_marker_path("ENG-1", "T1")
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("{}", encoding="utf-8")
+    marker.write_text(json.dumps(marker_identity), encoding="utf-8")
     git(repo, "add", "-f", str(marker.relative_to(repo)))
     git(repo, "commit", "-qm", "ship T1")
     git(repo, "push", "-q", "origin", f"HEAD:refs/heads/{trunk}")
     git(repo, "fetch", "-q", "origin")
     assert lib.task_marker_on_main(repo, "ENG-1", "T1", refresh=False) is True
-    assert seen["cat-file"] == 2
+    assert seen["rev-parse"] == 2
 
     # Origin: asked twice, answered once. (`remote` also counts the one`n    # `git remote show` the trunk-branch lookup made above.)
     remote_before = seen["remote"]

@@ -924,6 +924,21 @@
   .task-plan { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: .5rem .7rem; }
   .task-plan p { font-family: var(--serif); line-height: 1.55; margin: .2rem 0; }
   .task-proof div { line-height: 1.6; }
+  .proof-line { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 .7rem; align-items: start; padding: .2rem 0; }
+  .proof-line + .proof-line { border-top: 1px dashed var(--rule); }
+  .proof-line .id { font-family: var(--mono); font-size: .68rem; font-weight: 600; color: var(--ink); padding-top: .12rem; }
+  .proof-note, .proof-where { color: var(--muted); font-family: var(--mono); font-size: .66rem; }
+  .proof-rec { color: var(--muted); font-size: .72rem; }
+  .proof-more { margin: .3rem 0 0; font-size: .74rem; }
+  .proof-more summary { cursor: pointer; color: var(--muted); font-family: var(--mono); font-size: .66rem; list-style: none; }
+  .proof-more summary::before { content: "\25B8  "; }
+  .proof-more[open] summary::before { content: "\25BE  "; }
+  .proof-more ul { margin: .3rem 0 .2rem; padding-left: 1rem; }
+  .proof-more li { margin: .18rem 0; line-height: 1.45; }
+  .proof-more li code { font-family: var(--mono); font-size: .64rem; color: var(--muted); }
+  .proof-more.bad li { color: var(--accent); }
+  .proof-more.minor li { color: var(--muted); }
+  .proof-more p { margin: .3rem 0 .2rem; color: var(--muted); line-height: 1.5; }
   .task-proof b {
     font-family: var(--sans); font-size: .62rem; text-transform: uppercase;
     letter-spacing: .07em; color: var(--stone); font-weight: 600; margin-right: .4rem;
@@ -3564,20 +3579,62 @@ function findingList(items, cls) {
 
 function proofBlock(detail) {
   const ev = detail.evidence || {};
+  const none = `<span class="verdict none">not recorded</span>`;
+  const pill = (ok, label) => `<span class="verdict ${ok ? "ok" : "bad"}">${esc(label)}</span>`;
+  const note = (cls, label) => label ? ` <span class="${cls}">${esc(label)}</span>` : "";
+  const verifyCell = v => v
+    ? pill(v.ok, v.ok ? "\u2713 passed" : "\u2717 failed") + note("proof-note", v.completed_at ? String(v.completed_at).slice(0, 10) : "")
+    : none;
+  const testsCell = t => {
+    if (!t) return none;
+    const parts = [];
+    const auto = t.automated;
+    if (auto) parts.push(pill(auto.status === "passed" && !(auto.blocking_findings || []).length,
+                              `automated ${auto.status || "?"}`));
+    const fn = t.functional;
+    if (fn) parts.push(pill(fn.status === "passed",
+                            `functional ${fn.status || "?"}${fn.score != null ? ` \u00b7 ${fn.score}/10` : ""}`));
+    const n = ((auto && auto.tests_added_or_updated) || []).length;
+    if (n) parts.push(note("proof-note", `${n} test${n === 1 ? "" : "s"} recorded`).trim());
+    return parts.length ? parts.join(" ") : esc(Object.keys(t).join(", "));
+  };
+  // The lens summary starts with a generated header ("quality lens over T1
+  // (305 paths, a..b, Codex via ...): 0 blocking, 9 non-blocking."); the
+  // reviewer's own assessment follows it and is what a reader wants.
+  const assessment = s => String(s || "").replace(/^[^]*?\d+ non-blocking\.\s*/, "").trim();
+  const findingRow = f => {
+    if (typeof f === "string") return `<li>${esc(f)}</li>`;
+    const where = f.file_path ? `${f.file_path}${f.line ? ":" + f.line : ""}` : (f.area || "");
+    return `<li><code>${esc(f.category || "")}</code> ${esc(f.title || f.summary || "")}${
+      where ? ` <span class="proof-where">${esc(where)}</span>` : ""}</li>`;
+  };
+  const fold = (label, body, cls) => body
+    ? `<details class="proof-more ${cls || ""}"><summary>${esc(label)}</summary>${body}</details>` : "";
+  const list = items => items && items.length ? `<ul>${items.map(findingRow).join("")}</ul>` : "";
+  const reviewCell = r => {
+    if (!r) return none;
+    const blocking = r.blocking_findings || [], minor = r.non_blocking_findings || [];
+    const text = assessment(r.summary);
+    return pill(r.score >= 8 && !blocking.length, `${r.score}/10`)
+      + note("proof-rec", r.recommendation || "")
+      + note("proof-note", `${blocking.length} blocking \u00b7 ${minor.length} follow-up${minor.length === 1 ? "" : "s"}`)
+      + fold("assessment", text ? `<p>${esc(text)}</p>` : "")
+      + fold(`${blocking.length} blocking`, list(blocking), "bad")
+      + fold(`${minor.length} follow-up${minor.length === 1 ? "" : "s"}`, list(minor), "minor");
+  };
+  // A task-level run records proof per task (verify, tests and the selected
+  // review generation live under tasks/<id>/): one line per task per row.
+  const perTask = ev.task_proof || {};
+  const taskIds = Object.keys(perTask);
+  const byTask = (pick, render) => taskIds.map(id =>
+    `<div class="proof-line"><span class="id">${esc(id)}</span><div>${render(pick(perTask[id] || {}))}</div></div>`).join("");
   const rows = [];
-  rows.push(["verify", ev.verify
-    ? `<span class="verdict ${ev.verify.ok ? "ok" : "bad"}">${ev.verify.ok ? "✓ passed" : "✗ failed"}</span>`
-    : `<span class="verdict none">not recorded</span>`]);
-  rows.push(["tests", ev.tests
-    ? esc(Object.keys(ev.tests).join(", "))
-    : `<span class="verdict none">not recorded</span>`]);
-  for (const [aspect, review] of Object.entries(ev.reviews || {})) {
-    rows.push([aspect, review
-      ? `<span class="verdict ${review.score >= 8 ? "ok" : "bad"}">${esc(review.score)}/10</span>
-         ${esc(review.summary || "")}
-         ${findingList(review.blocking_findings, "")}
-         ${findingList(review.non_blocking_findings, "minor")}`
-      : `<span class="verdict none">not recorded</span>`]);
+  rows.push(["verify", taskIds.length ? byTask(p => p.verify, verifyCell) : verifyCell(ev.verify)]);
+  rows.push(["tests", taskIds.length ? byTask(p => p.tests, testsCell) : testsCell(ev.tests)]);
+  for (const aspect of Object.keys(ev.reviews || {})) {
+    rows.push([aspect, taskIds.length
+      ? byTask(p => (p.reviews || {})[aspect], reviewCell)
+      : reviewCell((ev.reviews || {})[aspect])]);
   }
   for (const [gate, grill] of Object.entries(ev.grills || {})) {
     rows.push([`grill:${gate}`, grill

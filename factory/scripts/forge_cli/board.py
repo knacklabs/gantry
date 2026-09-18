@@ -82,6 +82,103 @@ def _stages_for(base: Path, story: str) -> dict:
     return data if data.get("issue") == story else {}
 
 
+ASPECTS = ("quality", "performance", "security")
+
+
+def task_proof_records(base: Path, key: str, task_id: str) -> dict | None:
+    """A task's own proof: its verify.json, tests.json and the three lenses of
+    its selected review generation (the fixed lens files for a task recorded
+    before the generation store, decision 0069). None when nothing is
+    recorded. Proof became task-owned and the review became one selected
+    generation; the board kept reading story-level fixed files and showed
+    every task-level story as "not recorded" (WF-1A, 2026-09-15)."""
+    try:
+        verify = load_json(task_evidence_path(base, key, task_id, "verify.json"), default=None)
+        tests = load_json(task_evidence_path(base, key, task_id, "tests.json"), default=None)
+    except ValueError:
+        return None
+    reviews: dict[str, dict | None] = {aspect: None for aspect in ASPECTS}
+    generation = None
+    try:
+        from factory_lib import read_selected_review_generation
+        generation, _selection, problems = read_selected_review_generation(base, key, task_id)
+        if problems:
+            generation = None
+    except (SystemExit, OSError, ValueError):
+        generation = None
+    if isinstance(generation, dict):
+        lenses = generation.get("lenses") or {}
+        reviews = {aspect: lenses.get(aspect) if isinstance(lenses.get(aspect), dict) else None
+                   for aspect in ASPECTS}
+    else:
+        for aspect in ASPECTS:
+            path = task_evidence_path(base, key, task_id, f"reviews/{aspect}.json")
+            reviews[aspect] = load_json(path, default=None) if path.is_file() else None
+    if verify is None and tests is None and not any(reviews.values()):
+        return None
+    return {"verify": verify, "tests": tests, "reviews": reviews}
+
+
+def story_task_proof(base: Path, key: str, decomposition: dict) -> dict[str, dict]:
+    """Every task's own proof, in decomposition order, tasks without any left out."""
+    out: dict[str, dict] = {}
+    for task in decomposition.get("tasks") or []:
+        task_id = task.get("id") if isinstance(task, dict) else None
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        proof = task_proof_records(base, key, task_id)
+        if proof:
+            out[task_id] = proof
+    return out
+
+
+def rolled_up_evidence(task_proof: dict[str, dict], decomposition: dict) -> dict:
+    """Story-level shapes for a task-level run, from the tasks' own proof, so
+    every reader of the story rows sees what `pr_ready` would: a row passes
+    only when EVERY task has recorded it and passed. Per lens the record shown
+    is the lowest-scoring task's, its summary prefixed with the task id, with
+    every task's findings."""
+    from .readiness import review_passed, tests_passed, verify_passed
+
+    declared = [task.get("id") for task in decomposition.get("tasks") or []
+                if isinstance(task, dict) and isinstance(task.get("id"), str)]
+    complete = bool(declared) and all(task_id in task_proof for task_id in declared)
+    verifies = {task_id: proof.get("verify") for task_id, proof in task_proof.items()}
+    tests = {task_id: proof.get("tests") for task_id, proof in task_proof.items()}
+    verify = {
+        "ok": complete and all(verify_passed(record or {}) for record in verifies.values()),
+        "tasks": {task_id: bool(record and verify_passed(record)) for task_id, record in verifies.items()},
+    } if any(record for record in verifies.values()) else None
+    automated = {
+        "status": "passed" if complete and all(
+            isinstance(record, dict) and tests_passed(record.get("automated"))
+            for record in tests.values()) else "incomplete",
+        "tasks": {task_id: bool(isinstance(record, dict) and tests_passed(record.get("automated")))
+                  for task_id, record in tests.items()},
+    }
+    tests_out = {"automated": automated} if any(record for record in tests.values()) else None
+    reviews: dict[str, dict | None] = {}
+    for aspect in ASPECTS:
+        records = {task_id: proof["reviews"].get(aspect) for task_id, proof in task_proof.items()
+                   if isinstance(proof["reviews"].get(aspect), dict)}
+        if not records:
+            reviews[aspect] = None
+            continue
+        worst_id, worst = min(records.items(), key=lambda item: item[1].get("score", 0))
+        merged = dict(worst)
+        merged["summary"] = "; ".join(
+            f"{task_id}: {record.get('summary', '')}" for task_id, record in records.items())
+        merged["blocking_findings"] = [
+            finding for record in records.values() for finding in record.get("blocking_findings") or []]
+        merged["non_blocking_findings"] = [
+            finding for record in records.values() for finding in record.get("non_blocking_findings") or []]
+        merged["tasks"] = {task_id: bool(review_passed(record)) for task_id, record in records.items()}
+        if not complete or not all(review_passed(record) for record in records.values()):
+            merged["score"] = min(merged.get("score", 0), 7)
+        reviews[aspect] = merged
+    return {"verify": verify, "tests": tests_out, "reviews": reviews}
+
+
 def _stage_summary(base: Path) -> dict:
     story = load_json(run_state_path(base), default={}).get("issue_key", "")
     data = _stages_for(base, story)
@@ -194,6 +291,19 @@ def _plan_evidence(
             for aspect in ("quality", "performance", "security")
         },
     }
+    if story and not evidence["verify"] and not evidence["tests"] \
+            and not any(evidence["reviews"].values()):
+        # A task-level run records nothing at the story level: the story's
+        # rows are what its tasks recorded, every task counted.
+        task_proof = story_task_proof(base, story, decomposition)
+        if task_proof:
+            rolled = rolled_up_evidence(task_proof, decomposition)
+            evidence = {
+                "verify": bool((rolled.get("verify") or {}).get("ok")),
+                "tests": ((rolled.get("tests") or {}).get("automated") or {}).get("status") == "passed",
+                "reviews": {aspect: review_passed(rolled["reviews"].get(aspect))
+                            for aspect in ("quality", "performance", "security")},
+            }
     return progress, evidence, tasks
 
 
@@ -608,6 +718,11 @@ def story_detail(base: Path, key: str) -> dict | None:
             evidence_path(base, key, f"reviews/{aspect}.json"), default=None)
         for aspect in ("quality", "performance", "security")
     }
+    evidence["task_proof"] = story_task_proof(base, key, evidence.get("decomposition") or {})
+    if evidence["task_proof"] and evidence.get("verify") is None \
+            and evidence.get("tests") is None and not any(evidence["reviews"].values()):
+        evidence.update(rolled_up_evidence(evidence["task_proof"],
+                                           evidence.get("decomposition") or {}))
     grills = evidence_path(base, key, "grills")
     evidence["grills"] = {
         path.stem: load_json(path, default=None)
@@ -1028,13 +1143,21 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
     spec_path = (detail.get("spec") or {}).get("path", "")
     launches = task_launches(base)
 
-    recorded_tests = []
+    story_recorded_tests = []
     for entry in tests.values():
         if isinstance(entry, dict):
-            recorded_tests.extend(entry.get("tests_added_or_updated") or [])
+            story_recorded_tests.extend(entry.get("tests_added_or_updated") or [])
+    task_proof = evidence.get("task_proof") or {}
 
     dossiers = []
     for task in merge_task_detail(decomposition, stages, detail.get("task_rows")):
+        own = task_proof.get(str(task.get("id") or "")) or {}
+        own_tests = own.get("tests") if isinstance(own.get("tests"), dict) else {}
+        recorded_tests = list(story_recorded_tests)
+        for entry in own_tests.values():
+            if isinstance(entry, dict):
+                recorded_tests.extend(entry.get("tests_added_or_updated") or [])
+        own_verify = own.get("verify") if isinstance(own.get("verify"), dict) else verify
         required = task.get("required_tests") or []
         # A required test counts as proven only if a recorded artifact names it;
         # "tests.json exists" is not evidence that THIS task was covered. Entries
@@ -1048,12 +1171,8 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
         # The story-scoped fallback still has to guess by matching the task id
         # in the finding text, which is why per-task storage removes a whole
         # class of misattribution rather than only a class of overwriting.
-        own_reviews = {}
-        for aspect in ("quality", "performance", "security"):
-            scoped = task_evidence_path(base, key, str(task.get("id") or ""),
-                                        f"reviews/{aspect}.json")
-            if scoped.is_file():
-                own_reviews[aspect] = load_json(scoped, default={})
+        own_reviews = {aspect: record for aspect, record in (own.get("reviews") or {}).items()
+                       if isinstance(record, dict)}
 
         findings = []
         for aspect, review in (own_reviews or reviews).items():
@@ -1074,8 +1193,8 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
         task["proof"] = {
             "required_tests": required,
             "covered_tests": covered,
-            "verify_ok": verify.get("ok") is True,
-            "verify_at": verify.get("completed_at"),
+            "verify_ok": own_verify.get("ok") is True,
+            "verify_at": own_verify.get("completed_at"),
             "grill": task_grills.get(task["id"]),
             "findings": findings,
             "spec": spec_path,
@@ -1087,7 +1206,7 @@ def task_dossiers(base: Path, key: str, detail: dict) -> list[dict]:
         task["plan_excerpt"] = "" if excerpt.strip() == objective else excerpt
         task.update(task_plan_view(base, key, task, task_grills.get(task["id"])))
         task["progress"] = task_progress(
-            task, launches.get(task["id"]), reviews)
+            task, launches.get(task["id"]), own_reviews or reviews)
         dossiers.append(task)
     return dossiers
 

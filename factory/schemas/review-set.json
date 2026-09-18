@@ -1,0 +1,38 @@
+{
+  "artifact": "review-set",
+  "recorded_by": "record_review_from_json.py --set",
+  "generated_by": ["autoreview", "upgrade"],
+  "formats": {
+    "forge-review-generation/v1": {
+      "common_fields": [
+        "format",
+        "generation_id",
+        "origin",
+        "generated_by",
+        "story",
+        "task_id",
+        "inspected_commit",
+        "delta_id",
+        "lenses",
+        "recorded_at"
+      ],
+      "origin_fields": {
+        "combined": ["review_run_id", "brief_sha256", "helper", "input", "raw_result"],
+        "rejection": ["review_run_id", "brief_sha256", "helper", "input", "raw_result", "rejection"],
+        "upgrade": ["upgrade"]
+      }
+    },
+    "forge-review-selection/v1": {
+      "fields": [
+        "format",
+        "story",
+        "task_id",
+        "generation_id",
+        "generation_sha256",
+        "delta_id",
+        "selected_at"
+      ]
+    }
+  },
+  "review_schema": "factory/schemas/review.json"
+}

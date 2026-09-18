@@ -17,11 +17,14 @@ work, because new work is by definition not yet on the trunk.
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+from factory_lib import (
+    _read_git_json,
+    task_proof_problems,
+)
 
 # Reuse the sibling gate's lossless path reader rather than adding a second
 # surrogateescape site: a changed path may legitimately not be UTF-8, and that
@@ -31,50 +34,9 @@ from check_pr_ticket import git_paths
 TASK_MARKER_PATH = re.compile(
     r"^\.factory/stories/([^/]+)/tasks/([^/]+)/pr-ready\.json$"
 )
-LENSES = ("quality", "performance", "security")
-MIN_SCORE = 8
-
-
 def read_at_head(root: Path, path: str) -> dict | None:
-    """The committed artifact, or None when the PR does not carry it.
-
-    Strict decoding: these are the harness's own JSON artifacts, so anything
-    that is not valid UTF-8 is a real defect, not a path to preserve losslessly.
-    """
-    proc = subprocess.run(
-        ["git", "show", f"HEAD:{path}"], cwd=root, capture_output=True,
-        text=True, encoding="utf-8",
-    )
-    if proc.returncode != 0:
-        return None
-    try:
-        value = json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"{path} at HEAD is not valid JSON: {exc}") from exc
-    return value if isinstance(value, dict) else None
-
-
-def evidence(root: Path, key: str, name: str, task_id: str = "") -> dict | None:
-    """This TASK's proof, falling back to older layouts.
-
-    Proof used to be a story-scoped singleton, so every task in a story wrote
-    over the previous task's record: `reviews/quality.json` described whichever
-    task was reviewed last, and this gate could pass a task on another task's
-    evidence. Task-scoped proof is therefore preferred.
-
-    The two fallbacks are what keep work already in flight from stranding: a
-    story recorded before task scoping, and one recorded before story scoping,
-    both still satisfy the gate on the evidence they legitimately have.
-    """
-    candidates = []
-    if task_id:
-        candidates.append(f".factory/stories/{key}/tasks/{task_id}/{name}")
-    candidates += [f".factory/stories/{key}/{name}", f".factory/{name}"]
-    for path in candidates:
-        found = read_at_head(root, path)
-        if found is not None:
-            return found
-    return None
+    """The committed artifact, or None when the PR does not carry it."""
+    return _read_git_json(root, path, "HEAD")
 
 
 def added_markers(root: Path, base: str) -> list[tuple[str, str, dict]]:
@@ -94,41 +56,21 @@ def added_markers(root: Path, base: str) -> list[tuple[str, str, dict]]:
 
 
 def proof_problems(root: Path, key: str, task_id: str) -> list[str]:
-    problems: list[str] = []
+    """Run the same task-aware predicate used by local and board gates.
 
-    verify = evidence(root, key, "verify.json", task_id)
-    if verify is None:
-        problems.append(
-            "verify.json is not recorded — run `python3 factory/scripts/verify.py`")
-    elif verify.get("ok") is not True:
-        problems.append("verify.json records ok=false — fix the failures and re-run verify")
+    The reader is pinned to HEAD so CI cannot accidentally inspect a working
+    tree artifact. The decomposition supplies the task's user-facing flag;
+    selected task proof is required, with only the explicit marker-bound
+    origin=upgrade exception for migrated fixed proof.
+    """
+    def reader(path: str) -> dict | None:
+        return read_at_head(root, path)
 
-    tests = evidence(root, key, "tests.json", task_id)
-    automated = (tests or {}).get("automated")
-    if tests is None or not isinstance(automated, dict):
-        problems.append(
-            "tests.json has no automated record — run "
-            "`record_test_from_json.py --kind automated`")
-    elif automated.get("status") != "passed":
-        problems.append(
-            f"tests.json records automated status={automated.get('status')!r}, not 'passed'")
-
-    for lens in LENSES:
-        review = evidence(root, key, f"reviews/{lens}.json", task_id)
-        if review is None:
-            problems.append(
-                f"reviews/{lens}.json is not recorded — run `./forge review {task_id}` "
-                "(one three-lens pass, run by Codex, 0049)")
-            continue
-        if review.get("blocking_findings"):
-            problems.append(
-                f"reviews/{lens}.json still has {len(review['blocking_findings'])} "
-                "blocking finding(s) — fix them and re-review")
-        score = review.get("score")
-        if not isinstance(score, (int, float)) or score < MIN_SCORE:
-            problems.append(
-                f"reviews/{lens}.json scores {score!r}; a shipped task needs >= {MIN_SCORE}")
-    return problems
+    marker_path = f".factory/stories/{key}/tasks/{task_id}/pr-ready.json"
+    marker = reader(marker_path)
+    return task_proof_problems(
+        root, key, {"id": task_id}, reader=reader, marker=marker,
+    )
 
 
 def main() -> int:

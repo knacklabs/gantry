@@ -39,7 +39,7 @@ except (ImportError, SyntaxError):
 try:
     raw = read_stdin_utf8()
     event = json.loads(raw) if raw.strip() else {}
-except Exception:
+except (Exception, SystemExit):
     emit(CONTINUE)
 
 # Claude Code sets this when the hook already blocked once this turn. Honour it
@@ -49,6 +49,22 @@ if event.get("stop_hook_active"):
 
 try:
     root = repo_root()
+except (Exception, SystemExit):
+    emit(CONTINUE)
+
+try:
+    from forge_cli.worker_admission import (
+        live_native_read_only_grill, live_worker_admission,
+    )
+    worker, _worker_reason = live_worker_admission(root)
+    grill, _grill_reason = live_native_read_only_grill(root)
+except (Exception, SystemExit):
+    worker = grill = None
+
+if worker or grill:
+    emit(CONTINUE)
+
+try:
     allowed, reason = may_interrupt(root, spend=True)
 except Exception:
     emit(CONTINUE)

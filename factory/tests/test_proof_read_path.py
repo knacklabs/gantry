@@ -19,7 +19,8 @@ import json
 
 from test_gates import repo  # noqa: I001 — puts factory/scripts on sys.path
 from factory_lib import (  # noqa: E402
-    evidence_path, proof_read_path, run_state_path, task_evidence_path,
+    evidence_path, proof_read_path, read_selected_review_generation, run_state_path,
+    task_evidence_path,
 )
 
 __all__ = ["repo"]
@@ -53,14 +54,19 @@ def test_a_task_run_reads_the_task_copy(repo):
     assert json.loads(resolved.read_text(encoding="utf-8")) == {"scope": "task"}
 
 
-def test_a_task_run_falls_back_to_the_story_copy(repo):
-    """A task that has not recorded its own proof still sees the story's."""
+def test_a_task_run_does_not_fall_back_to_the_story_copy(repo):
+    """A missing task artifact cannot be satisfied by story proof."""
     _point_at(repo, story=STORY, task_id=TASK)
     _write(evidence_path(repo, STORY, "tests.json"), {"scope": "story"})
 
     resolved = proof_read_path(repo, STORY, "tests.json")
 
-    assert json.loads(resolved.read_text(encoding="utf-8")) == {"scope": "story"}
+    assert resolved == task_evidence_path(repo, STORY, TASK, "tests.json")
+    assert not resolved.exists()
+    task_root = task_evidence_path(repo, STORY, TASK, "verify.json").parent
+    assert not task_root.exists()
+    _generation, _selection, problems = read_selected_review_generation(repo, STORY, TASK)
+    assert problems and not task_root.exists()
 
 
 def test_a_story_run_never_reaches_for_task_proof(repo):
@@ -72,3 +78,34 @@ def test_a_story_run_never_reaches_for_task_proof(repo):
     resolved = proof_read_path(repo, STORY, "verify.json")
 
     assert json.loads(resolved.read_text(encoding="utf-8")) == {"scope": "story"}
+
+
+def test_board_task_progress_uses_selected_generation_only(repo, tmp_path):
+    from test_gates import (
+        DECOMP, head, intake, record_skeleton_then_frontier, record_task_grill, save_plan,
+        sign_off, task_with_plan_contracts, write_stages, write_task_proof,
+    )
+    from forge_cli.board import aggregate_state
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = task_with_plan_contracts({**DECOMP["tasks"][0], "id": "T1"}, "C")
+    record_skeleton_then_frontier(repo, [task])
+    baseline = head(repo)
+    write_stages(repo, {"issue": "ENG-1", "stages": [{
+        "id": "T1", "title": task["title"], "status": "active",
+        "base_sha": baseline}]})
+    assert record_task_grill(repo, task)[0] == 0
+    write_stages(repo, {"issue": "ENG-1", "stages": [{
+        "id": "T1", "title": task["title"], "status": "done",
+        "base_sha": baseline}]})
+    proof = write_task_proof(repo, "T1", publish_review=True)
+
+    def proven():
+        story = next(item for item in aggregate_state(repo)["stories"]
+                     if item["key"] == "ENG-1")
+        return story["lifecycle"]["proven"]["done"]
+
+    assert proven() == 1
+    (proof / "reviews/selected.json").unlink()
+    assert proven() == 0

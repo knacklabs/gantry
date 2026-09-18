@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
@@ -12,14 +12,35 @@
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook pre_compact || exit 2' || exit 2"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Edit|Write|apply_patch|request_user_input|request_user_input_async",
         "hooks": [
           {
             "type": "command",
             "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook pre_tool_use || exit 2' || exit 2",
             "statusMessage": "Applying factory command policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^request_user_input$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook post_tool_use || exit 0' || exit 0"
           }
         ]
       }

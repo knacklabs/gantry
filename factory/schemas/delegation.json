@@ -13,7 +13,6 @@
     "write": "bool",
     "model": "str",
     "effort": "str",
-    "companion_path": "str",
     "argv": "list",
     "argv_sha256": "str",
     "launch_status": "str"
@@ -21,7 +20,16 @@
   "optional": {
     "story": "str",
     "mode": "str",
+    "transport": "str",
+    "companion_path": "str",
+    "executable_path": "str",
+    "brief_path": "str",
+    "output_path": "str",
+    "stderr_path": "str",
+    "session_id": "str",
+    "resume_session": "str",
     "background": "bool",
+    "write_scope": "list",
     "stage_started_at": "str",
     "pid": "int",
     "pgid": "int",
@@ -29,5 +37,5 @@
     "process_token": "str",
     "exit_code": "int"
   },
-  "kind_note": "Append-only starting, running, and terminal lines share a launch_id. The starting row is protected before spawn; the running row adds PID identity. Brief, task, stage and argv digests bind a stage delegation to its active contract; lite-fix rows set mode=lite and key task to the open window id. Authoritative rows and locks live in Git's protected control directory; .factory/delegations.jsonl is a diagnostic mirror. Per-task and shared-state locks serialize writers; PID start identity prevents reuse mistakes, unverified reused groups are never signalled, and trusted-command cleanup reaps the process group plus descendants observed through a post-exit quiet window. Print-only diagnostics never create a record."
+  "kind_note": "Append-only starting, running, and terminal lines share a launch_id. The starting row is protected before spawn; the running row adds PID identity. Brief, task, stage and argv digests bind a stage delegation to its active contract; lite-fix rows set mode=lite and key task to the open window id. Legacy rows omit transport and use companion_path; native rows set transport=native and bind the executable, brief, protected logs and terminal session identity. Authoritative rows and locks live in Git's protected control directory; .factory/delegations.jsonl is a diagnostic mirror. Per-task and shared-state locks serialize writers; PID start identity prevents reuse mistakes, unverified reused groups are never signalled, and trusted-command cleanup reaps the process group plus descendants observed through a post-exit quiet window. Print-only diagnostics never create a record."
 }

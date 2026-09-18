@@ -62,18 +62,28 @@ if run_state.get("issue_key"):
             f"Story: {run_state.get('story', run_state.get('issue_key', '?'))}"
         )
 quickfix = load_active(root)
-# The lock is armed by the ABSENCE of an approved plan, so it is armed hardest
-# when there is no task at all (decision 0013) — announce it outside the
-# active-issue block, or a fresh session meets the wall with no warning.
+# Coordinator writes remain locked even after plan approval.
+context.append(
+    "SESSION WRITE LOCK ARMED: product and canon writes use `./forge delegate`. "
+    "Plan approval authorizes the task, not direct coordinator edits. "
+    "The ledgered outage exception is `./forge mode degraded`."
+)
 if run_state.get("plan_status") != "approved" and not quickfix:
-    context.append(
-        "PLANNING LOCK ARMED: product writes are blocked until a plan is saved "
-        "and approved, or a bounded window is open. Enter plan mode (shift+tab) "
-        "and plan per factory/prompts/planner.md, or run "
-        "`./forge quickfix start \"<reason>\"`. The plan must be GRILLED before "
-        "approval (/grill-me; record via record_grill_from_json.py --gate plan) "
-        "— plan save refuses without it. Codex alternative: the planner-high agent."
-    )
+    from forge_cli.codex_runtime import coordinator_runtime  # noqa: E402
+    if coordinator_runtime() == "codex":
+        context.append(
+            "Plan per factory/prompts/planner.md; authoring is mode-agnostic. "
+            "Use `./forge next` for the current contract and grill prerequisites. "
+            "Human questions and approvals use the main-chat approval path; "
+            "native question adapters are unavailable in this release."
+        )
+    else:
+        context.append(
+            "Plan per factory/prompts/planner.md; authoring is mode-agnostic. "
+            "Use `./forge next` for the current contract and grill prerequisites. "
+            "Human rounds use Claude AskUserQuestion or Codex request_user_input; "
+            "see docs/native-coordinator.md for runtime readiness."
+        )
 if quickfix:
     if quickfix.get("profile", "quickfix") == "lite":
         context.append(
@@ -97,7 +107,7 @@ signals = open_signals(root)
 if signals:
     context.append(
         f"OPEN WORKER SIGNALS: {len(signals)} — paused worker(s) awaiting resolution "
-        "(forge.py signal list --open; resolve, then resume the rescue)."
+        "(forge.py signal list --open; resolve, then resume the worker)."
     )
 from forge_cli.assumptions import open_count  # noqa: E402
 assumptions_open = open_count(root)

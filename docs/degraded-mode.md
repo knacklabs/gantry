@@ -4,7 +4,8 @@
 orchestrating session's hook denies those writes even with an approved plan;
 planning mode and the older quickfix/lite windows do not lift that lock.
 
-`codex-plugin-cc` is required. Repair an outage first:
+Repair the configured delegated-writer path first. Under Claude coordination,
+`codex-plugin-cc` is the normal path and can be repaired with:
 
 ```bash
 ./forge doctor --fix
@@ -13,7 +14,9 @@ planning mode and the older quickfix/lite windows do not lift that lock.
 On Windows, see [Windows support](windows.md) for native prerequisite
 remediation and the optional WSL2 escape hatch.
 
-Read-only discovery remains available through `/codex:rescue`. The companion
+Claude read-only discovery remains available through `/codex:rescue`. Native
+Codex coordination may continue read-only exploration in its current session
+without installing or launching Claude. The companion
 guard also admits direct, unwrapped `status`, `task-resume-candidate`, and
 `task` invocations using only the approved read-only flags. Quoting does not
 change that decision. Sensitive or unknown overrides, raw `codex exec`,
@@ -21,18 +24,19 @@ write-shaped companion calls, and executor-wrapped calls stay denied.
 
 ## The single write exception
 
-If the companion is broken and product work cannot wait, explicitly open a
+If the configured delegated-writer path remains broken and product work cannot wait, explicitly open a
 degraded window with a reason:
 
 ```bash
-./forge mode degraded start --reason "companion outage blocks the active task"
+./forge mode degraded start --reason "delegated writer outage blocks the active task"
 ```
 
 The window is recorded on the quickfix ledger with `kind: degraded`. It may
 claim at most five distinct locked files. Each direct Edit, Write,
 NotebookEdit, or recognized Bash write claims its locked target before the
 tool runs; a sixth file is denied. Recursive or globbed operations whose file
-set cannot be bounded are denied. `docs/`, `plans/`, `prototype/`, `.gstack/`,
+set cannot be bounded are denied. The repository-kind marker is never eligible.
+`docs/`, `plans/`, `prototype/`, `.gstack/`,
 recorders, scratchpad, and git operations keep their normal routing.
 
 The window is an outage valve, not approval or a second implementation mode.
@@ -48,7 +52,7 @@ the active window. Declare its `Q-...` id in the PR body (`Ticket: Q-...`).
 Gate A still requires every completed story and window record in the PR to be
 declared; the degraded record gets no special exemption.
 
-Restore the companion and return to `./forge delegate <task-id>` for any
+Restore the delegated-writer path and return to `./forge delegate <task-id>` for any
 remaining locked write.
 
 ## PR-link fallback when CI is unavailable

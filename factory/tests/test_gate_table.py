@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -147,7 +148,65 @@ def test_every_grill_goes_out_cold_and_read_only(repo: Path):
         code, out = _grill_launched(repo, *args)
         assert code == 0, out
         assert "Write access: NO" in out
-        assert "gpt-5.6-terra" in out and "xhigh" in out
+        assert "gpt-5.6-sol" in out and "high" in out
+
+
+def test_active_model_policy_has_no_forbidden_execution_surface():
+    config = tomllib.loads(
+        (HARNESS / ".codex" / "config.toml").read_text(encoding="utf-8"))
+    explore = tomllib.loads(
+        (HARNESS / ".codex" / "explore.config.toml").read_text(encoding="utf-8"))
+    roles = {
+        name: tomllib.loads(
+            (HARNESS / ".codex" / row["config_file"]).read_text(encoding="utf-8"))
+        for name, row in config["agents"].items()
+        if isinstance(row, dict) and "config_file" in row
+    }
+    expected_roles = {
+        "architect": ("gpt-5.6-sol", "high"),
+        "backend": ("gpt-5.6-sol", "medium"),
+        "debugger": ("gpt-5.6-sol", "medium"),
+        "docs-decomposer": ("gpt-5.6-sol", "high"),
+        "explorer": ("gpt-5.6-sol", "low"),
+        "frontend": ("gpt-5.6-sol", "medium"),
+        "functional-checker": ("gpt-5.6-sol", "high"),
+        "griller": ("gpt-5.6-sol", "high"),
+        "lite": ("gpt-5.6-luna", "max"),
+        "performance": ("gpt-5.6-sol", "high"),
+        "planner": ("gpt-5.6-sol", "high"),
+        "planner-high": ("gpt-5.6-sol", "high"),
+        "refactorer": ("gpt-5.6-sol", "medium"),
+        "security": ("gpt-5.6-sol", "high"),
+        "tester": ("gpt-5.6-sol", "medium"),
+    }
+    actual_roles = {
+        name: (row["model"], row["model_reasoning_effort"])
+        for name, row in roles.items()
+    }
+    assert {"model", "model_reasoning_effort", "plan_mode_reasoning_effort"}.isdisjoint(config)
+    assert actual_roles == expected_roles
+    assert set(roles) == {
+        path.stem for path in (HARNESS / ".codex" / "agents").glob("*.toml")
+    }
+
+    from forge_cli.delegate import mode_run_config, pinned_run_config  # noqa: E402
+
+    active = {
+        "explore": (explore["model"], explore["model_reasoning_effort"]),
+        "implementation": pinned_run_config(HARNESS),
+        "grill": mode_run_config(HARNESS, "grill")[:2],
+        "lite": mode_run_config(HARNESS, "lite")[:2],
+        **actual_roles,
+    }
+    assert active["implementation"] == ("gpt-5.6-sol", "medium")
+    assert active["explore"] == ("gpt-5.6-sol", "low")
+    assert active["grill"] == ("gpt-5.6-sol", "high")
+    assert active["lite"] == ("gpt-5.6-luna", "max")
+    assert all(model != "gpt-5.6-terra" for model, _ in active.values())
+
+    harness = (HARNESS / "harness.yaml").read_text(encoding="utf-8")
+    assert "/codex:rescue --model gpt-5.6-sol --effort low" in harness
+    assert "validation: \"/codex:rescue --model gpt-5.6-sol --effort high" in harness
 
 
 def test_the_brief_carries_the_artifact_itself(repo: Path):

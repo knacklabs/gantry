@@ -10,7 +10,7 @@ from pathlib import Path
 from factory_lib import (
     client_signoff, evidence_path, head_sha, load_json, load_review_artifacts,
     repo_root, require_all_stages_done, require_coherent_review_run,
-    requirements_digest, run_state_path, task_frontier_state,
+    requirements_digest_matches, run_state_path, task_frontier_state,
     proof_read_path,
 )
 
@@ -193,6 +193,8 @@ def _parallel_frontier(base: Path, first_id: str) -> list[str]:
 
 def cmd_next(args: argparse.Namespace) -> None:
     base = Path(args.repo).resolve() if args.repo else repo_root()
+    from .codex_runtime import coordinator_runtime
+    native_coordinator = coordinator_runtime() == "codex"
     _auto_heal_roadmap_after_merge(base)
     # run.json is a derived pointer (0045); re-derive it when a fresh checkout or
     # a shipped-task cleanup left it absent but the committed record still names
@@ -243,17 +245,19 @@ def cmd_next(args: argparse.Namespace) -> None:
         steps.append(
             f"[orchestrator] DEAD delegate for {corpse.get('task', '?')}: pid "
             f"{corpse.get('pid')} is GONE but the ledger still says "
-            f"{str(corpse.get('launch_status'))!r}. It CRASHED — it is not slow, "
-            "and nothing is coming. Read its log, then re-run `./forge delegate "
-            f"{corpse.get('task', '<task-id>')}`"
+            f"{str(corpse.get('launch_status'))!r}. The registered process is "
+            "no longer live. Reconcile its durable output and read its "
+            "log first. Only launch the supported normal action after deciding "
+            "what work, if any, remains."
         )
     open_sigs = open_signals(base)
     if open_sigs:
         ids = ", ".join(s["id"] for s in open_sigs[:3])
         steps.append(
             f"[orchestrator] {len(open_sigs)} OPEN worker signal(s) ({ids}) — a "
-            "paused worker is waiting: forge.py signal list --open, then "
-            "signal resolve <id> --notes \"...\" and resume the rescue. ANSWER "
+            "handoff needs disposition: forge.py signal list --open, then "
+            "signal resolve <id> --notes \"...\", inspect the current handoff, "
+            "then choose the supported normal action. ANSWER "
             "IT YOURSELF and record why (WORKFLOW.md) when it is a review "
             "budget ceiling, a write_scope short by files the work mechanically "
             "implies, a sandbox block with a documented path, or anything the "
@@ -290,7 +294,7 @@ def cmd_next(args: argparse.Namespace) -> None:
         # These two used to print unconditionally, so they still read as "to do"
         # after the docs were written and decisions accepted — which makes the
         # whole list look inert and teaches the reader to ignore it.
-        from record_signoff import REQUIRED_BRIEF_HEADINGS
+        from record_signoff import REQUIRED_BRIEF_HEADINGS, workflow_input_problems
         from factory_lib import parse_sections
 
         brief = base / "docs" / "product" / "BRIEF.md"
@@ -310,27 +314,46 @@ def cmd_next(args: argparse.Namespace) -> None:
                          "from its draft, then confirm it")
         drafts = [spec["slug"] for spec in specs if spec.get("status") != "confirmed"]
         if drafts:
-            steps.append(
-                "[PM] Grill and confirm every draft spec: "
-                f"{', '.join(drafts)} — the spec gate is LEDGER-MATCHED, so its "
-                "rounds must come from AskUserQuestion in THIS top-level Claude "
-                "session (Codex and subagents cannot record it). Ask at least 2 "
-                "real rounds, mark the last `\"frontier_empty\": true`, then: "
-                "`python3 factory/scripts/record_grill_from_json.py --gate spec "
-                "--input-digest docs/specs/<slug>.md --input <grill.json>` and "
-                "`forge spec confirm <slug>`. That payload needs "
-                "generated_by/gate/verdict/gaps/contradictions/resolutions plus "
-                "rounds[] of {question, options, chosen} "
-                "(factory/schemas/grill.json)")
+            if native_coordinator:
+                steps.append(
+                    "[PM] Native spec grill question delivery is unavailable in "
+                    "this release. STOP here; LEAN-WORKFLOW owns closing this "
+                    "gap. Do not repeat an unsupported question action."
+                )
+            else:
+                from grill_gates import get_gate
+                floor = get_gate("spec").min_rounds
+                steps.append(
+                    "[PM] Grill and confirm every draft spec: "
+                    f"{', '.join(drafts)} — the spec gate is LEDGER-MATCHED, so "
+                    "its rounds must come from AskUserQuestion in THIS top-level "
+                    f"Claude session. Complete at least {floor} ledger-matched "
+                    f"human round{'s' if floor != 1 else ''}, mark the last "
+                    "`\"frontier_empty\": true`, then: "
+                    "`python3 factory/scripts/record_grill_from_json.py --gate "
+                    "spec --input-digest docs/specs/<slug>.md --input "
+                    "<grill.json>` and `forge spec confirm <slug>`. That payload "
+                    "needs generated_by/gate/verdict/gaps/contradictions/"
+                    "resolutions plus rounds[] of {question, options, chosen} "
+                    "(factory/schemas/grill.json)")
         if specs and not drafts and not load_items(base):
             steps.append("[PM/EM] Derive the spec-linked roadmap before sign-off: "
                          "./forge roadmap derive --input <json> "
                          "(factory/prompts/decomposer.md)")
         signoff_grill = load_json(factory / "grills" / "signoff.json", default={})
-        if signoff_grill.get("verdict") != "pass":
-            steps.append("[PM] Before sign-off: grill the handover for gaps/contradictions "
-                         "(factory/prompts/griller.md), resolve findings, record: "
-                         "record_grill_from_json.py --gate signoff")
+        if (not workflow_input_problems(base)
+                and signoff_grill.get("verdict") != "pass"):
+            if native_coordinator:
+                steps.append(
+                    "[PM] Native sign-off grill question delivery is unavailable "
+                    "in this release. STOP here; LEAN-WORKFLOW owns closing this "
+                    "gap. Do not repeat an unsupported question action."
+                )
+            else:
+                steps.append(
+                    "[PM] Before sign-off: grill the handover for "
+                    "gaps/contradictions (factory/prompts/griller.md), resolve "
+                    "findings, record: record_grill_from_json.py --gate signoff")
         steps.append(
             "[PM] When the client confirms: forge.py decision new client-signoff, "
             "then forge.py decision accept client-signoff --by <name> (human), "
@@ -414,15 +437,26 @@ def cmd_next(args: argparse.Namespace) -> None:
             and requirements_grill.get("verdict") == "pass"
             and requirements_grill.get("commit")
             and requirements_grill.get("issue") == issue
-            and requirements_grill.get("input_sha256") == requirements_digest(base, spec)
+            and requirements_digest_matches(
+                base, spec, requirements_grill.get("input_sha256"),
+                requirements_grill.get("commit"),
+            )
         )
         if not requirements_fresh:
-            steps.append(
-                "[dev] FIRST: re-grill the confirmed spec against current repo reality "
-                "with AskUserQuestion rounds (factory/prompts/griller.md --gate "
-                "requirements), resolve findings, then record: "
-                "record_grill_from_json.py --gate requirements"
-            )
+            if native_coordinator:
+                steps.append(
+                    "[dev] Native requirements grill question delivery is "
+                    "unavailable in this release. STOP here; LEAN-WORKFLOW owns "
+                    "closing this gap. Do not repeat an unsupported question action."
+                )
+            else:
+                steps.append(
+                    "[dev] FIRST: re-grill the confirmed spec against current repo "
+                    "reality with AskUserQuestion rounds "
+                    "(factory/prompts/griller.md --gate requirements), resolve "
+                    "findings, then record: record_grill_from_json.py --gate "
+                    "requirements"
+                )
         else:
             steps.append(
                 "[dev] FIRST read the system this plan will assert about — open "
@@ -483,7 +517,9 @@ def cmd_next(args: argparse.Namespace) -> None:
         outcome = load_outcome(base) or {}
         # A task-level run proves itself per task; the story-scoped reads above
         # describe a story-level run and say nothing about it.
-        task_level = bool(state.get("base_main_sha")) and bool(decomp.get("tasks"))
+        from factory_lib import run_is_task_level
+        task_level = bool(decomp.get("tasks")) and run_is_task_level(
+            base, str(issue or ""), decomp.get("tasks"))
         task_closeout = []
         if task_level:
             from factory_lib import require_closeout_order
@@ -589,13 +625,90 @@ def cmd_next(args: argparse.Namespace) -> None:
                         f"[dev] Delegate {task_id}: ./forge delegate {task_id} — "
                         "run it FROM INSIDE the task worktree (every shell call "
                         "resets the working directory, so cd in each time). "
-                        "Stage state and write access are PER WORKTREE: the "
-                        "worktree's stage is still `pending` even if you opened "
-                        "the stage in the main repo, and `delegate --print-only` "
-                        "reports `Write access: NO` until the stage is opened "
-                        "THERE. The worktree also gets its OWN codex job "
+                        "This worktree has the active stage and no current "
+                        "stage-bound handoff yet. Launch it once. The worktree "
+                        "gets its OWN codex job "
                         "directory (hashed from its path), so watch THAT job, "
                         "not the main repo's."
+                    )
+                elif frontier == "watch-delegate":
+                    steps.append(
+                        f"[dev] Watch the current {task_id} handoff. Its worker is "
+                        "still live; inspect the registered output and signals. "
+                        "Do not launch a duplicate delegate."
+                    )
+                elif frontier == "inspect-delegate":
+                    steps.append(
+                        f"[dev] Inspect the current {task_id} handoff and its durable "
+                        "output. Reconcile what landed and diagnose the failure "
+                        "before choosing the supported normal action; do not retry "
+                        "blindly."
+                    )
+                elif frontier == "verify":
+                    steps.append(
+                        f"[dev] {task_id} has a successful bound handoff. Run its "
+                        "deterministic verification: python3 factory/scripts/verify.py"
+                    )
+                elif frontier == "commit":
+                    steps.append(
+                        f"[dev] {task_id} has a successful bound handoff with "
+                        "uncommitted product work. Commit the task paths before "
+                        "recording proof: git add <task-paths> && git commit"
+                    )
+                elif frontier == "tests":
+                    steps.append(
+                        f"[dev] {task_id} still needs passing task-owned test proof. "
+                        "Run its required tests and record the result with "
+                        "record_test_from_json.py."
+                    )
+                elif frontier == "functional":
+                    steps.append(
+                        f"[dev] {task_id} still needs its functional check. Run "
+                        "functional-checker and record the functional result."
+                    )
+                elif frontier == "fix-verify":
+                    steps.append(
+                        f"[dev] {task_id} has recorded failing verification. "
+                        f"Diagnose it, then delegate the bounded fix: ./forge "
+                        f"delegate {task_id}"
+                    )
+                elif frontier == "fix-tests":
+                    steps.append(
+                        f"[dev] {task_id} has recorded failing automated tests. "
+                        f"Diagnose them, then delegate the bounded fix: ./forge "
+                        f"delegate {task_id}"
+                    )
+                elif frontier == "fix-functional":
+                    steps.append(
+                        f"[dev] {task_id} has a recorded failing functional check. "
+                        f"Inspect it, then delegate the bounded fix: ./forge "
+                        f"delegate {task_id}"
+                    )
+                elif frontier == "fix-review":
+                    steps.append(
+                        f"[dev] {task_id} has recorded blocking review findings. "
+                        f"Inspect them, then delegate the bounded fixes: ./forge "
+                        f"delegate {task_id}. Review the changed code after it is "
+                        "committed and verified."
+                    )
+                elif frontier == "inspect-proof":
+                    from factory_lib import task_proof_problems
+                    problems = task_proof_problems(
+                        base, issue, task, preseal=True)
+                    detail = problems[0] if problems else "proof state is ambiguous"
+                    steps.append(
+                        f"[dev] Inspect {task_id}'s proof before choosing an action: "
+                        f"{detail}"
+                    )
+                elif frontier == "review":
+                    steps.append(
+                        f"[dev] {task_id} still needs clean task-owned review proof: "
+                        f"./forge review {task_id}"
+                    )
+                elif frontier == "stage-done":
+                    steps.append(
+                        f"[dev] {task_id} has its bound handoff and clean proof. "
+                        f"Close the stage: ./forge stage done {task_id}"
                     )
                 elif frontier == "await-merge":
                     steps.append(

@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import platform
+import queue
 import re
 import shlex
 import shutil
@@ -16,15 +17,20 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.request
 import uuid
+from contextlib import redirect_stdout
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 
 from factory_lib import decomposition_state_path, load_json, parse_sections, repo_root
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 from .common import run_quiet
+from .delegate import companion_script
 from .specs import missing_required_content, parse_frontmatter
 
 DIRENV_VERSION = "2.37.1"
@@ -253,6 +259,15 @@ def _display_mark(check: dict) -> str:
 
 
 HOOK_CONFIGS = (Path(".claude/settings.json"), Path(".codex/hooks.json"))
+CODEX_HOOK_CONTRACT = {
+    "sessionStart": " hook session_start ",
+    "preToolUse": " hook pre_tool_use ",
+    "postToolUse": " hook post_tool_use ",
+    "preCompact": " hook pre_compact ",
+    "stop": " hook stop_continue ",
+}
+CODEX_HOOK_EVENTS = set(CODEX_HOOK_CONTRACT)
+CODEX_SESSION_START_SOURCES = ("startup", "resume", "clear", "compact")
 HOOK_HEALTH_FIX = (
     "restore missing `forge`/factory scripts, or run `./forge doctor --fix` "
     "to install Python 3.10+, then rerun doctor"
@@ -460,6 +475,95 @@ def hook_health_checks(base: Path, *, env: dict[str, str] | None = None) -> list
 # where things live, or the session banner and full doctor drift apart.
 def _codex_plugin_dir(home: Path) -> Path:
     return home / ".claude" / "plugins" / "cache" / "openai-codex" / "codex"
+
+
+_CODEX_PLUGIN_MAX_VERSION = "1.0.6"
+_CODEX_PLUGIN_MAX_PATCHES = {
+    "scripts/codex-companion.mjs": (
+        "5afe33b09f7441aaf69a4d6cc31381d5e856582d1b2e6b5f3f7178055d787ed9",
+        "4911d504e2817d3672b97164d4b5884c28f8367e2a695bc3e27f3d20253fa99f",
+        (
+            (b'"high", "xhigh"]);', b'"high", "xhigh", "max"]);'),
+            (b'low|medium|high|xhigh>] [prompt]",',
+             b'low|medium|high|xhigh|max>] [prompt]",'),
+            (b'low, medium, high, xhigh.`',
+             b'low, medium, high, xhigh, max.`'),
+        ),
+    ),
+    "commands/rescue.md": (
+        "089207554cc3d34907916fbbf34b1954b1f5f1f3178e72dcbfb7ebd2d61d4e1e",
+        "6e144e36f9d2c90592925093c19af8123b3d32f616f51e5f0db99ce2df0e2940",
+        ((b'low|medium|high|xhigh>] [what Codex',
+          b'low|medium|high|xhigh|max>] [what Codex'),),
+    ),
+    "skills/codex-cli-runtime/SKILL.md": (
+        "cce11c3bd6d7b5ec6277b3527e65ff38c5bd16084b436bf2870fabb30414359c",
+        "2845f942ab7555ad6028ab0280140068644947b419b64d6c05eb3f9e775ff42a",
+        ((b'`medium`, `high`, `xhigh`.',
+          b'`medium`, `high`, `xhigh`, `max`.'),),
+    ),
+}
+
+
+def _codex_plugin_max_status(home: Path, *, fix: bool) -> tuple[bool, str]:
+    """Verify or repair the exact official plugin source that lacks max."""
+    try:
+        with redirect_stdout(StringIO()):
+            companion = companion_script(home)
+    except SystemExit:
+        return False, "installation metadata is missing, malformed, or ambiguous"
+
+    root = companion.parent.parent
+    expected_root = _codex_plugin_dir(home.resolve()) / _CODEX_PLUGIN_MAX_VERSION
+    if root != expected_root or expected_root.resolve() != expected_root:
+        return False, f"unsupported install path: {root}"
+    source_paths = (".claude-plugin/plugin.json", *_CODEX_PLUGIN_MAX_PATCHES)
+    for relative in source_paths:
+        path = root / relative
+        try:
+            if path.resolve(strict=False) != path:
+                return False, f"unsupported plugin source path: {relative}"
+        except (OSError, RuntimeError):
+            return False, f"unsupported plugin source path: {relative}"
+    try:
+        manifest = json.loads(
+            (root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return False, "plugin manifest is missing or malformed"
+    if not isinstance(manifest, dict):
+        return False, "plugin manifest is missing or malformed"
+    if manifest.get("version") != _CODEX_PLUGIN_MAX_VERSION:
+        return False, f"unsupported plugin version: {manifest.get('version', 'unknown')}"
+
+    replacements: dict[Path, bytes] = {}
+    for relative, (source_hash, target_hash, edits) in _CODEX_PLUGIN_MAX_PATCHES.items():
+        path = root / relative
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return False, f"required plugin source is missing: {relative}"
+        digest = hashlib.sha256(content).hexdigest()
+        if digest == target_hash:
+            continue
+        if digest != source_hash:
+            return False, f"plugin source has unrecognized local edits: {relative}"
+        updated = content
+        for old, new in edits:
+            if updated.count(old) != 1:
+                return False, f"official plugin source did not match: {relative}"
+            updated = updated.replace(old, new)
+        if hashlib.sha256(updated).hexdigest() != target_hash:
+            return False, f"plugin repair did not produce the expected source: {relative}"
+        replacements[path] = updated
+
+    if not replacements:
+        return True, f"{root} (max reasoning enabled)"
+    if not fix:
+        return False, "official plugin source lacks max reasoning; rerun with --fix"
+    for path, updated in replacements.items():
+        path.write_bytes(updated)
+    return True, f"{root} (enabled max reasoning)"
 
 
 def _gstack_dir(home: Path) -> Path:
@@ -769,6 +873,213 @@ def _install_psutil() -> tuple[bool, str]:
     if not ok:
         return False, f"pip exited successfully but psutil {detail}"
     return True, detail
+
+
+def _codex_hooks_inventory(binary: str, base: Path) -> tuple[list[dict] | None, str]:
+    """Ask the PATH-selected Codex CLI which hooks it actually loaded."""
+    try:
+        run_env = dict(os.environ)
+        run_env.pop("CODEX_THREAD_ID", None)
+        run_env.pop("CODEX_SHELL", None)
+        process = subprocess.Popen(
+            [binary, "app-server", "--listen", "stdio://"], cwd=base,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, encoding="utf-8", env=run_env,
+        )
+    except OSError as exc:
+        return None, f"Codex hook inspection failed: {exc}"
+    messages: queue.Queue[dict] = queue.Queue()
+
+    def read_messages() -> None:
+        assert process.stdout is not None
+        for line in process.stdout:
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(message, dict):
+                messages.put(message)
+
+    threading.Thread(target=read_messages, daemon=True).start()
+
+    def send(message: dict) -> None:
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+
+    deadline = time.monotonic() + 10
+    try:
+        send({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "clientInfo": {"name": "forge-doctor", "version": "1"},
+                "capabilities": {"experimentalApi": True},
+            },
+        })
+        while True:
+            message = messages.get(timeout=max(0.01, deadline - time.monotonic()))
+            if message.get("id") == 1:
+                if "error" in message:
+                    return None, f"Codex app-server initialize failed: {message['error']}"
+                break
+        send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        send({
+            "jsonrpc": "2.0", "id": 2, "method": "hooks/list",
+            "params": {"cwds": [str(base.resolve())]},
+        })
+        while True:
+            message = messages.get(timeout=max(0.01, deadline - time.monotonic()))
+            if message.get("id") != 2:
+                continue
+            if "error" in message:
+                return None, f"Codex hooks/list failed: {message['error']}"
+            result = message.get("result")
+            entries = result.get("data") if isinstance(result, dict) else None
+            if not isinstance(entries, list) or len(entries) != 1:
+                return None, "Codex hooks/list returned no unique checkout result"
+            entry = entries[0]
+            if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+                return None, "Codex hooks/list returned an invalid checkout result"
+            errors = entry.get("errors") or []
+            if errors:
+                return None, f"Codex could not load hooks: {errors}"
+            return entry["hooks"], ""
+    except (OSError, BrokenPipeError, queue.Empty) as exc:
+        return None, f"Codex hook inspection failed: {exc}"
+    finally:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+def _git_worktree_roots(base: Path) -> tuple[set[Path] | None, str]:
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain", "-z"], cwd=base,
+            capture_output=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"cannot resolve Git worktree family: {exc}"
+    if result.returncode != 0:
+        try:
+            detail = result.stderr.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return None, "cannot resolve Git worktree family: git returned non-UTF-8 stderr"
+        return None, f"cannot resolve Git worktree family: {detail or 'git failed'}"
+    try:
+        roots = {
+            Path(field.removeprefix(b"worktree ").decode("utf-8")).resolve()
+            for field in result.stdout.split(b"\0")
+            if field.startswith(b"worktree ")
+        }
+    except UnicodeDecodeError:
+        return None, "cannot resolve Git worktree family: git returned a non-UTF-8 path"
+    return (roots, "") if roots else (None, "git returned no worktree roots")
+
+
+def codex_hook_readiness(base: Path) -> tuple[bool, str]:
+    """Verify the Codex CLI loads enabled, trusted hooks from this checkout.
+
+    This PATH-based probe does not inspect Codex Desktop. Live CLI event emission
+    and Desktop readiness require their own runtime evidence.
+    """
+    binary = shutil.which("codex")
+    if not binary:
+        return False, "codex CLI is not on PATH"
+    expected = (base / ".codex" / "hooks.json").resolve()
+    if not expected.is_file():
+        return False, f"{expected} is missing"
+    hooks, error = _codex_hooks_inventory(binary, base)
+    if hooks is None:
+        return False, error
+    roots, error = _git_worktree_roots(base)
+    if roots is None:
+        return False, error
+    family_sources = {root / ".codex" / "hooks.json" for root in roots}
+    loaded_family = [hook for hook in hooks
+                     if Path(str(hook.get("sourcePath", ""))).resolve()
+                     in family_sources]
+    if not loaded_family:
+        return False, f"Codex did not load hooks from {expected} or its Git worktree family"
+    try:
+        expected_bytes = expected.read_bytes()
+        divergent = {
+            Path(str(hook.get("sourcePath", ""))).resolve()
+            for hook in loaded_family
+            if Path(str(hook.get("sourcePath", ""))).resolve().read_bytes()
+            != expected_bytes
+        }
+    except OSError as exc:
+        return False, f"cannot compare inherited Codex hook source: {exc}"
+    if divergent:
+        return False, (
+            "Codex inherited divergent hooks from its Git worktree family: "
+            + ", ".join(str(path) for path in sorted(divergent))
+        )
+    exact = loaded_family
+    disabled = [str(hook.get("eventName")) for hook in exact
+                if hook.get("enabled") is not True]
+    if disabled:
+        return False, "Codex hooks are disabled: " + ", ".join(sorted(disabled))
+    untrusted = [str(hook.get("eventName")) for hook in exact
+                 if hook.get("trustStatus") not in {"trusted", "managed"}]
+    if untrusted:
+        return False, "Codex hooks are not trusted: " + ", ".join(sorted(untrusted))
+    events = {str(hook.get("eventName")) for hook in exact}
+    missing = CODEX_HOOK_EVENTS - events
+    if missing:
+        return False, "Codex did not load required hooks: " + ", ".join(sorted(missing))
+    wrong = [str(hook.get("eventName")) for hook in exact
+             if hook.get("eventName") in CODEX_HOOK_CONTRACT
+             and (CODEX_HOOK_CONTRACT[str(hook["eventName"])]
+                  not in str(hook.get("command", ""))
+                  or not str(hook.get("currentHash", "")).startswith("sha256:"))]
+    if wrong:
+        return False, "Codex loaded the wrong hook command: " + ", ".join(sorted(wrong))
+
+    for hook in exact:
+        matcher = hook.get("matcher") or ".*"
+        if matcher == "*":
+            continue
+        try:
+            re.compile(str(matcher))
+        except re.error:
+            return False, f"Codex hook matcher is invalid: {hook.get('eventName')}"
+
+    def matcher_covers(event: str, aliases: tuple[str, ...]) -> bool:
+        matchers = [hook.get("matcher") for hook in exact
+                    if hook.get("eventName") == event]
+        return any(
+            matcher in {None, "", "*"}
+            or (isinstance(matcher, str)
+                and any(re.search(matcher, alias) for alias in aliases))
+            for matcher in matchers
+        )
+
+    pre_tools = (("Bash",), ("apply_patch",), ("Edit",), ("Write",),
+                 ("request_user_input",), ("request_user_input_async",))
+    missing_matchers = [aliases[0] for aliases in pre_tools
+                        if not matcher_covers("preToolUse", aliases)]
+    if missing_matchers:
+        return False, "Codex PreToolUse matcher does not cover: " + ", ".join(missing_matchers)
+    if not matcher_covers("postToolUse", ("request_user_input",)):
+        return False, "Codex PostToolUse matcher does not cover request_user_input"
+    missing_starts = [source for source in CODEX_SESSION_START_SOURCES
+                      if not matcher_covers("sessionStart", (source,))]
+    if missing_starts:
+        return False, "Codex SessionStart matcher does not cover: " + ", ".join(missing_starts)
+    return True, (
+        f"{len(exact)} enabled and trusted hook(s) loaded from {expected}; "
+        "CLI live event emission is verified separately; this PATH-based CLI "
+        "probe does not certify Codex Desktop"
+    )
+
 
 
 def _psutil_check(*, fix: bool = False) -> dict:
@@ -1542,6 +1853,16 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         "(leave the review gate disabled)",
     ))
 
+    plugin_max_ok, plugin_max_detail = _codex_plugin_max_status(
+        home, fix=args.fix,
+    ) if plugin.is_dir() else (False, "not installed")
+    checks.append(_check(
+        "codex-plugin-cc max reasoning",
+        plugin_max_ok,
+        plugin_max_detail,
+        "rerun with --fix; only exact official openai-codex 1.0.6 source is repairable",
+    ))
+
     # Required skills
     gstack = _gstack_dir(home)
     if not gstack.is_dir() and args.fix:
@@ -1579,14 +1900,6 @@ def cmd_doctor(args: argparse.Namespace) -> None:
               f"[fix ] refreshing the autoreview skill (upstream {upstream_sha[:12]}) ...")
         _autoreview_install(home, upstream_sha)
         ok, detail = _autoreview_status(home, upstream_sha)
-    if autoreview.is_dir():
-        # Whether `forge review` may run the three lenses together (it
-        # reads the installed skill each time; this row says so up front).
-        from .review import lenses_may_run_together
-        together, why = lenses_may_run_together(
-            autoreview / "scripts" / "autoreview")
-        detail += ("; parallel review on" if together
-                   else f"; parallel review OFF until fixed: {why}")
 
     checks.append(_check(
         "autoreview skill",

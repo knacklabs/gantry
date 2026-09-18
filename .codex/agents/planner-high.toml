@@ -1,6 +1,6 @@
 name = "planner-high"
 description = "High-reasoning planner for turning in-repo architecture and decision docs into an approved implementation plan."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 nickname_candidates = ["Architect", "Planner", "Northstar"]

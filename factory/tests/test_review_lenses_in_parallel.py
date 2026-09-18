@@ -1,227 +1,164 @@
-"""The three review lenses run at the same time.
-
-They read one detached worktree and write separate prompt, output and log
-files; the skill isolates each run's workspace. One after another cost ~24
-minutes a round on WF-1 T2; the slowest lens alone is ~8. Fixes stay one
-delegate per round: `close` stops once with every lens's findings.
-
-Its own module: test_gates.py is one very large file where every added
-branch collides with every other.
-"""
+"""A default task review calls one helper and publishes one selected generation."""
 from __future__ import annotations
 
+import base64
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
+import pytest
+
 from test_gates import (  # noqa: F401
-    HARNESS, STAGE_TASK, git, head, load_factory_lib, repo, run, start_stage,
-    story_state, write_in_scope,
+    DECOMP, HARNESS, git, head, intake, load_factory_lib, record_skeleton_then_frontier,
+    record_task_grill, repo, save_plan, sign_off, write_in_scope, write_stages,
 )
 
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
-from forge_cli.review import (  # noqa: E402
-    LENSES, codex_runs_path, lenses_may_run_together, review_log_path,
-    review_task,
-)
+from forge_cli.review import _helper_identity, codex_runs_path, review_task  # noqa: E402
 from forge_cli.stages import load_stages  # noqa: E402
 
-FAKE_LENS = '''
-import json, os, sys, time
+
+FAKE_REVIEW = r'''
+import json, os, pathlib, sys
 args = sys.argv[1:]
-out = args[args.index("--json-output") + 1]
-prompt = args[args.index("--prompt-file") + 1]
-lens = prompt.rsplit(".", 2)[-2]
-time.sleep(float(os.environ.get("FAKE_LENS_SLEEP", "0")))
-print(f"fake {lens} lens ran", flush=True)
-if os.environ.get("FAKE_LENS_CRASH") == lens:
-    print("simulated crash", file=sys.stderr)
-    sys.exit(3)
-json.dump({
+out = pathlib.Path(args[args.index("--json-output") + 1])
+prompt = pathlib.Path(args[args.index("--prompt-file") + 1])
+dataset = pathlib.Path(args[args.index("--dataset") + 1])
+assert "### Approved task inputs" in dataset.read_text(encoding="utf-8")
+text = prompt.read_text(encoding="utf-8")
+assert all(marker in text for marker in (
+    "BEGIN FORGE ASSESSMENT quality", "BEGIN FORGE ASSESSMENT performance",
+    "BEGIN FORGE ASSESSMENT security",
+    "[quality] ", "[performance] ", "[security] ",
+))
+provider = {
     "findings": [],
-    "overall_explanation": "VERDICT C1: implemented — src/core.py:1 the slice runs.",
-}, open(out, "w", encoding="utf-8"))
+    "overall_correctness": "patch is correct",
+    "overall_explanation": (
+        "BEGIN FORGE ASSESSMENT quality\n"
+        "VERDICT C1: implemented — src/core.py:1\n"
+        "END FORGE ASSESSMENT quality\n"
+        "BEGIN FORGE ASSESSMENT performance\nNo repeated work.\n"
+        "END FORGE ASSESSMENT performance\n"
+        "BEGIN FORGE ASSESSMENT security\nNo unsafe boundary.\n"
+        "END FORGE ASSESSMENT security"
+    ),
+    "overall_confidence": 0.9,
+}
+report = {**provider, "provider_report": provider, "review_status": "scoped-clean"}
+out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+if os.environ.get("FAKE_MUTATE_HELPER"):
+    pathlib.Path(__file__).write_text(pathlib.Path(__file__).read_text() + "\n# changed\n")
+if os.environ.get("FAKE_MUTATE_PRODUCT"):
+    (pathlib.Path(os.environ["FAKE_MUTATE_PRODUCT"]) / "src/core.py").write_text("changed\n")
 sys.exit(0)
 '''
 
 
 def _fake_skill(tmp_path: Path) -> Path:
     path = tmp_path / "fake-autoreview.py"
-    path.write_text(FAKE_LENS, encoding="utf-8")
+    path.write_text(FAKE_REVIEW, encoding="utf-8")
     return path
 
 
 def _built(repo: Path, tmp_path: Path) -> None:
-    """A started stage with committed work and the story-level proof the
-    review demands on disk."""
-    start_stage(repo, tmp_path, STAGE_TASK)
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = {
+        **DECOMP["tasks"][0], "id": "T1", "write_scope": ["src/core.py"],
+        "plan_contracts": [{"id": "C1",
+                            "statement": DECOMP["tasks"][0]["acceptance_criteria"][0],
+                            "source": "plan"}],
+    }
+    record_skeleton_then_frontier(repo, [task])
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "active", "base_sha": head(repo)},
+    ]})
+    code, output = record_task_grill(repo, task)
+    assert code == 0, output
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "prepare review")
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "active", "base_sha": head(repo)},
+    ]})
     write_in_scope(repo, "src/core.py")
     git(repo, "add", "src/core.py")
     git(repo, "commit", "-qm", "work")
     lib = load_factory_lib(repo)
-    for name, body in (("verify.json", {"ok": True, "commit": head(repo)}),
-                       ("tests.json", {"kind": "automated", "commit": head(repo)})):
-        path = lib.evidence_path(repo, "ENG-1", name, for_write=True)
+    commit = head(repo)
+    automated = {
+        "generated_by": "implementer", "status": "passed",
+        "summary": "combined review fixture passed", "blocking_findings": [],
+        "commands_run": ["pytest test_review_lenses_in_parallel.py"],
+        "reviewed_scope": ["src/core.py"], "remaining_gaps": [],
+        "recorded_at": "2026-09-11T00:00:00+00:00", "commit": commit,
+    }
+    for name, body in (
+        ("verify.json", {"ok": True, "commit": commit}),
+        ("tests.json", {"automated": automated, "commit": commit}),
+    ):
+        path = lib.proof_path(repo, "ENG-1", name, task_id="T1", for_write=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         lib.dump_json(path, body)
 
 
-def _stamp(repo: Path) -> dict | None:
-    return next(s for s in load_stages(repo)["stages"] if s["id"] == "T1").get(
-        "local_review_stamp")
+def _selection(repo: Path) -> tuple[Path, dict, dict]:
+    path = repo / ".factory/stories/ENG-1/tasks/T1/reviews/selected.json"
+    pointer = json.loads(path.read_text())
+    generation_path = path.parent / "generations" / f"{pointer['generation_id']}.json"
+    return path, pointer, json.loads(generation_path.read_text())
 
 
-def test_lenses_run_together_and_record_all_three(repo, tmp_path, monkeypatch):
+def test_default_review_uses_one_helper_and_publishes_one_generation(repo, tmp_path):
     _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "4")
-    started = time.monotonic()
-    outcome = review_task(repo, "T1", skill=str(_fake_skill(tmp_path)), parallel=True)
-    took = time.monotonic() - started
-    # Three 4-second lenses: together they take about one lens, not three.
-    assert took < 10, f"parallel review took {took:.1f}s"
+    outcome = review_task(repo, "T1", skill=str(_fake_skill(tmp_path)), engine="claude")
+
     assert outcome["blocking"] == 0 and outcome["stamped"] is True
-    # Artifacts are task-scoped (stories/<key>/tasks/<id>/reviews/).
-    lib = load_factory_lib(repo)
-    for lens in LENSES:
-        recorded = lib.load_json(
-            lib.proof_path(repo, "ENG-1", f"reviews/{lens}.json", task_id="T1"),
-            default={})
-        assert recorded.get("aspect") == lens, f"{lens} artifact not recorded"
-    assert _stamp(repo) is not None and "delta_id" in _stamp(repo)
-    for lens in LENSES:
-        assert review_log_path(repo, "T1", lens).is_file()
-        assert f"fake {lens} lens ran" in review_log_path(repo, "T1", lens).read_text()
+    selection_path, pointer, generation = _selection(repo)
+    assert selection_path.is_file()
+    assert generation["origin"] == "combined"
+    assert set(generation["lenses"]) == {"quality", "performance", "security"}
+    raw = base64.b64decode(generation["raw_result"]["data"], validate=True)
+    assert json.loads(raw)["overall_correctness"] == "patch is correct"
+    rows = [json.loads(line) for line in codex_runs_path(repo).read_text().splitlines()]
+    assert [row["status"] for row in rows if row.get("kind") == "review"].count(
+        "starting") == 1
+    stage = next(item for item in load_stages(repo)["stages"] if item["id"] == "T1")
+    assert stage["local_review_stamp"]["delta_id"] == pointer["delta_id"]
 
 
-def test_sequential_is_still_available(repo, tmp_path, monkeypatch):
+def test_review_helper_identity_mismatch_refuses_publication(repo, tmp_path, monkeypatch):
     _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "2")
-    started = time.monotonic()
-    outcome = review_task(repo, "T1", skill=str(_fake_skill(tmp_path)), parallel=False)
-    took = time.monotonic() - started
-    assert took >= 6, f"sequential review took only {took:.1f}s"
-    assert outcome["stamped"] is True
+    helper = _fake_skill(tmp_path)
+    review_task(repo, "T1", skill=str(helper), engine="claude")
+    selection_path, _pointer, _generation = _selection(repo)
+    before = selection_path.read_bytes()
+
+    monkeypatch.setenv("FAKE_MUTATE_HELPER", "1")
+    with pytest.raises(SystemExit):
+        review_task(repo, "T1", skill=str(helper), engine="claude")
+    assert selection_path.read_bytes() == before
 
 
-def test_the_environment_switch_forces_sequential(repo, tmp_path, monkeypatch):
-    _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "2")
-    monkeypatch.setenv("FORGE_REVIEW_SEQUENTIAL", "1")
-    started = time.monotonic()
-    review_task(repo, "T1", skill=str(_fake_skill(tmp_path)))  # parallel=None -> env decides
-    assert time.monotonic() - started >= 6
+def test_review_helper_identity_records_installed_version(tmp_path):
+    helper = tmp_path / "plugin" / "autoreview" / "SKILL.md"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("helper\n", encoding="utf-8")
+    (helper.parent.parent / ".upstream-sha").write_text("a" * 40, encoding="utf-8")
+    assert _helper_identity(helper)[0]["version"] == "a" * 40
 
 
-def test_the_run_ledger_stays_whole_under_three_writers(repo, tmp_path, monkeypatch):
-    """Every lens appends starting/running/finished rows to ONE file from the
-    same process. A torn line would make `forge codex status` blind to a
-    review that was in flight."""
-    _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "1")
-    review_task(repo, "T1", skill=str(_fake_skill(tmp_path)), parallel=True)
-    # The ledger lives in the review worktree's copy of .factory, which is
-    # removed after the run; the base repo's copy is the one that persists.
-    rows = []
-    for line in codex_runs_path(repo).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))  # a torn line raises here
-    kinds = [r["status"] for r in rows if r.get("kind") == "review"]
-    assert kinds.count("starting") >= 3 and kinds.count("finished") >= 3
-
-
-def test_one_crashing_lens_reaps_the_others_and_names_itself(repo, tmp_path, monkeypatch):
-    _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "1")
-    monkeypatch.setenv("FAKE_LENS_CRASH", "performance")
-    try:
-        review_task(repo, "T1", skill=str(_fake_skill(tmp_path)), parallel=True)
-    except SystemExit:
-        pass
-    else:
-        raise AssertionError("a crashed lens did not fail the review")
-    # The two healthy lenses ran to completion and left their output.
-    for lens in ("quality", "security"):
-        assert f"fake {lens} lens ran" in review_log_path(repo, "T1", lens).read_text()
-    # Nothing was recorded and nothing was stamped: a crash is not a verdict.
-    lib = load_factory_lib(repo)
-    for lens in LENSES:
-        assert not lib.proof_path(
-            repo, "ENG-1", f"reviews/{lens}.json", task_id="T1").is_file()
-    assert _stamp(repo) is None
-
-
-# The installed skill scans each outgoing pack with TruffleHog. These are the
-# two shapes of that call the guard has to tell apart, embedded in a fake
-# skill that otherwise behaves like FAKE_LENS.
-SCAN_WITH_UPDATE = """
-# scan_outgoing_review_pack:
-#     result = run([
-#         trufflehog_bin,
-#         "filesystem",
-#         str(pack_path),
-#         "--json",
-#         "--fail-on-scan-errors",
-#     ], Path(tempdir), check=False)
-"""
-SCAN_WITHOUT_UPDATE = SCAN_WITH_UPDATE.replace(
-    '#         "--json",\n', '#         "--json",\n#         "--no-update",\n')
-
-
-def _fake_skill_with_scan(tmp_path: Path, scan: str) -> Path:
-    path = tmp_path / "fake-autoreview-scanning.py"
-    path.write_text(FAKE_LENS + scan, encoding="utf-8")
-    return path
-
-
-def test_the_guard_reads_the_scan_call_in_the_installed_skill(tmp_path):
-    plain = _fake_skill(tmp_path)
-    assert lenses_may_run_together(plain) == (
-        True, "the review skill runs no scanner that could collide")
-    updating = _fake_skill_with_scan(tmp_path, SCAN_WITH_UPDATE)
-    ok, why = lenses_may_run_together(updating)
-    assert ok is False and "--no-update" in why and str(updating) in why
-    fixed = _fake_skill_with_scan(tmp_path, SCAN_WITHOUT_UPDATE)
-    assert lenses_may_run_together(fixed) == (
-        True, "the review skill runs TruffleHog with --no-update")
-    # A flag elsewhere in the file is not the flag on the scan.
-    elsewhere = tmp_path / "fake-autoreview-elsewhere.py"
-    elsewhere.write_text(
-        FAKE_LENS + SCAN_WITH_UPDATE + '\nUNRELATED = "--no-update"\n',
-        encoding="utf-8")
-    assert lenses_may_run_together(elsewhere)[0] is False
-    missing = tmp_path / "nope"
-    ok, why = lenses_may_run_together(missing)
-    assert ok is False and "cannot read the review skill" in why
-
-
-def test_a_self_updating_scanner_forces_the_lenses_one_at_a_time(
+def test_review_product_change_during_helper_refuses_publication(
         repo, tmp_path, monkeypatch, capsys):
-    """Asked to run together, with a skill whose scanner would collide, the
-    review runs the lenses one after another and says why once."""
     _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "2")
-    skill = _fake_skill_with_scan(tmp_path, SCAN_WITH_UPDATE)
-    started = time.monotonic()
-    outcome = review_task(repo, "T1", skill=str(skill), parallel=True)
-    took = time.monotonic() - started
-    assert took >= 6, f"lenses still ran together: {took:.1f}s"
-    assert outcome["stamped"] is True
-    out = capsys.readouterr().out
-    assert out.count("lenses run one at a time:") == 1
-    assert "--no-update" in out
+    helper = _fake_skill(tmp_path)
+    review_task(repo, "T1", skill=str(helper), engine="claude")
+    selection_path, _pointer, _generation = _selection(repo)
+    before = selection_path.read_bytes()
 
-
-def test_a_scanner_with_no_update_keeps_the_lenses_together(
-        repo, tmp_path, monkeypatch, capsys):
-    """The mechanism, not the clock: the run announces one shape or the
-    other, and the timing test above already pins how long together takes."""
-    _built(repo, tmp_path)
-    monkeypatch.setenv("FAKE_LENS_SLEEP", "1")
-    skill = _fake_skill_with_scan(tmp_path, SCAN_WITHOUT_UPDATE)
-    outcome = review_task(repo, "T1", skill=str(skill), parallel=True)
-    assert outcome["stamped"] is True
-    out = capsys.readouterr().out
-    assert "lenses running together:" in out
-    assert "lenses run one at a time" not in out
+    monkeypatch.setenv("FAKE_MUTATE_PRODUCT", str(repo))
+    with pytest.raises(SystemExit):
+        review_task(repo, "T1", skill=str(helper), engine="claude")
+    assert "product changed during the review" in capsys.readouterr().out
+    assert selection_path.read_bytes() == before

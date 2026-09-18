@@ -148,8 +148,31 @@ def load_delegations(base: Path) -> list[dict]:
     return entries
 
 
-def append_delegation(base: Path, record: dict) -> None:
+def append_delegation(base: Path, record: dict) -> bool:
     validate_payload(base, "delegation", record)
+    terminal = record.get("launch_status") in {"succeeded", "failed"}
+    if record.get("transport") == "native" and terminal:
+        launch_id = record["launch_id"]
+        lock = _acquire_delegation_lock(
+            base, f"terminal-{launch_id}", launch_id,
+            wait=True, namespace="state",
+        )
+        try:
+            if any(
+                row.get("launch_id") == launch_id
+                and row.get("launch_status") in {"succeeded", "failed"}
+                for row in load_delegations(base)
+            ):
+                return False
+            _append_delegation_line(base, record)
+        finally:
+            _release_delegation_lock(lock, launch_id)
+        return True
+    _append_delegation_line(base, record)
+    return True
+
+
+def _append_delegation_line(base: Path, record: dict) -> None:
     line = (json.dumps(record) + "\n").encode()
     # The worker can write the workspace mirror, so it is diagnostic only.
     # Stage close reads the Git-control copy, which workspace-write sandboxes
@@ -583,7 +606,8 @@ def delegation_exclusion(base: Path, task_id: str, *,
                          namespace: str = "task"):
     owner_id = uuid.uuid4().hex
     handle = _acquire_delegation_lock(
-        base, task_id, owner_id, wait=kind == "stage-state",
+        base, task_id, owner_id,
+        wait=kind in {"stage-state", "review-selection"},
         namespace=namespace)
     if kind != "delegation":
         _update_delegation_lock(handle, owner_id, os.getpid(), kind=kind)
@@ -671,21 +695,31 @@ def _reap_observed_process_tree(
     return foreground_stopped and children_stopped
 
 
+def _revoke_native_write_admission(base: Path, record: dict) -> None:
+    """Revoke native write authority before any failure cleanup signal."""
+    if record.get("transport") == "native" and record.get("write") is True:
+        from .worker_admission import revoke_worker_admission
+        revoke_worker_admission(base, record)
+
+
 def _terminate_observed_process_tree(
         proc: subprocess.Popen[str], token: str,
         baseline: dict[int, tuple[int, float]] | None = None,
         foreground_identity: float | str = "") -> bool:
     """Cancel a spawned command immediately, then reap every observed child."""
-    # The foreground process group is the one resource we already own and can
-    # identify without walking the process table. Signal it before fallible
-    # descendant discovery so an unavailable `ps` cannot leave the command
-    # running after Forge exits.
-    if foreground_identity and proc.poll() is None:
-        _signal_verified_process_group(proc.pid, foreground_identity)
+    # Preserve child identities before signalling the leader. A detached child
+    # can ignore SIGTERM while the leader exits immediately; after reparenting,
+    # walking from the dead leader can no longer rediscover it for escalation.
     try:
         descendants = _descendants(proc.pid)
     except ProcessDiscoveryError:
         descendants = {}
+    if foreground_identity and proc.poll() is None:
+        _signal_verified_process_group(proc.pid, foreground_identity)
+    try:
+        descendants.update(_descendants(proc.pid))
+    except ProcessDiscoveryError:
+        pass
     try:
         if token:
             descendants.update(_tagged_processes(token, baseline))
@@ -701,7 +735,8 @@ def _terminate_observed_process_tree(
 def _wait_and_reap(
         proc: subprocess.Popen[str], token: str = "",
         baseline: dict[int, tuple[int, float]] | None = None,
-        foreground_identity: float | str = "") -> bool:
+        foreground_identity: float | str = "",
+        before_cleanup=None) -> bool:
     """Wait for trusted work and reap its observed process tree.
 
     A child can create a new session and leave the leader's process group. PID
@@ -726,6 +761,8 @@ def _wait_and_reap(
         if token:
             descendants.update(_tagged_processes(token, baseline, current))
     except BaseException:
+        if before_cleanup is not None:
+            before_cleanup()
         _reap_observed_process_tree(
             proc, token, descendants, baseline,
             foreground_identity=foreground_identity)
@@ -770,7 +807,9 @@ def current_delegation(base: Path, task_id: str, *,
     bindings = (
         "task", "brief_sha256", "task_sha256", "write", "model", "effort",
         "companion_path", "argv", "argv_sha256", "stage_started_at",
-        "process_token",
+        "process_token", "transport", "executable_path", "brief_path",
+        "output_path", "stderr_path", "resume_session", "background",
+        "write_scope",
     )
     completed: list[tuple[int, dict]] = []
     for started, rows in launches.values():
@@ -824,9 +863,6 @@ def companion_script(home: Path | None = None) -> Path:
         fail("Codex companion installation is missing or ambiguous — run "
              "`./forge doctor --fix`")
     return candidates[0]
-
-
-ALLOWED_EFFORTS = ("low", "medium", "high", "xhigh")
 
 
 def pinned_run_config(base: Path) -> tuple[str, str]:
@@ -990,22 +1026,28 @@ def _review_findings_section(base: Path, task: dict, story: str) -> str:
     because its brief said nothing about them (WF-1 T2, gap G4). The recorded
     artifacts are the findings; the brief now carries them verbatim.
     """
-    from factory_lib import load_json, proof_path
+    from factory_lib import read_selected_review_generation
+    from .stages import stage_review_binding
     task_id = str(task.get("id") or "")
     if not story or not task_id:
         return ""
-    blocking: list[tuple[str, dict]] = []
+    stage = next((item for item in load_stages(base).get("stages", [])
+                  if item.get("id") == task_id), {})
+    if not stage:
+        return ""
+    generation, _selection, problems = read_selected_review_generation(
+        base, story, task_id,
+        expected_delta_id=stage_review_binding(base, stage, task)["delta_id"],
+    )
+    if problems or not isinstance(generation, dict):
+        return ""
+    from .review import blocking_with_triage
+    blocking = blocking_with_triage(base, story, task_id, generation=generation)
     caveats: list[tuple[str, dict]] = []
     for lens in ("quality", "performance", "security"):
-        artifact = load_json(
-            proof_path(base, story, f"reviews/{lens}.json", task_id=task_id),
-            default={})
+        artifact = (generation.get("lenses") or {}).get(lens, {})
         if not isinstance(artifact, dict):
             continue
-        if artifact.get("task_id") not in (None, task_id):
-            continue
-        blocking += [(lens, f) for f in artifact.get("blocking_findings") or []
-                     if isinstance(f, dict)]
         caveats += [(lens, f) for f in artifact.get("non_blocking_findings") or []
                     if isinstance(f, dict)]
     if not blocking and not caveats:
@@ -1016,13 +1058,39 @@ def _review_findings_section(base: Path, task: dict, story: str) -> str:
         return (f"- [{lens}] {finding.get('category', '')}: {finding.get('summary', '')}"
                 + (f" ({where})" if where else ""))
 
+    def triaged(lens: str, finding: dict, triage: dict | None) -> str:
+        # The host read the code before this launch, or did not. Either way
+        # the worker is told which, so a raw claim is never mistaken for a
+        # verified one (WF-1 T5: eleven of twenty-five were claims).
+        if triage is None:
+            return line(lens, finding) + (
+                "\n  - HOST TRIAGE: none recorded. This is the reviewer's claim, "
+                "unverified: open the cited line and the code it calls before you "
+                "change anything, and fix the whole class the contract names, "
+                "not only the file the review cited.")
+        out = [line(lens, finding),
+               f"  - HOST TRIAGE (real, {triage.get('triaged_by', '')}): proof "
+               f"{triage.get('evidence', '')}.",
+               "  - Fix at EVERY one of: "
+               + ", ".join(str(i) for i in triage.get("instances") or []) + "."]
+        if triage.get("keep"):
+            out.append(f"  - Keep unchanged: {triage['keep']}")
+        if triage.get("reason"):
+            out.append(f"  - Why: {triage['reason']}")
+        return "\n".join(out)
+
     parts = []
     if blocking:
+        done = sum(1 for _, _, triage in blocking if triage is not None)
         parts.append(
             "These are the review's BLOCKING findings on this task's current "
             "diff. This launch exists to close them; the seal refuses until a "
-            "review records none. Fix each, or say in a signal why it is not a "
-            "defect.\n\n" + "\n".join(line(*item) for item in blocking))
+            "review records none. The host's triage under a finding is binding: "
+            "fix it at every instance listed and leave what it says to keep. A "
+            "finding without one is unverified: read the code first, then fix "
+            "the class. Say in a signal why something is not a defect.\n\n"
+            f"{done} of {len(blocking)} triaged by the host.\n\n"
+            + "\n".join(triaged(*item) for item in blocking))
     if caveats:
         parts.append(
             "Non-blocking follow-ups (fix only when cheap and in scope; "
@@ -1136,12 +1204,19 @@ def argv_digest(argv: list[str]) -> str:
 def launch_companion(
         base: Path, *, task_id: str, text: str, path: Path,
         task_sha256_value: str, model: str, effort: str, write: bool,
+        write_scope: list[str] | None = None,
         story: str = "", background: bool = False, print_only: bool = False,
         stage_started_at: str = "", mode: str = "") -> dict | None:
-    """Write a brief and run the protected companion launch lifecycle."""
+    """Write a brief and run the selected protected launch lifecycle."""
+    from .codex_runtime import coordinator_runtime
+
     # Prefixed, not bare hex: a bare 32-character hex string reads as a
     # credential to secret scanners.
     launch_id = f"launch-{uuid.uuid4().hex}"
+    runtime = coordinator_runtime()
+    if runtime == "codex" and background:
+        fail("native Codex delegation is foreground-only in this release; "
+             "background/read-only background is owned by NATIVE-LIFECYCLE")
     lock = (_acquire_delegation_lock(base, task_id, launch_id)
             if write and not print_only else None)
     if write and not print_only:
@@ -1151,19 +1226,38 @@ def launch_companion(
         fail(f"cannot safely write .factory/{rel}; remove any symlinked brief "
              "path and retry")
     brief_digest = sha256_of(path)
-    node = shutil.which("node")
-    if not node:
-        fail("node is required to launch the Codex companion — run `./forge doctor --fix`")
-    companion = companion_script()
     rel = path.relative_to(base).as_posix()
-    argv = [
-        node, str(companion), "task", "--json", "--cwd", str(base),
-        "--model", model, "--effort", effort, "--prompt-file", rel,
-    ]
-    if write:
-        argv.append("--write")
-    if background:
-        argv.append("--background")
+    companion: Path | None = None
+    executable = ""
+    output_path: Path | None = None
+    stderr_path: Path | None = None
+    if runtime == "codex":
+        from .codex_runtime import native_argv
+
+        executable = shutil.which("codex") or ""
+        if not executable:
+            fail("codex is required for native delegation — run `./forge doctor --fix`")
+        executable = str(Path(executable).resolve())
+        argv = native_argv(
+            executable, base, model, effort, write, write_scope,
+        )
+        logs = delegations_path(base).parent / "native-runs"
+        logs.mkdir(parents=True, exist_ok=True)
+        output_path = logs / f"{launch_id}.jsonl"
+        stderr_path = logs / f"{launch_id}.stderr.log"
+    else:
+        node = shutil.which("node")
+        if not node:
+            fail("node is required to launch the Codex companion — run `./forge doctor --fix`")
+        companion = companion_script()
+        argv = [
+            node, str(companion), "task", "--json", "--cwd", str(base),
+            "--model", model, "--effort", effort, "--prompt-file", rel,
+        ]
+        if write:
+            argv.append("--write")
+        if background:
+            argv.append("--background")
     write_detail = ("YES (lite window is open)" if mode else
                     "YES (stage is active with a write scope)")
     launch_detail = " | not launched" if print_only else ""
@@ -1172,6 +1266,12 @@ def launch_companion(
           f"{shlex.join(argv)}{launch_detail}")
     if print_only:
         return None
+    if runtime == "codex" and write:
+        from .doctor import codex_hook_readiness
+
+        ready, detail = codex_hook_readiness(base)
+        if not ready:
+            fail(f"native Codex write launch refused: {detail}")
 
     process_token = f"delegation-{launch_id}"
     record = {
@@ -1184,14 +1284,25 @@ def launch_companion(
         "write": write,
         "model": model,
         "effort": effort,
-        "companion_path": str(companion),
         "argv": argv,
         "argv_sha256": argv_digest(argv),
         "launch_status": "starting",
         "process_token": process_token,
     }
+    if runtime == "codex":
+        record.update({
+            "transport": "native",
+            "executable_path": executable,
+            "brief_path": rel,
+            "output_path": str(output_path),
+            "stderr_path": str(stderr_path),
+        })
+    else:
+        record["companion_path"] = str(companion)
     if story:
         record["story"] = story
+    if write_scope is not None:
+        record["write_scope"] = list(write_scope)
     if background:
         record["background"] = True
     if stage_started_at:
@@ -1202,14 +1313,32 @@ def launch_companion(
     proc: subprocess.Popen[str] | None = None
     process_baseline: dict[int, tuple[int, float]] | None = None
     process_identity: float | str = ""
+    native_result = None
     stdout = ""
     stderr = ""
-    stdout_log = tempfile.TemporaryFile(
-        mode="w+t", encoding="utf-8", errors="replace"
-    )
-    stderr_log = tempfile.TemporaryFile(
-        mode="w+t", encoding="utf-8", errors="replace"
-    )
+    stdout_log = None
+    stderr_log = None
+    try:
+        if output_path:
+            # Native stdout is a JSONL protocol: invalid UTF-8 must fail the run,
+            # not be rewritten into evidence that the runtime did not emit.
+            stdout_log = open(output_path, "w+t", encoding="utf-8")
+            stderr_log = open(stderr_path, "w+t", encoding="utf-8")
+        else:
+            # Companion output is display-only and has historically been tolerant
+            # of malformed worker bytes; preserve that audited behavior unchanged.
+            stdout_log = tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+            )
+            stderr_log = tempfile.TemporaryFile(
+                mode="w+t", encoding="utf-8", errors="replace"
+            )
+    except OSError:
+        if stdout_log is not None:
+            stdout_log.close()
+        if lock is not None:
+            _release_delegation_lock(lock, record["launch_id"])
+        raise
     handled_signals = list(TERMINATION_SIGNALS)
     previous_handlers = {
         candidate: signal.getsignal(candidate) for candidate in handled_signals
@@ -1225,6 +1354,8 @@ def launch_companion(
         try:
             process_env = os.environ.copy()
             process_env["FORGE_PROCESS_TOKEN"] = process_token
+            if runtime == "codex":
+                process_env["FORGE_LAUNCH_ID"] = launch_id
             process_env["PYTHONUTF8"] = "1"
             with blocked_termination_signals():
                 process_baseline = _process_table()
@@ -1234,9 +1365,13 @@ def launch_companion(
                     else {"start_new_session": True,
                           "preexec_fn": unblock_termination_signals_in_child}
                 )
+                stdio_options = ({"text": False} if runtime == "codex" else {
+                    "text": True, "encoding": "utf-8", "errors": "strict",
+                })
                 proc = subprocess.Popen(
                     argv, cwd=base, stdout=stdout_log, stderr=stderr_log,
-                    text=True, env=process_env, **spawn_options,
+                    stdin=subprocess.PIPE if runtime == "codex" else None,
+                    env=process_env, **stdio_options, **spawn_options,
                 )
                 process_identity = _capture_spawn_identity(proc)
                 record.update({
@@ -1253,39 +1388,62 @@ def launch_companion(
                         lock, record["launch_id"], proc.pid,
                         owner_pgid=proc.pid)
                 append_delegation(base, record)
+                if runtime == "codex":
+                    assert proc.stdin is not None
+                    proc.stdin.write(text.encode("utf-8"))
+                    proc.stdin.close()
         except OSError as exc:
             if proc is None:
                 append_delegation(base, {
                     **record, "at": now_iso(), "launch_status": "failed",
                 })
                 terminal_recorded = True
-                fail(f"Codex companion could not start: {exc}")
+                label = "worker" if runtime == "codex" else "companion"
+                fail(f"Codex {label} could not start: {exc}")
             # Popen succeeded; the outer handler must reap that process tree
             # before any terminal launch row is recorded.
-            fail(f"Codex companion launch could not be registered: {exc}")
+            label = "worker" if runtime == "codex" else "companion"
+            fail(f"Codex {label} launch could not be registered: {exc}")
         try:
             if not _wait_and_reap(
-                    proc, process_token, process_baseline, process_identity):
+                    proc, process_token, process_baseline, process_identity,
+                    before_cleanup=lambda: _revoke_native_write_admission(base, record)):
                 raise RuntimeError("companion process tree survived termination")
         except BaseException:
             # The outer handler retries cleanup and records a terminal failure
             # only after the full observed process tree is verified dead.
             raise
-        stdout_log.seek(0)
         stderr_log.seek(0)
-        stdout = stdout_log.read()
         stderr = stderr_log.read()
-        if stdout:
-            print(stdout.rstrip())
+        if runtime != "codex":
+            stdout_log.seek(0)
+            stdout = stdout_log.read()
+            if stdout:
+                print(stdout.rstrip())
         if proc.returncode != 0:
-            append_delegation(base, {
+            _revoke_native_write_admission(base, record)
+            failed = {
                 **record, "at": now_iso(), "launch_status": "failed",
                 "exit_code": proc.returncode,
-            })
+            }
+            if runtime == "codex":
+                from .codex_runtime import scan_native_result
+
+                native_result = scan_native_result(output_path)
+                session_id = native_result.session_id
+                if session_id:
+                    failed["session_id"] = session_id
+            append_delegation(base, failed)
             terminal_recorded = True
+            if runtime == "codex":
+                detail = stderr.strip()
+                fail(f"Codex worker launch failed (exit {proc.returncode})"
+                     + (f": {detail}" if detail
+                        else f"; see {output_path}"))
             fail("Codex companion launch failed "
                  f"(exit {proc.returncode}): {(stderr or stdout).strip()}")
         if sha256_of(path) != brief_digest:
+            _revoke_native_write_admission(base, record)
             append_delegation(base, {
                 **record, "at": now_iso(), "launch_status": "failed",
                 "exit_code": proc.returncode,
@@ -1298,19 +1456,58 @@ def launch_companion(
             **record, "at": now_iso(), "launch_status": "succeeded",
             "exit_code": proc.returncode,
         }
-        append_delegation(base, terminal)
+        if runtime == "codex":
+            from .codex_runtime import scan_native_result
+
+            native_result = scan_native_result(output_path)
+            if native_result.error:
+                _revoke_native_write_admission(base, record)
+                failed = {
+                    **record, "at": now_iso(), "launch_status": "failed",
+                    "exit_code": proc.returncode,
+                }
+                session_id = native_result.session_id
+                if session_id:
+                    failed["session_id"] = session_id
+                append_delegation(base, failed)
+                terminal_recorded = True
+                fail(native_result.error)
+            terminal["session_id"] = native_result.session_id
+        published = append_delegation(base, terminal)
         terminal_recorded = True
+        if runtime == "codex" and not published:
+            existing = next(
+                row for row in reversed(load_delegations(base))
+                if row.get("launch_id") == launch_id
+                and row.get("launch_status") in {"succeeded", "failed"}
+            )
+            if existing.get("launch_status") != "succeeded":
+                fail(f"native Codex {launch_id} was already recorded failed")
+        if runtime == "codex":
+            message = native_result.message
+            if message:
+                print(message)
+            print(f"Native Codex {terminal['session_id']}: succeeded")
         return terminal
     except BaseException:
         if proc is not None and not terminal_recorded:
+            _revoke_native_write_admission(base, record)
             with blocked_termination_signals():
                 terminated = _terminate_observed_process_tree(
                     proc, process_token, process_baseline, process_identity)
             if terminated:
-                append_delegation(base, {
+                failed = {
                     **record, "at": now_iso(), "launch_status": "failed",
                     "exit_code": proc.returncode if proc.returncode is not None else 130,
-                })
+                }
+                if runtime == "codex" and output_path:
+                    if native_result is None:
+                        from .codex_runtime import scan_native_result
+                        native_result = scan_native_result(output_path)
+                    session_id = native_result.session_id
+                    if session_id:
+                        failed["session_id"] = session_id
+                append_delegation(base, failed)
         raise
     finally:
         stdout_log.close()
@@ -1351,12 +1548,27 @@ def cmd_delegate(args: argparse.Namespace) -> None:
         scope = task.get("write_scope") or []
     write = bool(active and scope) and not args.read_only
     task_sha256_value = task_digest(task)
+    from .codex_runtime import coordinator_runtime
+    if coordinator_runtime() == "codex" and args.background:
+        fail("native Codex delegation is foreground-only in this release; "
+             "background/read-only background is owned by NATIVE-LIFECYCLE")
     if write and args.background:
         fail("background write delegation cannot satisfy a measured stage: the "
              "worker could keep writing after stage close. Run it in the foreground, "
              "or use --read-only for background exploration.")
     state = load_json(run_state_path(base), default={})
     story = str(state.get("story") or state.get("issue_key") or "")
+    if story:
+        # Not a refusal: the launch goes ahead, and the gap is said out loud
+        # where the coordinator is looking (decision 0075).
+        from .review import untriaged_blocking
+        left, total = untriaged_blocking(base, story, args.id)
+        if left:
+            print(f"WARNING: {left} of {total} blocking finding(s) on {args.id} "
+                  "are untriaged -- the worker gets the raw claim. Open the cited "
+                  "line and the code it calls, then `./forge review "
+                  f"{args.id} --triage ...` before launching (WORKFLOW.md Stage Loop).",
+                  flush=True)
     text = compose_brief(base, task, write=write,
                          user_facing=bool(task.get("user_facing")),
                          story=story)
@@ -1364,16 +1576,6 @@ def cmd_delegate(args: argparse.Namespace) -> None:
     path = (diagnostic_briefs_dir(base) / f"{args.id}.md"
             if args.print_only or not write else canonical_path)
     model, effort = pinned_run_config(base)
-    # harness.yaml pins the floor and names when to escalate; this is the
-    # mechanism that makes the escalation reachable. Recorded in the ledger
-    # with the rest of the argv, so a run at a raised effort is evidence
-    # rather than a claim.
-    override = (getattr(args, "effort", "") or "").strip()
-    if override:
-        if override not in ALLOWED_EFFORTS:
-            fail(f"--effort must be one of {', '.join(ALLOWED_EFFORTS)}, "
-                 f"got {override!r}")
-        effort = override
     launch_companion(
         base,
         task_id=args.id,
@@ -1383,6 +1585,7 @@ def cmd_delegate(args: argparse.Namespace) -> None:
         model=model,
         effort=effort,
         write=write,
+        write_scope=scope,
         story=story,
         background=args.background,
         print_only=args.print_only,

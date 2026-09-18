@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 
 from factory_lib import (
-    branch_diff_digest, dump_json, gate, head_sha, load_json, now_iso,
-    evidence_path, proof_path, protected_decomposition_state_path, repo_root,
-    require_skills,
+    active_task_id, branch_diff_digest, dump_json, gate, head_sha, load_json, now_iso,
+    effective_review_base, evidence_path, proof_path,
+    protected_decomposition_state_path, repo_root,
+    product_delta_digest, publish_review_generation, require_skills,
     read_stdin_utf8, run_state_path, story_dir, validate_payload,
+    validate_review_document,
 )
 from forge_cli.events import append_event
 from forge_cli.readiness import review_passed
@@ -54,10 +56,12 @@ def ensure_findings(field: str, value):
 
 
 parser = argparse.ArgumentParser(description="Record a review artifact from structured JSON")
-parser.add_argument(
-    "--aspect", required=True,
+kind = parser.add_mutually_exclusive_group(required=True)
+kind.add_argument(
+    "--aspect",
     choices=["quality", "performance", "security", "stage-local"],
 )
+kind.add_argument("--set", action="store_true", help="publish one complete review generation")
 parser.add_argument(
     "--task", default="",
     help="task this review covers; defaults to the task this worktree runs")
@@ -80,6 +84,77 @@ state = gate(
     decomposition=True,
     lite_window_ok=True,
 )
+if not args.task:
+    args.task = active_task_id(root)
+if not args.task:
+    active = [
+        str(stage.get("id") or "")
+        for stage in load_stages(root).get("stages", [])
+        if isinstance(stage, dict) and stage.get("status") == "active"
+    ]
+    if len(active) == 1:
+        args.task = active[0]
+if args.set:
+    if not args.task:
+        raise SystemExit("--set requires --task")
+    if payload.get("origin") != "combined":
+        raise SystemExit("public --set only accepts origin=combined")
+    validate_review_document(root, payload, allow_missing_generation_id=True)
+    story = state.get("issue_key") or state.get("story")
+    if payload.get("story") != story or payload.get("task_id") != args.task:
+        raise SystemExit("review generation story/task does not match the active task")
+    task = task_for(root, args.task)
+    stage = next((entry for entry in load_stages(root).get("stages", [])
+                  if entry.get("id") == args.task), {})
+    if not task or stage.get("status") not in {"active", "done"}:
+        raise SystemExit("review generation requires an active or done recorded task")
+    expected_delta = product_delta_digest(
+        root, effective_review_base(root, args.task, str(payload.get("inspected_commit") or "")),
+    )
+    if payload.get("delta_id") != expected_delta:
+        raise SystemExit("review generation delta_id is stale for the active task")
+    token = load_json(story_dir(root, story) / "review-run.json", default={})
+    if token.get("task_id") != args.task:
+        raise SystemExit("review-run token does not match the reviewed task")
+    if token.get("branch_diff_digest") != expected_delta:
+        raise SystemExit("review-run token does not match the current task delta")
+    expected_run_id = hashlib.sha256(
+        (str(token.get("brief_sha256") or "") + expected_delta).encode()
+    ).hexdigest()
+    if token.get("review_run_id") != expected_run_id:
+        raise SystemExit("review-run token id does not bind the current task delta")
+    for field in ("review_run_id", "brief_sha256"):
+        if payload.get(field) != token.get(field):
+            raise SystemExit(f"review generation {field} does not match review-run.json")
+    if payload.get("inspected_commit") != head_sha(root):
+        raise SystemExit("review generation inspected_commit is not current HEAD")
+    from forge_cli.review import (
+        _combined_prompt, _helper_identity, rederive_combined_lenses, resolve_skill,
+    )
+    expected_helper, _helper_file = _helper_identity(resolve_skill(None))
+    if payload.get("helper") != expected_helper:
+        raise SystemExit("review generation helper does not match the installed helper")
+    # The brief has two forms: the reviewer read the tree it judged, or it saw
+    # only the diff bundle (another engine, codex off PATH, or
+    # FORGE_REVIEW_EMPTY_WORKSPACE). Either is the current combined prompt.
+    accepted_inputs = []
+    for repo_readable in (True, False):
+        prompt = _combined_prompt(task, repo_readable=repo_readable)
+        accepted_inputs.append({
+            "sha256": hashlib.sha256(prompt).hexdigest(), "bytes": len(prompt),
+        })
+    if payload.get("input") not in accepted_inputs:
+        raise SystemExit("review generation input does not match the current combined prompt")
+    if payload.get("lenses") != rederive_combined_lenses(root, payload):
+        raise SystemExit("review generation lenses do not match the raw helper result")
+    generation, selection = publish_review_generation(
+        root, story, args.task, payload, update_stamp=True,
+    )
+    print(
+        f"Published review generation {generation['generation_id']} and selected it "
+        f"for {args.task} ({selection['delta_id'][:12]})."
+    )
+    raise SystemExit(0)
 validate_payload(root, "review", payload)
 require_skills(root, "review", payload)
 # A review is ALWAYS about one task's diff, so it is stored under that task.
@@ -185,7 +260,15 @@ if args.aspect != "stage-local" and state.get("issue_key"):
         raise SystemExit(
             "Invalid review-run token; rerun `./forge review-brief --all`."
         )
-    if token["branch_diff_digest"] != branch_diff_digest(root):
+    if token.get("task_id") != args.task:
+        raise SystemExit("Review task does not match the current review-run token.")
+    stage = next((entry for entry in load_stages(root).get("stages", [])
+                  if entry.get("id") == args.task), {})
+    current_digest = (
+        product_delta_digest(root, stage_review_binding(root, stage, {})["base_sha"])
+        if stage else branch_diff_digest(root)
+    )
+    if token["branch_diff_digest"] != current_digest:
         raise SystemExit(
             "Branch changed after the review run was minted; rerun "
             "`./forge review-brief --all`."

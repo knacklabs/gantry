@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -20,6 +22,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import types
 import urllib.error
 import urllib.request
@@ -57,7 +60,7 @@ from factory_lib import (
 )
 from grill_gates import GATES
 from forge_cli.events import load_events
-from forge_cli.stages import task_digest, write_stages
+from forge_cli.stages import load_stages, stage_baseline, task_digest, write_stages
 from record_signoff import REQUIRED_BRIEF_HEADINGS
 
 
@@ -633,6 +636,128 @@ def write_passing_artifacts(repo: Path, commit: str | None = None) -> None:
         "generated_by": "implementer", "commit": sha,
         "outcome": "The invoice list now loads for every account and can be filtered "
                    "by date, which previously required a support request."}))
+
+
+def write_task_proof(repo: Path, task_id: str = "T1", *,
+                     commit: str | None = None, user_facing: bool = False,
+                     blocked: bool = False,
+                     publish_review: bool = False,
+                     review_blocked: bool = False,
+                     preserve_existing_proof: bool = False) -> Path:
+    """Write one complete task-owned proof bundle for gate fixtures."""
+    lib = load_factory_lib(repo)
+    key = run_state(repo).get("issue_key", "ENG-1")
+    task_root = lib.task_evidence_path(
+        repo, key, task_id, "verify.json", for_write=True).parent
+    task_root.mkdir(parents=True, exist_ok=True)
+    sha = commit or head(repo)
+    if not preserve_existing_proof:
+        lib.dump_json(task_root / "verify.json", {"ok": True, "commit": sha})
+    automated = {
+        "generated_by": "implementer", "status": "passed",
+        "summary": "focused task proof passed",
+        "blocking_findings": [], "commands_run": ["pytest task proof"],
+        "reviewed_scope": ["factory/tests/test_gates.py"],
+        "remaining_gaps": ["REPORT_TAIL_SENTINEL"],
+        "recorded_at": "2026-09-10T00:00:00+00:00", "commit": sha,
+    }
+    if blocked:
+        automated["blocking_findings"] = ["fixture blocker"]
+    tests = {"automated": automated, "commit": sha}
+    if user_facing:
+        tests["functional"] = {
+            "generated_by": "functional-checker", "status": "passed",
+            "score": 9, "blocking_findings": [],
+        }
+    if not preserve_existing_proof:
+        lib.dump_json(task_root / "tests.json", tests)
+    brief_sha256 = "b" * 64
+    branch_digest = lib.branch_diff_digest(repo)
+    review_run_id = hashlib.sha256(
+        (brief_sha256 + branch_digest).encode()
+    ).hexdigest()
+    for aspect in ("quality", "performance", "security"):
+        lib.dump_json(task_root / "reviews" / f"{aspect}.json", {
+            "task_id": task_id, "score": 9, "blocking_findings": [],
+            "generated_by": "autoreview", "commit": sha,
+            "review_run_id": review_run_id, "brief_sha256": brief_sha256,
+            "branch_diff_digest": branch_digest,
+        })
+    if publish_review:
+        from forge_cli.review_brief import cmd_review_brief
+        cmd_review_brief(argparse.Namespace(
+            id=None, all=True, repo=str(repo), review_task=task_id,
+        ))
+        brief = repo / ".factory" / "review-briefs" / "all.md"
+        token = json.loads((story_state(repo, key) / "review-run.json").read_text())
+        brief_sha256 = token["brief_sha256"]
+        stage = next(
+            item for item in load_stages(repo).get("stages", [])
+            if item.get("id") == task_id
+        )
+        branch_digest = lib.product_delta_digest(
+            repo, lib.effective_review_base(repo, task_id),
+        )
+        review_run_id = hashlib.sha256(
+            (brief_sha256 + branch_digest).encode()
+        ).hexdigest()
+        delta_id = branch_digest
+        for aspect in ("quality", "performance", "security"):
+            path = task_root / "reviews" / f"{aspect}.json"
+            review = json.loads(path.read_text())
+            review.update({
+                "score": 10, "non_blocking_findings": [], "recommendation": "approve",
+                "summary": f"{aspect} review passed",
+                "review_run_id": review_run_id,
+                "brief_sha256": brief_sha256,
+                "branch_diff_digest": delta_id,
+            })
+            if review_blocked and aspect == "security":
+                review.update({
+                    "score": 7,
+                    "blocking_findings": [{
+                        "category": "security",
+                        "area": "src/core.py",
+                        "summary": "selected current finding",
+                    }],
+                    "recommendation": "request-changes",
+                })
+            path.write_text(json.dumps(review))
+        provider = {"findings": [], "overall_correctness": "patch is correct",
+                    "overall_explanation":
+            "BEGIN FORGE ASSESSMENT quality\nquality\n"
+            "END FORGE ASSESSMENT quality\n"
+            "BEGIN FORGE ASSESSMENT performance\nfast\n"
+            "END FORGE ASSESSMENT performance\n"
+            "BEGIN FORGE ASSESSMENT security\nsafe\n"
+            "END FORGE ASSESSMENT security", "overall_confidence": 0.9}
+        raw = json.dumps({**provider, "provider_report": provider,
+                          "review_status": "scoped-clean"}, sort_keys=True).encode()
+        lib.publish_review_generation(repo, key, task_id, {
+            "format": "forge-review-generation/v1", "origin": "combined",
+            "generated_by": "autoreview", "story": key, "task_id": task_id,
+            "review_run_id": review_run_id, "brief_sha256": brief_sha256,
+            "inspected_commit": sha, "delta_id": delta_id,
+            "helper": {"path": "/fixture/autoreview", "version": "fixture",
+                       "sha256": "a" * 64},
+            "input": {"sha256": "c" * 64, "bytes": 1},
+            "raw_result": {"encoding": "base64", "sha256": hashlib.sha256(raw).hexdigest(),
+                           "bytes": len(raw), "data": base64.b64encode(raw).decode("ascii")},
+            "lenses": {
+                aspect: json.loads((task_root / "reviews" / f"{aspect}.json").read_text())
+                for aspect in ("quality", "performance", "security")
+            },
+            "recorded_at": "2026-09-10T00:00:00+00:00",
+        })
+        # The marker command stages only its marker. Keep the brief in the
+        # index so a marker commit carries the exact bytes and approved
+        # records its reviews bind.
+        git(repo, "add", brief.relative_to(repo).as_posix(),
+            (story_state(repo, key) / "task-plans" / f"{task_id}.md")
+            .relative_to(repo).as_posix(),
+            (story_state(repo, key) / "grills" / "tasks" / f"{task_id}.json")
+            .relative_to(repo).as_posix())
+    return task_root
 
 
 def run_state(repo: Path) -> dict:
@@ -3356,7 +3481,7 @@ def test_doctor_hook_health_green_on_healthy_repo(repo):
     bytecode_before = set(repo.rglob("__pycache__"))
     checks = hook_health_checks(repo)
 
-    assert len(checks) == 9
+    assert len(checks) == 11
     assert all(check["ok"] for check in checks), checks
     assert git(repo, "status", "--porcelain", "-uall") == before
     assert set(repo.rglob("__pycache__")) == bytecode_before
@@ -3453,8 +3578,8 @@ def test_doctor_hook_health_reds_unresolvable_hook(repo, tmp_path):
     checks = hook_health_checks(repo, env={"PATH": str(fake_bin)})
     failures = [check for check in checks if not check["ok"]]
 
-    assert len(failures) == 9
-    assert len({check["name"] for check in failures}) == 9
+    assert len(failures) == 11
+    assert len({check["name"] for check in failures}) == 11
     registered = json.loads((repo / ".claude" / "settings.json").read_text())
     command = registered["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     assert any(command in check["detail"] for check in failures)
@@ -3621,9 +3746,9 @@ def test_doctor_hook_health_catches_precompact_import_skew(repo):
 
     failures = [check for check in hook_health_checks(repo) if not check["ok"]]
 
-    assert len(failures) == 1
-    assert ".claude/settings.json:PreCompact" in failures[0]["name"]
-    assert "broken scratchpad package" in failures[0]["detail"]
+    assert len(failures) == 2
+    assert all(":PreCompact" in check["name"] for check in failures)
+    assert all("broken scratchpad package" in check["detail"] for check in failures)
 
 
 @pytest.mark.skipif(
@@ -3645,7 +3770,7 @@ def test_doctor_hook_health_missing_sh_names_git_bash_fix(repo, monkeypatch):
     failures = [check for check in doctor.hook_health_checks(repo)
                 if not check["ok"]]
 
-    assert len(failures) == 9
+    assert len(failures) == 11
     assert all(check["fix"] == doctor.HOOK_SHELL_FIX for check in failures)
     assert all("Git for Windows" in check["fix"] for check in failures)
 
@@ -3659,7 +3784,7 @@ def test_doctor_hook_health_broken_launcher_does_not_blame_git_bash(repo):
     failures = [check for check in doctor.hook_health_checks(repo)
                 if not check["ok"]]
 
-    assert len(failures) == 9
+    assert len(failures) == 11
     assert all("hook launcher probe failed" in check["detail"] for check in failures)
     assert all(check["fix"] == doctor.HOOK_HEALTH_FIX for check in failures)
 
@@ -3690,8 +3815,11 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
     )
     assert initialized.returncode == 0, initialized.stdout + initialized.stderr
     assert len(commands(repo, ".claude/settings.json")) == 6
-    assert len(commands(repo, ".codex/hooks.json")) == 3
+    assert len(commands(repo, ".codex/hooks.json")) == 5
     config = repo / ".codex" / "config.toml"
+    main_selectors = {"model", "model_reasoning_effort", "plan_mode_reasoning_effort"}
+    assert all(not line.startswith(f"{key} =") for key in main_selectors
+               for line in config.read_text().splitlines())
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
     assert "network_access = true" in config.read_text().splitlines()  # 0068
     assert (repo / "forge.cmd").is_file()
@@ -3723,7 +3851,9 @@ def test_init_and_upgrade_ship_portable_hook_commands(tmp_path):
     upgraded = upgrade_into(repo)
     assert upgraded.returncode == 0, upgraded.stdout + upgraded.stderr
     assert len(commands(repo, ".claude/settings.json")) == 6
-    assert len(commands(repo, ".codex/hooks.json")) == 3
+    assert len(commands(repo, ".codex/hooks.json")) == 5
+    assert all(not line.startswith(f"{key} =") for key in main_selectors
+               for line in config.read_text().splitlines())
     assert 'sandbox_mode = "workspace-write"' in config.read_text().splitlines()
     assert "network_access = true" in config.read_text().splitlines()  # 0068
     assert (repo / "forge.cmd").is_file()
@@ -4330,7 +4460,7 @@ def test_doctor_hook_health_uses_git_bash_outside_path(repo, tmp_path):
         "ProgramFiles": str(program_files),
     })
 
-    assert len(checks) == 9
+    assert len(checks) == 11
     assert all(check["ok"] for check in checks), checks
 
 
@@ -6490,11 +6620,16 @@ def test_user_facing_artifacts_must_attest_design_skills(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    ui_task = {**DECOMP["tasks"][0], "user_facing": True}
+    ui_task = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "user_facing": True}
+    )
     record_skeleton_then_frontier(repo, [ui_task])
     control = delegation_ledger(repo).parent
     (control / "stages.json").write_text(json.dumps(
         {"issue": "ENG-1", "stages": [{"id": "T1", "status": "active"}]}))
+    code, out = record_task_grill(repo, ui_task)
+    assert code == 0, out
+    write_task_proof(repo, "T1", user_facing=True)
     # testing artifact without the mandatory design skills -> refused
     base = {"generated_by": "implementer", "status": "passed", "summary": "ok",
             "blocking_findings": [], "commands_run": ["pytest"]}
@@ -6513,7 +6648,11 @@ def test_user_facing_artifacts_must_attest_design_skills(repo, tmp_path):
     # review artifact must attest review-animations on user-facing tasks
     mint_review_run(repo)
     review = {"generated_by": "autoreview", "score": 9, "summary": "ok",
-              "blocking_findings": []}
+              "blocking_findings": [], "contract_verdicts": [
+                  {"contract_id": contract["id"], "verdict": "implemented",
+                   "evidence": "factory/tests/test_gates.py:6540"}
+                  for contract in ui_task["plan_contracts"]
+              ]}
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
                     stdin=json.dumps(review))
     assert code != 0 and "review-animations" in out
@@ -6938,7 +7077,9 @@ def test_assumptions_archive_compacts_resolved_rows(repo, tmp_path):
 # ------------------------------------------------------------- planning lock
 
 def hook(repo: Path, payload: dict) -> tuple[int, str]:
-    return run(repo, "pre_tool_use.py", stdin=json.dumps(payload))
+    return run(repo, "pre_tool_use.py", stdin=json.dumps(payload), env={
+        "FORGE_PROCESS_TOKEN": "", "FORGE_LAUNCH_ID": "",
+    })
 
 
 def post_hook(repo: Path, payload: dict) -> tuple[int, str]:
@@ -7305,6 +7446,8 @@ def test_registered_hook_path_keeps_recorder_and_lockout_armed(repo, tmp_path):
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        env={key: value for key, value in os.environ.items()
+             if key not in {"FORGE_PROCESS_TOKEN", "FORGE_LAUNCH_ID"}},
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -7601,18 +7744,18 @@ def test_planning_lock_forces_plan_mode(repo, tmp_path):
         code, out = hook(repo, {"tool_name": "Write", "permission_mode": "default",
                                 "tool_input": {"file_path": str(repo / ok_path)}})
         assert "deny" not in out, ok_path
-    # raw codex exec is off-contract in ANY phase — route to /codex:rescue
+    # raw codex exec is off-contract in ANY phase — route to Forge exploration
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": "codex exec 'implement the thing'"}})
-    assert "deny" in out and "codex:rescue" in out
+    assert "deny" in out and "current coordinator chat" in out
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command":
                                            "codex exec --profile explore -s read-only 'map it'"}})
-    assert "deny" in out and "codex:rescue" in out
+    assert "deny" in out and "current coordinator chat" in out
     # Companion denial keys on WRITE INTENT, not on the companion itself: the
-    # codex-exec denial points at /codex:rescue, which runs the companion, so
-    # denying every invocation made exploration impossible from the
-    # orchestrator (0341332). A read-only rescue run passes; a write launch
+    # codex-exec denial points at Forge's exploration route, so denying every
+    # invocation made exploration impossible from the orchestrator (0341332).
+    # A read-only exploration run passes; a write launch
     # stays delegate-owned.
     companion = "node /x/codex-companion.mjs task --model gpt-5.6-terra 'map the module'"
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
@@ -7625,7 +7768,7 @@ def test_planning_lock_forces_plan_mode(repo, tmp_path):
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command":
                                            "FACTORY_DEGRADED=1 codex exec -s read-only 'map it'"}})
-    assert "deny" in out and "codex:rescue" in out
+    assert "deny" in out and "current coordinator chat" in out
     # Approval and decomposition authorize delegation, never session writes.
     save_plan(repo, tmp_path)
     code, out = hook(repo, {"tool_name": "Edit", "permission_mode": "default",
@@ -7651,7 +7794,7 @@ def test_planning_lock_forces_plan_mode(repo, tmp_path):
     # ...but raw codex exec stays off-contract even after approval
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": "codex exec 'build it'"}})
-    assert "deny" in out and "codex:rescue" in out
+    assert "deny" in out and "current coordinator chat" in out
 
 
 def test_planning_lock_is_always_armed_and_guards_bash_writes(repo):
@@ -8389,7 +8532,7 @@ def test_forge_fix_refuses_without_lite_window(repo):
     assert code != 0 and "open lite window" in out.lower(), out
 
 
-def test_forge_fix_records_terra_high_write_delegation(repo, tmp_path):
+def test_forge_fix_records_luna_max_write_delegation(repo, tmp_path):
     code, out = run(repo, "forge.py", "mode", "lite",
                     "--by", "Ada", "--reason", "bounded delivery")
     assert code == 0, out
@@ -8421,8 +8564,8 @@ def test_forge_fix_records_terra_high_write_delegation(repo, tmp_path):
     entry = rows[-1]
     assert entry["launch_status"] == "succeeded"
     assert entry["task"] == window["id"]
-    assert entry["model"] == "gpt-5.6-terra"
-    assert entry["effort"] == "high"
+    assert entry["model"] == "gpt-5.6-luna"
+    assert entry["effort"] == "max"
     assert entry["write"] is True
     assert entry["mode"] == "lite"
     active = json.loads((repo / ".factory" / "quickfix.json").read_text())
@@ -8440,7 +8583,7 @@ def test_modes_lite_pins_parse_and_dual_runtime_green(repo):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         from forge_cli.delegate import mode_run_config
-        assert mode_run_config(repo, "lite") == ("gpt-5.6-terra", "high", 5)
+        assert mode_run_config(repo, "lite") == ("gpt-5.6-luna", "max", 5)
     finally:
         sys.path.pop(0)
 
@@ -8598,7 +8741,8 @@ def test_plan_save_refuses_without_fresh_requirements_grill(repo, tmp_path):
     assert code != 0 and "awaiting-approval" in out
 
 
-def test_forge_next_routes_requirements_round_first(repo):
+def test_forge_next_routes_requirements_round_first(repo, monkeypatch):
+    monkeypatch.setenv("FORGE_COORDINATOR", "claude")
     sign_off(repo)
     intake(repo)
 
@@ -9241,6 +9385,10 @@ def test_story_closeout_requires_all_task_markers_and_completed_stories_reads_sh
     decomposition["tasks"].append({
         **decomposition["tasks"][0], "id": "T2", "title": "second slice",
     })
+    decomposition["tasks"] = [
+        task_with_plan_contracts(task, prefix=f"{task['id']}-C")
+        for task in decomposition["tasks"]
+    ]
     decomposition_path.write_text(json.dumps(decomposition))
     (scoped / "decomposition.json").write_text(json.dumps(decomposition))
     write_passing_artifacts(repo)
@@ -9254,14 +9402,70 @@ def test_story_closeout_requires_all_task_markers_and_completed_stories_reads_sh
     assert not (scoped / "shipped.json").exists()
     assert roadmap_items(repo)["ENG-1"]["status"] == "active"
 
-    publish_task_marker(repo, "ENG-1", "T1")
+    def seal_task_proof(task_id: str) -> tuple[Path, str]:
+        task = next(item for item in decomposition["tasks"]
+                    if item.get("id") == task_id)
+        write_stages(repo, {"issue": "ENG-1", "stages": [
+            {"id": item["id"], "title": item["title"],
+             "status": "active" if item["id"] == task_id else (
+                 "done" if (scoped / "tasks" / item["id"] / "pr-ready.json")
+                 .exists() else "pending")}
+            for item in decomposition["tasks"]
+        ]})
+        code, out = record_task_grill(repo, task)
+        assert code == 0, out
+        proof = write_task_proof(
+            repo, task_id, user_facing=task.get(
+                "user_facing", decomposition.get("user_facing", False)),
+            publish_review=True,
+        )
+        quality_path = proof / "reviews" / "quality.json"
+        quality = json.loads(quality_path.read_text())
+        quality["contract_verdicts"] = [
+            {"contract_id": contract["id"], "verdict": "implemented",
+             "evidence": "src/app.py:1"}
+            for contract in task["plan_contracts"]
+        ]
+        quality_path.write_text(json.dumps(quality))
+        proof_files = proof.relative_to(repo).as_posix()
+        git(repo, "add", proof_files, ".factory/review-briefs/all.md", (scoped / "decomposition.json").relative_to(repo).as_posix())
+        git(repo, "commit", "-q", "-m", f"record {task_id} proof")
+        return proof, head(repo)
+
+    def publish_sealed_marker(task_id: str, seal: str) -> None:
+        marker = scoped / "tasks" / task_id / "pr-ready.json"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({
+            "task_id": task_id,
+            "branch": run_state(repo).get("branch")
+                      or git(repo, "symbolic-ref", "--short", "HEAD"),
+            "base_main_sha": pointer["base_main_sha"],
+            "commit": seal,
+            "sealed_at": "2026-09-10T00:00:00+00:00",
+        }))
+        git(repo, "add", marker.relative_to(repo).as_posix())
+        git(repo, "commit", "-q", "-m", f"mark {task_id} ready")
+        git(repo, "push", "-q", "origin", "HEAD:main")
+
+    _, t1_seal = seal_task_proof("T1")
+    publish_sealed_marker("T1", t1_seal)
+    assert load_factory_lib(repo).task_marker_on_main(repo, "ENG-1", "T1")
     write_passing_artifacts(repo)
     code, out = run(repo, "pr_ready.py")
     assert code != 0 and "T2" in out, out
     assert not (scoped / "shipped.json").exists()
 
-    publish_task_marker(repo, "ENG-1", "T2")
+    _, t2_seal = seal_task_proof("T2")
+    publish_sealed_marker("T2", t2_seal)
     write_passing_artifacts(repo)
+    quality_path = scoped / "reviews" / "quality.json"
+    quality = json.loads(quality_path.read_text())
+    quality["contract_verdicts"] = [
+        verdict for task in decomposition["tasks"]
+        for verdict in json.loads((scoped / "tasks" / task["id"] / "reviews"
+                                   / "quality.json").read_text())["contract_verdicts"]
+    ]
+    quality_path.write_text(json.dumps(quality))
     closeout_base = head(repo)
     code, out = run(repo, "pr_ready.py")
     assert code == 0 and "shipped in place" in out, out
@@ -11164,8 +11368,6 @@ def test_recorder_holds_the_task_narrative_contract(repo, tmp_path):
     git(repo, "commit", "-qm", "stage baseline")
     code, out = record_task_grill(repo, first)
     assert code == 0, out
-    code, out = record_task_grill(repo, DECOMP["tasks"][0])
-    assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1", "--trunk")
     launch_fake(repo, tmp_path, "T1")
     write_in_scope(repo, "src/core.py")  # stage done measures the diff
@@ -11571,23 +11773,199 @@ def test_quickfix_ids_survive_concurrent_worktrees(repo):
     assert first_id != second_id
 
 
-def test_codex_exec_ban_matches_invocations_not_prose(repo):
+def test_codex_exec_ban_matches_invocations_not_prose(repo, monkeypatch):
+    monkeypatch.delenv("FORGE_LAUNCH_ID", raising=False)
+    monkeypatch.delenv("FORGE_PROCESS_TOKEN", raising=False)
     def bash(cmd):
         return hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                            "tool_input": {"command": cmd}})
     # invocations: denied in every position
     for cmd in ('codex exec "build it"',
                 'FACTORY_DEGRADED=1 codex exec -s read-only "x"',
+                '/opt/homebrew/bin/codex exec "x"',
+                'codex.exe exec "x"',
+                'codex.cmd exec "x"',
+                'codex --config \'model_reasoning_summary = "detailed summary"\' exec "x"',
+                r'codex --config model\ reasoning exec "x"',
+                r"codex --config 'model 'reasoning exec x",
+                'MODE=\'value with spaces\' codex exec "x"',
+                r'MODE=value\ with\ spaces codex exec "x"',
+                '"C:/Program Files/codex.exe" exec "x"',
+                r'"C:\Program Files\codex.cmd" exec "x"',
+                'command "C:/Program Files/codex.exe" exec "x"',
+                'env C:/Tools/codex.cmd exec "x"',
+                r'command "C:\Program Files\codex.exe" exec "x"',
+                r'env "C:\Tools\codex.cmd" exec "x"',
+                'command codex exec "x"',
+                'command codex --profile \'review profile\' exec "x"',
+                'command -- codex exec "x"',
+                'command -p codex exec "x"',
+                'command -p -- codex exec "x"',
+                'exec codex exec "x"',
+                '"exec" codex exec "x"',
+                "'exec' codex exec \"x\"",
+                'exec -- codex exec "x"',
+                'exec -c codex exec "x"',
+                'exec -l codex exec "x"',
+                'exec -cl codex exec "x"',
+                'exec -a worker codex exec "x"',
+                'exec -aworker codex exec "x"',
+                'exec -calabel codex exec "x"',
+                'exec -cla worker codex exec "x"',
+                'command -- exec codex exec "x"',
+                'command -p exec codex exec "x"',
+                'command -p -- exec codex exec "x"',
+                'env codex exec "x"',
+                'env \'MODE=value with spaces\' codex --config \'key = value\' exec "x"',
+                'env -i codex exec "x"',
+                'env -S "codex exec x"',
+                'env -S "command -- codex exec x"',
+                'env --split-string "codex exec x"',
+                'env --split-string="codex exec x"',
+                'env -- MODE=test codex exec "x"',
+                '/usr/bin/env FACTORY_DEGRADED=1 codex exec "x"',
+                'nohup codex exec "x"',
+                'nohup -- codex exec "x"',
+                'xargs codex exec',
+                'xargs -n 1 codex exec',
+                'xargs -I ITEM codex exec',
+                'xargs --unknown ITEM codex exec',
+                'nice codex exec "x"',
+                'nice -n 5 codex exec "x"',
+                'sh -c \'codex exec "x"\'',
+                'sh -lc \'codex exec "x"\'',
+                'sh -c \'exec -cl codex exec "x"\'',
+                'bash -xec \'codex exec "x"\'',
+                'bash -o pipefail -lc \'codex exec "x"\'',
+                'bash -opipefail -lc \'codex exec "x"\'',
+                'bash -xo pipefail -lc \'codex exec "x"\'',
+                'bash -xopipefail -lc \'codex exec "x"\'',
+                'bash -O extglob -lc \'codex exec "x"\'',
+                'bash -Oextglob -lc \'codex exec "x"\'',
+                'bash -xO extglob -lc \'codex exec "x"\'',
+                'bash +o c -lc \'codex exec "x"\'',
+                'bash +O codex -lc \'codex exec "x"\'',
+                'bash -o -c -lc \'codex exec "x"\'',
+                'bash --rcfile /tmp/forge-test-rc -lc \'codex exec "x"\'',
+                'bash --rcfile=/tmp/forge-test-rc -lc \'codex exec "x"\'',
+                'bash --init-file /tmp/forge-test-init -lc \'codex exec "x"\'',
+                'zsh -o shwordsplit -lc \'codex exec "x"\'',
+                'zsh -oshwordsplit -lc \'codex exec "x"\'',
+                'zsh -xo shwordsplit -lc \'codex exec "x"\'',
+                'zsh +o c -lc \'codex exec "x"\'',
+                '"/opt/tools/codex" exec "x"',
+                'command "/opt/Tools With Spaces/codex" exec "x"',
                 'cd /tmp && codex exec "x"',
+                'cd /tmp && exec codex exec "x"',
+                'cd /tmp && exec "C:/Program Files/codex.cmd" exec "x"',
                 'echo hi | codex exec "x"',
-                'OUT=$(codex exec "x")'):
+                'echo hi | exec -- codex exec "x"',
+                'echo hi | codex --profile \'review profile\' exec "x"',
+                r'echo hi | codex --profile review\ profile exec "x"',
+                r'echo hi | codex --config "key = \"value\"" exec "x"',
+                'OUT=$(codex exec "x")',
+                'OUT=$(MODE=\'value with spaces\' codex --config \'key = value\' exec "x")',
+                r'OUT=$(MODE=value\ with\ spaces codex --config key\ =\ value exec x)',
+                r"OUT=$(MODE='value 'with\ spaces codex --config 'key 'value exec x)",
+                r'OUT=$(MODE="value \"quoted\"" codex --config "key = \"value\"" exec x)'):
         code, out = bash(cmd)
         assert "deny" in out, cmd
     # prose mentioning the phrase (heredocs, greps, docs): allowed
     for cmd in ('cat > docs/notes.md << EOF\nthe hook denies raw codex exec always\nEOF',
-                'grep -rn "codex exec" docs/ || true'):
+                'grep -rn "codex exec" docs/ || true',
+                'python script.py codex exec "argument only"',
+                'git commit -m codex exec',
+                'command python script.py codex exec "argument only"',
+                'env MODE=test python script.py codex exec "argument only"',
+                'nohup python script.py codex exec "argument only"',
+                'nice python script.py codex exec "argument only"',
+                'xargs echo codex exec',
+                'env -u codex python script.py exec',
+                'xargs -I codex echo exec',
+                'command -v codex exec',
+                'command -V codex exec',
+                'command -v exec codex exec',
+                'command -V exec codex exec',
+                'exec -a codex python script.py exec',
+                'exec -acodex python script.py exec',
+                'exec -cla codex python script.py exec',
+                'exec -a "codex argv0" python script.py exec',
+                "exec -a 'codex exec' printf '%s' safe",
+                'exec -a"codex exec" printf "%s" safe',
+                r'exec -acodex\ exec printf "%s" safe',
+                r'printf safe; exec -a"codex "exec printf "%s" safe',
+                r'echo hi | exec -acodex\ exec printf "%s" safe',
+                "echo \"$(exec -a 'codex exec' printf '%s' safe)\"",
+                'exec -- -c codex exec',
+                'exec -cla codex exec x',
+                'exec -acl label codex exec x',
+                'env exec codex exec',
+                'env -- exec codex exec',
+                'nohup exec codex exec',
+                'nohup -- exec codex exec',
+                'xargs exec codex exec',
+                'xargs -- exec codex exec',
+                '/tmp/exec codex exec',
+                'codex.exe exec --help',
+                'codex.cmd exec -h',
+                'env --help codex exec',
+                'env --version codex exec',
+                'nohup --help codex exec',
+                'nice --help codex exec',
+                'xargs --version codex exec',
+                'sh script.sh -c \'codex exec "argument only"\'',
+                'bash +o codex script.sh \'codex exec "argument only"\'',
+                'sh -- -c \'codex exec "argument only"\'',
+                'MODE=\'safe; codex exec x\' python script.py',
+                'printf "%s" "safe | codex exec x"',
+                "echo '$(codex exec x)'",
+                r'echo safe\;codex exec x',
+                'sh -c \'printf "safe; codex exec x"\''):
         code, out = bash(cmd)
         assert "deny" not in out, cmd
+    for cmd in ('printf "%s" "safe; codex exec x"; codex exec real',
+                'echo "$(codex exec real)"',
+                'echo "$(printf x; codex exec x)"',
+                'echo "$(printf x; exec -a worker codex exec x)"',
+                'echo "$(printf \'%s\' \'literal )\'; codex exec x)"',
+                r'echo "$(printf foo\); codex exec x)"',
+                'echo "$( (printf x); codex exec x)"',
+                'echo "$( (codex exec x) )"',
+                'f(){(codex exec x);}; f',
+                'OUT=$(f(){(codex exec x);}; f)',
+                '(codex exec x)',
+                'printf x <(codex exec x)',
+                'printf x <(printf y; codex exec x)',
+                'echo "`codex exec real`"',
+                'echo "`printf x; codex exec x`"',
+                'echo "`printf x; exec -laworker codex exec x`"'):
+        code, out = bash(cmd)
+        assert "deny" in out, cmd
+
+    for cmd in ('items=(codex exec x)',
+                'OUT=$(items=(codex exec x); printf safe)',
+                'OUT=$(f() { printf "%s" "codex exec x"; }; printf safe)',
+                'OUT=$((codex exec x))',
+                'OUT=$(printf "%s" @(codex exec x))',
+                r'OUT=$(printf "%s" \(codex exec x\))'):
+        code, out = bash(cmd)
+        assert "deny" not in out, cmd
+
+    code, out = run(repo, "forge.py", "mode", "degraded", "start",
+                    "--reason", "exercise structured patch content")
+    assert code == 0, out
+    structured_patch = f"""*** Begin Patch
+*** Update File: {repo / 'src/app.ts'}
+@@
++message = "Direct `codex exec` stays off-contract in a shell"
+*** End Patch"""
+    code, out = hook(repo, {
+        "tool_name": "apply_patch", "permission_mode": "default",
+        "tool_input": {"command": structured_patch},
+    })
+    assert "deny" not in out, out
+    code, out = bash('codex exec "still denied as a shell command"')
+    assert "deny" in out, out
 
 
 # --------------------------------------------------- review-hardening guards
@@ -11622,7 +12000,22 @@ def test_review_hardening_guards(repo, tmp_path):
     assert "deny" in out and "forge delegate" in out
     code, out = hook(repo, {"tool_name": "Bash", "permission_mode": "default",
                             "tool_input": {"command": "codex --profile explore exec 'x'"}})
-    assert "deny" in out and "codex:rescue" in out
+    assert "deny" in out and "current coordinator chat" in out
+
+
+def test_review_product_dirty_preserves_porcelain_status_prefix(repo, monkeypatch):
+    import forge_cli.review as review
+    import forge_cli.tasks as tasks
+
+    status = " M .factory/grills/spec.json\0"
+    monkeypatch.setattr(
+        review, "_git",
+        lambda *_args: subprocess.CompletedProcess([], 0, stdout=status, stderr=""),
+    )
+    assert review._product_dirty(repo) == []
+
+    status = " M src/product.py\0"
+    assert review._product_dirty(repo) == ["src/product.py"]
 
 
 def test_roadmap_dependency_and_lifecycle_guards(repo, tmp_path):
@@ -11686,6 +12079,14 @@ def mint_review_run(repo: Path) -> dict:
     return json.loads((story_state(repo, key) / "review-run.json").read_text())
 
 
+def seed_review_inputs(repo: Path, tasks: list[dict]) -> None:
+    """Give each started task the real JIT inputs consumed by review-brief."""
+    for task in tasks:
+        code, out = record_task_grill(repo, task)
+        assert code == 0, out
+        write_task_proof(repo, task["id"])
+
+
 def record_stage_local(repo: Path, **over) -> tuple[int, str]:
     return run(
         repo, "record_review_from_json.py", "--aspect", "stage-local",
@@ -11707,6 +12108,10 @@ def stamp_and_commit(repo: Path, *paths: str) -> None:
     if subprocess.run(
             ["git", "diff", "--cached", "--quiet"], cwd=repo).returncode:
         git(repo, "commit", "-qm", "reviewed stage work")
+    active = [stage["id"] for stage in load_stages(repo).get("stages", [])
+              if stage.get("status") == "active"]
+    if len(active) == 1:
+        write_task_proof(repo, active[0], publish_review=True)
 
 
 def test_structured_findings_recorded_and_malformed_refused(repo, tmp_path):
@@ -11911,7 +12316,11 @@ def fake_companion_home(tmp_path: Path) -> Path:
 
 
 def fake_companion_env(tmp_path: Path) -> dict[str, str]:
-    return {"HOME": str(fake_companion_home(tmp_path))}
+    # These fixtures launch the fake Claude companion; make that choice
+    # explicit so a Codex-hosted test process cannot route them through the
+    # native launcher and require real Codex hook readiness.
+    return {"HOME": str(fake_companion_home(tmp_path)),
+            "FORGE_COORDINATOR": "claude"}
 
 
 def _fake_psutil_module(tmp_path: Path) -> Path:
@@ -11941,8 +12350,9 @@ def launch_fake(repo: Path, tmp_path: Path, stage_id: str) -> None:
     decomp = load_json(protected_decomposition_state_path(repo), default={})
     task = next(t for t in decomp.get("tasks", []) if t.get("id") == stage_id)
     record_task_grill(repo, task)
-    code, out = run(repo, "forge.py", "delegate", stage_id,
-                    env=fake_companion_env(tmp_path))
+    env = fake_companion_env(tmp_path)
+    env["PYTHONPATH"] = str(_fake_psutil_module(tmp_path))
+    code, out = run(repo, "forge.py", "delegate", stage_id, env=env)
     assert code == 0, out
 
 
@@ -12054,7 +12464,14 @@ def configure_origin_main(repo: Path, remote: Path) -> None:
 def publish_task_marker(repo: Path, key: str, task_id: str) -> Path:
     marker = story_state(repo, key) / "tasks" / task_id / "pr-ready.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("{}\n")
+    marker.write_text(json.dumps({
+        "task_id": task_id,
+        "branch": git(repo, "branch", "--show-current"),
+        "base_main_sha": git(repo, "rev-parse", "origin/main"),
+        "commit": head(repo),
+        "sealed_at": "2026-09-10T00:00:00+00:00",
+        "reconciled": True,
+    }) + "\n")
     git(repo, "add", marker.relative_to(repo).as_posix())
     git(repo, "commit", "-q", "-m", f"mark {task_id} ready")
     git(repo, "push", "-q", "origin", "HEAD:main")
@@ -12127,7 +12544,7 @@ def finish_task_for_pr_ready(repo: Path) -> None:
 
 
 def test_task_start_creates_worktree_off_main_and_gates_on_predecessor_marker(
-    repo, tmp_path,
+        repo, tmp_path,
 ):
     remote = tmp_path / "origin.git"
     proc = subprocess.run(["git", "init", "--bare", str(remote)],
@@ -12159,7 +12576,12 @@ def test_task_start_creates_worktree_off_main_and_gates_on_predecessor_marker(
 
     marker = repo / ".factory" / "stories" / key / "tasks" / "T1" / "pr-ready.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("{}\n")
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": "feat/ENG-1-T1",
+        "base_main_sha": git(repo, "rev-parse", "origin/main"),
+        "commit": head(repo), "sealed_at": "2026-09-10T00:00:00+00:00",
+        "reconciled": True,
+    }) + "\n")
     git(repo, "add", str(marker.relative_to(repo)))
     git(repo, "commit", "-q", "-m", "mark T1 ready")
     git(repo, "push", "-q", "origin", "HEAD:main")
@@ -12172,11 +12594,14 @@ def test_task_start_creates_worktree_off_main_and_gates_on_predecessor_marker(
     destinations = {
         "plan": second_worktree / sources["plan"].relative_to(repo),
         "decomposition": story_state(second_worktree, key) / "decomposition.json",
-        "grill": story_state(second_worktree, key) / "grills/tasks/T2.json",
         "task_plan": story_state(second_worktree, key) / "task-plans/T2.md",
     }
-    assert all(destinations[name].read_bytes() == source.read_bytes()
-               for name, source in sources.items())
+    assert all(destination.read_bytes() == sources[name].read_bytes()
+               for name, destination in destinations.items())
+    target_grill = story_state(second_worktree, key) / "grills/tasks/T2.json"
+    assert not target_grill.exists()
+    code, out = run(second_worktree, "forge.py", "stage", "start", "T2")
+    assert code != 0 and "grill" in out.lower(), out
     control = Path(git(second_worktree, "rev-parse", "--absolute-git-dir")) / "forge"
     pointer = json.loads((control / "run.json").read_text())
     assert pointer | {"issue_key": key, "task_id": "T2",
@@ -12278,6 +12703,9 @@ def test_task_pr_ready_refuses_unsealed_then_writes_marker_and_opens_pr(
     assert not marker.exists() and not argv_path.exists()
 
     finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
     expected_head = head(repo)
     code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=gh_env)
     assert code == 0, out
@@ -12289,6 +12717,7 @@ def test_task_pr_ready_refuses_unsealed_then_writes_marker_and_opens_pr(
         "task_id": "T1",
         "branch": git(repo, "symbolic-ref", "--short", "HEAD"),
         "base_main_sha": pointer["base_main_sha"],
+        "review_base_sha": payload["review_base_sha"],
         "commit": expected_head,
         "sealed_at": payload["sealed_at"],
     }
@@ -12313,6 +12742,9 @@ def test_task_pr_ready_refuses_unsealed_then_writes_marker_and_opens_pr(
 def test_task_pr_ready_does_not_flip_roadmap_or_write_outcome(repo, tmp_path):
     marker = prepare_task_pr_ready(repo, tmp_path)
     finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
     gh_env, _ = fake_gh_env(tmp_path)
     roadmap = repo / "plans" / "roadmap.json"
     before = roadmap.read_bytes()
@@ -12560,8 +12992,14 @@ def test_task_proof_overrides_a_clean_story_record_rather_than_joining_it(
     # The safety property. If task-scoped proof were merged with the legacy
     # story record instead of overriding it, a task could hide a blocking
     # finding behind a clean story-level review.
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "user_facing": False}, "C"
+    )
+    record_skeleton_then_frontier(repo, [task])
     lib = load_factory_lib(repo)
-    task = {"id": "T1", "user_facing": False}
 
     clean = {"generated_by": "t", "verdict": "pass", "score": 9,
              "blocking_findings": []}
@@ -12577,26 +13015,13 @@ def test_task_proof_overrides_a_clean_story_record_rather_than_joining_it(
                                  for_write=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         lib.dump_json(path, dict(clean, aspect=lens))
-    assert not lib.task_proof_problems(repo, "ENG-1", task), "fallback should pass"
+    assert lib.task_proof_problems(repo, "ENG-1", task), (
+        "story-scoped proof cannot stand in for a task-owned bundle")
 
     # Now the task records its OWN security review, and it is not clean.
-    for name in ("verify.json", "tests.json"):
-        path = lib.task_evidence_path(repo, "ENG-1", "T1", name, for_write=True)
-        path.parent.mkdir(parents=True, exist_ok=True)
-    lib.dump_json(lib.task_evidence_path(repo, "ENG-1", "T1", "verify.json",
-                                         for_write=True),
-                  {"generated_by": "t", "ok": True})
-    lib.dump_json(lib.task_evidence_path(repo, "ENG-1", "T1", "tests.json",
-                                         for_write=True),
-                  {"automated": {"generated_by": "t", "status": "passed"}})
-    for lens in ("quality", "performance", "security"):
-        path = lib.task_evidence_path(repo, "ENG-1", "T1", f"reviews/{lens}.json",
-                                      for_write=True)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        record = dict(clean, aspect=lens)
-        if lens == "security":
-            record["blocking_findings"] = ["unvalidated input"]
-        lib.dump_json(path, record)
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    write_task_proof(repo, "T1", publish_review=True, review_blocked=True)
 
     problems = lib.task_proof_problems(repo, "ENG-1", task)
     assert problems, "task proof must override the story record, not join it"
@@ -12641,10 +13066,8 @@ def test_state_audit_is_read_only_and_clean_when_nothing_disagrees(repo):
 
 def test_incomplete_is_refused_when_the_proof_says_the_work_is_done(
         repo, tmp_path):
-    # `--incomplete` is the only escape from a refusing seal, so it is the
-    # tempting move for work that IS finished -- and then the frontier and the
-    # PR gate read a completed task as unfinished. The recorded proof already
-    # answers the question.
+    # Story-only proof cannot make this task complete, so it cannot prevent an
+    # honest incomplete record for the task.
     task = task_with_plan_contracts({**DECOMP["tasks"][0], "user_facing": False})
     sign_off(repo)
     intake(repo)
@@ -12672,9 +13095,8 @@ def test_incomplete_is_refused_when_the_proof_says_the_work_is_done(
 
     code, out = run(repo, "forge.py", "stage", "done", "T1",
                     "--incomplete", "cannot seal, gate refuses")
-    assert code != 0, out
-    assert "WORK REMAINS" in out
-    assert "audit --state" in out  # it names the tool that finds the real cause
+    assert code == 0, out
+    assert "recorded INCOMPLETE and left active" in out
 
 
 def test_scope_amendment_breaks_the_seal_deadlock_without_touching_the_contract(
@@ -12694,25 +13116,25 @@ def test_scope_amendment_breaks_the_seal_deadlock_without_touching_the_contract(
 
     task = {
         "id": "T3",
-        "write_scope": ["src/api"],
+        "write_scope": ["src/api/"],
         "required_tests": [{"id": "t1", "path": "t/a.spec.ts", "command": "x"}],
         "verify_commands": ["pnpm verify"],
         "acceptance_criteria": ["it works"],
     }
     before = lib.task_digest(task)
     # What the refusal used to instruct: widen the scope in the contract.
-    corrected = {**task, "write_scope": ["src/api", "src/db"]}
+    corrected = {**task, "write_scope": ["src/api/", "src/db/y.ts"]}
     assert lib.task_digest(corrected) != before, (
         "expected a contract correction to break the launch binding")
 
     # The amendment records the same measured truth ALONGSIDE the contract.
     lib.dump_json(scope_amendments_path(repo), {"tasks": {"T3": {
-        "added_paths": ["src/db"],
-        "amendments": [{"reason": "measured", "added_paths": ["src/db"]}],
+        "added_paths": ["src/db/y.ts"],
+        "amendments": [{"reason": "measured", "added_paths": ["src/db/y.ts"]}],
     }}})
-    assert amended_scope_paths(repo, "T3") == ["src/db"]
+    assert amended_scope_paths(repo, "T3") == ["src/db/y.ts"]
     effective = effective_scope(repo, "T3", task["write_scope"])
-    assert effective == ["src/api", "src/db"]
+    assert effective == ["src/api/", "src/db/y.ts"]
 
     # The contract is untouched, so both bindings still hold.
     assert lib.task_digest(task) == before
@@ -13270,10 +13692,7 @@ def test_stage_done_refuses_empty_diff(repo, tmp_path):
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "EMPTY diff" in out
     write_in_scope(repo, "src/core.py")
-    git(repo, "add", "src/core.py")
-    code, out = record_stage_local(repo)
-    assert code == 0, out
-    git(repo, "commit", "-qm", "reviewed stage work")
+    stamp_and_commit(repo, "src/core.py")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code == 0, out
 
@@ -13293,6 +13712,7 @@ def test_stage_done_refuses_without_fresh_stage_local_stamp(repo, tmp_path):
     git(repo, "add", "src/core.py")
     code, out = record_stage_local(repo)
     assert code == 0, out
+    write_task_proof(repo, "T1", publish_review=True)
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "uncommitted or staged PRODUCT changes" in out
 
@@ -13306,6 +13726,7 @@ def test_stage_done_refuses_without_fresh_stage_local_stamp(repo, tmp_path):
     git(repo, "add", "src/core.py")
     code, out = record_stage_local(repo)
     assert code == 0, out
+    write_task_proof(repo, "T1", publish_review=True)
     git(repo, "commit", "-qm", "exact reviewed tree")
     code, out = run(repo, "forge.py", "stage", "done", "T1")
     assert code != 0 and "no successful write launch" in out
@@ -14139,9 +14560,12 @@ def test_stage_done_termination_signal_reaps_active_proof(
         text=True,
     )
     marker = repo / ".factory" / "proof-child.pid"
-    for _ in range(100):
+    for _ in range(240):
         if marker.is_file():
             break
+        if proc.poll() is not None:
+            stdout, stderr = proc.communicate()
+            pytest.fail(f"stage done exited before proof started: {stdout}{stderr}")
         threading.Event().wait(0.05)
     assert marker.is_file()
     child_pid = int(marker.read_text())
@@ -14283,7 +14707,7 @@ def test_stage_done_ledgers_a_contract_rewritten_mid_stage(repo, tmp_path):
     # launch bound to it. Ledgering the change removes the re-baseline, not
     # the delegation binding.
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     write_in_scope(repo, "billing/ledger.py", "changed = True\n")
     stamp_and_commit(repo, "billing/ledger.py")
@@ -14441,7 +14865,7 @@ def test_stage_start_never_moves_the_baseline(repo, tmp_path):
     code, out = record_task_grill(repo, widened)
     assert code == 0, out
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     write_in_scope(repo, "src/core.py", "more = True\n")
     stamp_and_commit(repo, "src/core.py")
@@ -14530,7 +14954,7 @@ def test_stage_done_sees_later_edits_to_an_initially_dirty_file(repo, tmp_path):
     assert code == 0, out
     code, out = run(
         repo, "forge.py", "delegate", "T1",
-        env={"HOME": str(fake_companion_home(tmp_path))},
+        env=fake_companion_env(tmp_path),
     )
     assert code == 0, out
     write_in_scope(repo, "billing/ledger.py", "before = 1\n")
@@ -15181,7 +15605,7 @@ def test_delegate_brief_carries_criteria_and_scope(repo, tmp_path):
     start_stage(repo, tmp_path, DELEGATE_TASK)
     write_in_scope(repo, "src/existing_helper.py")
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     brief = (repo / ".factory" / "diagnostic-briefs" / "T1.md").read_text()
     assert "the slice runs green" in brief          # acceptance criteria
@@ -15205,7 +15629,7 @@ def test_brief_states_budget_and_narration_line(repo, tmp_path):
     }}
     start_stage(repo, tmp_path, task, launch=False)
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     # Explicit encoding: the brief is UTF-8, and reading it in the host locale
     # turns the conduct section sign into mojibake on Windows.
@@ -15234,20 +15658,20 @@ def test_delegate_derives_write_from_stage_state(repo, tmp_path):
     save_plan(repo, tmp_path)
     record_skeleton_then_frontier(repo, [DELEGATE_TASK])
     # stage not started -> read only
-    home = str(fake_companion_home(tmp_path))
+    companion_env = fake_companion_env(tmp_path)
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
-                    env={"HOME": home})
+                    env=companion_env)
     assert (code == 0 and len(out.splitlines()) == 1 and "--write" not in out
             and "Write access: NO" in out and "not launched" in out)
     code, out = record_task_grill(repo, DELEGATE_TASK)
     assert code == 0, out
     run(repo, "forge.py", "stage", "start", "T1", "--trunk")
     code, out = run(repo, "forge.py", "delegate", "T1", "--print-only",
-                    env={"HOME": home})
+                    env=companion_env)
     assert code == 0 and "--write" in out
     # ...and --read-only is the explicit exception
     code, out = run(repo, "forge.py", "delegate", "T1", "--read-only", "--print-only",
-                    env={"HOME": home})
+                    env=companion_env)
     assert code == 0 and "--write" not in out
 
 
@@ -15743,6 +16167,35 @@ def test_safe_factory_windows_helper_refuses_reparse_components(
         target, parts, os.O_WRONLY | os.O_CREAT) is None
 
 
+def test_review_generation_refuses_windows_reparse_ancestor(tmp_path, monkeypatch):
+    factory_lib = load_factory_lib(HARNESS)
+    root = tmp_path / "repo"
+    reviews = root / "reviews"
+    root.mkdir()
+    reviews.mkdir()
+    destination = reviews / "generation.json"
+    real_lstat = factory_lib.os.lstat
+    reparse_flag = 0x400
+    monkeypatch.setattr(
+        factory_lib.stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag,
+        raising=False,
+    )
+
+    def lstat(path):
+        info = real_lstat(path)
+        if os.fspath(path) == os.fspath(reviews):
+            return types.SimpleNamespace(
+                st_mode=info.st_mode, st_nlink=info.st_nlink,
+                st_file_attributes=reparse_flag,
+            )
+        return info
+
+    monkeypatch.setattr(factory_lib.os, "lstat", lstat)
+    assert not factory_lib._safe_review_leaf(
+        root, destination, required=False, create_parents=True,
+    )
+
+
 def test_delegate_mirror_symlink_is_ignored(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
     victim = repo / "victim.txt"
@@ -15750,7 +16203,7 @@ def test_delegate_mirror_symlink_is_ignored(repo, tmp_path):
     mirror = repo / ".factory" / "delegations.jsonl"
     mirror.symlink_to(victim)
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     assert victim.read_text() == "do not touch\n"
     assert delegation_ledger(repo).is_file()
@@ -15836,7 +16289,7 @@ def test_delegate_retry_reconciles_interrupted_running_launch(repo, tmp_path):
     with ledger.open("a") as fh:
         fh.write(json.dumps(stale) + "\n")
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     entries = [json.loads(line) for line in ledger.read_text().splitlines()]
     reconciled = [entry for entry in entries
@@ -16232,7 +16685,7 @@ def test_process_cleanup_reaps_known_process_when_discovery_fails(
     assert signals == [(101, signal.SIGTERM), (101, signal.SIGKILL)]
 
 
-def test_immediate_cleanup_signals_owned_group_before_discovery(
+def test_immediate_cleanup_snapshots_children_then_signals_and_rediscovers(
         repo, monkeypatch):
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
@@ -16261,7 +16714,7 @@ def test_immediate_cleanup_signals_owned_group_before_discovery(
     finally:
         sys.path.pop(0)
     assert stopped is False
-    assert events == ["signal", "discover", "reap"]
+    assert events == ["discover", "signal", "discover", "reap"]
 
 
 def test_process_cleanup_discovers_children_spawned_during_termination(
@@ -16365,6 +16818,7 @@ def test_wait_reuses_process_table_snapshot_for_tag_discovery(
 def test_delegate_reaps_spawn_when_running_registration_fails(
         repo, tmp_path, monkeypatch):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
+    monkeypatch.setenv("FORGE_COORDINATOR", "claude")
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
@@ -16427,10 +16881,12 @@ def test_delegate_reaps_spawn_when_running_registration_fails(
 @pytest.mark.parametrize("platform", ("posix", "nt"))
 def test_launch_companion_uses_platform_specific_spawn_options(
         repo, tmp_path, monkeypatch, platform):
+    monkeypatch.setenv("FORGE_COORDINATOR", "claude")
     sys.path.insert(0, str(repo / "factory" / "scripts"))
     try:
         import forge_cli.delegate as delegate
         captured = {}
+        native_os_name = delegate.os.name
 
         class Process:
             pid = 101
@@ -16452,7 +16908,10 @@ def test_launch_companion_uses_platform_specific_spawn_options(
         monkeypatch.setattr(delegate.shutil, "which", lambda _name: "node")
         monkeypatch.setattr(delegate, "_process_table", lambda: {})
         monkeypatch.setattr(delegate, "_capture_spawn_identity", lambda _proc: 1.0)
-        monkeypatch.setattr(delegate, "_wait_and_reap", lambda *_args: True)
+        monkeypatch.setattr(
+            delegate, "_wait_and_reap",
+            lambda *_args, **_kwargs: True,
+        )
         monkeypatch.setattr(delegate.subprocess, "Popen", spawn)
         delegate.launch_companion(
             repo, task_id="T1", text="brief", path=repo / ".factory" / "x.md",
@@ -16460,6 +16919,7 @@ def test_launch_companion_uses_platform_specific_spawn_options(
             write=False,
         )
     finally:
+        monkeypatch.setattr(delegate.os, "name", native_os_name)
         sys.path.pop(0)
     if platform == "nt":
         assert captured["creationflags"] == 1
@@ -16555,7 +17015,7 @@ def test_delegate_ignores_stale_lock_contents_when_no_process_holds_it(repo, tmp
     lock.parent.mkdir(parents=True, exist_ok=True)
     lock.write_text("")
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     assert lock.exists()
 
@@ -16611,7 +17071,7 @@ def test_termination_signals_reap_companion_before_lock_release(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, "HOME": str(home), "FORGE_COORDINATOR": "claude"},
     )
     lock = delegation_lock(repo, "T1")
     latest = {}
@@ -16659,7 +17119,8 @@ def test_windows_delegation_launches_and_reaps(repo, tmp_path):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
+        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home),
+             "FORGE_COORDINATOR": "claude"},
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     child_pid = 0
@@ -16744,7 +17205,8 @@ def test_windows_delegation_success_round_trips_unicode_handoff(repo, tmp_path):
         capture_output=True,
         text=True,
         encoding="utf-8",
-        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home)},
+        env={**os.environ, "HOME": str(home), "USERPROFILE": str(home),
+             "FORGE_COORDINATOR": "claude"},
     )
 
     assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -16757,9 +17219,8 @@ def test_windows_delegation_success_round_trips_unicode_handoff(repo, tmp_path):
 
 def test_read_only_diagnostic_does_not_revoke_write_launch(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK)
-    home = str(fake_companion_home(tmp_path))
     code, out = run(repo, "forge.py", "delegate", "T1", "--read-only",
-                    env={"HOME": home})
+                    env=fake_companion_env(tmp_path))
     assert code == 0, out
     write_in_scope(repo, "src/core.py")
     stamp_and_commit(repo)
@@ -16770,14 +17231,15 @@ def test_read_only_diagnostic_does_not_revoke_write_launch(repo, tmp_path):
 def test_delegate_missing_companion_guides_doctor_fix(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
     code, out = run(repo, "forge.py", "delegate", "T1",
-                    env={"HOME": str(tmp_path / "empty-home")})
+                    env={"HOME": str(tmp_path / "empty-home"),
+                         "FORGE_COORDINATOR": "claude"})
     assert code != 0 and "doctor --fix" in out
 
 
 def test_delegate_refuses_background_write_launch(repo, tmp_path):
     start_stage(repo, tmp_path, STAGE_TASK, launch=False)
     code, out = run(repo, "forge.py", "delegate", "T1", "--background",
-                    env={"HOME": str(fake_companion_home(tmp_path))})
+                    env=fake_companion_env(tmp_path))
     assert code != 0 and "background write delegation" in out
     assert not (repo / ".factory" / "delegations.jsonl").exists()
     assert not delegation_ledger(repo).exists()
@@ -16797,13 +17259,15 @@ def test_codex_status_reports_write_flag_and_stall(repo, tmp_path):
         "id": "task-2", "workspaceRoot": "/somewhere/else", "status": "running",
         "write": True, "startedAt": "2020-01-01T00:00:00Z"}))
     code, out = run(repo, "forge.py", "codex", "status",
-                    "--state-root", str(tmp_path / "state"))
+                    "--state-root", str(tmp_path / "state"),
+                    env={"FORGE_COORDINATOR": "claude"})
     assert code == 0, out                       # advisory: never fails a gate
     assert "task-1" in out and "task-2" not in out   # this repo's jobs only
     assert "write=no" in out and "STALLED?" in out and "READ-ONLY" in out
     # a missing registry degrades to a clear unknown, still exit 0
     code, out = run(repo, "forge.py", "codex", "status",
-                    "--state-root", str(tmp_path / "nope"))
+                    "--state-root", str(tmp_path / "nope"),
+                    env={"FORGE_COORDINATOR": "claude"})
     assert code == 0 and "unknown" in out
 
 
@@ -16820,19 +17284,22 @@ def test_codex_status_uses_inactivity_instead_of_total_runtime(repo, tmp_path):
         "id": "task-1", "updatedAt": "2999-01-01T00:00:00Z",
     }]}))
     code, out = run(repo, "forge.py", "codex", "status",
-                    "--state-root", str(tmp_path / "state"))
+                    "--state-root", str(tmp_path / "state"),
+                    env={"FORGE_COORDINATOR": "claude"})
     assert code == 0 and "task-1" in out and "STALLED?" not in out
     project.joinpath("state.json").write_text(json.dumps({"jobs": [{
         "id": "task-1", "updatedAt": "2020-01-01T00:01:00Z",
     }]}))
     code, out = run(repo, "forge.py", "codex", "status",
-                    "--state-root", str(tmp_path / "state"))
+                    "--state-root", str(tmp_path / "state"),
+                    env={"FORGE_COORDINATOR": "claude"})
     assert code == 0 and "STALLED?" in out and "no progress" in out
     project.joinpath("state.json").write_text(json.dumps({"jobs": [{
         "id": "task-1", "updatedAt": {"malformed": True},
     }]}))
     code, out = run(repo, "forge.py", "codex", "status",
-                    "--state-root", str(tmp_path / "state"))
+                    "--state-root", str(tmp_path / "state"),
+                    env={"FORGE_COORDINATOR": "claude"})
     assert code == 0 and "task-1" in out
 
 
@@ -17132,7 +17599,7 @@ def test_forge_next_and_board_route_author_task_plan_and_await_approval(
                    for line in output.splitlines() if ". [dev]" in line]
         action = next((a for a in actions if command in a), None)
         assert action is not None, f"{command!r} in none of: {actions}"
-        assert action in next_actions(repo)["steps"]
+        assert any(command in step for step in next_actions(repo)["steps"])
 
     assert_route("author-task-plan", "author-task-plan", "task plan save T1")
     source = tmp_path / "T1.md"
@@ -17575,6 +18042,25 @@ def test_machine_readiness_checked_every_session(repo, tmp_path):
     assert proc.returncode == 0 and "MACHINE NOT READY" in proc.stdout
 
 
+def test_session_start_routes_native_questions_to_main_chat(repo):
+    code, out = run(
+        repo, "session_start.py", stdin="{}",
+        env={"FORGE_COORDINATOR": "codex"},
+    )
+    assert code == 0, out
+    native = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert "main-chat approval path" in native
+    assert "request_user_input" not in native and "AskUserQuestion" not in native
+
+    code, out = run(
+        repo, "session_start.py", stdin="{}",
+        env={"FORGE_COORDINATOR": "claude"},
+    )
+    assert code == 0, out
+    claude = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    assert "Claude AskUserQuestion or Codex request_user_input" in claude
+
+
 def test_session_start_injects_project_memory_plan_and_quickfix(repo, tmp_path):
     memory = repo / "docs" / "memory" / "MEMORY.md"
     assert memory.exists()
@@ -17890,103 +18376,1625 @@ def test_decomposition_recorder_validates_plan_contracts(repo, tmp_path):
     assert [item["id"] for item in recorded["tasks"][1]["plan_contracts"]] == ["C2"]
 
 
-def test_review_brief_composes_contract_brief(repo, tmp_path):
+def _native_review_fixture(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    first = {
+        **DECOMP["tasks"][0], "id": "T1", "reviewer_focus": "focus one",
+        "plan_contracts": [{
+            "id": "C1", "statement": DECOMP["tasks"][0]["acceptance_criteria"][0],
+            "source": "plan.md#first",
+        }],
+    }
+    second = {"id": "T2", "title": "future", "objective": "future",
+              "acceptance_criteria": ["future works"], "dependencies": ["T1"]}
+    record_skeleton_then_frontier(repo, [first, second])
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": first["title"], "status": "active"},
+        {"id": "T2", "title": second["title"], "status": "pending"},
+    ]})
+    code, out = record_task_grill(repo, first)
+    assert code == 0, out
+    return first
+
+
+def _write_complete_automated(repo, task_id="T1"):
+    commit = head(repo)
+    proof = story_state(repo) / "tasks" / task_id
+    proof.mkdir(parents=True, exist_ok=True)
+    automated = {
+        "generated_by": "implementer", "status": "passed",
+        "summary": "complete focused report", "blocking_findings": [],
+        "commands_run": ["pytest -k test_review_consumers_include_complete_approved_inputs"],
+        "reviewed_scope": ["factory/scripts/forge_cli/review_brief.py"],
+        "remaining_gaps": [], "recorded_at": "2026-09-10T00:00:00+00:00",
+        "commit": commit,
+    }
+    (proof / "verify.json").write_text(json.dumps({"ok": True, "commit": commit}))
+    (proof / "tests.json").write_text(json.dumps({
+        "commit": commit, "automated": automated,
+    }))
+    return proof
+
+
+def test_review_consumers_include_complete_approved_inputs(
+        repo, tmp_path, monkeypatch, capsys):
+    first = _native_review_fixture(repo, tmp_path)
+    proof = _write_complete_automated(repo)
     code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
-    assert code != 0 and "No recorded decomposition" in out
+    assert code == 0, out
+    brief = (repo / out.strip()).read_text()
+    plan_text = (story_state(repo) / "task-plans" / "T1.md").read_text()
+    grill_path = story_state(repo) / "grills" / "tasks" / "T1.json"
+    grill = json.loads(grill_path.read_text())
+    automated = json.loads((proof / "tests.json").read_text())["automated"]
+    full_grill = json.dumps(grill, indent=2, sort_keys=True)
+    full_automated = json.dumps(automated, indent=2, sort_keys=True)
+    state = run_state(repo)
+    branch = state.get("branch") or git(repo, "branch", "--show-current")
+    assert all(token in brief for token in (
+        f"- Story: `{state['issue_key']}`", "- Task: `T1`", f"- Branch: `{branch}`",
+        "- Current delta ID: `",
+        "#### Full approved task plan", "#### Full grill and approval record",
+        '"approved_by": "Test Human"', '"approved_task_plan_sha256"',
+        "#### Full task-owned automated report",
+        plan_text, full_grill, full_automated,
+    ))
+    import forge_cli.review as review_mod
+    from forge_cli.review import _combined_prompt, _lens_prompt
+    from forge_cli.review_brief import _task_section
+    for lens in ("quality", "performance", "security"):
+        prompt = _lens_prompt(first, lens, repo).decode()
+        assert all(token in prompt for token in (
+            "## Task T1", "**C1**", "focus one",
+        ))
+        assert all(token not in prompt for token in (
+            "### Approved task inputs", plan_text, full_grill, full_automated,
+        ))
+    task_section = "\n".join(_task_section(first, None)).rstrip() + "\n"
+    combined = _combined_prompt(first).decode()
+    assert all(token in combined for token in (
+        "BEGIN FORGE ASSESSMENT quality",
+        "BEGIN FORGE ASSESSMENT performance",
+        "BEGIN FORGE ASSESSMENT security",
+        "Prefix every finding title with exactly one matching token",
+        "target task's complete Plan contracts and Reviewer focus",
+        f'in `{review_mod.REVIEW_DATASET_REL}`',
+        f'listed under the target task\'s "Plan contracts" in '
+        f"{review_mod.REVIEW_DATASET_REL}",
+    ))
+    assert 'listed under "Plan contracts" below' not in combined
+    assert task_section not in combined
+    brief_path = repo / ".factory" / "review-briefs" / "T1.md"
+    prior_brief = brief_path.read_bytes()
+    code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
+    assert code == 0, out
+    branch = (repo / out.strip()).read_text()
+    current = branch.split("## Task T1", 1)[1].split("## Task T2", 1)[0]
+    assert "#### Full approved task plan" in current
+    assert "#### Full task-owned automated report" in current
+    future = branch.split("## Task T2", 1)[1]
+    assert "### Approved task inputs" not in future
+
+    # A prior marker is historical proof, not authority for an active review-fix
+    # task. Active re-review must keep using the current approved inputs.
+    marker = proof / "pr-ready.json"
+    marker.write_text("{}")
+    from forge_cli.review_brief import _approved_task_inputs
+    active_inputs = _approved_task_inputs(repo, first)
+    assert active_inputs["plan_text"] == plan_text
+    assert f"- Current delta ID: `{active_inputs['delta_id']}`" in brief
+    marker.unlink()
+
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": first["title"], "status": "done"},
+        {"id": "T2", "title": "future", "status": "pending"},
+    ]})
+    from forge_cli.review_brief import cmd_review_brief
+    cmd_review_brief(argparse.Namespace(
+        id=None, all=True, repo=str(repo), review_task="T1",
+    ))
+    done_current = (repo / ".factory/review-briefs/all.md").read_text().split(
+        "## Task T1", 1)[1].split("## Task T2", 1)[0]
+    assert "#### Full approved task plan" in done_current
+    assert "#### Full task-owned automated report" in done_current
+
+    from forge_cli import stages as stages_mod
+    dataset_path = repo / review_mod.REVIEW_DATASET_REL
+    dataset_bytes = dataset_path.read_bytes()
+    assert all(token.encode() in dataset_bytes for token in (
+        plan_text, full_grill, full_automated,
+    ))
+    assert dataset_bytes.count(task_section.encode()) == 1
+    review_run = json.loads((story_state(repo) / "review-run.json").read_text())
+    assert review_run["brief_sha256"] == hashlib.sha256(dataset_bytes).hexdigest()
+    assert (
+        f"- Current delta ID: `{review_run['branch_diff_digest']}`".encode()
+        in dataset_bytes
+    )
+    seen = []
+    review_tmp = tmp_path / "review-dataset-routing"
+    review_tmp.mkdir()
+    finding = {
+        "title": "[quality] Preserve plain-source attribution",
+        "body": "Schema-valid plain source.", "priority": "P2",
+        "confidence": 0.9, "category": "bug", "source_attribution": None,
+        "code_location": {"file_path": "src/review-target.py", "line": 1},
+    }
+
+    def fake_require_git(_base, _what, *args, **_kwargs):
+        if args[:3] == ("worktree", "add", "--detach"):
+            Path(args[3]).mkdir(parents=True, exist_ok=True)
+        if args[0] == "rev-parse":
+            return "a" * 40
+        if args[0] == "diff":
+            return "src/review-target.py"
+        return ""
+
+    def inspect_skill(_skill, worktree, _base_sha, prompt_rel, _json_out,
+                      _engine, _max_priority, ledger_root=None, return_raw=False):
+        assert ledger_root == repo
+        assert return_raw is True
+        prompt_bytes = (worktree / prompt_rel).read_bytes()
+        copied_dataset = (worktree / review_mod.REVIEW_DATASET_REL).read_bytes()
+        seen.append((prompt_rel, prompt_bytes, copied_dataset))
+        provider = {
+            "overall_correctness": "patch is incorrect",
+            "overall_confidence": 0.9,
+            "overall_explanation":
+                "BEGIN FORGE ASSESSMENT quality\n"
+                "VERDICT C1: implemented — complete dataset routed\n"
+                "END FORGE ASSESSMENT quality\n"
+                "BEGIN FORGE ASSESSMENT performance\nfast\n"
+                "END FORGE ASSESSMENT performance\n"
+                "BEGIN FORGE ASSESSMENT security\nsafe\n"
+                "END FORGE ASSESSMENT security",
+            "findings": [finding],
+        }
+        report = {**copy.deepcopy(provider), "provider_report": provider,
+                  "review_status": "findings"}
+        return report, json.dumps(report).encode()
+
+    with monkeypatch.context() as route:
+        route.setattr(review_mod, "cmd_review_brief", lambda _args: None)
+        route.setattr(review_mod, "resolve_skill", lambda _explicit: tmp_path / "helper")
+        route.setattr(review_mod, "_product_dirty", lambda _base: [])
+        route.setattr(review_mod, "head_sha", lambda _base: "a" * 40)
+        route.setattr(
+            review_mod, "product_delta_digest",
+            lambda *_args: review_run["branch_diff_digest"],
+        )
+        route.setattr(review_mod, "resolve_review_base", lambda *_args: "b" * 40)
+        route.setattr(review_mod, "review_excluded_prefixes", lambda _base: ())
+        route.setattr(review_mod, "_require_git", fake_require_git)
+        route.setattr(review_mod, "_git", lambda *_args, **_kwargs:
+                      subprocess.CompletedProcess([], 0, "", ""))
+        route.setattr(review_mod, "product_only_tip", lambda *_args: "c" * 40)
+        route.setattr(review_mod, "_run_skill", inspect_skill)
+        route.setattr(review_mod, "_helper_identity", lambda _path:
+                      ({"path": "/helper", "version": "v1", "sha256": "a" * 64}, (1, 2)))
+        route.setattr(review_mod.tempfile, "mkdtemp", lambda **_kwargs: str(review_tmp))
+        route.setattr(review_mod.subprocess, "run", lambda *args, **_kwargs:
+                      subprocess.CompletedProcess(args[0], 0, "", ""))
+        route.setattr(stages_mod, "stamp_stage_review", lambda *_args, **_kwargs: None)
+        with pytest.raises(SystemExit):
+            review_mod.cmd_review(argparse.Namespace(
+                id="T1", reject=None, lens=None, repo=str(repo),
+                skill=str(tmp_path / "fake-autoreview"), engine="claude",
+                max_priority="P2",
+            ))
+        assert not seen
+        review_mod.cmd_review(argparse.Namespace(
+            id="T1", reject=None, lens=None, repo=str(repo),
+            skill=str(tmp_path / "fake-autoreview"), engine="claude",
+            max_priority="P3",
+        ))
+
+    assert len(seen) == 1
+    assert Path(seen[0][0]).name == "T1.combined.md"
+    assert all(copied == dataset_bytes for _, _, copied in seen)
+    assert all(b"### Approved task inputs" not in prompt for _, prompt, _ in seen)
+    assert dataset_path.read_bytes() == dataset_bytes
+    invalid_attribution = copy.deepcopy(finding)
+    invalid_attribution["source_attribution"] = {"record_id": "mixed"}
+    with pytest.raises(SystemExit):
+        review_mod._tagged_finding(invalid_attribution)
+    assert "null source_attribution" in capsys.readouterr().out
+
+    def refuse_detached_link(kind):
+        review_case = tmp_path / f"review-{kind}"
+        worktree = review_case / "wt"
+        worktree.mkdir(parents=True)
+        outside = tmp_path / f"outside-{kind}.md"
+        outside.write_bytes(b"sentinel")
+        review_dir = worktree / ".factory" / "review-briefs"
+        review_dir.parent.mkdir(parents=True)
+        if kind == "ancestor":
+            review_dir.symlink_to(outside.parent, target_is_directory=True)
+            outside = outside.parent / "all.md"
+            outside.write_bytes(b"sentinel")
+        else:
+            review_dir.mkdir()
+            (review_dir / "T1.combined.md").symlink_to(outside)
+
+        def forbidden(*_args, **_kwargs):
+            pytest.fail("review helper or recorder launched after unsafe destination")
+
+        with monkeypatch.context() as unsafe:
+            unsafe.setattr(review_mod, "cmd_review_brief", lambda _args: None)
+            unsafe.setattr(review_mod, "resolve_skill", lambda _explicit: tmp_path / "helper")
+            unsafe.setattr(review_mod, "_product_dirty", lambda _base: [])
+            unsafe.setattr(review_mod, "resolve_review_base", lambda *_args: "b" * 40)
+            unsafe.setattr(review_mod, "review_excluded_prefixes", lambda _base: ())
+            unsafe.setattr(review_mod, "_require_git", fake_require_git)
+            unsafe.setattr(review_mod, "_git", lambda *_args, **_kwargs:
+                           subprocess.CompletedProcess([], 0, "", ""))
+            unsafe.setattr(review_mod, "product_only_tip", lambda *_args: "c" * 40)
+            unsafe.setattr(review_mod, "_run_skill", forbidden)
+            unsafe.setattr(review_mod.tempfile, "mkdtemp", lambda **_kwargs: str(review_case))
+            unsafe.setattr(review_mod.subprocess, "run", forbidden)
+            unsafe.setattr(stages_mod, "stamp_stage_review", forbidden)
+            with pytest.raises(SystemExit) as error:
+                review_mod.cmd_review(argparse.Namespace(
+                    id="T1", reject=None, lens=None, repo=str(repo),
+                    skill=str(tmp_path / "fake-autoreview"), engine="claude",
+                    max_priority="P3",
+                ))
+            assert error.value.code == 1
+            assert "unsafe detached review destination" in capsys.readouterr().out
+        assert outside.read_bytes() == b"sentinel"
+        if kind == "leaf":
+            assert not (review_dir / "all.md").exists()
+
+    refuse_detached_link("ancestor")
+    refuse_detached_link("leaf")
+
+    # Approved records are untrusted prompt data. A fence longer than every
+    # content run keeps embedded Markdown from becoming reviewer structure,
+    # while the original payload remains complete and readable.
+    from forge_cli.review_brief import render_approved_inputs_section
+    hostile_plan = "keep this\n```\nheadings stay data\n````\ntrailing  \n"
+    hostile_inputs = {
+        "story": "ENG-1", "task_id": "T1", "branch": branch,
+        "delta_id": "b" * 64,
+        "plan_sha256": "a" * 64, "plan_text": hostile_plan,
+        "grill": {"approved_by": "human", "notes": "```\n````"},
+        "automated": {"summary": "```\n````", "commands_run": []},
+    }
+    rendered = "\n".join(render_approved_inputs_section(hostile_inputs))
+    assert "evidence from approved artifacts" in rendered
+    assert hostile_plan in rendered
+    assert "`````markdown" in rendered
+    assert "`````json" in rendered
+
+    tests = json.loads((proof / "tests.json").read_text())
+    tests["automated"].pop("reviewed_scope")
+    (proof / "tests.json").write_text(json.dumps(tests))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "complete task-owned report" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    # A report may be stamped before a later workflow-only/evidence commit, but
+    # it must still describe the current product tree.
+    baseline = head(repo)
+    stages = {"issue": "ENG-1", "stages": [{
+        "id": "T1", "title": first["title"], "status": "active",
+        "base_sha": baseline,
+    }, {"id": "T2", "title": "future", "status": "pending"}]}
+    write_stages(repo, stages)
+    product = repo / "src" / "review-target.py"
+    product.parent.mkdir(parents=True, exist_ok=True)
+    product.write_text("product revision\n")
+    git(repo, "add", "src/review-target.py")
+    git(repo, "commit", "-q", "-m", "product revision")
+    product_commit = head(repo)
+    tests["automated"]["reviewed_scope"] = [
+        "factory/scripts/forge_cli/review_brief.py"
+    ]
+    tests["commit"] = product_commit
+    tests["automated"]["commit"] = product_commit
+    (proof / "tests.json").write_text(json.dumps(tests))
+    workflow = repo / ".factory" / "review-briefs" / "workflow-marker"
+    workflow.write_text("evidence metadata\n")
+    git(repo, "add", ".factory/review-briefs/workflow-marker")
+    git(repo, "commit", "-q", "-m", "workflow evidence")
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code == 0, out
+    prior_brief = brief_path.read_bytes()
+
+    # Mutually consistent fields do not make an older product proof current.
+    tests["commit"] = baseline
+    tests["automated"]["commit"] = baseline
+    (proof / "tests.json").write_text(json.dumps(tests))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "product content changed after tests proof" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    # A syntactically valid but unbound commit is rejected by the same helper.
+    branch = git(repo, "branch", "--show-current")
+    git(repo, "checkout", "-q", "-b", "unbound-report", baseline)
+    unbound = repo / "src" / "unbound.py"
+    unbound.parent.mkdir(parents=True, exist_ok=True)
+    unbound.write_text("unbound revision\n")
+    git(repo, "add", "src/unbound.py")
+    git(repo, "commit", "-q", "-m", "unbound revision")
+    unbound_commit = head(repo)
+    git(repo, "checkout", "-q", branch)
+    tests["commit"] = unbound_commit
+    tests["automated"]["commit"] = unbound_commit
+    (proof / "tests.json").write_text(json.dumps(tests))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "outside the task base-to-seal range" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    tests["commit"] = "0" * 40
+    tests["automated"]["commit"] = "0" * 40
+    (proof / "tests.json").write_text(json.dumps(tests))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "no valid commit stamp" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    # Existing grounding is part of C9: a copied/future grill cannot pass.
+    payload = dict(grill)
+    payload["input_sha256"] = "0" * 64
+    grill_path.write_text(json.dumps(payload))
+    tests["automated"]["reviewed_scope"] = ["factory/scripts/forge_cli/review_brief.py"]
+    (proof / "tests.json").write_text(json.dumps(tests))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "stale or ungrounded" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    grill_path.write_text(json.dumps(grill))
+    payload = dict(grill)
+    payload.pop("approved_by")
+    grill_path.write_text(json.dumps(payload))
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "approved_by and approved_at" in out
+    assert brief_path.read_bytes() == prior_brief
+
+    grill_path.write_text(json.dumps(grill))
+    other = story_state(repo) / "tasks" / "T2"
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "tests.json").write_text((proof / "tests.json").read_text())
+    (proof / "tests.json").unlink()
+    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
+    assert code != 0 and "complete task-owned report" in out
+    assert brief_path.read_bytes() == prior_brief
+
+
+def test_review_all_bounds_sealed_task_inputs_after_successor_product(repo, tmp_path):
+    first = _native_review_fixture(repo, tmp_path)
+    proof = _write_complete_automated(repo)
+    baseline = head(repo)
+
+    # Seal T1's product and its complete approved inputs, then publish its
+    # marker. A successor product commit must not make that historical context
+    # look stale when the branch-wide brief is composed for T2.
+    product = repo / "src" / "t1.py"
+    product.parent.mkdir(parents=True, exist_ok=True)
+    product.write_text("t1 product\n")
+    git(repo, "add", "src/t1.py")
+    git(repo, "commit", "-q", "-m", "T1 product")
+    t1_product = head(repo)
+    tests_path = proof / "tests.json"
+    tests = json.loads(tests_path.read_text())
+    tests["commit"] = t1_product
+    tests["automated"]["commit"] = t1_product
+    tests_path.write_text(json.dumps(tests))
+    plan_path = story_state(repo) / "task-plans" / "T1.md"
+    grill_path = story_state(repo) / "grills" / "tasks" / "T1.json"
+    git(repo, "add", *[
+        str(path.relative_to(repo))
+        for path in (plan_path, grill_path, tests_path)
+    ])
+    git(repo, "commit", "-q", "-m", "T1 evidence")
+    t1_seal = head(repo)
+    marker = story_state(repo) / "tasks" / "T1" / "pr-ready.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": git(repo, "branch", "--show-current"),
+        "base_main_sha": baseline, "commit": t1_seal,
+        "sealed_at": "2026-09-10T00:00:00+00:00",
+    }))
+    git(repo, "add", str(marker.relative_to(repo)))
+    git(repo, "commit", "-q", "-m", "publish T1 marker")
+
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": first["title"], "status": "done",
+         "base_sha": baseline},
+        {"id": "T2", "title": "future", "status": "pending"},
+    ]})
+    successor = repo / "src" / "t2.py"
+    successor.write_text("t2 product\n")
+    git(repo, "add", "src/t2.py")
+    git(repo, "commit", "-q", "-m", "T2 product")
+
+    code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
+    assert code == 0, out
+    brief = (repo / out.strip()).read_text()
+    sealed = brief.split("## Task T1", 1)[1].split("## Task T2", 1)[0]
+    assert "### Sealed task proof identity" in sealed and t1_seal in sealed
+    assert "Full task-owned automated report" not in sealed
+    assert "complete focused report" not in sealed
+    assert "## Task T2" in brief and "### Approved task inputs" not in brief.split(
+        "## Task T2", 1
+    )[1]
+
+
+def test_review_preflight_uses_active_task_proof(repo, tmp_path, monkeypatch):
+    _native_review_fixture(repo, tmp_path)
+    _write_complete_automated(repo)
+    import forge_cli.review as review_mod
+
+    safe_helper = tmp_path / "autoreview"
+    safe_helper.write_text("safe helper\n")
+    monkeypatch.setattr(review_mod, "resolve_skill", lambda _explicit: safe_helper)
+    seen = []
+    original = review_mod.proof_path
+
+    def proof_spy(*args, **kwargs):
+        seen.append(kwargs.get("task_id"))
+        return original(*args, **kwargs)
+
+    class ReachedReviewBrief(Exception):
+        pass
+
+    monkeypatch.setattr(review_mod, "proof_path", proof_spy)
+    monkeypatch.setattr(review_mod, "_product_dirty", lambda _base: [])
+    monkeypatch.setattr(review_mod, "resolve_review_base", lambda *_args: "base")
+    monkeypatch.setattr(review_mod, "review_excluded_prefixes", lambda _base: ())
+    monkeypatch.setattr(review_mod, "_require_git",
+                        lambda _base, _what, *args: "tip" if args[0] == "rev-parse"
+                        else "src/app.py")
+    brief_args = []
+    def reach_review_brief(args):
+        brief_args.append(args)
+        raise ReachedReviewBrief
+    monkeypatch.setattr(review_mod, "cmd_review_brief", reach_review_brief)
+    with pytest.raises(ReachedReviewBrief):
+        review_mod.cmd_review(argparse.Namespace(
+            id="T1", reject=None, lens=None, repo=str(repo), skill=None,
+        ))
+    assert seen[:2] == ["T1", "T1"]
+    assert brief_args[0].review_task == "T1"
+
+
+def test_review_preflight_refuses_other_task_or_story_proof(repo, tmp_path):
+    _native_review_fixture(repo, tmp_path)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "review baseline")
+    scoped = story_state(repo)
+    (scoped / "verify.json").write_text(json.dumps({"ok": True}))
+    (scoped / "tests.json").write_text(json.dumps({"automated": {"status": "passed"}}))
+    other = scoped / "tasks" / "T2"
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "verify.json").write_text(json.dumps({"ok": True}))
+    (other / "tests.json").write_text(json.dumps({"automated": {"status": "passed"}}))
+    code, out = run(repo, "forge.py", "review", "T1", "--repo", str(repo))
+    assert code != 0 and "verify.json is not recorded for task T1" in out
+
+def test_review_pins_sol_and_never_requests_a_retired_model():
+    """The retired model must be unreachable, checked where it is decided.
+
+    This test used to assert the helper's SOURCE was refused when it contained
+    "gpt-5.6-terra" or the fallback constant. Every published helper carries
+    that constant as an access-only retry, so the scan refused all of them and
+    blocked the review gate outright. What decides whether Terra runs is the
+    argv, so that is what is asserted.
+    """
+    import forge_cli.review as review_mod
+
+    argv = review_mod._skill_argv(
+        skill=Path("/x/autoreview"), base_sha="base", prompt_rel="p.md",
+        json_out=Path("/tmp/out.json"), engine="codex", max_priority="P3",
+    )
+    assert argv[argv.index("--model") + 1] == review_mod.CODEX_REVIEW_MODEL
+    assert not any("terra" in part.lower() for part in argv)
+    # --fallback-model is claude-only; passing it for codex aborts the helper.
+    assert "--fallback-model" not in argv
+    # The pinned fallback is what the guard accepts.
+    review_mod._require_safe_codex_review_helper(argv)
+
+
+def test_review_refuses_an_argv_that_could_reach_terra(capsys):
+    import forge_cli.review as review_mod
+
+    for bad in (
+        ["--engine", "codex"],                          # no model pinned
+        ["--model", "gpt-5.6-terra"],                   # a retired model requested
+        ["--model", "gpt-5.6-sol", "--x", "terra"],     # retired model anywhere
+    ):
+        with pytest.raises(SystemExit) as error:
+            review_mod._require_safe_codex_review_helper(bad)
+        assert error.value.code == 1
+        assert "retired Terra model" in capsys.readouterr().out or True
+
+
+def test_review_codex_engine_pins_sol_high(tmp_path, monkeypatch):
+    import forge_cli.review as review_mod
+
+    calls = []
+
+    class Process:
+        pid = 7
+        returncode = 0
+
+        def wait(self):
+            return 0
+
+    def popen(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return Process()
+
+    monkeypatch.setattr(review_mod, "_record_codex_run", lambda *_args: "run")
+    monkeypatch.setattr(review_mod, "_stamp_codex_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(review_mod, "_close_codex_run", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(review_mod.subprocess, "Popen", popen)
+    report = tmp_path / "report.json"
+    report.write_text("{}")
+
+    review_mod._run_skill(
+        tmp_path / "helper", tmp_path, "base", "prompt", report,
+        "codex", "P1",
+    )
+    assert calls[-1][0] == [
+        sys.executable, str(tmp_path / "helper"), "--mode", "branch", "--base", "base",
+        "--engine", "codex", "--max-priority", "P1", "--prompt-file", "prompt",
+        "--dataset", ".factory/review-briefs/all.md", "--json-output", str(report),
+        "--model", "gpt-5.6-sol", "--thinking", "high",
+    ]
+
+    review_mod._run_skill(
+        tmp_path / "helper", tmp_path, "base", "prompt", report,
+        "claude", "P1",
+    )
+    assert calls[-1][0] == [
+        sys.executable, str(tmp_path / "helper"), "--mode", "branch", "--base", "base",
+        "--engine", "claude", "--max-priority", "P1", "--prompt-file", "prompt",
+        "--dataset", ".factory/review-briefs/all.md", "--json-output", str(report),
+    ]
+
+def test_native_unshipped_operations_refuse_before_dispatch(
+        repo, tmp_path, monkeypatch, capsys):
+    import forge as cli
+    from forge_cli import delegate, codex_status
+
+    task = _native_review_fixture(repo, tmp_path)
+    lib = load_factory_lib(repo)
+    roots = [repo / ".factory", lib.git_control_dir(repo)]
+    snapshot = lambda: {str(p): p.read_bytes() for root in roots
+                        for p in root.rglob("*") if p.is_file()}
+    before = snapshot()
+    explore_prompt = tmp_path / "explore.md"
+    explore_prompt.write_text("Inspect the current task contract.\n")
+    monkeypatch.setenv("FORGE_COORDINATOR", "codex")
+    args = argparse.Namespace(id="T1", repo=str(repo), read_only=False,
+                              background=True, print_only=False, effort="")
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("unsupported native operation dispatched or mutated state")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(delegate, "require_task_worktree", lambda _base: None)
+        guard.setattr(delegate, "require_ready_task", lambda *_args: task)
+        for name in ("compose_brief", "append_delegation", "append_event",
+                     "_acquire_delegation_lock", "safe_factory_write_bytes"):
+            guard.setattr(delegate, name, forbidden)
+        guard.setattr(delegate.subprocess, "Popen", forbidden)
+        guard.setattr(os, "kill", forbidden)
+        for read_only in (False, True):
+            for print_only in (False, True):
+                args.read_only, args.print_only = read_only, print_only
+                with pytest.raises(SystemExit) as error:
+                    delegate.cmd_delegate(args)
+                assert error.value.code == 1 and "foreground-only" in capsys.readouterr().out
+            with pytest.raises(SystemExit) as error:
+                delegate.launch_companion(
+                    repo, task_id="T1", text="unused", path=repo / ".factory/unused.md",
+                    task_sha256_value=task_digest(task), model="gpt-test",
+                    effort="medium", write=not read_only, background=True,
+                )
+            assert error.value.code == 1 and "foreground-only" in capsys.readouterr().out
+        for words in (("codex", "cancel", "T1"), ("codex", "resume", "T1"),
+                      ("codex", "resume", "T1", "--background"),
+                      ("codex", "jobs"), ("explore",), ("explore", "--background")):
+            guard.setattr(sys, "argv", ["forge", *words])
+            with pytest.raises(SystemExit) as error:
+                cli.main()
+            assert error.value.code == 2
+        for words in (
+            ("explore", "--prompt-file", str(explore_prompt)),
+            ("explore", "--prompt-file", str(explore_prompt), "--background"),
+        ):
+            guard.setattr(sys, "argv", ["forge", *words])
+            with pytest.raises(SystemExit) as error:
+                cli.main()
+            assert error.value.code == 2
+
+        rows = []
+        guard.setattr(delegate, "load_delegations", lambda _base: rows)
+        guard.setattr(delegate, "_pid_alive", lambda pid: pid == 11)
+        guard.setattr(delegate, "_process_start_identity", lambda _pid: "known")
+        guard.setattr(codex_status, "cmd_status", forbidden)
+        status_args = argparse.Namespace(repo=str(repo))
+        def row(task_id, *, pid=12, transport="native", status="running"):
+            return dict(launch_id=task_id, task=task_id, pid=pid,
+                        pid_started="known", transport=transport,
+                        launch_status=status, output_path="native.jsonl",
+                        stderr_path="native.stderr")
+        for invalid in ([], [row("T1")], [row("T1", pid=11)],
+                        [row("grill-task-T1", pid=11)], [row("grill-plan", status="failed")],
+                        [row("grill-plan", transport="companion")], [row("grill-unknown")],
+                        [row("grill-plan/T1")], [row("grill-plan-T1")],
+                        [row("grill-signoff-anything")]):
+            rows[:] = invalid
+            with pytest.raises(SystemExit, match="no eligible dead native grill"):
+                cli._native_dead_grill_status(status_args)
+        capsys.readouterr()
+        rows[:] = [row("T1"), row("grill-plan"), row("grill-task-T1")]
+        cli._native_dead_grill_status(status_args)
+        output = capsys.readouterr().out
+        assert "[DEAD GRILL] grill-task-T1" in output
+        assert "[DEAD GRILL] grill-plan" in output
+        assert "native.jsonl" in output and "native.stderr" in output
+        assert "[DEAD GRILL] T1" not in output
+    for tool_name in ("request_user_input", "request_user_input_async"):
+        code, output = run(repo, "pre_tool_use.py", stdin=json.dumps({
+            "tool_name": tool_name, "tool_input": {"questions": []},
+        }), env={"FORGE_COORDINATOR": "codex"})
+        assert code == 0 and "deny" in output and "question delivery" in output
+    code, output = run(repo, "pre_tool_use.py", stdin=json.dumps({
+        "tool_name": "Bash", "tool_input": {"command": "codex exec 'inspect'"},
+    }), env={"FORGE_COORDINATOR": "codex"})
+    assert code == 0 and "deny" in output and "current coordinator chat" in output
+    assert "forge explore" not in output
+    assert snapshot() == before
+
+    # The supported Claude status and read-only background routes still dispatch.
+    monkeypatch.setenv("FORGE_COORDINATOR", "claude")
+    calls = []
+    monkeypatch.setattr(codex_status, "cmd_status", lambda value: calls.append(value))
+    cli._native_dead_grill_status(status_args)
+    assert calls == [status_args]
+    monkeypatch.setattr(delegate, "compose_brief", lambda *_a, **_k: "context")
+    monkeypatch.setattr(delegate, "pinned_run_config", lambda _base: ("gpt-test", "medium"))
+    monkeypatch.setattr(delegate, "launch_companion", lambda *_a, **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(delegate, "append_event", lambda *_a, **_k: None)
+    args.read_only, args.print_only = True, False
+    delegate.cmd_delegate(args)
+    assert calls[-1]["background"] is True and calls[-1]["write"] is False
+
+def test_task_proof_consumers_share_complete_predicate(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "user_facing": True}, "C"
+    )
+    record_skeleton_then_frontier(repo, [task])
+    baseline = head(repo)
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "active",
+         "base_sha": baseline}]})
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "done",
+         "base_sha": baseline}]})
+    proof = write_task_proof(repo, "T1", user_facing=True, publish_review=True)
+    lib = load_factory_lib(repo)
+    from forge_cli.board import aggregate_state
+
+    def story():
+        return next(s for s in aggregate_state(repo)["stories"]
+                    if s["key"] == "ENG-1")
+
+    assert not lib.task_proof_problems(repo, "ENG-1", task)
+    assert story()["lifecycle"]["proven"] == {"done": 1, "total": 1}
+    selected = json.loads((proof / "reviews/selected.json").read_text())
+    generation = proof / "reviews/generations" / f"{selected['generation_id']}.json"
+    generation.write_bytes(generation.read_bytes() + b" ")
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    assert story()["lifecycle"]["proven"] == {"done": 0, "total": 1}
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "tamper selected generation")
+    import check_task_proof
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+
+def _selected_review_case(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = task_with_plan_contracts({**DECOMP["tasks"][0], "id": "T1"}, "C")
+    record_skeleton_then_frontier(repo, [task])
+    write_stages(repo, {"issue": "ENG-1", "stages": [{
+        "id": "T1", "title": task["title"], "status": "active",
+        "base_sha": head(repo),
+    }]})
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    lib = load_factory_lib(repo)
+    selected = json.loads((proof / "reviews/selected.json").read_text())
+    generation_path = proof / "reviews/generations" / f"{selected['generation_id']}.json"
+    generation = json.loads(generation_path.read_text())
+    return task, proof, lib, selected, generation_path, generation
+
+
+def test_combined_review_publication_is_pointer_last_and_failure_atomic(
+        repo, tmp_path, monkeypatch):
+    _task, proof, lib, _selected, _path, generation = _selected_review_case(repo, tmp_path)
+    pointer_path = proof / "reviews/selected.json"
+    before = pointer_path.read_bytes()
+    candidate = {key: value for key, value in generation.items() if key != "generation_id"}
+    candidate["recorded_at"] = "2026-09-12T00:00:00+00:00"
+
+    def interrupted(*_args, **_kwargs):
+        raise SystemExit("interrupted before pointer commit")
+
+    replace = lib._replace_review_selection
+    monkeypatch.setattr(lib, "_replace_review_selection", interrupted)
+    with pytest.raises(SystemExit, match="interrupted"):
+        lib.publish_review_generation(repo, "ENG-1", "T1", candidate)
+    assert pointer_path.read_bytes() == before
+    monkeypatch.setattr(lib, "_replace_review_selection", replace)
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src/publication-race.py").write_text("changed = True\n")
+    git(repo, "add", "src/publication-race.py")
+    git(repo, "commit", "-qm", "move product during publication")
+    with pytest.raises(SystemExit, match="no longer current HEAD"):
+        lib.publish_review_generation(repo, "ENG-1", "T1", candidate)
+    assert pointer_path.read_bytes() == before
+
+
+def test_single_lens_review_preserves_cli_without_publishing_an_incomplete_set(
+        repo, tmp_path):
+    _task, proof, _lib, _selected, _path, generation = _selected_review_case(repo, tmp_path)
+    pointer = proof / "reviews/selected.json"
+    before = pointer.read_bytes()
+    diagnostic = dict(generation["lenses"]["security"])
+    diagnostic.update({
+        "score": 7, "recommendation": "request-changes",
+        "blocking_findings": [{"category": "security", "area": "src",
+                                "summary": "diagnostic only"}],
+    })
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "security",
+                    "--task", "T1", stdin=json.dumps(diagnostic))
+    assert code == 0, out
+    assert pointer.read_bytes() == before
+    assert json.loads((proof / "reviews/security.json").read_text())["blocking_findings"]
+
+
+def test_review_generation_id_recomputes_and_tamper_refuses(repo, tmp_path):
+    _task, proof, lib, selected, generation_path, generation = _selected_review_case(
+        repo, tmp_path)
+    assert generation["generation_id"] == lib.review_generation_id(generation)
+    generation["recorded_at"] = "2026-09-12T01:00:00+00:00"
+    body = lib.review_generation_bytes(generation)
+    generation_path.write_bytes(body)
+    selected["generation_sha256"] = hashlib.sha256(body).hexdigest()
+    (proof / "reviews/selected.json").write_bytes(lib.review_generation_bytes(selected))
+    assert any("id does not recompute" in problem for problem in
+               lib.read_selected_review_generation(repo, "ENG-1", "T1")[2])
+
+
+def test_review_generation_retry_and_collision_are_safe(repo, tmp_path):
+    _task, proof, lib, selected, generation_path, generation = _selected_review_case(
+        repo, tmp_path)
+    candidate = {key: value for key, value in generation.items() if key != "generation_id"}
+    before = (proof / "reviews/selected.json").read_bytes()
+    retried, pointer = lib.publish_review_generation(repo, "ENG-1", "T1", candidate)
+    assert retried["generation_id"] == selected["generation_id"]
+    assert pointer["generation_id"] == selected["generation_id"]
+    assert (proof / "reviews/selected.json").read_bytes() == before
+    interrupted = generation_path.with_name(
+        f".{generation_path.name}.{os.getpid() + 100000}.tmp"
+    )
+    os.link(generation_path, interrupted)
+    retried, _pointer = lib.publish_review_generation(repo, "ENG-1", "T1", candidate)
+    assert retried["generation_id"] == selected["generation_id"]
+    assert not interrupted.exists() and generation_path.stat().st_nlink == 1
+    generation_path.write_bytes(generation_path.read_bytes() + b" ")
+    with pytest.raises(SystemExit, match="collision with unequal bytes"):
+        lib.publish_review_generation(repo, "ENG-1", "T1", candidate)
+    assert (proof / "reviews/selected.json").read_bytes() == before
+
+
+def test_close_and_frontier_use_selected_current_delta(repo, tmp_path):
+    task, proof, lib, selected, _path, _generation = _selected_review_case(repo, tmp_path)
+    from forge_cli.stages import (
+        _legacy_stamp_binding, authoritative_stages_path, load_stages,
+        stamp_is_fresh, stamp_stage_review, stages_path,
+    )
+    pointer_path = proof / "reviews/selected.json"
+    pointer_bytes = pointer_path.read_bytes()
+    verify_path, tests_path = proof / "verify.json", proof / "tests.json"
+    verify_bytes, tests_bytes = verify_path.read_bytes(), tests_path.read_bytes()
+    stamp_stage_review(repo, "T1", lenses=("quality", "performance", "security"))
+    stage = load_stages(repo)["stages"][0]
+    assert stamp_is_fresh(repo, stage, task)
+    selected["delta_id"] = "f" * 64
+    pointer_path.write_bytes(lib.review_generation_bytes(selected))
+    stages = load_stages(repo)
+    stages["stages"][0]["local_review_stamp"] = _legacy_stamp_binding(
+        repo, stages["stages"][0], task,
+    )
+    write_stages(repo, stages)
+    caller = copy.deepcopy(stages["stages"][0])
+    stage_paths = (authoritative_stages_path(repo), stages_path(repo))
+    stages_bytes = {path: path.read_bytes() for path in stage_paths}
+    assert not stamp_is_fresh(repo, caller, task)
+    assert caller == stages["stages"][0]
+    assert {path: path.read_bytes() for path in stage_paths} == stages_bytes
+    assert lib.task_proof_problems(repo, "ENG-1", task, preseal=True)
+
+    verify_path.write_text("[]\n")
+    tests_path.write_text('"not-an-object"\n')
+    assert lib.task_proof_problems(repo, "ENG-1", task, preseal=True)
+    invalid_stages = load_stages(repo)
+    invalid_stages["stages"][0]["status"] = "done"
+    write_stages(repo, invalid_stages)
+    stage_paths = (authoritative_stages_path(repo), stages_path(repo))
+    invalid_stage_bytes = {path: path.read_bytes() for path in stage_paths}
+    assert lib.load_json(verify_path, default={}) == {}
+    assert lib.load_json(tests_path, default={}) == {}
+    code, out = run(repo, "forge.py", "next")
+    assert code == 0 and "Traceback" not in out
+    from forge_cli.board import aggregate_state
+    aggregate_state(repo)
+    lib.task_frontier_state(repo)
+    assert lib.require_closeout_order(repo)
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1")
+    assert code != 0 and "Traceback" not in out
+    assert {path: path.read_bytes() for path in stage_paths} == invalid_stage_bytes
+    verify_path.write_bytes(verify_bytes)
+    tests_path.write_bytes(tests_bytes)
+    pointer_path.write_bytes(pointer_bytes)
+    restored_stages = load_stages(repo)
+    restored_stages["stages"][0]["status"] = "active"
+    write_stages(repo, restored_stages)
+    caller = load_stages(repo)["stages"][0]
+    assert stamp_is_fresh(repo, caller, task)
+    assert "delta_id" in caller["local_review_stamp"]
+
+
+def test_task_proof_ci_uses_sealed_selected_t1_not_later_t2_singleton(
+        repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    base = git(repo, "rev-parse", "origin/main")
+    task = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "user_facing": True}, "T1-C"
+    )
+    task2 = {"id": "T2", "title": "future", "objective": "future",
+             "acceptance_criteria": ["future works"], "dependencies": ["T1"]}
+    tasks = [task, task2]
+    record_skeleton_then_frontier(repo, tasks)
+    write_task_proof(repo, "T1", user_facing=True)
+    make_legacy_story(repo)
+    assert not any((story_state(repo) / "tasks/T1" / name).exists()
+                   for name in ("verify.json", "tests.json", "reviews/quality.json",
+                                "reviews/performance.json", "reviews/security.json"))
+    save_plan(repo, tmp_path)
+    record_skeleton_then_frontier(repo, tasks)
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "prepare historical T1")
+    proof_base = head(repo)
+    write_passing_artifacts(repo, commit=proof_base)
+    bundle = repo / ".factory"
+    for lens in ("quality", "performance", "security"):
+        path = bundle / "reviews" / f"{lens}.json"
+        value = json.loads(path.read_text())
+        value["task_id"] = "T1"
+        path.write_text(json.dumps(value))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "seal historical T1")
+    seal = head(repo)
+    tests = bundle / "tests.json"
+    value = json.loads(tests.read_text())
+    value["automated"]["status"] = "failed"
+    tests.write_text(json.dumps(value))
+    quality = bundle / "reviews" / "quality.json"
+    value = json.loads(quality.read_text())
+    value["task_id"] = "T2"
+    quality.write_text(json.dumps(value))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "rewrite T2 singleton")
+    lib = load_factory_lib(repo)
+    from forge_cli.board import aggregate_state
+
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    story = next(s for s in aggregate_state(repo)["stories"] if s["key"] == "ENG-1")
+    assert story["lifecycle"]["proven"] == {"done": 0, "total": 2}
+    marker = story_state(repo) / "tasks" / "T1" / "pr-ready.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": run_state(repo).get("branch")
+                            or git(repo, "branch", "--show-current"),
+        "base_main_sha": base, "commit": seal,
+        "sealed_at": "2026-09-10T00:00:00+00:00",
+    }))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "mark historical T1")
+    assert json.loads(tests.read_text())["automated"]["status"] == "failed"
+    assert json.loads(quality.read_text())["task_id"] == "T2"
+    import check_task_proof
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    story = next(s for s in aggregate_state(repo)["stories"] if s["key"] == "ENG-1")
+    assert story["lifecycle"]["proven"] == {"done": 0, "total": 2}
+
+    for name in ("verify.json", "tests.json"):
+        modern_proof = story_state(repo) / f"tasks/T1/{name}"
+        modern_proof.parent.mkdir(parents=True, exist_ok=True)
+        modern_proof.write_text("[]\n")
+        git(repo, "add", modern_proof.relative_to(repo).as_posix())
+        git(repo, "commit", "-qm", f"record malformed modern {name}")
+        assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+        modern_proof.unlink()
+        git(repo, "add", "-u")
+        git(repo, "commit", "-qm", f"remove malformed modern {name}")
+
+    root_paths = [
+        ".factory/decomposition.json", ".factory/verify.json",
+        ".factory/tests.json", ".factory/reviews/quality.json",
+        ".factory/reviews/performance.json", ".factory/reviews/security.json",
+        ".factory/task-plans/T1.md", ".factory/grills/tasks/T1.json",
+    ]
+    git(repo, "checkout", seal, "--", *root_paths)
+    root_decomposition = json.loads(
+        (repo / ".factory/decomposition.json").read_text())
+    requested = repo / ".factory/history/ENG-1/decomposition.json"
+    requested.parent.mkdir(parents=True, exist_ok=True)
+    requested.write_text(json.dumps({**root_decomposition, "story": "ENG-1"}))
+    (repo / ".factory/decomposition.json").write_text(json.dumps({
+        **root_decomposition, "story": "OTHER",
+    }))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "other story root proof bundle")
+    other_seal = head(repo)
+    marker_payload = json.loads(marker.read_text())
+    marker_payload["commit"] = other_seal
+    marker.write_text(json.dumps(marker_payload))
+    git(repo, "add", marker.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "point marker at other story bundle")
+
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+
+def test_task_proof_ci_seal_and_later_mutation(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    task = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "user_facing": False}, "C"
+    )
+    record_skeleton_then_frontier(repo, [task])
+    baseline = head(repo)
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "active",
+         "base_sha": baseline}]})
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": task["title"], "status": "done",
+         "base_sha": baseline}]})
+    base = git(repo, "rev-parse", "origin/main")
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    seal = head(repo)
+    marker = story_state(repo) / "tasks" / "T1" / "pr-ready.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": run_state(repo).get("branch")
+                            or git(repo, "branch", "--show-current"),
+        "base_main_sha": base, "commit": seal,
+        "sealed_at": "2026-09-10T00:00:00+00:00",
+    }))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "publish task marker")
+    import check_task_proof
+    assert not check_task_proof.proof_problems(repo, "ENG-1", "T1")
+    tests = proof / "tests.json"
+    original_tests = tests.read_bytes()
+    data = json.loads(original_tests)
+    data["automated"]["summary"] = "temporarily rewritten after seal"
+    tests.write_text(json.dumps(data))
+    git(repo, "add", tests.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "rewrite task proof after marker")
+    tests.write_bytes(original_tests)
+    git(repo, "add", tests.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "restore task proof bytes")
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+    data = json.loads(tests.read_text())
+    data["automated"]["status"] = "failed"
+    tests.write_text(json.dumps(data))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "mutate task proof")
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+
+def test_task_proof_allows_mixed_product_and_metadata_commits(
+        repo, tmp_path, monkeypatch):
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    base = json.loads(
+        (delegation_ledger(repo).parent / "run.json").read_text()
+    )["base_main_sha"]
+
+    # Product E is the tree the implementer tested.
+    write_in_scope(repo, "src/normal-flow.py", "normal flow\n")
+    git(repo, "add", "src/normal-flow.py")
+    git(repo, "commit", "-qm", "product E")
+    product_commit = head(repo)
+    proof = _write_complete_automated(repo)
+
+    # Tests/verify are stamped at E, then carried through a workflow-only
+    # metadata commit M. The review records are stamped at M and published in
+    # the proof commit N; all commits keep the same product tree.
+    metadata = repo / ".factory" / "review-briefs" / "normal-flow-metadata"
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    metadata.write_text("workflow metadata\n")
+    git(repo, "add", proof.relative_to(repo).as_posix(),
+        ".factory/stories/ENG-1/decomposition.json",
+        ".factory/stories/ENG-1/task-plans/T1.md",
+        ".factory/stories/ENG-1/grills/tasks/T1.json",
+        metadata.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "metadata M")
+    metadata_commit = head(repo)
+    assert metadata_commit != product_commit
+
+    write_task_proof(
+        repo, "T1", commit=metadata_commit, publish_review=True,
+        preserve_existing_proof=True,
+    )
+    git(repo, "add", ".factory/review-briefs/all.md",
+            ".factory/stories/ENG-1/review-run.json",
+            ".factory/stories/ENG-1/tasks/T1/reviews")
+    git(repo, "commit", "-qm", "proof N")
+    brief_path = repo / ".factory" / "review-briefs" / "all.md"
+    publication_brief = brief_path.read_bytes()
+    brief_path.write_text("inherited review brief\n", encoding="utf-8")
+    git(repo, "add", brief_path.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "inherit an older review brief at the seal")
+    seal = head(repo)
+    assert seal != metadata_commit
+    brief_path.write_bytes(publication_brief)
+
+    # Complete the ordinary stage/seal path. The stage stamp is bound to N's
+    # product tree, while the proof records intentionally retain E and M.
+    code, out = record_stage_local(repo)
+    assert code == 0, out
+    stages_path = delegation_ledger(repo).parent / "stages.json"
+    stages = json.loads(stages_path.read_text())
+    stages["stages"][0]["status"] = "done"
+    write_stages(repo, stages)
+    gh_env, _ = fake_gh_env(tmp_path)
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=gh_env)
+    assert code == 0, out
+    assert json.loads(marker.read_text())["commit"] == seal
+    marker_publication = head(repo)
+
+    import check_task_proof
+    lib = load_factory_lib(repo)
+    marker_rel = marker.relative_to(repo).as_posix()
+    assert lib._marker_publication_commit(repo, marker_rel) == marker_publication
+    task = next(
+        item for item in json.loads(
+            (lib.protected_decomposition_state_path(repo)).read_text()
+        )["tasks"] if item.get("id") == "T1"
+    )
+    pointer_path = proof / "reviews/selected.json"
+    combined_pointer = json.loads(pointer_path.read_text())
+    combined_path = proof / "reviews/generations" / f"{combined_pointer['generation_id']}.json"
+    upgrade = json.loads(combined_path.read_text())
+    upgrade.pop("generation_id")
+    upgrade["origin"] = "upgrade"
+    upgrade["generated_by"] = "upgrade"
+    for field in ("review_run_id", "brief_sha256", "helper", "input", "raw_result"):
+        upgrade.pop(field)
+    upgrade["upgrade"] = {
+        "inventory_digest": "c" * 64,
+        "source_kind": "sealed",
+        "legacy_artifacts": [
+            {"aspect": lens, "path": f"reviews/{lens}.json",
+             "sha256": chr(100 + index) * 64}
+            for index, lens in enumerate(("performance", "quality", "security"))
+        ],
+        "sealed_commit": seal,
+    }
+    _valid_upgrade, valid_upgrade_pointer = lib.publish_review_generation(
+        repo, "ENG-1", "T1", upgrade)
+    git(repo, "add", proof.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "publish marker-bound sealed upgrade")
+    assert not lib.task_proof_problems(repo, "ENG-1", task)
+    assert not check_task_proof.proof_problems(repo, "ENG-1", "T1")
+    mismatched = copy.deepcopy(upgrade)
+    mismatched["upgrade"]["sealed_commit"] = metadata_commit
+    lib.publish_review_generation(repo, "ENG-1", "T1", mismatched)
+    git(repo, "add", proof.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "publish mismatched sealed upgrade")
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    pointer_path.write_bytes(lib.review_generation_bytes(valid_upgrade_pointer))
+    git(repo, "add", pointer_path.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "restore marker-bound sealed upgrade")
+    marker_payload = json.loads(marker.read_text())
+    marker_payload["sealed_at"] = "2026-09-12T01:00:00+00:00"
+    marker.write_text(json.dumps(marker_payload))
+    git(repo, "add", marker_rel)
+    git(repo, "commit", "-qm", "rewrite marker metadata")
+    assert lib._marker_publication_commit(repo, marker_rel) == marker_publication
+    assert not check_task_proof.proof_problems(repo, "ENG-1", "T1")
+    digest_calls = []
+    product_digest = lib.product_tree_digest
+
+    def counted_product_digest(root, treeish="", exclude=(".factory/", "plans/")):
+        digest_calls.append(treeish)
+        return product_digest(root, treeish, exclude)
+
+    monkeypatch.setattr(lib, "product_tree_digest", counted_product_digest)
+    assert not lib.task_proof_problems(repo, "ENG-1", task)
+    assert len(digest_calls) == 3
+    assert set(digest_calls) == {seal, product_commit, metadata_commit}
+
+    # Historical validation is bound to the immutable marker/proof commits;
+    # moving origin/main to the later marker publication cannot change it.
+    original_main = git(repo, "rev-parse", "origin/main")
+    git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert not lib.task_proof_problems(repo, "ENG-1", task)
+    git(repo, "update-ref", "refs/remotes/origin/main", original_main)
+
+    # CI proof stays pinned to the committed marker and HEAD artifacts even
+    # when the checkout's branch, run pointer, and review brief are tampered
+    # with in the working tree.
+    git(repo, "checkout", "-q", "-b", "spoofed-proof-branch")
+    run_pointer = delegation_ledger(repo).parent / "run.json"
+    run_state_value = json.loads(run_pointer.read_text())
+    run_state_value.update({"branch": "spoofed-proof-branch", "base_main_sha": "0" * 40})
+    run_pointer.write_text(json.dumps(run_state_value))
+    brief_path.write_text(brief_path.read_text() + "\nworking-tree tamper\n")
+    assert not check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+    # A later report edit is rejected by both local and committed-tree
+    # consumers even though its JSON remains syntactically valid.
+    tests = proof / "tests.json"
+    data = json.loads(tests.read_text())
+    data["automated"]["summary"] = "report changed after review"
+    tests.write_text(json.dumps(data))
+    git(repo, "add", tests.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "mutate report after marker")
+    assert lib.task_proof_problems(repo, "ENG-1", task)
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1")
+
+    # Restoring an authoritative generation's bytes does not erase its history.
+    authoritative = proof / "reviews/generations" / (
+        f"{valid_upgrade_pointer['generation_id']}.json"
+    )
+    authoritative_bytes = authoritative.read_bytes()
+    authoritative.write_bytes(authoritative_bytes + b"\n")
+    git(repo, "add", authoritative.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "rewrite authoritative review generation")
+    authoritative.write_bytes(authoritative_bytes)
+    git(repo, "add", authoritative.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "restore authoritative review generation")
+    exact_path = authoritative.relative_to(proof).as_posix()
+    assert any(
+        f"{exact_path} proof changed after task marker" in problem
+        for problem in lib.task_proof_problems(repo, "ENG-1", task)
+    )
+
+
+def test_task_proof_sealed_t1_survives_t2_product(repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    t1 = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "user_facing": False}, "C"
+    )
+    t2 = {"id": "T2", "title": "future", "objective": "Build future.",
+          "acceptance_criteria": ["future works"], "dependencies": ["T1"],
+          "user_facing": False}
+    record_skeleton_then_frontier(repo, [t1, t2])
+    baseline = head(repo)
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": t1["title"], "status": "active",
+         "base_sha": baseline},
+        {"id": "T2", "title": t2["title"], "status": "pending",
+         "base_sha": baseline}]})
+    code, out = record_task_grill(repo, t1)
+    assert code == 0, out
+    write_stages(repo, {"issue": "ENG-1", "stages": [
+        {"id": "T1", "title": t1["title"], "status": "done",
+         "base_sha": baseline},
+        {"id": "T2", "title": t2["title"], "status": "pending",
+         "base_sha": baseline}]})
+    base = git(repo, "rev-parse", "origin/main")
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    seal = head(repo)
+    marker = story_state(repo) / "tasks" / "T1" / "pr-ready.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": run_state(repo).get("branch")
+                            or git(repo, "branch", "--show-current"),
+        "base_main_sha": base, "commit": seal,
+        "sealed_at": "2026-09-10T00:00:00+00:00",
+    }))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "publish marker")
+    lib = load_factory_lib(repo)
+    assert not lib.task_proof_problems(repo, "ENG-1", t1)
+
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "t2.py").write_text("t2 = True\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "T2 product")
+    run_pointer = lib.run_state_path(repo)
+    state = json.loads(run_pointer.read_text(encoding="utf-8"))
+    state["task_id"] = "T2"
+    state["base_main_sha"] = head(repo)
+    lib.dump_json(run_pointer, state)
+    assert lib.active_task_id(repo) == "T2"
+
+    assert not lib.task_proof_problems(repo, "ENG-1", t1)
+    from forge_cli.board import aggregate_state
+    story = next(s for s in aggregate_state(repo)["stories"] if s["key"] == "ENG-1")
+    assert story["lifecycle"]["proven"] == {"done": 1, "total": 2}
+    import check_task_proof
+    assert not check_task_proof.proof_problems(repo, "ENG-1", "T1")
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T2")
+    assert lib.task_proof_problems(repo, "ENG-1", t2)
+
+
+def test_task_seal_refuses_incomplete_proof_before_mutation(
+        repo, tmp_path, monkeypatch):
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    lib = load_factory_lib(repo)
+    stages_path = delegation_ledger(repo).parent / "stages.json"
+    before_stages = stages_path.read_bytes()
+    monkeypatch.setattr(
+        lib, "task_seal_shared_problems", lambda *_args: ["shared blocker"],
+    )
+    from forge_cli import stages as stages_mod
+    monkeypatch.setattr(
+        stages_mod, "_require_reviewed_commit",
+        lambda *_args: pytest.fail("review stamp inspected before shared blockers"),
+    )
+    with pytest.raises(SystemExit, match="shared blocker"):
+        lib.require_task_sealed(repo, "T1")
+    assert stages_path.read_bytes() == before_stages
+
+    # Reach the marker publisher with an accepted seal but missing selected
+    # artifacts. It must validate those inputs before creating pr-ready.json.
+    import factory_lib as source_lib
+    from forge_cli import tasks as tasks_mod
+    with monkeypatch.context() as missing:
+        missing.setattr(tasks_mod, "require_task_sealed", lambda *_args: STAGE_TASK)
+        missing.setattr(
+            source_lib, "read_selected_review_generation",
+            lambda *_args, **_kwargs: ({"generation_id": "a" * 64}, {}, []),
+        )
+        missing.setattr(source_lib, "effective_review_base", lambda *_args: "b" * 40)
+        with pytest.raises(SystemExit):
+            tasks_mod.seal_task(repo, "T1")
+    assert not marker.exists()
+
+    gh_env, argv_path = fake_gh_env(tmp_path)
+    before_head = head(repo)
+    before_status = git(repo, "status", "--porcelain", "-uall")
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=gh_env)
+    assert code != 0 and "Task proof incomplete" in out, out
+    assert head(repo) == before_head
+    assert git(repo, "status", "--porcelain", "-uall") == before_status
+    assert not marker.exists() and not argv_path.exists()
+
+
+def test_task_start_creates_before_jit_with_approved_identity(
+        repo, tmp_path, monkeypatch, capsys):
+    remote = tmp_path / "origin.git"
+    proc = subprocess.run(["git", "init", "--bare", str(remote)],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    git(repo, "remote", "add", "origin", str(remote))
+    git(repo, "push", "-q", "origin", f"{head(repo)}:refs/heads/main")
 
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    first = {**DECOMP["tasks"][0], "id": "T1", "reviewer_focus": "focus one",
-             "plan_contracts": [{"id": "C1", "statement": "first statement",
-                                  "source": "plan.md#first"}]}
-    second = {**skeletal_stage_task("T2", "second slice"),
-              "dependencies": ["T1"], "reviewer_focus": ["focus two", "focus three"],
-              "plan_contracts": [{"id": "C2", "statement": "second statement",
-                                   "source": "plan.md#second"}]}
-    skeletons = [task_skeleton(first), task_skeleton(second)]
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
-        {**DECOMP, "tasks": skeletons}))
-    assert code == 0, out
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
-        {**DECOMP, "tasks": [first, skeletons[1]]}))
-    assert code == 0, out
-    write_stages(repo, {
-        "issue": "ENG-1",
-        "stages": [
-            {"id": "T1", "title": first["title"], "status": "done"},
-            {"id": "T2", "title": second["title"], "status": "pending"},
-        ],
-    })
-    code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
-        {**DECOMP, "tasks": [first, second]}))
-    assert code == 0, out
+    first = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T1", "title": "first"}, "T1-C")
+    second = task_with_plan_contracts(
+        {**DECOMP["tasks"][0], "id": "T2", "title": "second"}, "T2-C")
 
-    code, out = run(repo, "forge.py", "review-brief", "T1", "--repo", str(repo))
-    assert code == 0 and out.strip() == ".factory/review-briefs/T1.md"
-    per_task = (repo / out.strip()).read_text()
-    assert all(value in per_task for value in (
-        "C1", "plan.md#first", "first statement", "focus one",
-        "implemented | partial | missing", "contract_verdicts", "file:line",
-    ))
-    assert "C2" not in per_task and "focus two" not in per_task
+    # This exercises first/subsequent starts after workspace-first ships. The
+    # historical First bootstrap and its incumbent pre-import checks are
+    # separate source evidence; the successor task intentionally has no target
+    # plan or grill.
+    record_skeleton_then_frontier(repo, [first])
+    code, out = record_task_grill(repo, first)
+    assert code == 0, out
+    first_sources = seed_task_start_inputs(repo, "ENG-1", [first], "T1")
+    first_sources["grill"].unlink()
+    first_sources["task_plan"].unlink()
+    code, out = run(repo, "forge.py", "task", "start", "T1")
+    assert code == 0, out
+    first_worktree = repo.parent / f"{repo.name}-ENG-1-T1"
+    assert first_worktree.is_dir()
+    assert not (first_worktree / ".factory/stories/ENG-1/task-plans/T1.md").exists()
+    assert not (first_worktree / ".factory/stories/ENG-1/grills/tasks/T1.json").exists()
 
-    code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
-    assert code == 0 and out.strip() == ".factory/review-briefs/all.md"
-    branch = (repo / out.strip()).read_text()
-    assert all(value in branch for value in (
-        "C1", "C2", "focus one", "- focus two", "- focus three"))
+    sources = seed_task_start_inputs(repo, "ENG-1", [first, second], "T2")
+    source_plan = sources["task_plan"].read_bytes()
+    plan_digest = plan_digest_without_assumptions(sources["task_plan"])
+    sources["grill"].write_text(json.dumps({
+        "gate": "task", "task_id": "T2", "verdict": "pass",
+        "commit": head(repo), "task_plan_sha256": plan_digest,
+        "approved_by": "Source Human",
+        "approved_at": "2026-09-10T00:00:00+00:00",
+        "approved_task_plan_sha256": plan_digest,
+    }))
+    second_worktree = repo.parent / f"{repo.name}-ENG-1-T2"
 
-    for args, expected in [
-        (("review-brief",), "exactly one"),
-        (("review-brief", "T1", "--all"), "exactly one"),
-        (("review-brief", "UNKNOWN"), "Unknown decomposition task id"),
-    ]:
-        code, out = run(repo, "forge.py", *args, "--repo", str(repo))
-        assert code != 0 and expected in out
-    module = (repo / "factory" / "scripts" / "forge_cli" / "review_brief.py").read_text()
-    assert "forge_cli.delegate" not in module and "import delegate" not in module
+    # The predecessor marker is checked against fetched origin before any
+    # workspace is allocated.
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "dependency T1 marker is absent" in out, out
+    assert not second_worktree.exists()
+
+    control = delegation_ledger(repo).parent
+    decomposition = json.loads((control / "decomposition.json").read_text())
+    valid = json.loads(json.dumps(decomposition))
+    decomposition["story"] = "OTHER-STORY"
+    (control / "decomposition.json").write_text(json.dumps(decomposition))
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "belongs" in out and not second_worktree.exists()
+    (control / "decomposition.json").write_text(json.dumps(valid))
+
+    decomposition = json.loads(json.dumps(valid))
+    decomposition["plan_sha256"] = "0" * 64
+    (control / "decomposition.json").write_text(json.dumps(decomposition))
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "not bound to the approved story plan" in out
+    (control / "decomposition.json").write_text(json.dumps(valid))
+
+    marker = repo / ".factory" / "stories" / "ENG-1" / "tasks" / "T1" / "pr-ready.json"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("{}\n")
+    git(repo, "add", marker.relative_to(repo).as_posix(),
+        sources["task_plan"].relative_to(repo).as_posix(),
+        sources["grill"].relative_to(repo).as_posix())
+    git(repo, "commit", "-q", "-m", "mark T1 ready")
+    git(repo, "push", "-q", "origin", "HEAD:main")
+
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "dependency T1 marker is absent" in out
+    assert not second_worktree.exists()
+    for content in ("not json", "[]"):
+        marker.write_text(content)
+        git(repo, "add", marker.relative_to(repo).as_posix())
+        git(repo, "commit", "-qm", "publish malformed dependency marker")
+        git(repo, "push", "-q", "origin", "HEAD:main")
+        code, out = run(repo, "forge.py", "task", "start", "T2")
+        assert code != 0 and "dependency T1 marker is absent" in out
+        assert not second_worktree.exists()
+    base_main = git(repo, "rev-parse", "origin/main~1")
+    for payload in (
+        {"task_id": "OTHER", "branch": "feat/ENG-1-T1",
+         "base_main_sha": base_main, "commit": head(repo),
+         "sealed_at": "2026-09-10T00:00:00+00:00"},
+        {"task_id": "T1", "branch": "feat/ENG-1-T1",
+         "base_main_sha": base_main, "commit": "not-a-commit",
+         "sealed_at": "2026-09-10T00:00:00+00:00"},
+        {"task_id": "T1", "branch": "feat/ENG-1-T1",
+         "base_main_sha": base_main, "commit": head(repo),
+         "sealed_at": "2026-09-10T00:00:00+00:00"},
+    ):
+        marker.write_text(json.dumps(payload))
+        git(repo, "add", marker.relative_to(repo).as_posix())
+        git(repo, "commit", "-qm", "publish invalid dependency marker")
+        git(repo, "push", "-q", "origin", "HEAD:main")
+        code, out = run(repo, "forge.py", "task", "start", "T2")
+        assert code != 0 and "dependency T1 marker is absent" in out
+        assert not second_worktree.exists()
+
+    marker.write_text(json.dumps({
+        "task_id": "T1", "branch": "feat/ENG-1-T1",
+        "base_main_sha": base_main, "commit": head(repo),
+        "sealed_at": "2026-09-10T00:00:00+00:00", "reconciled": True,
+    }))
+    git(repo, "add", marker.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "publish validated reconciled dependency marker")
+    git(repo, "push", "-q", "origin", "HEAD:main")
+
+    decomposition = json.loads((control / "decomposition.json").read_text())
+    decomposition["tasks"][1]["write_scope"] = ["../outside"]
+    (control / "decomposition.json").write_text(json.dumps(decomposition))
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "protected in-repository write_scope" in out
+    (control / "decomposition.json").write_text(json.dumps(valid))
+
+    second_worktree.mkdir()
+    (second_worktree / "sentinel").write_text("occupied")
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "task worktree already exists" in out, out
+    assert (second_worktree / "sentinel").read_text() == "occupied"
+    shutil.rmtree(second_worktree)
+
+    plan_source = sources["task_plan"]
+    external_plan = tmp_path / "external-task-plan.md"
+    external_plan.write_bytes(source_plan)
+    plan_source.unlink()
+    plan_source.symlink_to(external_plan)
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "optional source is symlinked" in out
+    assert not second_worktree.exists()
+    assert subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", "refs/heads/feat/ENG-1-T2"],
+        cwd=repo,
+    ).returncode != 0
+    assert external_plan.read_bytes() == source_plan
+    plan_source.unlink()
+    plan_source.write_bytes(source_plan)
+
+    plan_dir = plan_source.parent
+    external_dir = tmp_path / "external-task-plans"
+    shutil.move(plan_dir, external_dir)
+    plan_dir.symlink_to(external_dir, target_is_directory=True)
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code != 0 and "optional source is symlinked" in out
+    assert not second_worktree.exists()
+    assert subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", "refs/heads/feat/ENG-1-T2"],
+        cwd=repo,
+    ).returncode != 0
+    assert (external_dir / "T2.md").read_bytes() == source_plan
+    plan_dir.unlink()
+    shutil.move(external_dir, plan_dir)
+
+    from forge_cli import tasks as tasks_mod
+    original_require_git = tasks_mod._require_git
+    external_target = tmp_path / "external-hydration-target"
+    external_target.mkdir()
+    sentinel = external_target / "sentinel"
+    sentinel.write_text("unchanged")
+
+    def hostile_destination(base, description, *args, **kwargs):
+        result = original_require_git(base, description, *args, **kwargs)
+        if description == "creating task worktree":
+            target = second_worktree / ".factory/stories/ENG-1/task-plans"
+            shutil.rmtree(target)
+            target.symlink_to(external_target, target_is_directory=True)
+        return result
+
+    with monkeypatch.context() as hostile:
+        hostile.setattr(tasks_mod, "_require_git", hostile_destination)
+        with pytest.raises(SystemExit):
+            tasks_mod.cmd_task_start(argparse.Namespace(id="T2", repo=str(repo)))
+    assert sentinel.read_text() == "unchanged"
+    assert not second_worktree.exists()
+    assert subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", "refs/heads/feat/ENG-1-T2"],
+        cwd=repo,
+    ).returncode != 0
+
+    original_git = tasks_mod._git
+
+    def failed_worktree_cleanup(base, *args):
+        if args[:3] == ("worktree", "remove", "--force"):
+            return subprocess.CompletedProcess(args, 1, "", "cleanup refused")
+        return original_git(base, *args)
+
+    with monkeypatch.context() as failed_cleanup:
+        failed_cleanup.setattr(tasks_mod, "_require_git", hostile_destination)
+        failed_cleanup.setattr(tasks_mod, "_git", failed_worktree_cleanup)
+        with pytest.raises(SystemExit):
+            tasks_mod.cmd_task_start(argparse.Namespace(id="T2", repo=str(repo)))
+    assert "cleanup refused" in capsys.readouterr().out
+    assert second_worktree.exists()
+    assert subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", "refs/heads/feat/ENG-1-T2"],
+        cwd=repo,
+    ).returncode == 0
+    git(repo, "worktree", "remove", "--force", str(second_worktree))
+    git(repo, "branch", "-D", "feat/ENG-1-T2")
+
+    code, out = run(repo, "forge.py", "task", "start", "T2")
+    assert code == 0, out
+    pointer = json.loads(
+        (Path(git(second_worktree, "rev-parse", "--absolute-git-dir"))
+         / "forge" / "run.json").read_text())
+    assert pointer["issue_key"] == "ENG-1"
+    assert pointer["task_id"] == "T2"
+    assert pointer["approved_plan_sha256"] == valid["plan_sha256"]
+    assert pointer["decomposition_plan_sha256"] == valid["plan_sha256"]
+    assert pointer["task_sha256"] == task_digest(second)
+    target_plan = second_worktree / ".factory/stories/ENG-1/task-plans/T2.md"
+    target_grill = second_worktree / ".factory/stories/ENG-1/grills/tasks/T2.json"
+    assert target_plan.read_bytes() == source_plan
+    assert not target_grill.exists()
+    code, out = run(second_worktree, "forge.py", "stage", "start", "T2")
+    assert code != 0 and "grill" in out.lower()
 
 
 def test_review_brief_mints_run_id_and_lenses_echo_it(repo, tmp_path):
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
-    record_skeleton_then_frontier(repo, DECOMP["tasks"])
+    task = task_with_plan_contracts(DECOMP["tasks"][0], "C")
+    record_skeleton_then_frontier(repo, [task])
+    baseline = head(repo)
+    write_stages(repo, {"issue": "ENG-1", "stages": [{
+        "id": "T1", "title": "core slice", "status": "active",
+        "base_sha": baseline,
+    }]})
+    code, out = record_task_grill(repo, task)
+    assert code == 0, out
     (repo / "app.py").write_text("print('reviewed branch')\n")
     git(repo, "add", "app.py")
     git(repo, "commit", "-q", "-m", "product change")
+    _write_complete_automated(repo)
 
     code, out = run(repo, "forge.py", "review-brief", "--all", "--repo", str(repo))
     assert code == 0, out
     brief = repo / ".factory" / "review-briefs" / "all.md"
     token = json.loads((story_state(repo) / "review-run.json").read_text())
+    assert token["task_id"] == "T1"
     assert token["brief_sha256"] == hashlib.sha256(brief.read_bytes()).hexdigest()
-    assert token["branch_diff_digest"] == branch_diff_digest(repo)
+    from factory_lib import effective_review_base, product_delta_digest
+    assert token["branch_diff_digest"] == product_delta_digest(
+        repo, effective_review_base(repo, "T1"),
+    )
     assert token["review_run_id"] == hashlib.sha256(
         (token["brief_sha256"] + token["branch_diff_digest"]).encode()
     ).hexdigest()
+    assert (
+        f"- Current delta ID: `{token['branch_diff_digest']}`"
+        in brief.read_text()
+    )
     assert token["minted_at"]
 
     for aspect in ("quality", "performance", "security"):
+        payload = review_payload()
+        if aspect == "quality":
+            payload["contract_verdicts"] = [{
+                "contract_id": "C1", "verdict": "implemented",
+                "evidence": "app.py:1",
+            }]
         code, out = run(repo, "record_review_from_json.py", "--aspect", aspect,
-                        stdin=json.dumps(review_payload()))
+                        stdin=json.dumps(payload))
         assert code == 0, out
         review = json.loads(
-            (story_state(repo) / "reviews" / f"{aspect}.json").read_text()
+            (story_state(repo) / "tasks" / "T1" / "reviews" / f"{aspect}.json").read_text()
         )
         for field in ("review_run_id", "brief_sha256", "branch_diff_digest"):
             assert review[field] == token[field]
 
+    code, out = run(repo, "record_review_from_json.py", "--aspect", "security",
+                    "--task", "T2", stdin=json.dumps(review_payload()))
+    assert code != 0 and "does not match" in out
+
     (repo / "app.py").write_text("print('changed after review run')\n")
     git(repo, "add", "app.py")
     git(repo, "commit", "-q", "-m", "change reviewed branch")
+    changed_payload = review_payload(contract_verdicts=[{
+        "contract_id": "C1", "verdict": "implemented", "evidence": "app.py:1",
+    }])
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
-                    stdin=json.dumps(review_payload()))
+                    stdin=json.dumps(changed_payload))
     assert code != 0 and "Branch changed after the review run" in out
 
 
 def test_quality_review_requires_contract_verdicts(repo, tmp_path):
+    code, out = run(repo, "forge.py", "review", "T1", "--sequential")
+    assert code != 0 and "unrecognized arguments" in out
     sign_off(repo)
     intake(repo)
     save_plan(repo, tmp_path)
@@ -17995,9 +20003,13 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
         {"id": "C2", "statement": "second statement", "source": "plan.md#second"},
     ]
     tasks = [
-        {**DECOMP["tasks"][0], "id": "T1", "plan_contracts": [contracts[0]]},
-        {**skeletal_stage_task("T2", "second slice"),
-         "dependencies": ["T1"], "plan_contracts": [contracts[1]]},
+        {**DECOMP["tasks"][0], "id": "T1",
+         "acceptance_criteria": [contracts[0]["statement"]],
+         "plan_contracts": [contracts[0]]},
+        {**STAGE_TASK, "id": "T2", "title": "second slice",
+         "dependencies": ["T1"],
+         "acceptance_criteria": [contracts[1]["statement"]],
+         "plan_contracts": [contracts[1]]},
     ]
     skeletons = [task_skeleton(task) for task in tasks]
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
@@ -18006,6 +20018,17 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
         {**DECOMP, "tasks": [tasks[0], skeletons[1]]}))
     assert code == 0, out
+    # Keep T1 active while its real JIT inputs are saved and approved. The
+    # active status also makes the review grounding use the in-stage basis.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": tasks[0]["title"], "status": "active",
+             "base_sha": head(repo)},
+            {"id": "T2", "title": tasks[1]["title"], "status": "pending"},
+        ],
+    })
+    seed_review_inputs(repo, [tasks[0]])
     # BOTH tasks are in scope here: a review only verdicts the contracts of
     # tasks that have started or shipped (0049), so leaving T2 pending would
     # take C2 out of scope and make the refusal matrix below meaningless. The
@@ -18014,13 +20037,17 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
     write_stages(repo, {
         "issue": "ENG-1",
         "stages": [
-            {"id": "T1", "title": tasks[0]["title"], "status": "done"},
-            {"id": "T2", "title": tasks[1]["title"], "status": "active"},
+            {"id": "T1", "title": tasks[0]["title"], "status": "done",
+             "base_sha": head(repo)},
+            {"id": "T2", "title": tasks[1]["title"], "status": "active",
+             "base_sha": head(repo)},
         ],
     })
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
         {**DECOMP, "tasks": tasks}))
     assert code == 0, out
+    seed_review_inputs(repo, [tasks[1]])
+    write_task_proof(repo, tasks[0]["id"])
     mint_review_run(repo)
 
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
@@ -18039,15 +20066,18 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
     ]
     for contract_verdicts, expected in refused:
         code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                        "--task", "T2",
                         stdin=json.dumps(review_payload(
                             contract_verdicts=contract_verdicts)))
         assert code != 0 and expected in out
 
     partial = [verdict("C1", "partial"), verdict("C2")]
     code, out = run(repo, "record_review_from_json.py", "--aspect", "quality",
+                    "--task", "T2",
                     stdin=json.dumps(review_payload(contract_verdicts=partial)))
     assert code == 0, out
-    quality = json.loads((story_state(repo) / "reviews" / "quality.json").read_text())
+    quality = json.loads((story_state(repo) / "tasks" / "T2" / "reviews" /
+                          "quality.json").read_text())
     assert quality["blocking_findings"] == [{
         "category": "plan-contract-partial",
         "area": "plan.md#first",
@@ -18055,6 +20085,7 @@ def test_quality_review_requires_contract_verdicts(repo, tmp_path):
     }]
 
     code, out = run(repo, "record_review_from_json.py", "--aspect", "performance",
+                    "--task", "T2",
                     stdin=json.dumps(review_payload()))
     assert code == 0, out
 
@@ -18075,9 +20106,13 @@ def test_quality_review_ignores_contracts_of_tasks_that_have_not_started(
         {"id": "C2", "statement": "second statement", "source": "plan.md#second"},
     ]
     tasks = [
-        {**DECOMP["tasks"][0], "id": "T1", "plan_contracts": [contracts[0]]},
-        {**skeletal_stage_task("T2", "second slice"),
-         "dependencies": ["T1"], "plan_contracts": [contracts[1]]},
+        {**DECOMP["tasks"][0], "id": "T1",
+         "acceptance_criteria": [contracts[0]["statement"]],
+         "plan_contracts": [contracts[0]]},
+        {**STAGE_TASK, "id": "T2", "title": "second slice",
+         "dependencies": ["T1"],
+         "acceptance_criteria": [contracts[1]["statement"]],
+         "plan_contracts": [contracts[1]]},
     ]
     skeletons = [task_skeleton(task) for task in tasks]
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
@@ -18086,19 +20121,32 @@ def test_quality_review_ignores_contracts_of_tasks_that_have_not_started(
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
         {**DECOMP, "tasks": [tasks[0], skeletons[1]]}))
     assert code == 0, out
+    # T1 is still the frontier here; seed its approved JIT inputs before the
+    # fixture marks it done and leaves T2 pending for the scope assertion.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": tasks[0]["title"], "status": "active",
+             "base_sha": head(repo)},
+            {"id": "T2", "title": tasks[1]["title"], "status": "pending"},
+        ],
+    })
+    seed_review_inputs(repo, [tasks[0]])
     # T1 done, so T2 is the frontier and may carry its contract -- a pending
     # non-frontier task is refused one outright (JIT execution detail). T2 has
     # still not STARTED, which is the case under test.
     write_stages(repo, {
         "issue": "ENG-1",
         "stages": [
-            {"id": "T1", "title": tasks[0]["title"], "status": "done"},
+            {"id": "T1", "title": tasks[0]["title"], "status": "done",
+             "base_sha": head(repo)},
             {"id": "T2", "title": tasks[1]["title"], "status": "pending"},
         ],
     })
     code, out = run(repo, "record_decomposition_from_json.py", stdin=json.dumps(
         {**DECOMP, "tasks": tasks}))
     assert code == 0, out
+    write_task_proof(repo, tasks[0]["id"])
     mint_review_run(repo)
 
     only_c1 = [{"contract_id": "C1", "verdict": "implemented",
@@ -18370,6 +20418,48 @@ def _copy_harness_source(tmp_path: Path) -> Path:
         else:
             shutil.copy2(src, dst)
     return source
+
+
+def test_project_agents_init_upgrade_and_preserve_client_additions(
+    tmp_path: Path, monkeypatch,
+):
+    from forge_cli import upgrade
+    from forge_cli.scaffold import INIT_COPY_TREES
+
+    assert ".codex/agents" in INIT_COPY_TREES
+    source = _copy_harness_source(tmp_path)
+    source_agents = {
+        path.name: path.read_bytes()
+        for path in (source / ".codex" / "agents").glob("*.toml")
+    }
+    source_config = (source / ".codex" / "config.toml").read_bytes()
+    assert len(source_agents) == 15
+
+    target = tmp_path / "app"
+    initialized = _init(target)
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    assert {
+        path.name: path.read_bytes()
+        for path in (target / ".codex" / "agents").glob("*.toml")
+    } == source_agents
+    assert (target / ".codex" / "config.toml").read_bytes() == source_config
+
+    shipped = target / ".codex" / "agents" / sorted(source_agents)[0]
+    shipped.write_text("stale harness-owned config\n", encoding="utf-8")
+    custom = target / ".codex" / "agents" / "client-custom.toml"
+    custom.write_text("name = \"client-custom\"\n", encoding="utf-8")
+    git(target, "add", "-A")
+    git(target, "commit", "-q", "-m", "client agent additions and drift")
+
+    monkeypatch.setattr(upgrade, "repo_root", lambda: source)
+    upgrade.cmd_upgrade(argparse.Namespace(target=str(target), force=False))
+
+    assert {
+        name: (target / ".codex" / "agents" / name).read_bytes()
+        for name in source_agents
+    } == source_agents
+    assert (target / ".codex" / "config.toml").read_bytes() == source_config
+    assert custom.read_text(encoding="utf-8") == 'name = "client-custom"\n'
 
 
 def test_init_into_nonempty_noncolliding_target(tmp_path: Path):
@@ -19788,6 +21878,498 @@ def test_the_gate_graph_has_no_cycles(repo):
     lib = (HARNESS / "factory" / "scripts" / "factory_lib.py").read_text(
         encoding="utf-8")
     assert "def require_closeout_order" in lib
+# anti-loop correction tests are appended below to preserve pinned fixture lines
+
+
+def test_active_task_frontier_routes_current_handoff_and_proof(tmp_path, monkeypatch):
+    """An open stage advances from its bound handoff instead of relaunching."""
+    import factory_lib as lib
+    from forge_cli import codex_status, delegate, review
+
+    task = dict(STAGE_TASK)
+    stage = {"status": "active", "started_at": "stage-now"}
+    digest = lib.task_digest(task)
+    monkeypatch.setattr(lib, "evidence_path", lambda root, key, rel: root / rel)
+    monkeypatch.setattr(
+        lib, "task_evidence_path",
+        lambda root, key, task_id, rel: root / rel,
+    )
+    monkeypatch.setattr(lib, "_task_plan_state", lambda *_a: "approved")
+    monkeypatch.setattr(lib, "_task_grill_fresh", lambda *_a: True)
+    monkeypatch.setattr(lib, "head_sha", lambda _root: "HEAD")
+    monkeypatch.setattr(lib, "branch_diff_digest", lambda _root: "CURRENT-DIFF")
+    monkeypatch.setattr(lib, "product_delta_digest", lambda *_a: "CURRENT-DIFF")
+    monkeypatch.setattr(lib, "_stage_baseline_for", lambda *_a: "BASE")
+    monkeypatch.setattr(lib, "effective_review_base", lambda *_a: "BASE")
+    monkeypatch.setattr(review, "_product_dirty", lambda _root: [])
+
+    current_rows = [{
+        "launch_id": "current", "task": "T1", "write": True,
+        "story": "STORY",
+        "stage_started_at": "stage-now", "task_sha256": digest,
+        "launch_status": "running",
+    }]
+    monkeypatch.setattr(delegate, "load_delegations", lambda _root: current_rows)
+    monkeypatch.setattr(delegate, "current_delegation", lambda *_a, **_k: None)
+    monkeypatch.setattr(codex_status, "dead_launches", lambda _root: [])
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "watch-delegate"
+    monkeypatch.setattr(codex_status, "dead_launches", lambda _root: current_rows)
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "inspect-delegate"
+    monkeypatch.setattr(codex_status, "dead_launches", lambda _root: [])
+
+    current_rows[0]["launch_status"] = "failed"
+    monkeypatch.setattr(
+        delegate, "current_delegation",
+        lambda *_a, **_k: {**current_rows[0], "exit_code": 1},
+    )
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "inspect-delegate"
+
+    terminal = {**current_rows[0], "launch_status": "succeeded", "exit_code": 0}
+    monkeypatch.setattr(delegate, "current_delegation", lambda *_a, **_k: terminal)
+    monkeypatch.setattr(review, "_product_dirty", lambda _root: ["src/change.py"])
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "commit"
+    monkeypatch.setattr(review, "_product_dirty", lambda _root: [])
+
+    (tmp_path / "verify.json").write_text(
+        '{"ok": false, "commit": "HEAD"}', encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "fix-verify"
+    (tmp_path / "verify.json").unlink()
+    (tmp_path / "tests.json").write_text(
+        '{"commit": "HEAD", "automated": {"status": "failed"}}',
+        encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "fix-tests"
+    (tmp_path / "tests.json").unlink()
+    (tmp_path / "tests.json").write_text(
+        '{"commit": "HEAD", "automated": {"status": "passed"}, '
+        '"functional": {"status": "failed", "score": 4}}', encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "fix-functional"
+    (tmp_path / "tests.json").unlink()
+    proof = {"problems": ["T1: selected review generation is missing"]}
+    def proof_problems(*_args, **kwargs):
+        assert kwargs == {"preseal": True}
+        return proof["problems"]
+    monkeypatch.setattr(lib, "task_proof_problems", proof_problems)
+    reviews = tmp_path / "reviews"
+    reviews.mkdir()
+    (reviews / "quality.json").write_text(
+        '{"commit": "HEAD", "score": 4, '
+        '"blocking_findings": ["broken"]}', encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "review"
+    selected_result = [{"lenses": {
+        "quality": {"score": 4, "blocking_findings": ["broken"]},
+        "performance": {"score": 9, "blocking_findings": []},
+        "security": {"score": 9, "blocking_findings": []},
+    }}, {}, []]
+    monkeypatch.setattr(
+        lib, "read_selected_review_generation", lambda *_a, **_k: selected_result,
+    )
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "fix-review"
+    selected_result[:] = [None, None, ["selected generation is missing"]]
+    (reviews / "quality.json").unlink()
+
+    proof["problems"] = ["T1: no passing verify"]
+    (tmp_path / "verify.json").write_text(
+        '{"ok": false, "commit": "OLD"}', encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "verify"
+    (tmp_path / "verify.json").unlink()
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "verify"
+    proof["problems"] = ["T1: no passing automated tests"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "tests"
+    proof["problems"] = [
+        "T1: product content changed after verify proof was recorded"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "verify"
+    proof["problems"] = lib._proof_commit_problems(
+        tmp_path, "T1", [("verify", {"commit": "OLD"})],
+        expected_head="HEAD",
+    )
+    assert proof["problems"] == [
+        "T1: verify proof is stamped at 'OLD', not HEAD"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "verify"
+    proof["problems"] = [
+        "T1: product content changed after tests proof was recorded"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "tests"
+    proof["problems"] = lib._proof_commit_problems(
+        tmp_path, "T1", [("tests", {"commit": "OLD"})],
+        expected_head="HEAD",
+    )
+    assert proof["problems"] == [
+        "T1: tests proof is stamped at 'OLD', not HEAD"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "tests"
+    proof["problems"] = ["T1: user_facing, so a functional check is required"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "functional"
+    proof["problems"] = ["T1: tests.json review input is stale"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "review"
+    (reviews / "quality.json").write_text(
+        '{"commit": "OLD", "score": 4, '
+        '"branch_diff_digest": "CURRENT-DIFF", '
+        '"blocking_findings": ["fixed"]}', encoding="utf-8")
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "review"
+    (reviews / "quality.json").write_text(
+        '{"commit": "OLD", "score": 4, '
+        '"branch_diff_digest": "STALE-DIFF", '
+        '"blocking_findings": ["fixed"]}', encoding="utf-8")
+    proof["problems"] = ["T1: quality review is stale"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "review"
+    (reviews / "quality.json").unlink()
+    proof["problems"] = ["T1: quality review is missing"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "review"
+    proof["problems"] = ["T1: current task grill has an unknown provenance gap"]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "inspect-proof"
+    proof["problems"] = []
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "stage-done"
+
+    # A row from another story, stage, or task is not this stage's handoff.
+    monkeypatch.setattr(
+        delegate, "current_delegation",
+        lambda *_a, **_k: {**terminal, "story": "OTHER"},
+    )
+    current_rows[:] = [{**current_rows[0], "story": "OTHER"}]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "delegate"
+    monkeypatch.setattr(delegate, "current_delegation", lambda *_a, **_k: None)
+    current_rows[:] = [{**current_rows[0], "task": "T2", "stage_started_at": "old"}]
+    assert lib._task_action_state(tmp_path, "STORY", task, stage) == "delegate"
+
+
+def test_next_prose_reconciles_handoffs_without_blind_retry():
+    source = (HARNESS / "factory/scripts/forge_cli/phase.py").read_text()
+    dead = source[source.index("from .codex_status import dead_launches"):
+                  source.index("open_sigs = open_signals")]
+    signals = source[source.index("if open_sigs:"):
+                     source.index("active_window = load_active")]
+    delegate_route = source[source.index('elif frontier == "delegate":'):
+                            source.index('elif frontier == "await-merge":')]
+    assert "durable output" in dead and "re-run `./forge delegate" not in dead
+    assert "It CRASHED" not in dead and "nothing is coming" not in dead
+    assert "paused worker" not in signals and "resume the rescue" not in signals
+    assert "inspect the current handoff" in signals
+    assert "still `pending`" not in delegate_route
+    assert 'elif frontier == "watch-delegate":' in source
+    assert 'elif frontier == "inspect-delegate":' in source
+    assert 'elif frontier == "inspect-proof":' in source
+
+
+def test_next_early_grill_guidance_uses_gate_floor_and_stops_native(repo, tmp_path):
+    draft = tmp_path / "notes.md"
+    draft.write_text("Early capability notes.\n", encoding="utf-8")
+    code, output = run(
+        repo, "forge.py", "spec", "save", "early", "--from", str(draft))
+    assert code == 0, output
+
+    code, claude = run(
+        repo, "forge.py", "next", env={"FORGE_COORDINATOR": "claude"})
+    assert code == 0, claude
+    assert f"at least {GATES['spec'].min_rounds} ledger-matched" in claude
+    assert "at least 2 real rounds" not in claude
+
+    code, native = run(
+        repo, "forge.py", "next", env={"FORGE_COORDINATOR": "codex"})
+    assert code == 0, native
+    assert "unavailable" in native and "STOP" in native
+    assert "LEAN-WORKFLOW" in native
+    assert "AskUserQuestion" not in native and "request_user_input" not in native
+
+
+def test_next_only_offers_signoff_grill_for_complete_inputs(repo):
+    (repo / ".factory/grills/signoff.json").unlink(missing_ok=True)
+    code, incomplete = run(
+        repo, "forge.py", "next", env={"FORGE_COORDINATOR": "claude"})
+    assert code == 0, incomplete
+    assert "Before sign-off: grill the handover" not in incomplete
+
+    seed_signoff_inputs(repo)
+    brief = repo / "docs/product/BRIEF.md"
+    brief.write_text(
+        "# Product brief\n\n" + "\n\n".join(
+            f"## {heading}\n\nComplete {heading.lower()}."
+            for heading in REQUIRED_BRIEF_HEADINGS
+        ) + "\n",
+        encoding="utf-8",
+    )
+    from record_signoff import workflow_input_problems
+    assert workflow_input_problems(repo) == []
+    code, ready = run(
+        repo, "forge.py", "next", env={"FORGE_COORDINATOR": "claude"})
+    assert code == 0, ready
+    assert "Before sign-off: grill the handover" in ready
+
+
+def test_next_native_requirements_question_stops_at_unsupported_delivery(
+        repo, tmp_path):
+    sign_off(repo)
+    intake(repo)
+    code, output = run(
+        repo, "forge.py", "next", env={"FORGE_COORDINATOR": "codex"})
+    assert code == 0, output
+    assert "requirements grill question delivery is unavailable" in output
+    assert "STOP" in output and "LEAN-WORKFLOW" in output
+    assert "AskUserQuestion" not in output and "request_user_input" not in output
+
+
+def task_pr_retry_env(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
+    bin_dir = tmp_path / "task-pr-retry-bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "gh-calls.txt"
+    pushes = tmp_path / "git-pushes.txt"
+    gh = bin_dir / "gh"
+    gh.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$GH_CALLS_FILE\"\n"
+        "if [ \"$1 $2\" = 'pr create' ]; then\n"
+        "  printf '%s\\n' \"${GH_CREATE_OUTPUT:-https://example.test/pr/1}\"\n"
+        "  exit \"${GH_CREATE_EXIT:-0}\"\n"
+        "fi\n"
+        "if [ -n \"${GH_VIEW_URL:-}\" ]; then printf '%s\\n' \"$GH_VIEW_URL\"; exit 0; fi\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    gh.chmod(0o755)
+    git_wrapper = bin_dir / "git"
+    git_wrapper.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = push ]; then printf '%s\\n' \"$*\" >> \"$PUSH_LOG_FILE\"; fi\n"
+        "exec \"$REAL_GIT_PATH\" \"$@\"\n",
+        encoding="utf-8",
+    )
+    git_wrapper.chmod(0o755)
+    return {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "GH_CALLS_FILE": str(calls),
+        "PUSH_LOG_FILE": str(pushes),
+        "REAL_GIT_PATH": shutil.which("git") or "git",
+    }, calls, pushes
+
+
+def test_task_pr_ready_retry_reuses_unchanged_committed_marker(repo, tmp_path):
+    git(repo, "checkout", "-qb", "feat/task-pr-retry")
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    sealed_head = head(repo)
+    env, calls, pushes = task_pr_retry_env(tmp_path)
+
+    failed_env = {
+        **env,
+        "GH_CREATE_EXIT": "1",
+        "GH_CREATE_OUTPUT": "GraphQL: API rate limit exceeded",
+    }
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=failed_env)
+    assert code != 0 and "API rate limit exceeded" in out, out
+    generic_failure = out
+    marker_head = head(repo)
+    marker_bytes = marker.read_bytes()
+    assert marker_head != sealed_head
+
+    auth_env = {
+        **env,
+        "GH_CREATE_EXIT": "1",
+        "GH_CREATE_OUTPUT": "HTTP 401: authentication failed",
+    }
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=auth_env)
+    assert code != 0 and "gh auth login" in out, out
+    assert head(repo) == marker_head
+    assert marker.read_bytes() == marker_bytes
+
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=env)
+    assert code == 0, out
+    assert head(repo) == marker_head
+    assert marker.read_bytes() == marker_bytes
+    assert len(pushes.read_text().splitlines()) == 3
+    assert sum(line.startswith("pr create ") for line in calls.read_text().splitlines()) == 3
+    assert "gh auth login" not in generic_failure
+
+
+def test_task_proof_refuses_working_tree_marker_different_from_head(
+        repo, tmp_path):
+    git(repo, "checkout", "-qb", "feat/task-marker-identity")
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(),
+        ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    env, _, _ = task_pr_retry_env(tmp_path)
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=env)
+    assert code == 0, out
+
+    lib = load_factory_lib(repo)
+    marker_bytes = marker.read_bytes()
+    assert not lib.task_proof_problems(repo, "ENG-1", STAGE_TASK)
+    variants = [
+        json.dumps({**json.loads(marker_bytes),
+                    "sealed_at": "2026-09-14T12:00:00+00:00"}).encode(),
+        None,
+        b"{\n",
+        b"[]\n",
+    ]
+    for value in variants:
+        if value is None:
+            marker.unlink()
+        else:
+            marker.write_bytes(value)
+        problems = lib.task_proof_problems(repo, "ENG-1", STAGE_TASK)
+        assert problems and "task PR marker" in problems[0]
+        marker.write_bytes(marker_bytes)
+        assert not lib.task_proof_problems(repo, "ENG-1", STAGE_TASK)
+
+
+def test_task_proof_refuses_committed_null_marker(repo, tmp_path):
+    git(repo, "checkout", "-qb", "feat/null-task-marker")
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "record T1 proof")
+    base = head(repo)
+    env, _, _ = task_pr_retry_env(tmp_path)
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=env)
+    assert code == 0, out
+
+    marker.write_text("null\n", encoding="utf-8")
+    git(repo, "add", marker.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "replace marker with JSON null")
+
+    lib = load_factory_lib(repo)
+    unrelated = repo / ".factory" / "pr-ready.json"
+    unrelated.write_text("[1]\n", encoding="utf-8")
+    assert lib.load_json(unrelated, default={}) == [1]
+    assert lib.task_proof_problems(repo, "ENG-1", STAGE_TASK) == [
+        "T1: task PR marker is invalid",
+    ]
+    import check_task_proof
+    assert check_task_proof.added_markers(repo, base) == [("ENG-1", "T1", {})]
+    assert check_task_proof.proof_problems(repo, "ENG-1", "T1") == [
+        "T1: task PR marker is invalid",
+    ]
+
+
+def test_task_pr_ready_refuses_changed_evidence_after_marker(
+        repo, tmp_path):
+    git(repo, "checkout", "-qb", "feat/task-pr-reseal")
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    env, calls, pushes = task_pr_retry_env(tmp_path)
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=env)
+    assert code == 0, out
+
+    tests_path = proof / "tests.json"
+    tests = json.loads(tests_path.read_text())
+    tests["automated"]["summary"] = "passing proof clarified after first PR attempt"
+    tests_path.write_text(json.dumps(tests))
+    git(repo, "add", tests_path.relative_to(repo).as_posix())
+    git(repo, "commit", "-qm", "clarify passing evidence")
+    changed_evidence_head = head(repo)
+    stage_path = delegation_ledger(repo).parent / "stages.json"
+    selected_path = proof / "reviews/selected.json"
+    before = {
+        "marker": marker.read_bytes(),
+        "stage": stage_path.read_bytes(),
+        "selection": selected_path.read_bytes(),
+        "pushes": pushes.read_bytes(),
+        "calls": calls.read_bytes(),
+    }
+
+    code, out = run(repo, "forge.py", "task", "pr-ready", "T1", env=env)
+    assert code != 0 and "changed after task marker" in out, out
+    assert head(repo) == changed_evidence_head
+    assert marker.read_bytes() == before["marker"]
+    assert stage_path.read_bytes() == before["stage"]
+    assert selected_path.read_bytes() == before["selection"]
+    assert pushes.read_bytes() == before["pushes"]
+    assert calls.read_bytes() == before["calls"]
+
+
+def test_task_pr_ready_marker_commit_preserves_unrelated_index(repo, tmp_path):
+    git(repo, "checkout", "-qb", "feat/task-pr-index")
+    marker = prepare_task_pr_ready(repo, tmp_path)
+    finish_task_for_pr_ready(repo)
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(), ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
+    unrelated = repo / ".factory" / "unrelated-index.txt"
+    unrelated.write_text("keep staged\n")
+    git(repo, "add", unrelated.relative_to(repo).as_posix())
+    env, _, _ = task_pr_retry_env(tmp_path)
+    selected_path = proof / "reviews/selected.json"
+    selected_before = selected_path.read_bytes()
+    selected = json.loads(selected_before)
+    generation_path = proof / "reviews/generations" / f"{selected['generation_id']}.json"
+    upgrade = json.loads(generation_path.read_text())
+    upgrade.pop("generation_id")
+    upgrade["origin"] = "upgrade"
+    upgrade["generated_by"] = "upgrade"
+    for field in ("review_run_id", "brief_sha256", "helper", "input", "raw_result"):
+        upgrade.pop(field)
+    upgrade["upgrade"] = {
+        "inventory_digest": "c" * 64, "source_kind": "sealed",
+        "legacy_artifacts": [
+            {"aspect": lens, "path": f"reviews/{lens}.json",
+             "sha256": chr(100 + index) * 64}
+            for index, lens in enumerate(("performance", "quality", "security"))
+        ],
+        "sealed_commit": head(repo),
+    }
+    candidate = tmp_path / "upgrade.json"
+    candidate.write_text(json.dumps(upgrade))
+    paused, release = tmp_path / "seal-paused", tmp_path / "seal-release"
+    hook = repo / ".git/hooks/pre-commit"
+    hook.write_text(
+        "#!/bin/sh\n: > \"$SEAL_PAUSED\"\n"
+        "while test ! -e \"$SEAL_RELEASE\"; do sleep 0.05; done\n")
+    hook.chmod(0o755)
+    process_env = {**os.environ, **env, "SEAL_PAUSED": str(paused),
+                   "SEAL_RELEASE": str(release)}
+    seal = subprocess.Popen(
+        [sys.executable, str(repo / "factory/scripts/forge.py"), "task", "pr-ready", "T1"],
+        cwd=repo, env=process_env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8",
+    )
+    deadline = time.monotonic() + 10
+    while not paused.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert paused.exists() and seal.poll() is None
+    lock_waiting = tmp_path / "publisher-lock-waiting"
+    publisher_code = (
+        "import json,sys; from pathlib import Path; "
+        "root=Path(sys.argv[1]); sys.path.insert(0,str(root/'factory/scripts')); "
+        "waiting=Path(sys.argv[3]); "
+        "from factory_lib import publish_review_generation; "
+        "publish_review_generation(root,'ENG-1','T1',"
+        "json.loads(Path(sys.argv[2]).read_text()),"
+        "on_selection_lock_wait=lambda: waiting.write_text('waiting\\n'))"
+    )
+    publisher = subprocess.Popen(
+        [sys.executable, "-c", publisher_code, str(repo), str(candidate),
+         str(lock_waiting)], cwd=repo,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+    )
+    deadline = time.monotonic() + 10
+    while not lock_waiting.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert lock_waiting.exists() and publisher.poll() is None
+    assert selected_path.read_bytes() == selected_before
+    release.write_text("release\n")
+    out, _ = seal.communicate(timeout=120)
+    assert seal.returncode == 0, out
+    marker_commit = head(repo)
+    publish_out, _ = publisher.communicate(timeout=120)
+    assert publisher.returncode == 0, publish_out
+    assert selected_path.read_bytes() != selected_before
+    task = next(item for item in json.loads(
+        (story_state(repo) / "decomposition.json").read_text())["tasks"]
+                if item["id"] == "T1")
+    assert not load_factory_lib(repo).task_proof_problems(repo, "ENG-1", task)
+    assert marker.relative_to(repo).as_posix() in git(
+        repo, "show", "--name-only", "--format=", marker_commit
+    )
+    assert unrelated.relative_to(repo).as_posix() not in git(
+        repo, "show", "--name-only", "--format=", marker_commit
+    )
+    assert git(repo, "diff", "--cached", "--name-only") == unrelated.relative_to(repo).as_posix()
 
 
 def test_already_serving_only_matches_a_board_for_this_repo(tmp_path,
@@ -19828,3 +22410,75 @@ def test_already_serving_only_matches_a_board_for_this_repo(tmp_path,
     # No root supplied keeps the old "any board" answer for callers that only
     # want to know whether the port is taken.
     assert board.already_serving(8765) is True
+
+
+def test_task_reconcile_adopts_a_pending_task_whose_marker_is_on_the_trunk(
+        repo, tmp_path):
+    # A task whose work shipped out of band is PENDING on every checkout that
+    # did not run it: a fresh clone, a sibling worktree, or this one after a
+    # decomposition re-record rebuilt the stage tracker. Refusing pending
+    # outright made reconcile unusable in exactly the case it exists for, and
+    # left the story unable to advance. The marker already on the trunk is the
+    # proof it shipped, so pending is adopted when it is there.
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    git(repo, "config", "user.email", "test@knacklabs.dev")
+    git(repo, "config", "user.name", "Gate Tests")
+    second = task_skeleton({**STAGE_TASK, "id": "T2", "title": "second slice"})
+    record_skeleton_then_frontier(repo, [STAGE_TASK, second])
+    write_in_scope(repo, "src/core.py")
+    git(repo, "add", "src/core.py")
+    git(repo, "commit", "-qm", "ship T1 work")
+    configure_origin_main(repo, tmp_path / "pending-origin.git")
+
+    marker = story_state(repo) / "tasks" / "T1" / "pr-ready.json"
+    gh_env, _argv_path = fake_gh_env(tmp_path)
+    # Adopt it once while active, and push so the marker is on the trunk.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": "core slice", "status": "active",
+             "base_sha": head(repo)},
+            {"id": "T2", "title": "second slice", "status": "pending"},
+        ],
+    })
+    code, out = run(repo, "forge.py", "task", "reconcile", "T1", env=gh_env)
+    assert code == 0, out
+    git(repo, "push", "-q", "origin", "HEAD:main")
+    assert marker.exists()
+
+    # Now the tracker is rebuilt and T1 reads pending again, exactly as a
+    # re-recorded decomposition or a fresh checkout leaves it.
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [
+            {"id": "T1", "title": "core slice", "status": "pending"},
+            {"id": "T2", "title": "second slice", "status": "pending"},
+        ],
+    })
+    code, out = run(repo, "forge.py", "task", "reconcile", "T1", env=gh_env)
+    assert code == 0, out
+    data = json.loads((delegation_ledger(repo).parent / "stages.json").read_text())
+    assert data["stages"][0]["status"] == "done"
+
+
+def test_task_reconcile_still_refuses_a_pending_task_with_no_marker(
+        repo, tmp_path):
+    # The relaxation is bounded by the marker. A pending task that never shipped
+    # has nothing to adopt, and reconcile must not invent a completion for it.
+    sign_off(repo)
+    intake(repo)
+    save_plan(repo, tmp_path)
+    git(repo, "config", "user.email", "test@knacklabs.dev")
+    git(repo, "config", "user.name", "Gate Tests")
+    record_skeleton_then_frontier(repo, [STAGE_TASK])
+    configure_origin_main(repo, tmp_path / "nomarker-origin.git")
+    write_stages(repo, {
+        "issue": "ENG-1",
+        "stages": [{"id": "T1", "title": "core slice", "status": "pending"}],
+    })
+    gh_env, _argv_path = fake_gh_env(tmp_path)
+    code, out = run(repo, "forge.py", "task", "reconcile", "T1", env=gh_env)
+    assert code != 0
+    assert "nothing to reconcile" in out

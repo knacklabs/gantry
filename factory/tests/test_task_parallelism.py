@@ -124,7 +124,7 @@ def test_tasks_with_disjoint_scopes_run_side_by_side_in_their_own_worktrees(repo
         assert blocked.poll() is None, "the second starter must wait for the lock"
         amendment.write_text(json.dumps({"tasks": {"T2": {"added_paths": ["src/ui/"]}}}))
     out, _ = blocked.communicate(timeout=120)
-    assert blocked.returncode != 0 and "T2" in out and "src/ui ~ src/ui" in out, out
+    assert blocked.returncode != 0 and "T2" in out and "src/ui/ ~ src/ui/" in out, out
     assert _statuses(wt3)[2] == "pending"
     amendment.unlink()
 
@@ -157,12 +157,12 @@ def test_tasks_with_disjoint_scopes_run_side_by_side_in_their_own_worktrees(repo
 
     # T5 overlaps T2's area: it can be grilled and started as a worktree, but
     # its stage refuses to open beside T2, naming the overlap.
-    assert scope_conflicts(repo, "T5") == [f"T2 ({wt2.name}): src/api ~ src/api"]
+    assert scope_conflicts(repo, "T5") == [f"T2 ({wt2.name}): src/api/ ~ src/api/"]
     assert scope_conflicts(repo, "T4") == []
     assert "T5" not in {t["id"] for _s, t in task_frontier_items(repo)[1:]}
     wt5 = _start_in_worktree(repo, T5)
     code, out = run(wt5, "forge.py", "stage", "start", "T5")
-    assert code != 0 and "T2" in out and "src/api ~ src/api" in out, out
+    assert code != 0 and "T2" in out and "src/api/ ~ src/api/" in out, out
     assert _statuses(wt5)[4] == "pending"
 
     # A scope-change signal into a sibling's scope is refused naming it; one
@@ -246,7 +246,7 @@ def test_required_test_counts_as_writable_until_it_is_tracked(repo):
     ]}
     (repo / "tests").mkdir()
     (repo / "tests" / "new_test.py").write_text("")  # present, untracked
-    assert _overlap_scope(repo, task) == ["src/api", "tests/new_test.py"]
+    assert _overlap_scope(repo, task) == ["src/api/", "tests/new_test.py"]
     assert scope_overlap(_overlap_scope(repo, task), ["tests/new_test.py"]) == [
         "tests/new_test.py ~ tests/new_test.py"]
     # Committed on this branch but absent at the stage's BASE: still new to
@@ -255,9 +255,9 @@ def test_required_test_counts_as_writable_until_it_is_tracked(repo):
     git(repo, "add", "tests/new_test.py")
     git(repo, "commit", "-qm", "the new proof")
     assert _overlap_scope(repo, task, {"id": "T2", "base_sha": base_sha}) == [
-        "src/api", "tests/new_test.py"]
+        "src/api/", "tests/new_test.py"]
     assert _overlap_scope(
-        repo, task, {"id": "T2", "base_sha": git(repo, "rev-parse", "HEAD")}) == ["src/api"]
+        repo, task, {"id": "T2", "base_sha": git(repo, "rev-parse", "HEAD")}) == ["src/api/"]
 
 
 def _linked_worktree(repo: Path, name: str, task_id: str) -> Path:

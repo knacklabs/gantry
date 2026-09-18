@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -20,6 +21,7 @@ def deny(reason: str) -> None:
 
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+PATCH_TOOL = "apply_patch"
 
 
 def _raw_payload() -> dict:
@@ -191,6 +193,9 @@ def denylist_fallback(payload: dict, reason: str) -> None:
     tool = payload.get("tool_name", "")
     target = ((payload.get("tool_input") or {}).get("file_path") or
               (payload.get("tool_input") or {}).get("notebook_path") or "")
+    if tool == PATCH_TOOL:
+        deny("Forge emergency deny-list engaged; apply_patch writes cannot be "
+             "classified while the full policy is unavailable.")
     if (tool in EDIT_TOOLS and _static_locked(target, root)) or (
         tool == "Bash" and not _fallback_readonly(command)
     ):
@@ -207,6 +212,7 @@ try:
     from forge_cli.context import context_files, context_paths, scan_inbox
     from forge_cli.quickfix import DEGRADED, claim_files, load_active, profile_of
     from forge_cli.repo_kind import is_harness_source_repo, locked_repo_path
+    from forge_cli.worker_admission import live_worker_admission, path_in_scope
 except (ImportError, SyntaxError) as exc:
     denylist_fallback(payload, type(exc).__name__)
 
@@ -219,6 +225,11 @@ permission_mode = payload.get("permission_mode", "")
 # ---------------------------------------------------------------- ask gate --
 # One of the two ways to interrupt the human. The rule itself lives in
 # factory_lib.may_interrupt so this and the Stop hook cannot drift apart.
+if tool_name in {"request_user_input", "request_user_input_async"}:
+    from forge_cli.codex_runtime import coordinator_runtime
+    if coordinator_runtime() == "codex":
+        deny("native Codex question delivery is not supported in this foreground-only "
+             "release; use the main-chat approval path")
 if tool_name == "AskUserQuestion":
     try:
         from factory_lib import may_interrupt
@@ -249,8 +260,8 @@ FACTORY_STATE_MSG = (
 # Files under .factory/ the evidence guard lets through — but that is the ONLY
 # guard they skip. The scratchpad is also exempt in the shared locked-path
 # classifier. The repo-kind marker is deliberately NOT there: it is a product path,
-# so the session lock governs it. Disarming the source-repo lock therefore runs
-# through a delegated worker, never a silent session edit or `rm`.
+# so the session lock governs it. Changing source-repo classification therefore
+# requires a protected delegated worker whose scope names the marker.
 FACTORY_STATE_WRITABLE = {
     ".factory/scratchpad.md",
     ".factory/harness-source.json",
@@ -499,6 +510,78 @@ def bash_write_paths(value: str, root: Path) -> list[str]:
     return found
 
 
+PATCH_HEADER = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$")
+
+
+def apply_patch_paths(value: str) -> list[tuple[str, str]] | None:
+    """Extract every write path from one native apply_patch payload.
+
+    None is a malformed patch. The parser understands only the native patch
+    envelope and its Add/Update/Delete/Move controls, so an unknown control
+    fails closed instead of silently dropping a write target.
+    """
+    lines = value.splitlines()
+    if len(lines) < 3 or lines[0] != "*** Begin Patch" or lines[-1] != "*** End Patch":
+        return None
+    paths: list[tuple[str, str]] = []
+    operation = ""
+    moved = False
+    operation_index = -1
+    for line in lines[1:-1]:
+        match = PATCH_HEADER.fullmatch(line)
+        if match:
+            operation = match.group(1)
+            moved = False
+            path = match.group(2).strip()
+            if not path:
+                return None
+            paths.append((operation, path))
+            operation_index = len(paths) - 1
+            continue
+        if line.startswith("*** Move to: "):
+            path = line.removeprefix("*** Move to: ").strip()
+            if operation != "Update" or moved or not path:
+                return None
+            paths[operation_index] = ("Move source", paths[operation_index][1])
+            paths.append(("Move destination", path))
+            moved = True
+            continue
+        if line == "*** End of File":
+            if operation != "Update":
+                return None
+            continue
+        if line.startswith("*** "):
+            return None
+    return paths if paths else None
+
+
+def normalized_patch_paths(
+    paths: list[tuple[str, str]], root: Path,
+) -> list[str] | None:
+    normalized: list[str] = []
+    lexical_root = Path(os.path.abspath(root))
+    resolved_root = root.resolve()
+    for operation, raw in paths:
+        if "$" in raw or "`" in raw:
+            return None
+        candidate = Path(raw).expanduser()
+        try:
+            absolute = candidate if candidate.is_absolute() else lexical_root / candidate
+            lexical = Path(os.path.abspath(absolute))
+            rel = lexical.relative_to(lexical_root).as_posix()
+            parent = lexical.parent.relative_to(lexical_root)
+            resolved_parent = lexical.parent.resolve().relative_to(resolved_root)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not rel or rel == "." or resolved_parent != parent:
+            return None
+        if operation in {"Add", "Update", "Move destination"} \
+                and lexical.is_symlink():
+            return None
+        normalized.append(rel)
+    return normalized
+
+
 def _contains_marker(rel: str) -> bool:
     """True when rel IS the repo-kind marker or a directory that contains it.
 
@@ -599,7 +682,7 @@ def guard_product_writes(targets: list[str], root: Path, command: str = "") -> N
         # A session window must never be able to touch the marker:
         # deleting it — directly, or by removing an ANCESTOR like `.factory` via
         # `rm -rf .factory` — would disable classification and the budget with it.
-        # Only the hook-bypassing delegated worker may change it.
+        # Only a protected delegated worker whose scope names it may change it.
         deny(MARKER_PLAN_ONLY_MSG)
     if not degraded:
         deny(PLAN_MODE_MSG)
@@ -619,26 +702,260 @@ for pattern in blocked:
     if re.search(pattern, command):
         deny(f"Blocked by factory policy: {command}")
 
-# Raw `codex exec` bypasses the sanctioned runtime (/codex:rescue -> the
-# plugin companion): no session threading, no background management, no
-# repo-pinned invocation shape. There is NO escape hatch — doctor installs
-# codex-plugin-cc as a required tool; if it breaks, repair it or work in a
-# Codex session directly (docs/degraded-mode.md).
-# Match INVOCATIONS (command position, env prefixes, pipeline segments,
-# command substitution) — not prose in heredocs/echo that mentions the phrase.
-# `codex [global flags] exec` counts too — flags between must not bypass.
-CODEX_EXEC_INVOCATION = re.compile(
-    r"(?:^|[;&|]\s*|\$\(\s*)(?:\w+=\S+\s+)*codex(?:\s+-{1,2}[\w-]+(?:[= ]\S+)?)*\s+exec\b",
-    re.MULTILINE,
+# Raw `codex exec` bypasses Forge's protected runtime launch: no bound brief,
+# live worker registration, or lifecycle proof. Keep the existing invocation
+# matcher, including substitutions and global flags; exempt only exact help argv
+# and safe display commands whose quoted text happens to contain the phrase.
+SHELL_WORD = r'''(?:"(?:\\[^\r\n]|[^"\\\r\n])*"|'[^'\r\n]*'|\\[^\r\n]|[^\s;&|"'\\])+'''
+SHELL_TOKEN = rf"(?:{SHELL_WORD})+"
+EXEC_WORD = r'''(?:"exec"|'exec'|exec)'''
+EXEC_OPTION = (
+    rf'''(?:-[cl]+|-[cl]*a{SHELL_TOKEN}|-[cl]*a\s+{SHELL_WORD})'''
 )
-if CODEX_EXEC_INVOCATION.search(command):
-    deny(
-        "Direct `codex exec` is off-contract — invoke Codex through the plugin: "
-        "/codex:rescue [--background] [--write] [--model <m>] [--effort <e>] \"<task>\" "
-        "(read-only unless --write). Plugin missing or broken? `./forge doctor --fix` "
-        "reinstalls it; meanwhile work in a Codex session directly "
-        "(docs/degraded-mode.md) — same prompts, same artifacts, same gates."
-    )
+CODEX_EXEC_INVOCATION = re.compile(
+    r"(?:^|[;&|]\s*|\$\(\s*|[<>]\(\s*|(?<![\w=(@?!+*$])\(\s*|`\s*)"
+    rf"(?:\w+={SHELL_WORD}\s+)*(?:command(?:\s+-p)*(?:\s+--)?\s+)?"
+    rf"(?:{EXEC_WORD}\s+(?:{EXEC_OPTION}\s+)*(?:--\s+)?)?"
+    r"(?:\"[^\"\r\n;&|]*[/\\]codex(?:\.exe|\.cmd)?\"|"
+    r"'[^'\r\n;&|]*[/\\]codex(?:\.exe|\.cmd)?'|"
+    r"(?:[^\s;&|]*[/\\])?codex(?:\.exe|\.cmd)?)"
+    rf"(?:\s+-{{1,2}}[\w-]+(?:[= ]{SHELL_WORD})?)*"
+    r"\s+exec\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _active_codex_exec_match(value: str) -> bool:
+    """Accept regex candidates only at active shell boundaries."""
+    quote = None
+    escaped = False
+    substitutions: list[tuple[str, str | None, int]] = []
+    position = 0
+    for match in CODEX_EXEC_INVOCATION.finditer(value):
+        while position < match.start():
+            char = value[position]
+            if escaped:
+                escaped = False
+            elif char == "\\" and quote != "'":
+                escaped = True
+            elif quote == "'":
+                if char == quote:
+                    quote = None
+            elif value.startswith("$(", position):
+                substitutions.append((")", quote, 0))
+                quote = None
+                position += 2
+                continue
+            elif quote is None and value.startswith(("<(", ">("), position):
+                substitutions.append((")", quote, 0))
+                position += 2
+                continue
+            elif char == "`":
+                if quote is None and substitutions and substitutions[-1][0] == "`":
+                    _closing, quote, _depth = substitutions.pop()
+                else:
+                    substitutions.append(("`", quote, 0))
+                    quote = None
+            elif quote:
+                if char == quote:
+                    quote = None
+            elif substitutions and char == "(" and substitutions[-1][0] == ")":
+                closing, saved_quote, depth = substitutions[-1]
+                substitutions[-1] = (closing, saved_quote, depth + 1)
+            elif substitutions and char == substitutions[-1][0]:
+                if char == ")" and substitutions[-1][2]:
+                    closing, saved_quote, depth = substitutions[-1]
+                    substitutions[-1] = (closing, saved_quote, depth - 1)
+                else:
+                    _closing, quote, _depth = substitutions.pop()
+            elif char in "'\"":
+                quote = char
+            position += 1
+        boundary = match.group(0).lstrip()
+        if (not escaped and
+                (quote is None or
+                 (quote == '"' and boundary.startswith(("$(", "`"))))):
+            return True
+    return False
+
+
+def _wrapped_codex_exec(tokens: list[str]) -> bool:
+    """Detect a literal Codex exec argv behind a command wrapper."""
+    def codex_exec_at(index: int) -> bool:
+        if re.split(r"[/\\]", tokens[index])[-1].lower() not in {
+                "codex", "codex.exe", "codex.cmd"}:
+            return False
+        operand_options = {
+            "-a", "--ask-for-approval", "-C", "--cd", "-c", "--config",
+            "--disable", "--enable", "-i", "--image", "--local-provider",
+            "-m", "--model", "-p", "--profile", "-s", "--sandbox", "--add-dir",
+        }
+        position = index + 1
+        while position < len(tokens):
+            option = tokens[position]
+            if option in operand_options:
+                position += 2
+                continue
+            if any(option.startswith(f"{name}=") for name in operand_options):
+                position += 1
+                continue
+            if option.startswith("-"):
+                return "exec" in tokens[position + 1:]
+            return option == "exec"
+        return False
+
+    def literal_launch_after(start: int) -> bool:
+        return any(codex_exec_at(index) for index in range(start, len(tokens)))
+
+    def split_env_launch(value: str, tail: list[str]) -> bool:
+        try:
+            return _wrapped_codex_exec(["env", *shlex.split(value), *tail])
+        except ValueError:
+            return False
+
+    position = 0
+    while position < len(tokens):
+        name = re.split(r"[/\\]", tokens[position])[-1].lower()
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[position]):
+            position += 1
+            continue
+        if codex_exec_at(position):
+            return True
+        if name in {"command", "nohup"}:
+            position += 1
+            while position < len(tokens) and tokens[position].startswith("-"):
+                option = tokens[position]
+                if option in {"--help", "--version"}:
+                    return False
+                if option == "--":
+                    position += 1
+                    break
+                if name == "command" and option[1:] and set(option[1:]) <= {"p", "v", "V"}:
+                    if set(option[1:]) & {"v", "V"}:
+                        return False
+                    position += 1
+                    continue
+                return literal_launch_after(position + 1)
+            continue
+        if name == "env":
+            position += 1
+            options = True
+            while position < len(tokens):
+                option = tokens[position]
+                if options and option in {"--help", "--version"}:
+                    return False
+                if options and option == "--":
+                    position += 1
+                    options = False
+                    continue
+                if not option.startswith("-") and "=" in option.split("/", 1)[0]:
+                    position += 1
+                    continue
+                if not options:
+                    break
+                if option in {"-S", "--split-string"}:
+                    if position + 1 >= len(tokens):
+                        return False
+                    return split_env_launch(tokens[position + 1], tokens[position + 2:])
+                if option.startswith("-S") and option != "-S":
+                    return split_env_launch(option[2:], tokens[position + 1:])
+                if option.startswith("--split-string="):
+                    return split_env_launch(option.split("=", 1)[1], tokens[position + 1:])
+                if option in {"-u", "--unset", "-C", "--chdir"}:
+                    position += 2
+                    continue
+                if option in {"-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}:
+                    position += 1
+                    continue
+                if option.startswith(("-u", "-C", "--unset=", "--chdir=")):
+                    position += 1
+                    continue
+                if option.startswith("-"):
+                    return literal_launch_after(position + 1)
+                break
+            continue
+        if name == "nice":
+            position += 1
+            while position < len(tokens) and tokens[position].startswith(("-", "+")):
+                option = tokens[position]
+                if option in {"--help", "--version"}:
+                    return False
+                if option == "--":
+                    position += 1
+                    break
+                if option in {"-n", "--adjustment"}:
+                    position += 2
+                elif re.fullmatch(r"[+-]\d+", option) or option.startswith(
+                        ("-n", "--adjustment=")):
+                    position += 1
+                else:
+                    return literal_launch_after(position + 1)
+            continue
+        if name == "xargs":
+            position += 1
+            while position < len(tokens) and tokens[position].startswith("-"):
+                option = tokens[position]
+                if option in {"--help", "--version"}:
+                    return False
+                if option == "--":
+                    position += 1
+                    break
+                operand_options = {
+                    "-a", "--arg-file", "-d", "--delimiter", "-E", "--eof",
+                    "-I", "--replace", "-L", "--max-lines", "-n", "--max-args",
+                    "-P", "--max-procs", "-s", "--max-chars",
+                }
+                if option in operand_options:
+                    position += 2
+                elif option in {"-0", "--null", "-p", "--interactive", "-r",
+                                "--no-run-if-empty", "-t", "--verbose", "-x",
+                                "--exit", "--show-limits"} or any(
+                                    option.startswith(prefix)
+                                    for prefix in ("-a", "-d", "-E", "-I", "-L", "-n",
+                                                   "-P", "-s", "--arg-file=",
+                                                   "--delimiter=", "--eof=", "--replace=",
+                                                   "--max-lines=", "--max-args=",
+                                                   "--max-procs=", "--max-chars=")):
+                    position += 1
+                else:
+                    return literal_launch_after(position + 1)
+            continue
+        if name in {"sh", "bash", "dash", "ksh", "zsh"}:
+            shell = name
+            position += 1
+            while position < len(tokens):
+                option = tokens[position]
+                if option == "--" or not option.startswith(("-", "+")):
+                    return False
+                if shell == "bash" and option.startswith(
+                        ("--rcfile=", "--init-file=")):
+                    position += 1
+                    continue
+                if shell == "bash" and option in {"--rcfile", "--init-file"}:
+                    position += 2
+                    continue
+                if not option.startswith("--"):
+                    operand_letters = {"o"} | ({"O"} if shell == "bash" else set())
+                    consumed_operand = False
+                    for offset, letter in enumerate(option[1:]):
+                        if letter in operand_letters:
+                            position += 1 if option[offset + 2:] else 2
+                            consumed_operand = True
+                            break
+                        if option.startswith("-") and letter == "c":
+                            try:
+                                nested = tokens[position + 1]
+                                nested_tokens = shlex.split(nested)
+                            except (ValueError, IndexError):
+                                return False
+                            return bool(_active_codex_exec_match(nested)
+                                        or _wrapped_codex_exec(nested_tokens))
+                    if consumed_operand:
+                        continue
+                position += 1
+            return False
+        return False
+    return False
 
 check_bypass = ["pnpm test", "pnpm lint", "pnpm typecheck", "pnpm check:all"]
 if any(token in command for token in check_bypass) and "factory/scripts/verify.py" not in command:
@@ -663,6 +980,28 @@ GATED_PHASES = (
     "pr-ready",
 )
 root = repo_root()
+# Hotfix (vendored; upstream symphony-forge): a file-tool write into a SIBLING
+# worktree must be governed and claimed by THAT checkout's lock and mode
+# window, not the session cwd's. Without this, an Edit/Write whose target lies
+# outside the cwd root is neither locked nor counted against a degraded window.
+if tool_name in EDIT_TOOLS:
+    _edit_target = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+    if _edit_target and Path(_edit_target).is_absolute():
+        _target = Path(_edit_target).resolve()
+        try:
+            _target.relative_to(root.resolve())
+        except ValueError:
+            # Keep walking outward to the first parent that is a HARNESS
+            # checkout. Stopping at the first `.git` and then validating it
+            # gave up whenever a nested Git root sat on the way up — a
+            # vendored dependency, a sub-project, any checkout inside the
+            # tree — and fell back to session-cwd governance, which is the
+            # ungoverned write this block exists to prevent.
+            _alt = next((p for p in _target.parents
+                         if (p / ".git").exists()
+                         and (p / "factory" / "scripts").is_dir()), None)
+            if _alt is not None:
+                root = _alt
 unmerged = _unmerged_paths(root)
 recovery = _git_recovery(command, root, unmerged) if unmerged else None
 if recovery is True:
@@ -712,6 +1051,15 @@ edit_target = (tool_input.get("file_path") or tool_input.get("notebook_path") or
 write_targets = [edit_target] if tool_name in EDIT_TOOLS and edit_target else []
 if tool_name == "Bash":
     write_targets = bash_write_paths(command, root)
+elif tool_name == PATCH_TOOL:
+    parsed_patch_paths = apply_patch_paths(command)
+    normalized_paths = (
+        normalized_patch_paths(parsed_patch_paths, root)
+        if parsed_patch_paths is not None else None
+    )
+    if normalized_paths is None:
+        deny("apply_patch payload is malformed; Forge cannot prove its write paths.")
+    write_targets = normalized_paths
 
 # Recorded state is never hand-written, in any mode and at any plan status.
 for candidate in write_targets:
@@ -720,8 +1068,39 @@ for candidate in write_targets:
 
 # The session lock covers every permission mode. Planning changes authorization
 # for the plan UI, never for product or canon writes.
-guard_product_writes(write_targets, root,
-                     command=command if tool_name == "Bash" else "")
+window = load_active(root)
+is_harness = (
+    bool(window["harness_source"])
+    if window is not None and "harness_source" in window
+    else is_harness_source_repo(root)
+)
+locked_targets = list(dict.fromkeys(
+    rel for raw in write_targets
+    if (rel := product_path(raw, root, is_harness)) is not None
+))
+scoped_targets = write_targets if tool_name == PATCH_TOOL else locked_targets
+worker, worker_error = live_worker_admission(root)
+if scoped_targets and worker_error:
+    deny(worker_error)
+if scoped_targets and worker:
+    marker_targeted = any(_contains_marker(rel) for rel in scoped_targets)
+    if marker_targeted and worker["kind"] != "stage":
+        deny(MARKER_PLAN_ONLY_MSG)
+    if worker["kind"] == "stage":
+        outside = [rel for rel in scoped_targets
+                   if not path_in_scope(rel, worker["scope"])]
+        if outside:
+            deny("Registered worker write is outside the protected task scope: "
+                 + ", ".join(outside))
+    elif worker["kind"] == "lite":
+        claimed, _ = claim_files(root, locked_targets)
+        if not claimed:
+            deny(QUICKFIX_LIMIT_MSG)
+    else:
+        deny("Forge worker write admission returned an unknown grant kind.")
+else:
+    guard_product_writes(write_targets, root,
+                         command=command if tool_name == "Bash" else "")
 # A heredoc whose ONLY consumer is a data sink (cat/tee/printf/echo writing
 # to a file) is data, never argv: its body is dropped before the companion
 # classification so a note that mentions the companion, or holds a quote or
@@ -835,9 +1214,32 @@ def _has_active_shell_syntax(value: str) -> bool:
                 return True
         elif char in "'\"":
             quote = char
-        elif char in ";&|<>$`(){}\n*?~=[]":
+        elif char in ";&|<>$`(){}\n*?~[]":
             return True
     return False
+
+
+codex_match = (
+    _active_codex_exec_match(command) or _wrapped_codex_exec(shell_tokens)
+) if tool_name == "Bash" else None
+codex_help = (
+    len(shell_tokens) == 3
+    and re.split(r"[/\\]", shell_tokens[0])[-1].lower()
+    in {"codex", "codex.exe", "codex.cmd"}
+    and shell_tokens[1:] in (["exec", "--help"], ["exec", "-h"])
+    and not _has_active_shell_syntax(command)
+)
+quoted_display = (
+    bool(shell_tokens) and Path(shell_tokens[0]).name in DISPLAY_SAFE_ARGV0
+    and _display_safe(shell_tokens) and not _has_active_shell_syntax(command)
+)
+if codex_match and not codex_help and not quoted_display:
+    deny(
+        "Direct `codex exec` is off-contract. Use `./forge delegate <task-id>` "
+        "for protected implementation; keep read-only exploration in the current "
+        "coordinator chat. Native background and explore commands are unavailable "
+        "in this release."
+    )
 
 
 def _companion_readonly_launch_ok():
@@ -862,8 +1264,8 @@ def _companion_readonly_launch_ok():
         # cancel, task-worker) mutate state without any write flag. Options
         # are default-deny too: --cwd can retarget other repos, and future
         # flags should not be trusted implicitly. The equals-sign form of
-        # --prompt-file stays explicitly unsupported because active shell
-        # syntax above refuses '='.
+        # --prompt-file stays explicitly unsupported because it is not the
+        # exact allowlisted flag and therefore fails the argv check below.
         if not rest or rest[0] not in READONLY_COMPANION_VERBS:
             return False
         args = rest[1:]

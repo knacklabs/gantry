@@ -11,7 +11,7 @@ import factory_lib
 from factory_lib import (
     client_signoff, dump_json, evidence_path, load_json, now_iso,
     plan_digest_without_assumptions, repo_root, require_grill,
-    requirements_digest, run_state_path, slugify,
+    requirements_digest_matches, run_state_path, slugify,
 )
 
 from .common import fail
@@ -106,7 +106,9 @@ def _require_matching_requirements_grill(
     if grill.get("issue") != issue:
         fail(f"the requirements grill is for {grill.get('issue')!r}, not {issue!r} — "
              f"re-grill this story and record `{command}`")
-    if grill.get("input_sha256") != requirements_digest(base, spec):
+    if not requirements_digest_matches(
+        base, spec, grill.get("input_sha256"), grill.get("commit"),
+    ):
         fail("the requirements grill is stale — the confirmed spec or product tree "
              f"changed. Re-grill the current story and record `{command}`")
 

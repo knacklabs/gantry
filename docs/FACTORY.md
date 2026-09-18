@@ -64,27 +64,29 @@ when the repo has a repeated bottleneck that justifies another role.
 
 ## Reasoning Matrix
 
-Use strong reasoning selectively.
+The user and host select the main coordinator model and reasoning; the
+repository does not set either at the top level. Use strong reasoning
+selectively for Forge-managed lanes.
 
 - planner / decomposer / architecture reconciler
-  - model: `gpt-5.5`
+  - model: `gpt-5.6-sol`
   - reasoning: `high`
 - code exploration (planning phase)
-  - model: `gpt-5.6-terra`
-  - reasoning: `high`
-  - via `/codex:rescue --model gpt-5.6-terra --effort high` (read-only by default) — Claude Code never explores application code itself; raw `codex exec` is hook-blocked, no exceptions
-- implementation default
+  - model: `gpt-5.6-sol`
+  - reasoning: `low`
+  - via `/codex:rescue --model gpt-5.6-sol --effort low` (read-only by default) — Claude Code never explores application code itself; raw `codex exec` is hook-blocked, no exceptions
+- delegated implementation default
   - model: `gpt-5.6-sol`
   - reasoning: `medium`
-- implementation escalation cases
+  - reuse the active implementer for review fixes
+- formal Lite fix
+  - model: `gpt-5.6-luna`
+  - reasoning: `max`
+- review (autoreview run)
   - model: `gpt-5.6-sol`
   - reasoning: `high`
-  - use only for migrations, cross-domain refactors, concurrency, security-sensitive work, or ambiguous failure modes
-- review (autoreview run)
-  - model: `gpt-5.5`
-  - reasoning: `high`
 - functional checker
-  - model: `gpt-5.5`
+  - model: `gpt-5.6-sol`
   - reasoning: `high`
 
 Defaulting all work to `high` is a bad tradeoff for cost, latency, and focus.
@@ -138,17 +140,22 @@ Immediately before the next pending leaf, enter plan mode per
 `factory/prompts/planner.md` and author its execution contract against the
 state left by completed tasks: write scope, exact acceptance criteria, verify
 commands, required tests, and reviewer focus. Re-record the decomposition,
-pass the digest-bound task grill, save the plan-mode result at
-`.factory/stories/<KEY>/task-plans/<id>.md`, record its human approval, run
+save the plan-mode result at `.factory/stories/<KEY>/task-plans/<id>.md`,
+then pass the digest-bound task grill and record its human approval. Run
 `forge stage start <id>`, then `forge delegate <id>`. Do not guess later-task
 execution detail. `forge next` routes this loop one action at a time.
 
-Each stage closes with one command: implement, commit, then `forge task
-close <id>` — proof, the three-lens review only if the diff moved, measure,
-stage done, marker, push and PR, in that order. After every stage is
-done, close out the story in this order: one branch autoreview, deterministic
-verify, functional check when `user_facing`, outcome recording, then
-`pr_ready.py`.
+Each task closes through `forge task close <id>`: after implementation and
+focused checks, commit the product changes; `close` runs the declared proof,
+runs one three-lens review only when the product delta is not already stamped,
+and checks the complete task-owned automated and conditional functional proof
+before it measures and closes the stage, writes the task marker, pushes and
+opens the PR. The lenses run concurrently by default; blocking findings are
+fixed in one delegated batch, committed, and `close` is rerun. Wait for that
+PR's CI and merge before starting the next task. Once every task marker and its
+proof are on trunk, record the story outcome and run `pr_ready.py`; no second
+story review or verify is required. Follow `docs/QUALITY.md` bounded recovery
+when progress stalls.
 
 Store the decomposition in `.factory/decomposition.json` — that artifact is
 canonical. Mirroring into a tracker (Linear, GitHub Issues, Jira) is optional.

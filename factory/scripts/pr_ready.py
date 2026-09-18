@@ -15,6 +15,7 @@ from factory_lib import (
     now_iso,
     protected_decomposition_state_path,
     repo_root,
+    run_is_task_level,
     review_dir,
     run_state_path,
     story_dir,
@@ -105,7 +106,7 @@ if not decomposition:
     missing.append(".factory/decomposition.json")
 # Markers exist only in a task-level run; a story-level run reached the
 # trunk as one story and has none to require.
-if bool(run_state.get("base_main_sha")) and decomposition:
+if decomposition and run_is_task_level(root, issue_key or "", decomposition.get("tasks", [])):
     missing_markers = [
         task_marker_path(issue_key, task["id"]).as_posix()
         for task in decomposition.get("tasks", [])

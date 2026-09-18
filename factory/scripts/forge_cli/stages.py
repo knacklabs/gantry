@@ -57,8 +57,14 @@ WORKFLOW_PATHS = (".factory/", "plans/", "docs/context/ledger.json")
 # repo builds these AS product (no constitution/VENDORED_FROM marker), so it
 # keeps the strict set and the per-task scope check stays honest when dogfooding.
 HARNESS_MACHINERY_PATHS = (
-    "factory/", ".claude/", ".codex/", ".github/", "constitution/",
+    "factory/", ".claude/", ".codex/", "constitution/",
     "harness/", ".gstack/",
+    # NOT ".github/": the harness vendors no workflow into a client (no
+    # VENDOR_MANIFEST.json entry is under .github/), so a client's CI is its
+    # OWN product. Excluding the prefix reset it to the task base inside the
+    # review bundle, which made any acceptance criterion that requires a CI
+    # change permanently unprovable — the lens saw a local gate wired to a
+    # step that was not there and correctly called the criterion partial.
     # Top-level vendored harness FILES (not directories) that `forge upgrade`
     # rewrites and a client never authors as its own product. Excluding them
     # keeps the per-task scope/dirt check honest when the coordinator's own
@@ -244,13 +250,30 @@ def write_skeleton(base: Path, issue: str, tasks: list[dict]) -> None:
     # A story decomposed before per-story snapshots existed would lose its stages
     # when the singleton flips to this new story; preserve the outgoing one so a
     # legacy shipped story keeps its task-completion on the board.
-    prior_issue = existing.get("issue")
+    # The mirror, not `existing`, names the outgoing story: the git-local
+    # authority is gone once that story shipped, and then nothing would be
+    # archived before the flip.
+    mirror = load_json(stages_path(base), default={})
+    prior_issue = existing.get("issue") or mirror.get("issue")
     if prior_issue and prior_issue != issue:
         prior_dir = story_dir(base, prior_issue)
         if prior_dir.is_dir() and not load_story_stages(base, prior_issue):
-            _write_story_records(base, prior_issue, existing.get("stages") or [])
+            _write_story_records(base, prior_issue,
+                                 (existing.get("stages")
+                                  or mirror.get("stages") or []))
     previous = ({s.get("id"): s for s in existing.get("stages", [])}
                 if existing.get("issue") == issue else {})
+    if not previous:
+        # The git-local authority is EPHEMERAL — `clear_story_authority` drops it
+        # once a story ships, because it is what keeps reporting an active stage
+        # after ship. So ship -> close -> re-record (the JIT contract for the
+        # next task of a live story) read nothing and rewrote every shipped task
+        # `pending`, destroying exactly the seal tokens #171 exists to preserve.
+        # The committed per-story snapshot holds the same state durably, and it
+        # is what this function is about to overwrite: read it before writing.
+        previous = {s.get("id"): s
+                    for s in (load_story_stages(base, issue).get("stages") or [])
+                    if isinstance(s, dict) and s.get("id")}
     stages = []
     for task in tasks:
         stage = {"id": task["id"], "title": task["title"], "status": "pending"}
@@ -785,7 +808,8 @@ def protected_authority_snapshot(base: Path) -> dict[str, str]:
 def _covered(path: str, scope: list[str]) -> bool:
     for entry in scope:
         prefix = entry.strip().rstrip("/")
-        if prefix and (path == prefix or path.startswith(prefix + "/")):
+        if prefix and (path == prefix or (entry.strip().endswith("/")
+                                          and path.startswith(prefix + "/"))):
             return True
     return False
 
@@ -849,7 +873,8 @@ def _overlap_scope(base: Path, task: dict, stage: dict | None = None) -> list[st
                           for test in task.get("required_tests") or [])
         if path and not _at_revision(base, revision, path)
     ]
-    return [entry.strip().rstrip("/") for entry in scope if entry and entry.strip()]
+    from factory_lib import classify_scope_entries
+    return classify_scope_entries(base, scope, revision)
 
 
 def scope_overlap(left: list[str], right: list[str]) -> list[str]:
@@ -902,11 +927,15 @@ def scope_conflicts(base: Path, task_id: str) -> list[str]:
     return conflicts
 
 
-def out_of_scope(base: Path, paths: list[str], scope: list[str]) -> list[str]:
+def out_of_scope(
+    base: Path, paths: list[str], scope: list[str], revision: str = "HEAD",
+) -> list[str]:
     """Product paths this sequential task touched but never declared."""
+    from factory_lib import classify_scope_entries
+    classified = classify_scope_entries(base, scope, revision)
     return [p for p in paths
             if not p.startswith(measure_prefixes(base))
-            and not _covered(p, scope)]
+            and not _covered(p, classified)]
 
 
 def _numstat_lines(raw: str) -> int:
@@ -965,8 +994,8 @@ def stage_review_binding(base: Path, stage: dict, task: dict) -> dict[str, str]:
     morning. The reviewer read the product diff; the stamp binds to the
     product diff.
     """
-    from factory_lib import product_delta_digest
-    base_sha = stage_baseline(base, stage)
+    from factory_lib import effective_review_base, product_delta_digest
+    base_sha = effective_review_base(base, str(stage.get("id") or ""))
     return {
         "stage_id": stage.get("id", ""),
         "base_sha": base_sha,
@@ -1006,19 +1035,29 @@ def stamp_is_fresh(base: Path, stage: dict, task: dict) -> bool:
         return False
     expected = stage_review_binding(base, stage, task)
     if "delta_id" in stamp:
-        return all(stamp.get(key) == value for key, value in expected.items())
-    legacy = _legacy_stamp_binding(base, stage, task)
-    if any(stamp.get(key) != value for key, value in legacy.items()):
+        binding_ok = all(stamp.get(key) == value for key, value in expected.items())
+    else:
+        legacy = _legacy_stamp_binding(base, stage, task)
+        if any(stamp.get(key) != value for key, value in legacy.items()):
+            return False
+        binding_ok = True
+    if not binding_ok:
         return False
-    from .delegate import delegation_exclusion
-    with delegation_exclusion(base, "stages", kind="stage-state", namespace="state"):
-        data = load_stages(base)
-        live = _find(data, stage.get("id", ""))
-        current = live.get("local_review_stamp")
-        if isinstance(current, dict) and "delta_id" not in current:
-            current.update(expected)
-            write_stages(base, data)
-    stamp.update(expected)
+    from factory_lib import active_story_key, selected_review_problems
+    story = active_story_key(base)
+    if not story or selected_review_problems(
+            base, story, str(stage.get("id") or ""), expected["delta_id"]):
+        return False
+    if "delta_id" not in stamp:
+        from .delegate import delegation_exclusion
+        with delegation_exclusion(base, "stages", kind="stage-state", namespace="state"):
+            data = load_stages(base)
+            live = _find(data, stage.get("id", ""))
+            current = live.get("local_review_stamp")
+            if isinstance(current, dict) and "delta_id" not in current:
+                current.update(expected)
+                write_stages(base, data)
+        stamp.update(expected)
     return True
 
 def stamp_stage_review(base: Path, stage_id: str, *, generated_by: str = "autoreview",
@@ -1312,7 +1351,9 @@ def _measure(base: Path, stage_id: str, stage: dict, task: dict) -> dict:
     # A recorded amendment is measured fact, not a widened permission: it
     # only ever names paths a previous measurement already found changed.
     scope = task.get("write_scope") or []
-    strays = out_of_scope(base, product, effective_scope(base, stage_id, scope))
+    strays = out_of_scope(
+        base, product, effective_scope(base, stage_id, scope), base_sha,
+    )
     try:
         max_files, max_lines, _reason = review_budget(task)
     except ValueError as exc:
@@ -1409,7 +1450,10 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
                                task: dict) -> str:
     """Refuse without a successful Codex write launch or a covering host-fix
     window. Returns the window id when a window satisfied it, else ""."""
-    from .delegate import argv_digest, brief_path, current_delegation
+    from .codex_runtime import native_argv_valid, parse_native_result
+    from .delegate import (
+        argv_digest, brief_path, current_delegation, delegations_path,
+    )
 
     brief = brief_path(base, stage_id)
     # Any contract version: the launch proves Codex wrote inside THIS stage.
@@ -1425,28 +1469,58 @@ def _require_successful_launch(base: Path, stage_id: str, stage: dict,
         ignore_lock=True,
     )
     argv = entry.get("argv") if entry else None
-    argv_valid = (
-        isinstance(argv, list)
-        and bool(argv)
-        and all(isinstance(token, str) for token in argv)
-        and Path(argv[0]).stem.lower() == "node"
-        and argv == [
-            argv[0],
-            entry.get("companion_path"),
-            "task",
-            "--json",
-            "--cwd",
-            str(base),
-            "--model",
-            entry.get("model"),
-            "--effort",
-            entry.get("effort"),
-            "--prompt-file",
-            brief.relative_to(base).as_posix(),
-            "--write",
-        ]
-        and entry.get("argv_sha256") == argv_digest(argv)
-    )
+    transport = entry.get("transport") if entry else None
+    if transport == "native":
+        launch_scope = entry.get("write_scope")
+        scope_valid = (
+            isinstance(launch_scope, list)
+            and bool(launch_scope)
+            and all(isinstance(path, str) and path.strip() for path in launch_scope)
+        )
+        expected_output = (delegations_path(base).parent / "native-runs" /
+                           f"{entry.get('launch_id')}.jsonl")
+        expected_stderr = (delegations_path(base).parent / "native-runs" /
+                           f"{entry.get('launch_id')}.stderr.log")
+        try:
+            session_id = parse_native_result(expected_output)
+        except ValueError:
+            session_id = ""
+        argv_valid = (
+            scope_valid
+            and native_argv_valid(entry, base, launch_scope)
+            and entry.get("write") is True
+            and not entry.get("resume_session")
+            and entry.get("brief_path") == brief.relative_to(base).as_posix()
+            and entry.get("output_path") == str(expected_output)
+            and entry.get("stderr_path") == str(expected_stderr)
+            and entry.get("session_id") == session_id
+            and entry.get("argv_sha256") == argv_digest(argv)
+        )
+    elif transport is None:
+        argv_valid = (
+            isinstance(argv, list)
+            and bool(argv)
+            and all(isinstance(token, str) for token in argv)
+            and Path(argv[0]).stem.lower() == "node"
+            and argv == [
+                argv[0],
+                entry.get("companion_path"),
+                "task",
+                "--json",
+                "--cwd",
+                str(base),
+                "--model",
+                entry.get("model"),
+                "--effort",
+                entry.get("effort"),
+                "--prompt-file",
+                brief.relative_to(base).as_posix(),
+                "--write",
+            ]
+            and entry.get("argv_sha256") == argv_digest(argv)
+        )
+    else:
+        argv_valid = False
     valid = (
         entry
         and entry.get("launch_status") == "succeeded"
@@ -1874,8 +1948,8 @@ def _refuse_incomplete_against_complete_proof(base: Path, task_id: str) -> None:
     when every one of those is present -- a genuinely partial task has not got
     them, so the honest use is untouched.
     """
-    from factory_lib import evidence_path, load_json
-    from .readiness import review_passed, verify_passed
+    from factory_lib import load_json, selected_review_problems
+    from .readiness import verify_passed
 
     key = load_json(run_state_path(base), default={}).get("issue_key", "")
     if not key:
@@ -1883,13 +1957,12 @@ def _refuse_incomplete_against_complete_proof(base: Path, task_id: str) -> None:
     verify_ok = verify_passed(load_json(
         proof_read_path(base, key, "verify.json"), default={}))
     tests = load_json(proof_read_path(base, key, "tests.json"), default={})
-    aspects = ("quality", "performance", "security")
-    lenses = {
-        aspect: review_passed(load_json(
-            evidence_path(base, key, f"reviews/{aspect}.json"), default={}))
-        for aspect in aspects
-    }
-    if not (verify_ok and tests and all(lenses.values())):
+    stage = next((item for item in load_stages(base).get("stages", [])
+                  if item.get("id") == task_id), {})
+    review_ok = bool(stage) and not selected_review_problems(
+        base, key, task_id, stage_review_binding(base, stage, {})["delta_id"],
+    )
+    if not (verify_ok and tests and review_ok):
         return
     fail(
         f"--incomplete records that WORK REMAINS on {task_id}, and the recorded "
@@ -1933,6 +2006,23 @@ def reopen_stage_for_review_fix(base: Path, stage_id: str) -> dict:
         target["status"] = "active"
         target["review_fix_reopened_at"] = now_iso()
         target["review_fix_count"] = int(target.get("review_fix_count") or 0) + 1
+        # The marker the seal this fix supersedes left on disk. Until the
+        # stage seals again, the brief and the pre-seal proof check read the
+        # task's inputs from the current tree, not from that marker's commit
+        # (the seal refused every resealed task otherwise, 2026-09-15).
+        story = str(data.get("issue") or "") or str(
+            load_json(run_state_path(base), default={}).get("issue_key") or "")
+        marker = None
+        if story:
+            try:
+                from factory_lib import proof_path
+                marker = load_json(
+                    proof_path(base, story, "pr-ready.json", task_id=stage_id),
+                    default=None)
+            except (SystemExit, ValueError, OSError):
+                marker = None
+        if isinstance(marker, dict) and isinstance(marker.get("commit"), str):
+            target["superseded_marker_commit"] = marker["commit"]
         write_stages(base, data)
     append_event(base, "stage-reopened", actor="implementer",
                  story=data.get("issue", ""),
@@ -1984,7 +2074,9 @@ def cmd_amend_scope(args) -> None:
                                        stage.get("dirty_at_start", {}))
         if not path.startswith(workflow_prefixes(base))
     ]
-    strays = out_of_scope(base, product, effective_scope(base, args.id, scope))
+    strays = out_of_scope(
+        base, product, effective_scope(base, args.id, scope), base_sha,
+    )
     if not strays:
         fail(f"{args.id} has no measured path outside its scope — nothing to "
              "amend. If `stage done` is refusing, it is refusing for another "

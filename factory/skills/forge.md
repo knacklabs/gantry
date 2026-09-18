@@ -18,6 +18,9 @@ Report progress and keep driving; stop only for an open signal, a gate
 refusal you cannot resolve within the approved plan, a human-only act, or
 scope the plan does not cover.
 
+The user and host select the main coordinator model and reasoning. Repository
+pins apply only to Forge-managed workers, specialists, grills, review, and Lite.
+
 `./forge <cmd>` (from repo root) is shorthand for
 `python3 factory/scripts/forge.py <cmd>` — either form works everywhere below.
 
@@ -36,11 +39,11 @@ or route:
 |---|---|
 | discovery/prototype | gstack `/office-hours` for the discovery conversation; prototype freely |
 | roadmap missing | confirm captured specs, run the project-level decomposition (`factory/prompts/decomposer.md`), then `./forge roadmap derive --input <json>` |
-| planning | plan per `factory/prompts/planner.md` (Claude plan mode default, `planner-high` Codex agent alternate); exploration ONLY via `/codex:rescue --model gpt-5.6-terra --effort high` (read-only by default); plan validation / debugging / root-cause via `/codex:rescue --model gpt-5.6-sol --effort xhigh` (read-only) — never Claude Code itself, never raw codex exec |
+| planning | plan per `factory/prompts/planner.md` (Claude plan mode default, `planner-high` Codex agent alternate); exploration ONLY via `/codex:rescue --model gpt-5.6-sol --effort low` (read-only by default); plan validation and architecture via `/codex:rescue --model gpt-5.6-sol --effort high` (read-only) — never Claude Code itself, never raw codex exec |
 | decomposing | run docs-decomposer per task, record with `record_decomposition_from_json.py` (schema incl. `user_facing`) |
 | implementing | Follow the one frontier action printed by `./forge next`: enter plan mode and author/re-record the JIT contract; run the task griller; `forge stage start`; or `forge delegate`. The implementer writes and records the tests; user-facing tasks MUST load + attest emil-design-eng + frontend-design in `skills_used` (recorder-enforced; harness.yaml `required_skills`) |
 | verifying | `python3 factory/scripts/verify.py` |
-| reviewing | Run the autoreview DIRECTLY (orchestrating session, 0011), three lenses (`factory/prompts/reviewer.md`); on findings delegate fixes to Codex, re-review — loop until every lens is clean |
+| reviewing | Run `./forge review <id>` from the orchestrating session after committing product changes and recording verify/tests; delegate blocking findings as one fix batch, refresh proof, and re-review under `docs/QUALITY.md` bounded recovery |
 | functional-check | only shown when the task is user-facing; run `functional-checker` |
 | harvest pending | follow `factory/prompts/harvester.md` |
 | anything with a command | run the command verbatim |
@@ -83,9 +86,9 @@ or route:
 | human confirms a decision | acceptance is the HUMAN's call, not their keystroke: on an explicit in-chat confirmation ("accept <slug>", "approved"), run `./forge decision accept <slug> --by "<their name>"` for them; without that statement, relay and wait |
 | made an assumption while implementing | `python3 factory/scripts/forge.py plan assume "<one sentence>"` — lands on the active plan AND as an open row in plans/assumptions.md |
 | worker hit a contradiction / is confused / blocked / scope shifted | `./forge signal raise --kind <k> --by <agent> -m "..."` then PAUSE — the orchestrator monitors `.factory/signals.jsonl`, resolves, resumes |
-| a worker signal is open (orchestrator) | `./forge signal list --open` → `./forge signal resolve <id> --notes "<answer>"` → resume the rescue. Open signals block pr_ready |
+| a worker signal is open (orchestrator) | `./forge signal list --open` → inspect the signal and its worker state → resolve the cause with `./forge signal resolve <id> --notes "<answer>"`. Resume only a live paused worker; otherwise reconcile its result before deciding whether new delegation is needed. Open signals block pr_ready |
 | review / guide the assumptions (orchestrator) | `./forge assumptions list --open`, then `./forge assumptions resolve <id> --status confirmed\|fix-needed\|promoted --notes "..."` — pr_ready refuses unguided rows |
-| work the next stage / where am I in the task | Run `./forge next`, then execute its one exact frontier action: author/re-record the contract → task grill → stage start → delegate. After implementation: LOCAL autoreview until clean → commit → `./forge stage done <id>`, which MEASURES the diff and can refuse (WORKFLOW.md Stage Loop) |
+| work the next stage / where am I in the task | Run `./forge next` and follow the current frontier. After implementation and focused tests: commit product changes → deterministic verify and task test recording → `./forge review <id>` → functional check if required → `./forge stage done <id>` → `./forge task pr-ready <id>` → CI and merge (WORKFLOW.md Stage Loop; `docs/QUALITY.md` bounded recovery) |
 | delegate this task / hand it to Codex | `./forge delegate <task-id>` — builds `.factory/briefs/<id>.md`, derives the write flag from stage state, launches the companion without a shell, and records evidence used by `stage done`; `--print-only` is diagnostic and cannot satisfy the gate |
 | is Codex stuck? / did it actually do anything | `./forge codex status` — status, phase, write flag and age per job; flags a run that has not moved and a read-only run launched while a stage is active. Advisory, never a gate |
 | it only did part of the job | `./forge stage done <id> --incomplete "<what is missing>"` — the stage stays active and the gap enters the timeline |

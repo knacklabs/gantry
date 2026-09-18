@@ -12,9 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory_lib import (
+    _committed_task_marker,
     clean_git_env, default_trunk_branch, dump_json, evidence_path,
     git_control_dir, load_json, now_iso,
-    plan_digest_without_assumptions, repo_root, require_ready_task,
+    plan_digest_without_assumptions, repo_root, require_approved_plan_digest,
+    require_ready_task, task_digest,
     require_task_sealed,
     protected_decomposition_state_path, run_state_path,
     task_marker_on_main, task_marker_path, validate_payload,
@@ -30,12 +32,13 @@ def _git(base: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _require_git(base: Path, description: str, *args: str) -> str:
+def _require_git(
+        base: Path, description: str, *args: str, strip: bool = True) -> str:
     proc = _git(base, *args)
     if proc.returncode != 0:
         detail = proc.stderr.strip() or proc.stdout.strip()
         fail(f"{description} failed" + (f": {detail}" if detail else ""))
-    return proc.stdout.strip()
+    return proc.stdout.strip() if strip else proc.stdout
 
 
 def _default_branch(base: Path) -> str:
@@ -249,8 +252,19 @@ def cmd_task_start(args: argparse.Namespace) -> None:
              "if a decomposed story lost its git-local pointer on this checkout "
              "(e.g. a fresh trunk clone between tasks), rebuild it with "
              "`forge story resume <key>`.")
+    bound_task = state.get("task_id")
+    if bound_task not in (None, "", args.id):
+        fail(f"task start refused: this checkout is owned by task {bound_task!r}, "
+             f"not {args.id!r}")
+    approved_plan_sha256 = require_approved_plan_digest(base)
     decomposition_path = protected_decomposition_state_path(base)
     decomposition = load_json(decomposition_path, default={})
+    if decomposition.get("story") not in (None, key):
+        fail(f"task start refused: protected decomposition belongs to "
+             f"{decomposition.get('story')!r}, not {key!r}")
+    if decomposition.get("plan_sha256") != approved_plan_sha256:
+        fail("task start refused: protected decomposition is not bound to the "
+             "approved story plan; re-record the decomposition")
     tasks = decomposition.get("tasks") or []
     index = next(
         (position for position, task in enumerate(tasks)
@@ -259,6 +273,10 @@ def cmd_task_start(args: argparse.Namespace) -> None:
     )
     if index is None:
         fail(f"{args.id!r} is not a task in the protected decomposition")
+    task = tasks[index]
+    if task.get("id") != args.id:
+        fail("task start refused: task identity does not match the protected "
+             "decomposition")
     task_marker_path(key, args.id)  # validates both branch/path components
 
     trunk = default_trunk_branch(base)
@@ -278,6 +296,12 @@ def cmd_task_start(args: argparse.Namespace) -> None:
             f"task {args.id} cannot start: dependency {', '.join(waiting)} marker "
             f"is absent from fetched origin/{trunk} ({markers})"
         )
+    scope = task.get("write_scope")
+    if (not isinstance(scope, list) or not scope
+            or any(not isinstance(path, str) or not path.strip()
+                   or Path(path).is_absolute()
+                   or ".." in Path(path).parts for path in scope)):
+        fail(f"task start refused: {args.id} has no protected in-repository write_scope")
     base_main_sha = _require_git(
         base, f"resolving fetched origin/{trunk}", "rev-parse", "--verify",
         f"origin/{trunk}^{{commit}}",
@@ -307,17 +331,23 @@ def cmd_task_start(args: argparse.Namespace) -> None:
     sources = {
         plan_relative: plan_source,
         Path(".factory") / "stories" / key / "decomposition.json": decomposition_path,
-        Path(".factory") / "stories" / key / "grills" / "tasks" / f"{args.id}.json":
-            evidence_path(base, key, f"grills/tasks/{args.id}.json"),
+    }
+    # Plan content can hydrate a successor workspace, but its source grill is
+    # approval authority and must be recorded afresh in the new target.
+    optional_sources = {
         Path(".factory") / "stories" / key / "task-plans" / f"{args.id}.md":
             evidence_path(base, key, f"task-plans/{args.id}.md"),
     }
-    missing = [path for path in sources.values() if not path.is_file()]
-    if missing:
-        fail("task start hydration inputs are missing: " + ", ".join(
-            path.relative_to(base).as_posix() if path.is_relative_to(base) else str(path)
-            for path in missing
-        ))
+    for relative, source in optional_sources.items():
+        try:
+            if source.resolve(strict=False) != source:
+                fail(f"task start refused: optional source is symlinked: {source}")
+        except (OSError, RuntimeError):
+            fail(f"task start refused: optional source cannot be resolved: {source}")
+        if not source.exists():
+            continue
+        if source.is_file():
+            sources[relative] = source
     payloads = {relative: source.read_bytes() for relative, source in sources.items()}
     decomposition_bytes = decomposition_path.read_bytes()
     stages_bytes = (json.dumps({
@@ -336,21 +366,59 @@ def cmd_task_start(args: argparse.Namespace) -> None:
         base, "creating task worktree", "worktree", "add", str(worktree),
         "-b", branch, base_main_sha,
     )
-    for relative, content in payloads.items():
-        destination = worktree / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
-    control = git_control_dir(worktree)
-    control.mkdir(parents=True, exist_ok=True)
-    (control / "decomposition.json").write_bytes(decomposition_bytes)
-    (control / "stages.json").write_bytes(stages_bytes)
-    dump_json(control / "run.json", {
-        **state,
-        "issue_key": key,
-        "task_id": args.id,
-        "branch": branch,
-        "base_main_sha": base_main_sha,
-    })
+    try:
+        # Preflight every destination before deleting inherited approval or
+        # writing any hydration payload into the newly allocated worktree.
+        from .scaffold import assert_target_file_destination
+        target_grill = assert_target_file_destination(
+            worktree,
+            worktree / ".factory" / "stories" / key / "grills" / "tasks"
+            / f"{args.id}.json",
+        )
+        destinations = {
+            relative: assert_target_file_destination(worktree, worktree / relative)
+            for relative in payloads
+        }
+        control = git_control_dir(worktree)
+        control_destinations = {
+            name: assert_target_file_destination(control, control / name)
+            for name in ("decomposition.json", "stages.json", "run.json")
+        }
+
+        # A fetched trunk can contain this task's earlier approval record. Keep
+        # it in Git history, but require a fresh target grill and approval.
+        if target_grill.exists() or target_grill.is_symlink():
+            target_grill.unlink()
+        for relative, content in payloads.items():
+            destination = destinations[relative]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
+        control.mkdir(parents=True, exist_ok=True)
+        control_destinations["decomposition.json"].write_bytes(decomposition_bytes)
+        control_destinations["stages.json"].write_bytes(stages_bytes)
+        dump_json(control_destinations["run.json"], {
+            **state,
+            "issue_key": key,
+            "story": key,
+            "task_id": args.id,
+            "branch": branch,
+            "base_main_sha": base_main_sha,
+            "approved_plan_sha256": approved_plan_sha256,
+            "decomposition_plan_sha256": decomposition.get("plan_sha256"),
+            "task_sha256": task_digest(task),
+        })
+    except BaseException:
+        removed = _git(base, "worktree", "remove", "--force", str(worktree))
+        if removed.returncode:
+            detail = removed.stderr.strip() or removed.stdout.strip()
+            fail("task start hydration refused and cleanup failed"
+                 + (f": {detail}" if detail else ""))
+        deleted = _git(base, "branch", "-D", branch)
+        if deleted.returncode:
+            detail = deleted.stderr.strip() or deleted.stdout.strip()
+            fail("task start hydration refused and cleanup failed"
+                 + (f": {detail}" if detail else ""))
+        raise
     print(f"Started task {args.id}: {branch} at {worktree} ({base_main_sha})")
 
 
@@ -492,43 +560,77 @@ def seal_task(base: Path, task_id: str) -> None:
         base, "resolving task HEAD", "rev-parse", "--verify", "HEAD^{commit}",
     )
     marker = task_marker_path(key, args.id)
-    payload = {
-        "task_id": args.id,
-        "branch": branch,
-        "base_main_sha": base_main_sha,
-        "commit": commit,
-        "sealed_at": now_iso(),
-    }
-    if any(not isinstance(value, str) or not value.strip() for value in payload.values()):
-        fail("task PR marker fields must all be non-empty strings")
-    # Already sealed when a committed marker exists and no PRODUCT byte has
-    # moved since the commit it sealed. HEAD itself moves at every seal (the
-    # marker is its own evidence commit), so comparing commits re-sealed on
-    # every run; the product delta is what a seal is about.
-    from factory_lib import product_delta_digest
-    existing = load_json(base / marker, default={})
-    sealed_commit = existing.get("commit") if isinstance(existing, dict) else None
-    already_sealed = bool(
-        isinstance(sealed_commit, str) and sealed_commit
-        and _git(base, "cat-file", "-e", f"HEAD:{marker.as_posix()}").returncode == 0
-        and _git(base, "cat-file", "-e", f"{sealed_commit}^{{commit}}").returncode == 0
-        and product_delta_digest(base, sealed_commit, commit)
+    try:
+        existing = load_json(base / marker, default=None)
+    except json.JSONDecodeError:
+        existing = None
+    reusable, marker_problem = _committed_task_marker(
+        base, key, args.id, existing, None,
+    )
+    if marker_problem:
+        fail(marker_problem)
+
+    from factory_lib import (
+        effective_review_base, product_delta_digest, task_proof_problems,
+    )
+    product_unchanged = bool(
+        reusable
+        and reusable["branch"] == branch
+        and reusable["base_main_sha"] == base_main_sha
+        and product_delta_digest(base, reusable["commit"], commit)
         == hashlib.sha256(b"").hexdigest()
     )
-    if already_sealed:
-        print(f"Task {args.id} already sealed at {sealed_commit[:12]}; the product "
-              "has not moved since. Marker committed.")
+    same_seal = False
+    if product_unchanged:
+        proof_problems = task_proof_problems(base, key, task)
+        if proof_problems:
+            fail("Task proof changed after its marker:\n- " + "\n- ".join(proof_problems))
+        same_seal = True
+    if same_seal:
+        commit = reusable["commit"]
+        print(f"Task {args.id} already sealed at {commit[:12]}; the product "
+              "and proof have not moved since. Marker committed.")
     else:
-        dump_json(base / marker, payload)
-        # The marker is committed and pushed by this command (an evidence-only
-        # commit the command owns) so it rides the branch onto the PR; AC2's
-        # advance signal is that marker landing on origin/main at merge (task
-        # 8's cat-file gate).
-        _require_git(base, "staging the task PR marker", "add", "--", marker.as_posix())
-        _require_git(
-            base, "committing the task PR marker",
-            "commit", "-m", f"{key} {args.id}: task PR marker",
-        )
+        from factory_lib import read_selected_review_generation, review_lineage_paths
+        from .delegate import delegation_exclusion
+        with delegation_exclusion(base, args.id, kind="review-selection"):
+            task = require_task_sealed(base, args.id)
+            generation, selection, review_problems = read_selected_review_generation(
+                base, key, args.id,
+            )
+            if review_problems or not isinstance(generation, dict) \
+                    or not isinstance(selection, dict):
+                fail("task PR marker requires one valid selected review generation: "
+                     + "; ".join(review_problems or ["selection is missing"]))
+            payload = {
+                "task_id": args.id,
+                "branch": branch,
+                "base_main_sha": base_main_sha,
+                "review_base_sha": effective_review_base(base, args.id, commit),
+                "commit": commit,
+                "sealed_at": now_iso(),
+            }
+            if any(not isinstance(value, str) or not value.strip()
+                   for value in payload.values()):
+                fail("task PR marker fields must all be non-empty strings")
+            selection_path = marker.parent / "reviews" / "selected.json"
+            brief_path = Path(".factory/review-briefs/all.md")
+            selected_paths = [
+                selection_path, *review_lineage_paths(base, key, args.id), brief_path,
+            ]
+            if any(not (base / path).is_file() for path in selected_paths):
+                fail("task PR marker requires the complete review lineage and saved brief")
+            dump_json(base / marker, payload)
+            proof_paths = [marker, *selected_paths]
+            # Exclusion keeps the selected pointer and its complete lineage fixed
+            # from proof validation through the marker commit.
+            _require_git(base, "staging the task PR marker and selected review", "add", "--",
+                         *(path.as_posix() for path in proof_paths))
+            _require_git(
+                base, "committing the task PR marker", "commit", "--only", "-m",
+                f"{key} {args.id}: task PR marker", "--",
+                *(path.as_posix() for path in proof_paths),
+            )
     _require_git(base, "pushing the task branch", "push", "-u", "origin", branch)
 
     if shutil.which("gh", path=os.environ.get("PATH")) is None:
@@ -572,10 +674,19 @@ def seal_task(base: Path, task_id: str) -> None:
             print(f"Task {args.id} PR ready: {marker.as_posix()}")
             print(f"PR already open for {branch}: {url}")
             return
+        auth_guidance = (
+            "Run `gh auth login`, then retry."
+            if re.search(
+                r"(?i)authentication failed|not authenticated|not logged (?:in|into)|"
+                r"bad credentials|http 401|gh auth login",
+                detail,
+            )
+            else "Inspect the GitHub CLI failure, fix that exact cause, then retry."
+        )
         fail(
             f"task {args.id} is sealed at {marker.as_posix()}, but opening the PR "
             f"to {default_branch} failed{f': {detail}' if detail else ''}. "
-            "Run `gh auth login`, then retry."
+            f"{auth_guidance}"
         )
     print(f"Task {args.id} PR ready: {marker.as_posix()}")
     if proc.stdout.strip():
@@ -617,10 +728,6 @@ def cmd_task_reconcile(args: argparse.Namespace) -> None:
         fail(f"task {args.id} is not in the current decomposition")
     stage = stages[idx]
     status = stage.get("status")
-    if status not in ("active", "done"):
-        fail(f"task {args.id} is '{status}', not active or done — reconcile adopts a "
-             "task whose work already SHIPPED; a task that never started has nothing "
-             "to reconcile.")
 
     task = task_for(base, args.id)
     if not task:
@@ -638,6 +745,24 @@ def cmd_task_reconcile(args: argparse.Namespace) -> None:
     already = _git(
         base, "cat-file", "-e", f"origin/{default_branch}:{marker.as_posix()}",
     ).returncode == 0
+    readopt = (getattr(args, "readopt", None) or "").strip()
+    if readopt and not already:
+        fail(f"--readopt adopts a task whose marker is already on origin/"
+             f"{default_branch}; {args.id} has none there. Reconcile it plainly.")
+    if readopt and len(readopt) < 12:
+        fail("--readopt takes the reason (a dozen characters at least): why this "
+             "task's recorded proof cannot satisfy the current proof predicate")
+
+    # A task whose work shipped out of band is PENDING on every checkout that did
+    # not run it — a fresh clone, a sibling worktree, or this one after a
+    # decomposition re-record rebuilt the tracker. Refusing pending outright made
+    # reconcile unusable in exactly the case it exists for. The marker already on
+    # the trunk is the proof that it shipped, so pending is allowed when it is
+    # there; without it, a pending task still has nothing to adopt.
+    if status not in ("active", "done") and not already:
+        fail(f"task {args.id} is '{status}' and no marker for it is on origin/"
+             f"{default_branch} — reconcile adopts a task whose work already "
+             "SHIPPED; a task that never started has nothing to reconcile.")
 
     if not already:
         # Confirm the task's work is genuinely on the trunk before adopting it: at
@@ -691,6 +816,24 @@ def cmd_task_reconcile(args: argparse.Namespace) -> None:
         # is genuinely on the trunk already.
         payload["reconciled"] = True
         dump_json(base / marker, payload)
+    elif readopt:
+        # The marker on the trunk is real and its work shipped; only its proof
+        # predates the current predicate (a proof-format change, or proof that
+        # never reached the trunk). Re-mark it ADOPTED with its own identity
+        # untouched, so every gate reads it the way it reads any adopted task.
+        shipped = _require_git(
+            base, "reading the trunk marker", "show",
+            f"origin/{default_branch}:{marker.as_posix()}")
+        try:
+            payload = json.loads(shipped)
+        except json.JSONDecodeError as exc:
+            fail(f"the marker for {args.id} on origin/{default_branch} is not JSON: {exc}")
+        if not isinstance(payload, dict) or payload.get("task_id") != args.id:
+            fail(f"the marker for {args.id} on origin/{default_branch} is not its own")
+        if payload.get("reconciled") is True:
+            print(f"{args.id} is already adopted on origin/{default_branch}.")
+        payload["reconciled"] = True
+        dump_json(base / marker, payload)
 
     # Flip the stage to done directly (bypassing the unsatisfiable stage-done
     # gates) and stamp its task digest so the row reads 'done' locally too.
@@ -701,9 +844,11 @@ def cmd_task_reconcile(args: argparse.Namespace) -> None:
         stage["task_sha256"] = task_digest(task)
     write_stages(base, data)
     append_event(base, "stage-reconciled", actor="orchestrator", story=key,
-                 detail=f"{args.id} adopted as shipped out of band "
-                        f"(marker {'confirmed on trunk' if already else 'written'}, "
-                        "no PR)")
+                 detail=(f"{args.id} re-adopted: {readopt} (trunk marker re-marked "
+                         "reconciled, no PR)" if readopt else
+                         f"{args.id} adopted as shipped out of band "
+                         f"(marker {'confirmed on trunk' if already else 'written'}, "
+                         "no PR)"))
 
     # Commit the marker + committed stage mirror as an evidence-only commit the
     # command owns. No push, no PR — the work already shipped; this records it so
@@ -715,7 +860,8 @@ def cmd_task_reconcile(args: argparse.Namespace) -> None:
         _git(base, "add", "--", *to_add)
     if _git(base, "diff", "--cached", "--quiet").returncode != 0:
         _require_git(base, "committing the reconcile marker", "commit", "-m",
-                     f"{key} {args.id}: task reconcile marker (adopted as shipped)")
+                     f"{key} {args.id}: task reconcile marker "
+                     f"({'re-adopted: ' + readopt if readopt else 'adopted as shipped'})")
         print(f"Reconciled {args.id}: marker {marker.as_posix()} written, stage "
               "done, evidence committed. Push this branch and open a PR so the "
               f"marker lands on origin/{default_branch}, then rerun `forge next`.")

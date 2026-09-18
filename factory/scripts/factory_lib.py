@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
+import copy
 import hashlib
 import io
 import json
@@ -13,7 +15,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Windows/default-console UTF-8 safety. Python points stdout/stderr at the
 # platform's ANSI code page (cp1252 on Windows), so the em-dashes, arrows and
@@ -706,10 +708,27 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _proof_object_or_default(path: Path | str, data: Any, default: Any) -> Any:
+    """Treat valid non-object task-proof JSON as malformed proof."""
+    parts = Path(path).parts
+    task_marker = len(parts) >= 6 and (
+        parts[-6] == ".factory"
+        and parts[-5] == "stories"
+        and parts[-3] == "tasks"
+        and parts[-1] == "pr-ready.json"
+    )
+    if task_marker or (
+        ".factory" in parts and Path(path).name in {"verify.json", "tests.json"}
+    ):
+        return data if isinstance(data, dict) else {}
+    return data
+
+
 def load_json(path: Path, default: Any = None) -> Any:
     if not path.exists():
         return default
     data = json.loads(path.read_text(encoding="utf-8"))
+    data = _proof_object_or_default(path, data, default)
     run_root = _RUN_STATE_ROOTS.get(path)
     if run_root is not None and isinstance(data, dict):
         data = {**data, "phase": derive_phase(run_root, data)}
@@ -840,21 +859,18 @@ def task_evidence_path(
 
 
 def proof_read_path(root: Path, key: str | None, name: str) -> Path:
-    """Where a READER finds proof: the task's copy when a task owns the run and
-    has recorded one, the story's otherwise.
+    """Where a reader finds proof: task-owned while a task owns the run.
 
     `proof_path` answers where a WRITER puts proof, and per-task runs put it
     under the task. Readers that resolved story-only therefore missed proof the
     recorders had just written — the review gate, the board, the phase summary,
-    the stage rows and the review brief all did. The fallback keeps story-level
-    runs and older stories working unchanged, which is what makes this a
-    completion of the per-task move rather than a flag day.
+    the stage rows and the review brief all did. A missing task artifact stays
+    missing: falling back could certify one task with a story run's evidence.
+    Story-level runs retain their story path because they have no task identity.
     """
     task_id = active_task_id(root)
     if task_id and key:
-        scoped = task_evidence_path(root, key, task_id, name)
-        if scoped.is_file():
-            return scoped
+        return task_evidence_path(root, key, task_id, name)
     return evidence_path(root, key, name)
 
 
@@ -1071,12 +1087,32 @@ def task_marker_on_main(
         return False
 
     def ask() -> bool:
-        present = subprocess.run(
-            ["git", "cat-file", "-e", f"origin/{trunk}:{marker.as_posix()}"],
+        snapshot_proc = subprocess.run(
+            ["git", "rev-parse", "--verify", f"origin/{trunk}^{{commit}}"],
             cwd=root, capture_output=True, text=True, env=clean_git_env(),
             encoding="utf-8", errors="surrogateescape",
         )
-        return present.returncode == 0
+        snapshot = snapshot_proc.stdout.strip() if snapshot_proc.returncode == 0 else ""
+        if not snapshot:
+            return False
+        marker_rel = marker.as_posix()
+        try:
+            payload = _read_git_json(root, marker_rel, snapshot)
+        except SystemExit:
+            return False
+        if not _valid_task_marker(
+                root, payload, task_id, inspected_head=snapshot):
+            return False
+        if payload.get("reconciled") is True:
+            return True
+
+        def reader(path: str) -> dict | None:
+            return _read_git_json(root, path, snapshot)
+
+        return not task_proof_problems(
+            root, key, {"id": task_id}, reader=reader,
+            marker=payload, inspected_head=snapshot,
+        )
 
     dirs = _git_dirs(root) if BOARD_MEMO else None
     if dirs is None:
@@ -1400,7 +1436,12 @@ def branch_diff_digest(root: Path) -> str:
     return hashlib.sha256(diff.stdout).hexdigest()
 
 
-def require_coherent_review_run(root: Path, reviews: dict[str, dict]) -> list[str]:
+def require_coherent_review_run(
+    root: Path,
+    reviews: dict[str, dict],
+    *,
+    expected_branch_diff_digest: str | None = None,
+) -> list[str]:
     """Return close-gate problems for a split or stale three-lens review run."""
     aspects = ("quality", "performance", "security")
     if any(aspect not in reviews for aspect in aspects):
@@ -1428,7 +1469,11 @@ def require_coherent_review_run(root: Path, reviews: dict[str, dict]) -> list[st
         return [
             "review_run_id must equal sha256(brief_sha256 + branch_diff_digest)"
         ]
-    current_digest = branch_diff_digest(root)
+    current_digest = (
+        expected_branch_diff_digest
+        if expected_branch_diff_digest is not None
+        else branch_diff_digest(root)
+    )
     if recorded_digest != current_digest:
         return [
             "branch review is stale: branch_diff_digest does not match the "
@@ -1457,65 +1502,798 @@ def require_all_stages_done(root: Path) -> list[str]:
     ]
 
 
-def task_proof_problems(root: Path, key: str, task: dict) -> list[str]:
-    """One task's proof, read from the task's own directory.
+def _read_git_json(root: Path, path: str, treeish: str) -> dict | None:
+    proc = subprocess.run(
+        ["git", "show", f"{treeish}:{path}"], cwd=root, capture_output=True,
+        text=True, encoding="utf-8", env=clean_git_env(),
+    )
+    if proc.returncode != 0:
+        return None
+    try:
+        value = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"{path} at {treeish} is not valid JSON: {exc}"
+        ) from exc
+    return _proof_object_or_default(path, value, None)
 
-    Falls back to the story-scoped singleton for work recorded before proof
-    was task-scoped, so a story already in flight can still close on the
-    evidence it legitimately has.
+
+def _read_git_bytes(root: Path, path: str, treeish: str) -> bytes | None:
+    proc = subprocess.run(
+        ["git", "show", f"{treeish}:{path}"], cwd=root, capture_output=True,
+        env=clean_git_env(),
+    )
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _task_contract(
+    root: Path, key: str, task_id: str,
+    reader: Callable[[str], dict | None] | None,
+) -> tuple[dict | None, str | None]:
+    """Resolve the complete task contract instead of trusting a projection."""
+    if not task_id:
+        return None, "task proof requires a non-empty task identity"
+
+    if reader is not None:
+        # A scoped record, when present, is the one authority for this story.
+        # The root and history layouts are only candidates when that record is
+        # absent; never join two decompositions or fall through after a miss.
+        candidates = (
+            f".factory/stories/{key}/decomposition.json",
+            ".factory/decomposition.json",
+            f".factory/history/{key}/decomposition.json",
+        )
+        data = None
+        for path in candidates:
+            candidate = reader(path)
+            if candidate is None:
+                continue
+            if (path == ".factory/decomposition.json"
+                    and (not isinstance(candidate, dict)
+                         or candidate.get("story") != key)):
+                continue
+            data = candidate
+            break
+    else:
+        if active_story_key(root) == key:
+            # The protected control-dir copy is authoritative for the active
+            # story, including when it is missing or lacks this task.
+            data = load_json(protected_decomposition_state_path(root), default=None)
+        else:
+            # evidence_path already selects this story's scoped or historical
+            # record. Do not use the active story's root singleton as a fallback.
+            data = load_json(decomposition_state_path(root, key), default=None)
+
+    if isinstance(data, dict):
+        match = next(
+            (item for item in data.get("tasks", [])
+             if isinstance(item, dict) and item.get("id") == task_id),
+            None,
+        )
+        if match is not None:
+            return match, None
+        return None, f"{task_id}: protected decomposition has no matching task contract"
+    return None, (
+        f"{task_id}: protected decomposition is missing; CI cannot determine "
+        "the task contract or user-facing proof requirement"
+    )
+
+
+_COMMIT_ID = re.compile(r"^[0-9a-fA-F]{7,64}$")
+_PROOF_LENSES = ("quality", "performance", "security")
+def _git_commit_exists(root: Path, value: object) -> bool:
+    if not isinstance(value, str) or not _COMMIT_ID.fullmatch(value):
+        return False
+    proc = subprocess.run(
+        ["git", "cat-file", "-e", f"{value}^{{commit}}"],
+        cwd=root, capture_output=True, env=clean_git_env(),
+    )
+    return proc.returncode == 0
+
+
+def _git_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    proc = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=root, capture_output=True, env=clean_git_env(),
+    )
+    return proc.returncode == 0
+
+
+def _valid_task_marker(
+    root: Path, marker: object, task_id: str, *, inspected_head: str = "",
+) -> bool:
+    if not isinstance(marker, dict) or marker.get("task_id") != task_id:
+        return False
+    if any(
+        not isinstance(marker.get(field), str) or not marker[field].strip()
+        for field in ("branch", "base_main_sha", "commit", "sealed_at")
+    ):
+        return False
+    base = marker["base_main_sha"]
+    seal = marker["commit"]
+    if not _git_commit_exists(root, base) or not _git_commit_exists(root, seal):
+        return False
+    review_base = marker.get("review_base_sha")
+    if review_base is not None and (
+        not _git_commit_exists(root, review_base)
+        or not _git_is_ancestor(root, review_base, seal)
+    ):
+        return False
+    head = inspected_head or head_sha(root)
+    return bool(
+        head
+        and _git_is_ancestor(root, base, seal)
+        and _git_is_ancestor(root, seal, head)
+    )
+
+
+def _committed_task_marker(
+    root: Path, key: str, task_id: str, marker: object,
+    reader: Callable[[str], dict | None] | None,
+    *, inspected_head: str = "",
+) -> tuple[dict | None, str | None]:
+    """Return a valid marker, refusing an invalid committed identity."""
+    marker_path = f".factory/stories/{key}/tasks/{task_id}/pr-ready.json"
+    if reader is None:
+        try:
+            committed = _read_git_json(root, marker_path, "HEAD")
+        except SystemExit:
+            return None, f"{task_id}: task PR marker committed at HEAD is invalid"
+        if committed is None:
+            return None, None
+        if committed != marker:
+            return None, f"{task_id}: task PR marker differs from marker committed at HEAD"
+        marker = committed
+    elif marker is None:
+        return None, None
+    if not _valid_task_marker(
+            root, marker, task_id, inspected_head=inspected_head):
+        return None, f"{task_id}: task PR marker is invalid"
+    return marker, None
+
+
+def _marker_publication_commit(
+    root: Path, marker_path: str, *, inspected_head: str = "HEAD",
+) -> str:
+    """The commit that published the marker's CURRENT SEAL: the earliest
+    commit on the way to `inspected_head` whose marker names the same sealed
+    `commit`. A later rewrite of the same seal's metadata does not move it
+    (proof stays pinned to the publication); a reseal after a post-seal fix
+    names a new commit and moves it to that seal's publication. Before
+    2026-09-15 this was the first commit that ever added the file, so every
+    proof reader compared a resealed task's selected review with the FIRST
+    seal's ("selected review pointer changed after task marker"). A file
+    without a sealed `commit` (a review generation) resolves as before."""
+    def sealed(treeish: str) -> str | None:
+        shown = subprocess.run(
+            ["git", "show", f"{treeish}:{marker_path}"],
+            cwd=root, capture_output=True, env=clean_git_env(),
+        )
+        if shown.returncode != 0:
+            return None
+        try:
+            document = json.loads(shown.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        value = document.get("commit") if isinstance(document, dict) else None
+        return value if isinstance(value, str) and value else None
+
+    proc = subprocess.run(
+        ["git", "log", "--reverse", "--format=%H", inspected_head, "--", marker_path],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8",
+    )
+    commits = proc.stdout.split() if proc.returncode == 0 else []
+    if not commits:
+        return ""
+    current = sealed(inspected_head)
+    if current is None:
+        return commits[0]
+    return next((commit for commit in commits if sealed(commit) == current), "")
+
+
+def _proof_commit_problems(
+    root: Path,
+    task_id: str,
+    records: list[tuple[str, dict]],
+    *,
+    expected_head: str = "",
+    base: str = "",
+    seal: str = "",
+    compare_product: bool = True,
+) -> list[str]:
+    """Keep recorder stamps current, or inside one verified historical seal."""
+    problems: list[str] = []
+    seal_digest = ""
+    product_digests: dict[str, str] = {}
+    if base and seal and compare_product:
+        from forge_cli.stages import workflow_prefixes
+
+        seal_digest = product_tree_digest(
+            root, seal, exclude=workflow_prefixes(root),
+        )
+        product_digests[seal] = seal_digest
+    checked: set[tuple[str, str]] = set()
+    for label, record in records:
+        if not isinstance(record, dict):
+            continue
+        stamped_task = record.get("task_id")
+        if stamped_task is not None and stamped_task != task_id:
+            problems.append(
+                f"{task_id}: {label} proof is owned by task {stamped_task!r}"
+            )
+        commit = record.get("commit")
+        if expected_head:
+            if commit != expected_head:
+                problems.append(
+                    f"{task_id}: {label} proof is stamped at {commit!r}, not HEAD"
+                )
+            continue
+        if not base or not seal:
+            continue
+        if not _git_commit_exists(root, commit):
+            problems.append(f"{task_id}: {label} proof has no valid commit stamp")
+            continue
+        if not _git_is_ancestor(root, base, commit) or not _git_is_ancestor(
+            root, commit, seal
+        ):
+            problems.append(
+                f"{task_id}: {label} proof commit is outside the task base-to-seal range"
+            )
+            continue
+        identity = (label, str(commit))
+        if identity in checked:
+            continue
+        checked.add(identity)
+        if compare_product:
+            from forge_cli.stages import workflow_prefixes
+
+            commit_key = str(commit)
+            if commit_key not in product_digests:
+                product_digests[commit_key] = product_tree_digest(
+                    root, commit_key, exclude=workflow_prefixes(root),
+                )
+            if product_digests[commit_key] != seal_digest:
+                problems.append(
+                    f"{task_id}: product content changed after {label} proof was recorded"
+                )
+    return problems
+
+
+def _proof_review_problems(
+    root: Path,
+    task_id: str,
+    reviews: dict[str, dict],
+    *,
+    strict: bool,
+    expected_branch_diff_digest: str | None = None,
+) -> list[str]:
+    """Validate all three review artifacts, including task binding when modern."""
+    from forge_cli.readiness import review_passed
+
+    problems: list[str] = []
+    for lens in _PROOF_LENSES:
+        review = reviews.get(lens)
+        if not review:
+            problems.append(
+                f"{task_id}: no {lens} review — `./forge review {task_id}` runs all "
+                "three lenses in Codex and records them")
+            continue
+        if strict and review.get("task_id") != task_id:
+            problems.append(f"{task_id}: {lens} review is not owned by task {task_id!r}")
+        try:
+            passed = review_passed(review)
+        except (TypeError, ValueError):
+            passed = False
+        if not passed:
+            blockers = review.get("blocking_findings")
+            blocking = (len(blockers) if isinstance(blockers, (list, tuple, dict, set))
+                        else int(bool(blockers)))
+            problems.append(
+                f"{task_id}: {lens} review is not clean ({blocking} blocking "
+                f"finding(s), score {review.get('score')!r}) — delegate the fixes "
+                f"with `./forge delegate {task_id}`, commit, then rerun "
+                f"`./forge review {task_id}`")
+
+    if strict and all(lens in reviews for lens in _PROOF_LENSES):
+        problems.extend(
+            require_coherent_review_run(
+                root, reviews,
+                expected_branch_diff_digest=expected_branch_diff_digest,
+            )
+        )
+    return problems
+
+
+def _current_task_review_inputs(
+    root: Path,
+    key: str,
+    task_id: str,
+    task: dict,
+    *,
+    reader: Callable[[str], dict | None] | None = None,
+    reader_treeish: str = "",
+    branch: str = "",
+    delta_id: str = "",
+) -> tuple[dict | None, list[str]]:
+    """Read the current task inputs in the same shape review-brief uses.
+
+    A sealed task's brief is historical, but its task-owned plan, grill and
+    report must still be the current records.  Reading those paths from HEAD
+    (or the local worktree before sealing) catches a report edit after review
+    without letting a later task's global ``all.md`` replace the sealed brief.
     """
-    from forge_cli.readiness import review_passed, tests_passed, verify_passed
+    from forge_cli.review_brief import _approved_task_inputs
+
+    if reader is None and not branch:
+        try:
+            return _approved_task_inputs(
+                root, task,
+            ), []
+        except SystemExit as exc:
+            return None, [str(exc)]
+
+    prefix = f".factory/stories/{key}"
+    plan_path = f"{prefix}/task-plans/{task_id}.md"
+    grill_path = f"{prefix}/grills/tasks/{task_id}.json"
+    tests_path = f"{prefix}/tasks/{task_id}/tests.json"
+
+    def read_json(path: str) -> dict | None:
+        if reader is not None:
+            return reader(path)
+        return load_json(root / path, default=None)
+
+    def read_bytes(path: str) -> bytes | None:
+        if reader is not None:
+            return _read_git_bytes(root, path, reader_treeish or "HEAD")
+        try:
+            return (root / path).read_bytes()
+        except OSError:
+            return None
+
+    raw_plan = read_bytes(plan_path)
+    if raw_plan is None:
+        return None, [f"{task_id}: current approved task plan is missing"]
+    try:
+        plan_text = raw_plan.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, [f"{task_id}: current approved task plan is not UTF-8"]
+    grill = read_json(grill_path)
+    tests = read_json(tests_path)
+    automated = tests.get("automated") if isinstance(tests, dict) else None
+    if not isinstance(grill, dict) or not isinstance(automated, dict):
+        return None, [
+            f"{task_id}: current task grill and automated report are required"
+        ]
+    if not branch.strip() and reader is None:
+        state = load_json(run_state_path(root), default={})
+        branch = str(state.get("branch") or "").strip()
+    if not branch.strip() and reader is None:
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=root,
+            capture_output=True, text=True, encoding="utf-8", env=clean_git_env(),
+        )
+        branch = proc.stdout.strip() if proc.returncode == 0 else ""
+    return {
+        "story": key,
+        "task_id": task_id,
+        "branch": branch,
+        "delta_id": delta_id,
+        "plan_text": plan_text,
+        "plan_sha256": _plan_body_digest_bytes(raw_plan),
+        "grill": grill,
+        "automated": automated,
+    }, []
+
+
+def _review_input_problems(
+    root: Path,
+    key: str,
+    task_id: str,
+    task: dict,
+    reviews: dict[str, dict],
+    *,
+    reader: Callable[[str], dict | None] | None = None,
+    reader_treeish: str = "",
+    brief_treeish: str = "",
+    brief_fallback_treeish: str = "",
+    branch: str = "",
+    delta_id: str = "",
+) -> list[str]:
+    """Bind clean review artifacts to the exact complete approved inputs.
+
+    The review run already binds one ``brief_sha256`` across its lenses.  This
+    predicate additionally verifies that the saved brief bytes are that hash
+    and that its complete approved-input section is exactly the current,
+    task-owned section rendered by review-brief's shared pure producer.
+    """
+    brief_path = ".factory/review-briefs/all.md"
+    if brief_treeish:
+        brief_bytes = _read_git_bytes(root, brief_path, brief_treeish)
+        if brief_bytes is None and brief_fallback_treeish:
+            brief_bytes = _read_git_bytes(root, brief_path, brief_fallback_treeish)
+    elif reader is not None:
+        brief_bytes = _read_git_bytes(root, brief_path, reader_treeish or "HEAD")
+    else:
+        try:
+            brief_bytes = (root / brief_path).read_bytes()
+        except OSError:
+            brief_bytes = None
+    if brief_bytes is None:
+        return [
+            f"{task_id}: review brief is not published at the task's proof tip"
+        ]
+
+    problems: list[str] = []
+    expected_hash = hashlib.sha256(brief_bytes).hexdigest()
+    for lens in _PROOF_LENSES:
+        review = reviews.get(lens)
+        if isinstance(review, dict) and review.get("brief_sha256") != expected_hash:
+            problems.append(
+                f"{task_id}: {lens} review brief hash does not match the saved all.md"
+            )
+    try:
+        body = brief_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return problems + [f"{task_id}: saved review brief is not UTF-8"]
+
+    inputs, input_problems = _current_task_review_inputs(
+        root, key, task_id, task, reader=reader, reader_treeish=reader_treeish,
+        branch=branch,
+        delta_id=delta_id,
+    )
+    if input_problems:
+        return problems + input_problems
+    assert inputs is not None
+    try:
+        from forge_cli.review_brief import render_approved_inputs_section
+        section = "\n".join(render_approved_inputs_section(inputs))
+    except (AttributeError, TypeError, ValueError, SystemExit) as exc:
+        return problems + [
+            f"{task_id}: cannot render the complete approved-input section: {exc}"
+        ]
+    if body.count(section) != 1:
+        problems.append(
+            f"{task_id}: saved review brief does not contain exactly one current "
+            "complete approved-input section"
+        )
+    return problems
+
+
+def _modern_task_proof_problems(
+    root: Path, key: str, task: dict,
+    read: Callable[[str], dict], *,
+    expected_head: str | None = None,
+    marker_publication_commit: str = "",
+    expected_branch_diff_digest: str | None = None,
+    reader: Callable[[str], dict | None] | None = None,
+    reader_treeish: str = "",
+    brief_treeish: str = "",
+    brief_fallback_treeish: str = "",
+    review_branch: str = "",
+    proof_base: str = "",
+    proof_seal: str = "",
+    expected_review_delta: str = "",
+    selected_reader: Callable[[str], dict | None] | None = None,
+    selected_bytes_reader: Callable[[str], bytes | None] | None = None,
+    sealed_commit: str = "",
+    selected_upgrade_after_marker: bool = False,
+    history_head: str = "HEAD",
+) -> list[str]:
+    """The fail-closed proof predicate for a task-owned bundle."""
+    from forge_cli.readiness import tests_passed, verify_passed
 
     task_id = str(task.get("id") or "")
+    if not task_id:
+        return ["task proof requires a non-empty task identity"]
     problems: list[str] = []
-
-    def read(name: str) -> dict:
-        scoped = task_evidence_path(root, key, task_id, name)
-        if scoped.is_file():
-            return load_json(scoped, default={})
-        return load_json(evidence_path(root, key, name), default={})
-
-    # Every refusal names the ONE command that answers it. A gate that says
-    # what is wrong but not what to run is where a coordinator stops and asks
-    # a human to decide something the harness already knows.
-    if not verify_passed(read("verify.json")):
+    verify = read("verify.json")
+    if not isinstance(verify, dict) or not verify_passed(verify):
         problems.append(
             f"{task_id}: no passing verify — from its worktree run "
             "`python3 factory/scripts/verify.py`")
 
     tests = read("tests.json")
-    if not tests_passed(tests.get("automated")):
+    automated = tests.get("automated") if isinstance(tests, dict) else None
+    if (not isinstance(automated, dict)
+            or automated.get("status") != "passed"
+            or automated.get("blocking_findings")):
         problems.append(
             f"{task_id}: no passing automated tests — run them, then record with "
             "`python3 factory/scripts/record_test_from_json.py --kind automated "
             "--input <json>`")
     if bool(task.get("user_facing")):
-        functional = tests.get("functional") or {}
-        if not functional:
+        functional = tests.get("functional") if isinstance(tests, dict) else None
+        if not isinstance(functional, dict):
             problems.append(
                 f"{task_id}: user_facing, so a functional check is required — run "
                 "the functional-checker, then record with "
                 "`python3 factory/scripts/record_test_from_json.py --kind functional "
                 "--input <json>`")
-        elif not tests_passed(functional, functional=True):
-            problems.append(
-                f"{task_id}: functional check must have no blockers and score >= 8 "
-                "— fix what it found and re-record it")
+        else:
+            try:
+                functional_passed = tests_passed(functional, functional=True)
+            except (TypeError, ValueError):
+                functional_passed = False
+            if functional.get("status") != "passed" or not functional_passed:
+                problems.append(
+                    f"{task_id}: functional check must be passed, have no blockers, "
+                    "and score >= 8 — fix what it found and re-record it")
 
-    for lens in ("quality", "performance", "security"):
-        review = read(f"reviews/{lens}.json")
-        if not review:
+    authoritative_review_paths: set[str] = set()
+    generation, _selection, review_generation_problems = read_selected_review_generation(
+        root, key, task_id, reader=selected_reader,
+        bytes_reader=selected_bytes_reader, expected_delta_id=expected_review_delta,
+        sealed_commit=sealed_commit, consumed_paths=authoritative_review_paths,
+    )
+    problems.extend(review_generation_problems)
+    reviews = (
+        generation.get("lenses", {})
+        if isinstance(generation, dict) else {lens: {} for lens in _PROOF_LENSES}
+    )
+    if marker_publication_commit:
+        proof_root = f".factory/stories/{key}/tasks/{task_id}"
+        history_review_paths = set(authoritative_review_paths)
+        allowed_upgrade_paths: set[str] = set()
+        generation_changes: set[str] = set()
+        generation_change_error = ""
+        if selected_upgrade_after_marker and isinstance(generation, dict):
+            generation_rel, selection_rel = _review_relpaths(
+                key, task_id, str(generation.get("generation_id") or ""),
+            )
+            history_review_paths.discard(generation_rel)
+            allowed_upgrade_paths.add(selection_rel)
+            generation_publication = _marker_publication_commit(root, generation_rel)
+            if generation_publication and not _git_is_ancestor(
+                    root, marker_publication_commit, generation_publication):
+                generation_change_error = "upgrade generation publication is invalid"
+            elif generation_publication:
+                generation_changes, generation_change_error = _paths_changed_after(
+                    root, generation_publication, [generation_rel], head=history_head,
+                )
+        changed, change_error = _paths_changed_after(
+            root, marker_publication_commit,
+            [f"{proof_root}/verify.json", f"{proof_root}/tests.json",
+             *sorted(history_review_paths)],
+            head=history_head,
+        )
+        changed.update(generation_changes)
+        if change_error or generation_change_error:
             problems.append(
-                f"{task_id}: no {lens} review — `./forge review {task_id}` runs all "
-                "three lenses in Codex and records them")
-        elif not review_passed(review):
-            blocking = len(review.get("blocking_findings") or [])
+                f"{task_id}: cannot inspect proof history after task marker: "
+                f"{change_error or generation_change_error}"
+            )
+        for path in sorted(changed - allowed_upgrade_paths):
             problems.append(
-                f"{task_id}: {lens} review is not clean ({blocking} blocking "
-                f"finding(s)) — delegate the fixes with `./forge delegate {task_id}`, "
-                f"commit, then rerun `./forge review {task_id}`. Findings are work, "
-                "not a question for the human.")
+                f"{task_id}: {path.removeprefix(proof_root + '/')} proof "
+                "changed after task marker"
+            )
+    # The recorder stamps the containing tests.json record. Nested reports are
+    # payloads within that one artifact and do not carry an independent proof
+    # commit in every historical fixture.
+    records = [("verify", verify), ("tests", tests)]
+    records.extend((f"reviews.{lens}", reviews[lens])
+                   for lens in _PROOF_LENSES)
+    if proof_base and proof_seal:
+        problems.extend(
+            _proof_commit_problems(
+                root, task_id, records, base=proof_base, seal=proof_seal,
+            )
+        )
+    else:
+        problems.extend(
+            _proof_commit_problems(
+                root, task_id, records,
+                expected_head=expected_head or head_sha(root) or "",
+            )
+        )
+    review_delta = (
+        expected_branch_diff_digest
+        if expected_branch_diff_digest is not None
+        else expected_review_delta
+        or (str(generation.get("delta_id") or "") if sealed_commit
+            and isinstance(generation, dict) else None)
+    )
+    problems.extend(
+        _proof_review_problems(
+            root, task_id, reviews, strict=True,
+            expected_branch_diff_digest=review_delta,
+        )
+    )
+    problems.extend(
+        _review_input_problems(
+            root, key, task_id, task, reviews,
+            reader=reader, reader_treeish=reader_treeish,
+            brief_treeish=brief_treeish,
+            brief_fallback_treeish=brief_fallback_treeish,
+            branch=review_branch,
+            delta_id=review_delta or "",
+        )
+    )
     return problems
+
+
+def task_proof_problems(
+    root: Path, key: str, task: dict, *,
+    reader: Callable[[str], dict | None] | None = None,
+    marker: dict | None = None,
+    preseal: bool = False,
+    inspected_head: str = "",
+) -> list[str]:
+    """One task's proof, using one task-aware predicate everywhere.
+
+    Every run reads only the task-owned bundle. A committed task marker binds
+    post-seal local and CI reads to its sealed product and proof; pre-seal
+    callers always require the current task tree. Marker-bound upgrade
+    generations are the sole fixed-proof migration representation.
+    """
+    task_id = str(task.get("id") or "")
+    task, contract_problem = _task_contract(root, key, task_id, reader)
+    if contract_problem:
+        return [contract_problem]
+    assert task is not None
+
+    def read_task(name: str) -> dict:
+        rel = f".factory/stories/{key}/tasks/{task_id}/{name}"
+        if reader is not None:
+            return reader(rel) or {}
+        return load_json(task_evidence_path(root, key, task_id, name), default={})
+
+    marker_path = f".factory/stories/{key}/tasks/{task_id}/pr-ready.json"
+    if marker is None:
+        try:
+            marker = reader(marker_path) if reader is not None else load_json(
+                root / marker_path, default=None
+            )
+        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            return [f"{task_id}: task PR marker is invalid"]
+
+    marker_context = None
+    if not preseal:
+        marker_context, marker_problem = _committed_task_marker(
+            root, key, task_id, marker, reader, inspected_head=inspected_head,
+        )
+        if marker_problem:
+            return [marker_problem]
+        # An ADOPTED marker (`forge task reconcile`) is work that reached the
+        # trunk before the harness could prove it. The PR gate
+        # (check_task_proof) and the frontier (task_marker_on_main) already
+        # accept it without proof; story closeout must say the same, or a story
+        # of adopted tasks can never close (WF-1, 2026-09-14).
+        if marker_context is not None and marker_context.get("reconciled") is True:
+            return []
+
+    expected_head = inspected_head or head_sha(root) or ""
+    proof_base = ""
+    proof_seal = ""
+    marker_publication_commit = ""
+    expected_branch_diff_digest = None
+    review_base = ""
+    if marker_context is not None:
+        sealed_commit = str(marker_context["commit"])
+        expected_head = sealed_commit
+        proof_base = str(marker_context["base_main_sha"])
+        proof_seal = sealed_commit
+        marker_publication_commit = _marker_publication_commit(
+            root, marker_path, inspected_head=inspected_head or "HEAD",
+        )
+        review_base = str(marker_context.get("review_base_sha") or "")
+        expected_branch_diff_digest = (
+            product_delta_digest(root, review_base, sealed_commit)
+            if review_base else None
+        )
+    if not proof_base and reader is None:
+        proof_base = _stage_baseline_for(root, task_id)
+    if not proof_base and reader is None:
+        state = load_json(run_state_path(root), default={})
+        proof_base = str(state.get("base_main_sha") or "")
+    if proof_base and expected_head and _git_commit_exists(root, proof_base):
+        proof_seal = expected_head
+
+    selected_reader = reader
+    selected_bytes_reader = None
+    selected_upgrade_after_marker = False
+    expected_review_delta = ""
+    sealed_review_commit = ""
+    if marker_context is not None:
+        sealed_review_commit = str(marker_context["commit"])
+        selected_treeish = marker_publication_commit or sealed_review_commit
+        selected_reader = lambda path, treeish=selected_treeish: _read_git_json(
+            root, path, treeish
+        )
+        selected_bytes_reader = lambda path, treeish=selected_treeish: _read_git_bytes(
+            root, path, treeish
+        )
+        _generation_rel, selection_rel = _review_relpaths(key, task_id)
+        marker_selection = selected_reader(selection_rel)
+        try:
+            current_selection = (
+                reader(selection_rel) if reader is not None else
+                load_json(root / selection_rel, default=None)
+            )
+        except (json.JSONDecodeError, SystemExit) as exc:
+            return [f"{task_id}: selected review pointer is invalid: {exc}"]
+        if current_selection != marker_selection:
+            current_bytes_reader = (
+                (lambda path: _read_git_bytes(
+                    root, path, inspected_head or "HEAD"))
+                if reader is not None else None
+            )
+            current_generation, _current_pointer, current_problems = (
+                read_selected_review_generation(
+                    root, key, task_id, reader=reader,
+                    bytes_reader=current_bytes_reader,
+                    sealed_commit=sealed_review_commit,
+                )
+            )
+            if (current_problems or not isinstance(current_generation, dict)
+                    or current_generation.get("origin") != "upgrade"):
+                return [
+                    f"{task_id}: selected review pointer changed after task marker "
+                    "without a valid marker-bound sealed upgrade",
+                    *current_problems,
+                ]
+            selected_reader = reader
+            selected_bytes_reader = current_bytes_reader
+            selected_upgrade_after_marker = True
+    elif reader is not None:
+        selected_bytes_reader = lambda path: _read_git_bytes(
+            root, path, inspected_head or "HEAD")
+    elif proof_base:
+        review_base = effective_review_base(root, task_id) or proof_base
+        expected_review_delta = product_delta_digest(root, review_base)
+
+    return _modern_task_proof_problems(
+        root, key, task, read_task,
+        expected_head=expected_head,
+        marker_publication_commit=marker_publication_commit,
+        expected_branch_diff_digest=expected_branch_diff_digest,
+        reader=reader, reader_treeish=inspected_head,
+        brief_treeish=(marker_publication_commit
+                       if marker_context is not None else ""),
+        review_branch=(str(marker_context.get("branch") or "")
+                       if marker_context is not None else ""),
+        proof_base=proof_base,
+        proof_seal=proof_seal,
+        expected_review_delta=expected_review_delta,
+        selected_reader=selected_reader,
+        selected_bytes_reader=selected_bytes_reader,
+        sealed_commit=sealed_review_commit,
+        selected_upgrade_after_marker=selected_upgrade_after_marker,
+        history_head=inspected_head or "HEAD",
+    )
+
+
+def run_is_task_level(root: Path, key: str = "", tasks: list[dict] | None = None) -> bool:
+    """Whether this story ships task by task (per-task PRs and markers) or as
+    one story -- the one answer every closeout gate must agree on.
+
+    The pointer's `base_main_sha` says so only inside a task worktree: `forge
+    task start` writes it there, and nothing writes it into the story's own
+    pointer. So a story whose every task had shipped as its own PR was still
+    classed story-level at closeout and asked for the story-wide verify,
+    three-lens review and functional pass that the per-task flow retired
+    (WF-1, 2026-09-14). The markers are the evidence: a story-level run cannot
+    produce one, so a task marker on the trunk -- or committed in this tree --
+    means task-level.
+    """
+    state = load_json(run_state_path(root), default={})
+    if state.get("base_main_sha"):
+        return True
+    key = key or _active_story_key(root)
+    if tasks is None:
+        decomposition = load_json(protected_decomposition_state_path(root), default={})
+        tasks = [t for t in decomposition.get("tasks", []) if isinstance(t, dict)]
+    ids = [str(t.get("id") or "") for t in tasks if t.get("id")]
+    if not key or not ids:
+        return False
+    try:
+        if any((root / task_marker_path(key, task_id)).is_file() for task_id in ids):
+            return True
+    except ValueError:
+        return False
+    fetch_trunk(root, default_trunk_branch(root))
+    return any(task_marker_on_main(root, key, task_id, refresh=False) for task_id in ids)
 
 
 def require_closeout_order(root: Path) -> list[str]:
@@ -1543,8 +2321,9 @@ def require_closeout_order(root: Path) -> list[str]:
     if open_stages:
         problems.append(
             f"stage completion: {', '.join(open_stages)} not done — work each "
-            "stage (forge stage start → local autoreview until clean → commit → "
-            "forge stage done; WORKFLOW.md Stage Loop)"
+            "stage (forge stage start → implement/test → commit → verify and "
+            "record task tests → forge review → forge stage done; WORKFLOW.md "
+            "Stage Loop)"
         )
 
     # WHICH proof closes a story depends on how its work reached the trunk.
@@ -1558,10 +2337,10 @@ def require_closeout_order(root: Path) -> list[str]:
     # Selecting on the run mode is what keeps both flows working. Requiring
     # per-task proof everywhere would strand every story-level run — a
     # deadlock, since a story-level run cannot produce task markers at all.
-    task_level = bool(load_json(run_state_path(root), default={}).get("base_main_sha"))
     key = _active_story_key(root)
     decomposition = load_json(protected_decomposition_state_path(root), default={})
     tasks = [t for t in decomposition.get("tasks", []) if isinstance(t, dict)]
+    task_level = run_is_task_level(root, key, tasks)
 
     if task_level and tasks:
         for task in tasks:
@@ -1605,7 +2384,23 @@ def require_closeout_order(root: Path) -> list[str]:
     # decomposition-level key, so reading one silently found nothing and the
     # gate passed everything.
     from forge_cli.review_brief import declared_contracts
-    declared = [c["id"] for c in declared_contracts(decomposition)]
+    # An adopted task (committed `reconciled` marker) is accepted without proof,
+    # its contracts included: there is no quality review of it to read.
+    adopted: set[str] = set()
+    for t in tasks:
+        task_id = str(t.get("id") or "")
+        try:
+            committed = _read_git_json(
+                root, f".factory/stories/{key}/tasks/{task_id}/pr-ready.json", "HEAD")
+        except SystemExit:
+            committed = None
+        if isinstance(committed, dict) and committed.get("reconciled") is True:
+            adopted.add(task_id)
+    declared = [
+        c["id"] for t in tasks if str(t.get("id") or "") not in adopted
+        for c in t.get("plan_contracts") or []
+        if isinstance(c, dict) and isinstance(c.get("id"), str)
+    ] if adopted else [c["id"] for c in declared_contracts(decomposition)]
     if declared:
         # A contract is verified wherever the proof for it actually lives: in a
         # task-level run that is the owning task's quality review, in a
@@ -1702,6 +2497,764 @@ def validate_payload(root: Path, name: str, payload: dict) -> None:
         raise SystemExit(
             f"REFUSED by factory/schemas/{path.name}:\n- " + "\n- ".join(problems)
         )
+
+
+REVIEW_GENERATION_FORMAT = "forge-review-generation/v1"
+REVIEW_SELECTION_FORMAT = "forge-review-selection/v1"
+_LOWER_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _review_set_schema(root: Path) -> dict:
+    return json.loads(schema_path(root, "review-set").read_text(encoding="utf-8"))
+
+
+def _review_set_fail(problems: list[str]) -> None:
+    if problems:
+        raise SystemExit(
+            "REFUSED by factory/schemas/review-set.json:\n- " + "\n- ".join(problems)
+        )
+
+
+def validate_review_document(
+    root: Path, document: dict, *, allow_missing_generation_id: bool = False,
+) -> None:
+    """Validate either exact review generation or exact selected pointer."""
+    if not isinstance(document, dict):
+        _review_set_fail(["document must be a JSON object"])
+    schema = _review_set_schema(root)
+    formats = schema.get("formats") or {}
+    spec = formats.get(document.get("format"))
+    if not isinstance(spec, dict):
+        _review_set_fail([f"unknown format {document.get('format')!r}"])
+    problems: list[str] = []
+    if document.get("format") == REVIEW_SELECTION_FORMAT:
+        expected = set(spec.get("fields") or [])
+    else:
+        origin = document.get("origin")
+        origin_fields = spec.get("origin_fields") or {}
+        if origin not in origin_fields:
+            problems.append(f"origin must be one of {', '.join(origin_fields)}")
+            expected = set(spec.get("common_fields") or [])
+        else:
+            expected = set(spec.get("common_fields") or []) | set(origin_fields[origin])
+        if allow_missing_generation_id:
+            expected.discard("generation_id")
+    if set(document) != expected:
+        problems.append(
+            "fields must be exactly " + ", ".join(sorted(expected))
+        )
+    for field in (
+        "format", "story", "task_id", "generation_id", "generation_sha256",
+        "delta_id", "selected_at", "origin", "generated_by", "review_run_id",
+        "brief_sha256", "inspected_commit", "recorded_at",
+    ):
+        if field in document and (
+            not isinstance(document[field], str) or not document[field].strip()
+        ):
+            problems.append(f"{field} must be a non-empty string")
+    for field in ("generation_id", "generation_sha256", "delta_id", "brief_sha256"):
+        if field in document and not _LOWER_SHA256.fullmatch(str(document[field])):
+            problems.append(f"{field} must be a lowercase SHA256")
+    if document.get("format") == REVIEW_SELECTION_FORMAT:
+        _review_set_fail(problems)
+        return
+    origin = document.get("origin")
+    if document.get("generated_by") not in schema.get("generated_by", []):
+        problems.append("generated_by is not pinned for review-set artifacts")
+    if ((origin in {"combined", "rejection"} and document.get("generated_by") != "autoreview")
+            or (origin == "upgrade" and document.get("generated_by") != "upgrade")):
+        problems.append("generated_by does not match review generation origin")
+    helper = document.get("helper")
+    review_input = document.get("input")
+    raw = document.get("raw_result")
+    decoded = b""
+    if origin in {"combined", "rejection"}:
+        if not isinstance(helper, dict) or set(helper) != {"path", "version", "sha256"}:
+            problems.append("helper needs exactly path, version, sha256")
+        else:
+            if any(not isinstance(helper[key], str) or not helper[key].strip()
+                   for key in ("path", "version")):
+                problems.append("helper path and version must be non-empty strings")
+            if not _LOWER_SHA256.fullmatch(str(helper.get("sha256", ""))):
+                problems.append("helper sha256 must be a lowercase SHA256")
+        if not isinstance(review_input, dict) or set(review_input) != {"sha256", "bytes"}:
+            problems.append("input needs exactly sha256 and bytes")
+        elif (not _LOWER_SHA256.fullmatch(str(review_input.get("sha256", "")))
+              or not isinstance(review_input.get("bytes"), int)
+              or isinstance(review_input.get("bytes"), bool)
+              or review_input["bytes"] < 0):
+            problems.append("input needs a lowercase SHA256 and non-negative byte count")
+        if not isinstance(raw, dict) or set(raw) != {"encoding", "sha256", "bytes", "data"}:
+            problems.append("raw_result needs exactly encoding, sha256, bytes, data")
+        else:
+            try:
+                decoded = base64.b64decode(raw.get("data", ""), validate=True)
+            except (TypeError, ValueError):
+                problems.append("raw_result data must be RFC4648 base64")
+            if raw.get("encoding") != "base64":
+                problems.append("raw_result encoding must be base64")
+            if (not isinstance(raw.get("bytes"), int) or isinstance(raw.get("bytes"), bool)
+                    or raw.get("bytes") != len(decoded)):
+                problems.append("raw_result bytes must equal the decoded byte count")
+            if raw.get("sha256") != hashlib.sha256(decoded).hexdigest():
+                problems.append("raw_result sha256 does not match the decoded bytes")
+            if (isinstance(raw.get("data"), str)
+                    and base64.b64encode(decoded).decode("ascii") != raw["data"]):
+                problems.append("raw_result data is not canonical RFC4648 base64")
+    lenses = document.get("lenses")
+    if not isinstance(lenses, dict) or set(lenses) != {
+        "quality", "performance", "security",
+    }:
+        problems.append("lenses needs exactly quality, performance, security")
+    else:
+        for lens, payload in lenses.items():
+            try:
+                validate_payload(root, "review", payload)
+            except SystemExit as exc:
+                problems.append(f"{lens} lens is invalid: {exc}")
+            if isinstance(payload, dict) and payload.get("task_id") != document.get("task_id"):
+                problems.append(f"{lens} lens is not owned by {document.get('task_id')}")
+            if not isinstance(payload, dict):
+                continue
+            if origin in {"combined", "rejection"}:
+                for lens_field, generation_field in (
+                    ("review_run_id", "review_run_id"),
+                    ("brief_sha256", "brief_sha256"),
+                    ("branch_diff_digest", "delta_id"),
+                    ("commit", "inspected_commit"),
+                ):
+                    if payload.get(lens_field) != document.get(generation_field):
+                        problems.append(
+                            f"{lens} lens {lens_field} does not match generation "
+                            f"{generation_field}"
+                        )
+            blocking = payload.get("blocking_findings")
+            non_blocking = payload.get("non_blocking_findings", [])
+            if isinstance(blocking, list) and isinstance(non_blocking, list):
+                score = max(0, int(10 - 3 * len(blocking)
+                                   - min(2.0, 0.5 * len(non_blocking))))
+                recommendation = (
+                    "request-changes" if blocking else
+                    "approve-with-caveats" if non_blocking else "approve"
+                )
+                if payload.get("score") != score:
+                    problems.append(f"{lens} lens score does not match its findings")
+                if payload.get("recommendation") != recommendation:
+                    problems.append(
+                        f"{lens} lens recommendation does not match its findings"
+                    )
+    if origin == "rejection":
+        rejection = document.get("rejection")
+        if not isinstance(rejection, dict) or set(rejection) != {
+            "source_generation_id", "source_generation_sha256",
+            "root_generation_id", "history",
+        }:
+            problems.append("rejection needs exact source/root identity and history")
+        else:
+            for field in ("source_generation_id", "source_generation_sha256", "root_generation_id"):
+                if not _LOWER_SHA256.fullmatch(str(rejection.get(field, ""))):
+                    problems.append(f"rejection {field} must be a lowercase SHA256")
+            history = rejection.get("history")
+            if not isinstance(history, list) or not history:
+                problems.append("rejection history must be non-empty")
+            else:
+                for index, entry in enumerate(history, 1):
+                    if (not isinstance(entry, dict) or set(entry) != {
+                        "finding_fingerprint", "reason", "citation", "actor",
+                        "lesson_path", "lesson_sha256",
+                    } or any(not isinstance(value, str) or not value.strip()
+                             for value in entry.values())):
+                        problems.append(f"rejection history[{index}] has an invalid shape")
+                    elif (not _LOWER_SHA256.fullmatch(entry["finding_fingerprint"])
+                          or not _LOWER_SHA256.fullmatch(entry["lesson_sha256"])
+                          or Path(entry["lesson_path"]).is_absolute()
+                          or any(part in {"", ".", ".."}
+                                 for part in Path(entry["lesson_path"]).parts)):
+                        problems.append(f"rejection history[{index}] has invalid identities")
+    elif origin == "upgrade":
+        upgrade = document.get("upgrade")
+        if not isinstance(upgrade, dict) or set(upgrade) != {
+            "inventory_digest", "source_kind", "legacy_artifacts", "sealed_commit",
+        }:
+            problems.append("upgrade needs exact inventory/source/artifact/seal fields")
+        else:
+            if not _LOWER_SHA256.fullmatch(str(upgrade.get("inventory_digest", ""))):
+                problems.append("upgrade inventory_digest must be a lowercase SHA256")
+            if upgrade.get("source_kind") != "sealed":
+                problems.append("upgrade source_kind must be sealed")
+            sealed = upgrade.get("sealed_commit")
+            if not isinstance(sealed, str) or not sealed.strip():
+                problems.append("sealed upgrade needs sealed_commit")
+            artifacts = upgrade.get("legacy_artifacts")
+            if not isinstance(artifacts, list) or len(artifacts) != 3:
+                problems.append("upgrade legacy_artifacts needs three entries")
+            else:
+                expected_aspects = ["performance", "quality", "security"]
+                if [entry.get("aspect") if isinstance(entry, dict) else None
+                        for entry in artifacts] != expected_aspects:
+                    problems.append("upgrade legacy_artifacts must be sorted by aspect")
+                for entry in artifacts:
+                    if (not isinstance(entry, dict) or set(entry) != {"aspect", "path", "sha256"}
+                            or not isinstance(entry.get("path"), str)
+                            or not _LOWER_SHA256.fullmatch(str(entry.get("sha256", "")))):
+                        problems.append("upgrade legacy artifact has an invalid shape")
+                        break
+    if origin in {"combined", "rejection"}:
+        try:
+            raw_report = json.loads(decoded.decode("utf-8"))
+            from forge_cli.review import _actual_passes, _pass_sections, _tagged_finding
+            raw_passes = _actual_passes(raw_report)
+            for _label, provider in raw_passes:
+                _pass_sections(provider)
+                findings = provider.get("findings", [])
+                if not isinstance(findings, list):
+                    raise SystemExit("combined review pass findings must be a list")
+                for finding in findings:
+                    _tagged_finding(finding)
+            merged = raw_report.get("findings", [])
+            if not isinstance(merged, list):
+                raise SystemExit("combined review findings must be a list")
+            for finding in merged:
+                _tagged_finding(finding)
+        except (UnicodeDecodeError, json.JSONDecodeError, SystemExit) as exc:
+            problems.append(f"raw_result is not a valid combined helper report: {exc}")
+    _review_set_fail(problems)
+
+
+def review_generation_id(document: dict) -> str:
+    content = {key: value for key, value in document.items() if key != "generation_id"}
+    canonical = json.dumps(
+        content, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def review_generation_bytes(document: dict) -> bytes:
+    return (json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def review_finding_fingerprint(finding: object) -> str:
+    if not isinstance(finding, dict):
+        raise SystemExit("review finding identity must be an object")
+    identity = {field: finding.get(field) for field in ("file_path", "line", "title")}
+    if (not isinstance(identity["file_path"], str) or not identity["file_path"]
+            or not isinstance(identity["line"], int) or isinstance(identity["line"], bool)
+            or identity["line"] < 1 or not isinstance(identity["title"], str)
+            or not identity["title"]):
+        raise SystemExit("review finding identity needs file_path, line, and title")
+    canonical = json.dumps(
+        identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def classify_scope_entries(root: Path, scope: list[str], revision: str) -> list[str]:
+    """Preserve exact entries; mark only explicit or baseline Git trees as dirs."""
+    classified: list[str] = []
+    for entry in scope:
+        raw = entry.strip()
+        if not raw:
+            continue
+        path = raw.rstrip("/")
+        is_directory = raw.endswith("/")
+        if not is_directory and revision:
+            result = subprocess.run(
+                ["git", "cat-file", "-t", f"{revision}:{path}"], cwd=root,
+                capture_output=True, text=True, env=clean_git_env(), encoding="utf-8",
+            )
+            is_directory = result.returncode == 0 and result.stdout.strip() == "tree"
+        classified.append(path + ("/" if is_directory else ""))
+    return classified
+
+
+def _rejection_successor_problems(
+    candidate: dict, source: dict, source_sha256: str,
+) -> list[str]:
+    problems: list[str] = []
+    if source.get("origin") not in {"combined", "rejection"}:
+        return ["rejection source must be a combined or rejection generation"]
+    for field in (
+        "format", "generated_by", "story", "task_id", "review_run_id",
+        "brief_sha256", "inspected_commit", "delta_id", "helper", "input",
+        "raw_result",
+    ):
+        if candidate.get(field) != source.get(field):
+            problems.append(f"rejection changed preserved {field}")
+    rejection = candidate.get("rejection") or {}
+    if rejection.get("source_generation_id") != source.get("generation_id"):
+        problems.append("rejection source_generation_id does not name its source")
+    if rejection.get("source_generation_sha256") != source_sha256:
+        problems.append("rejection source_generation_sha256 does not hash its source file")
+    expected_root = (source.get("rejection") or {}).get(
+        "root_generation_id", source.get("generation_id"))
+    if rejection.get("root_generation_id") != expected_root:
+        problems.append("rejection root_generation_id does not name the combined root")
+    history = rejection.get("history")
+    source_history = ((source.get("rejection") or {}).get("history") or [])
+    if (not isinstance(history, list) or history[:-1] != source_history
+            or len(history) != len(source_history) + 1):
+        problems.append("rejection history must append exactly one source entry")
+        return problems
+    entry = history[-1]
+    source_lenses = source.get("lenses") or {}
+    candidate_lenses = candidate.get("lenses") or {}
+    changed = [lens for lens in ("quality", "performance", "security")
+               if candidate_lenses.get(lens) != source_lenses.get(lens)]
+    if len(changed) != 1:
+        problems.append("rejection must change exactly one lens")
+        return problems
+    lens = changed[0]
+    original = source_lenses[lens]
+    blocking = original.get("blocking_findings") or []
+    matches = [finding for finding in blocking
+               if review_finding_fingerprint(finding)
+               == entry.get("finding_fingerprint")]
+    if len(matches) != 1:
+        problems.append("rejection history does not identify one source blocking finding")
+        return problems
+    finding = matches[0]
+    expected = copy.deepcopy(original)
+    expected["blocking_findings"].remove(finding)
+    expected.setdefault("rejected_findings", []).append({
+        "finding": finding,
+        "reason": entry["reason"],
+        "cite": entry["citation"],
+        "rejected_at": candidate.get("recorded_at"),
+        "rejected_by": entry["actor"],
+        "task_id": candidate.get("task_id"),
+    })
+    remaining = len(expected["blocking_findings"])
+    caveats = len(expected.get("non_blocking_findings") or [])
+    expected["score"] = max(0, int(10 - 3 * remaining - min(2.0, 0.5 * caveats)))
+    expected["recommendation"] = (
+        "request-changes" if remaining else
+        "approve-with-caveats" if caveats else "approve"
+    )
+    if candidate_lenses.get(lens) != expected:
+        problems.append("rejection lens is not the exact one-finding successor")
+    return problems
+
+
+def _review_relpaths(key: str, task_id: str, generation_id: str = "") -> tuple[str, str]:
+    base = f".factory/stories/{key}/tasks/{task_id}/reviews"
+    generation = f"{base}/generations/{generation_id}.json" if generation_id else ""
+    return generation, f"{base}/selected.json"
+
+
+def _safe_review_leaf(
+    root: Path, path: Path, *, required: bool, create_parents: bool = False,
+    links: int = 1,
+) -> bool:
+    try:
+        relative = path.relative_to(root)
+        current = root
+        root_info = current.lstat()
+        if (not stat.S_ISDIR(root_info.st_mode) or current.is_symlink()
+                or _windows_reparse_point(current)):
+            return False
+        for part in relative.parts[:-1]:
+            current = current / part
+            try:
+                info = current.lstat()
+            except FileNotFoundError:
+                if not create_parents:
+                    return False
+                current.mkdir()
+                info = current.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or current.is_symlink()
+                    or _windows_reparse_point(current)):
+                return False
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return not required
+        return (stat.S_ISREG(info.st_mode) and not path.is_symlink()
+                and not _windows_reparse_point(path) and info.st_nlink == links)
+    except (OSError, ValueError):
+        return False
+
+
+def _read_review_bytes(root: Path, path: Path) -> bytes:
+    if not _safe_review_leaf(root, path, required=True):
+        raise SystemExit(f"unsafe review proof path: {path}")
+    return path.read_bytes()
+
+
+def read_selected_review_generation(
+    root: Path, key: str, task_id: str, *,
+    reader: Callable[[str], dict | None] | None = None,
+    bytes_reader: Callable[[str], bytes | None] | None = None,
+    expected_delta_id: str = "", sealed_commit: str = "",
+    consumed_paths: set[str] | None = None,
+) -> tuple[dict | None, dict | None, list[str]]:
+    """Read and recompute the one selected immutable generation."""
+    _generation_unused, selection_rel = _review_relpaths(key, task_id)
+    if consumed_paths is not None:
+        consumed_paths.add(selection_rel)
+    try:
+        if reader is None:
+            selection_bytes = _read_review_bytes(root, root / selection_rel)
+            selection = json.loads(selection_bytes)
+        else:
+            selection = reader(selection_rel)
+            selection_bytes = bytes_reader(selection_rel) if bytes_reader else None
+            if selection_bytes is None:
+                return None, None, [f"{task_id}: selected review pointer is missing"]
+        validate_review_document(root, selection)
+        generation_rel, _ = _review_relpaths(key, task_id, selection["generation_id"])
+        if consumed_paths is not None:
+            consumed_paths.add(generation_rel)
+        if reader is None:
+            generation_bytes = _read_review_bytes(root, root / generation_rel)
+            generation = json.loads(generation_bytes)
+        else:
+            generation = reader(generation_rel)
+            generation_bytes = bytes_reader(generation_rel) if bytes_reader else None
+            if generation_bytes is None:
+                return None, selection, [f"{task_id}: selected review generation is missing"]
+        validate_review_document(root, generation)
+    except (OSError, UnicodeError, json.JSONDecodeError, SystemExit) as exc:
+        return None, None, [f"{task_id}: selected review proof is invalid: {exc}"]
+    problems: list[str] = []
+    if generation.get("generation_id") != review_generation_id(generation):
+        problems.append(f"{task_id}: selected review generation id does not recompute")
+    generation_sha = hashlib.sha256(generation_bytes).hexdigest()
+    if selection.get("generation_sha256") != generation_sha:
+        problems.append(f"{task_id}: selected review generation file hash does not match")
+    for field in ("story", "task_id", "generation_id", "delta_id"):
+        if selection.get(field) != generation.get(field):
+            problems.append(f"{task_id}: selected review {field} does not match its generation")
+    if selection.get("story") != key or selection.get("task_id") != task_id:
+        problems.append(f"{task_id}: selected review pointer is copied from another task")
+    if expected_delta_id and selection.get("delta_id") != expected_delta_id:
+        problems.append(f"{task_id}: selected review generation is stale for the current delta")
+    if generation.get("origin") == "upgrade":
+        upgrade = generation.get("upgrade") or {}
+        if upgrade.get("source_kind") == "sealed":
+            if not sealed_commit or upgrade.get("sealed_commit") != sealed_commit:
+                problems.append(
+                    f"{task_id}: upgrade review generation lacks the exact sealed binding"
+                )
+        elif sealed_commit:
+            problems.append(
+                f"{task_id}: active upgrade generation cannot certify a sealed task"
+            )
+    if not problems and generation.get("origin") == "rejection":
+        descendant = generation
+        seen: set[str] = set()
+        while descendant.get("origin") == "rejection":
+            descendant_id = str(descendant.get("generation_id") or "")
+            if descendant_id in seen:
+                problems.append(f"{task_id}: rejection review lineage contains a cycle")
+                break
+            seen.add(descendant_id)
+            source_id = str((descendant.get("rejection") or {}).get(
+                "source_generation_id") or "")
+            source_rel, _ = _review_relpaths(key, task_id, source_id)
+            if consumed_paths is not None:
+                consumed_paths.add(source_rel)
+            try:
+                if reader is None:
+                    source_bytes = _read_review_bytes(root, root / source_rel)
+                    source = json.loads(source_bytes)
+                else:
+                    source = reader(source_rel)
+                    source_bytes = bytes_reader(source_rel) if bytes_reader else None
+                    if source_bytes is None or not isinstance(source, dict):
+                        raise ValueError("source generation is missing")
+                validate_review_document(root, source)
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError, SystemExit) as exc:
+                problems.append(f"{task_id}: rejection review source is invalid: {exc}")
+                break
+            if source.get("generation_id") != review_generation_id(source):
+                problems.append(f"{task_id}: rejection source generation id does not recompute")
+                break
+            source_sha = hashlib.sha256(source_bytes).hexdigest()
+            lineage = _rejection_successor_problems(descendant, source, source_sha)
+            if lineage:
+                problems.extend(f"{task_id}: {problem}" for problem in lineage)
+                break
+            lesson = descendant["rejection"]["history"][-1]
+            lesson_rel = lesson["lesson_path"]
+            if consumed_paths is not None:
+                consumed_paths.add(lesson_rel)
+            try:
+                lesson_bytes = (
+                    _read_review_bytes(root, root / lesson_rel)
+                    if reader is None else
+                    (bytes_reader(lesson_rel) if bytes_reader else None)
+                )
+                if lesson_bytes is None:
+                    raise ValueError("lesson is missing")
+            except (OSError, ValueError, SystemExit) as exc:
+                problems.append(f"{task_id}: rejection lesson is invalid: {exc}")
+                break
+            if hashlib.sha256(lesson_bytes).hexdigest() != lesson["lesson_sha256"]:
+                problems.append(f"{task_id}: rejection lesson hash does not match")
+                break
+            descendant = source
+    return generation, selection, problems
+
+
+def review_lineage_paths(root: Path, key: str, task_id: str) -> list[Path]:
+    """Return every immutable generation and lesson needed to seal selection."""
+    generation, _selection, problems = read_selected_review_generation(root, key, task_id)
+    if problems or not isinstance(generation, dict):
+        raise SystemExit("invalid selected review lineage: " + "; ".join(
+            problems or ["selected generation is missing"]
+        ))
+    paths: list[Path] = []
+    seen_lessons: set[str] = set()
+    current = generation
+    while True:
+        generation_rel, _ = _review_relpaths(key, task_id, current["generation_id"])
+        paths.append(Path(generation_rel))
+        if current.get("origin") != "rejection":
+            break
+        for entry in current["rejection"]["history"]:
+            lesson = entry["lesson_path"]
+            if lesson not in seen_lessons:
+                seen_lessons.add(lesson)
+                paths.append(Path(lesson))
+        source_rel, _ = _review_relpaths(
+            key, task_id, current["rejection"]["source_generation_id"])
+        current = json.loads(_read_review_bytes(root, root / source_rel))
+    return paths
+
+
+def selected_review_problems(
+    root: Path, key: str, task_id: str, delta_id: str,
+) -> list[str]:
+    generation, _selection, problems = read_selected_review_generation(
+        root, key, task_id, expected_delta_id=delta_id,
+    )
+    if problems or not isinstance(generation, dict):
+        return problems or [f"{task_id}: selected review generation is missing"]
+    from forge_cli.readiness import review_passed
+    for lens in ("quality", "performance", "security"):
+        if not review_passed(generation["lenses"].get(lens)):
+            problems.append(f"{task_id}: selected {lens} review is not clean")
+    return problems
+
+
+def _publish_immutable_review_file(root: Path, destination: Path, body: bytes) -> None:
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    if _safe_review_leaf(root, destination, required=True, links=2):
+        destination_info = destination.lstat()
+        prefix = f".{destination.name}."
+        candidates = [
+            path for path in destination.parent.iterdir()
+            if path.name.startswith(prefix) and path.name.endswith(".tmp")
+            and path.name[len(prefix):-4].isdigit()
+        ]
+        if len(candidates) != 1 or not _safe_review_leaf(
+                root, candidates[0], required=True, links=2):
+            raise SystemExit("unsafe interrupted review generation links")
+        temporary = candidates[0]
+        temporary_info = temporary.lstat()
+        same_inode = ((destination_info.st_dev, destination_info.st_ino)
+                      == (temporary_info.st_dev, temporary_info.st_ino))
+        if not same_inode or destination.read_bytes() != body \
+                or temporary.read_bytes() != body:
+            raise SystemExit("interrupted review generation link does not match")
+        temporary.unlink()
+    if not _safe_review_leaf(root, destination, required=False, create_parents=True):
+        raise SystemExit(f"unsafe review generation destination: {destination}")
+    if destination.exists():
+        if _read_review_bytes(root, destination) != body:
+            raise SystemExit("review generation id collision with unequal bytes")
+        return
+    if not _safe_review_leaf(root, temporary, required=False, create_parents=True):
+        raise SystemExit(f"unsafe review generation temporary path: {temporary}")
+    # O_BINARY: on Windows a descriptor without it is text-mode, every newline
+    # in the body lands as CRLF, and the readback below refused every
+    # generation (temporary readback differs): no review could publish.
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_BINARY", 0))
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise SystemExit("review generation temporary leaf is not a single-link file")
+        view = memoryview(body)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise SystemExit("review generation temporary write was incomplete")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        if _read_review_bytes(root, temporary) != body:
+            raise SystemExit("review generation temporary readback differs")
+        try:
+            os.link(temporary, destination, follow_symlinks=False)
+        except FileExistsError:
+            if _read_review_bytes(root, destination) != body:
+                raise SystemExit("review generation id collision with unequal bytes")
+        temporary.unlink()
+        if _read_review_bytes(root, destination) != body:
+            raise SystemExit("published review generation readback differs")
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+
+
+def _replace_review_selection(root: Path, destination: Path, selection: dict) -> None:
+    body = review_generation_bytes(selection)
+    if not _safe_review_leaf(root, destination, required=False, create_parents=True):
+        raise SystemExit(f"unsafe review selection destination: {destination}")
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    if not _safe_review_leaf(root, temporary, required=False, create_parents=True):
+        raise SystemExit(f"unsafe review selection temporary path: {temporary}")
+    descriptor = os.open(  # O_BINARY: see _publish_immutable_review_file
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0), 0o600,
+    )
+    try:
+        view = memoryview(body)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise SystemExit("review selection temporary write was incomplete")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        if _read_review_bytes(root, temporary) != body:
+            raise SystemExit("review selection temporary readback differs")
+        os.replace(temporary, destination)
+        if _read_review_bytes(root, destination) != body:
+            raise SystemExit("published review selection readback differs")
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+
+
+def publish_review_generation(
+    root: Path, key: str, task_id: str, candidate: dict, *,
+    expected_source_id: str = "", update_stamp: bool = False,
+    lesson_records: list[tuple[str, bytes]] = (),
+    on_selection_lock_wait: Callable[[], None] | None = None,
+) -> tuple[dict, dict]:
+    """Publish generation first and selected.json last under one protected lock."""
+    validate_review_document(root, candidate, allow_missing_generation_id=True)
+    if candidate.get("story") != key or candidate.get("task_id") != task_id:
+        raise SystemExit("review generation is copied from another story or task")
+    generation = dict(candidate)
+    generation["generation_id"] = review_generation_id(generation)
+    validate_review_document(root, generation)
+    generation_body = review_generation_bytes(generation)
+    generation_sha = hashlib.sha256(generation_body).hexdigest()
+    generation_rel, selection_rel = _review_relpaths(key, task_id, generation["generation_id"])
+    from forge_cli.delegate import delegation_exclusion
+    if on_selection_lock_wait is not None:
+        on_selection_lock_wait()
+    with delegation_exclusion(
+        root, task_id, kind="review-selection",
+    ):
+        current = None
+        selection_path = root / selection_rel
+        if selection_path.exists() or selection_path.is_symlink():
+            current_bytes = _read_review_bytes(root, selection_path)
+            try:
+                current = json.loads(current_bytes)
+                validate_review_document(root, current)
+            except (json.JSONDecodeError, SystemExit) as exc:
+                raise SystemExit(f"current review selection is invalid: {exc}") from exc
+        if expected_source_id and (
+            not isinstance(current, dict) or current.get("generation_id") != expected_source_id
+        ):
+            raise SystemExit("review selection changed before rejection publication")
+        if generation.get("origin") == "rejection":
+            rejection = generation["rejection"]
+            if not current or rejection["source_generation_id"] != current.get("generation_id") \
+                    or rejection["source_generation_sha256"] != current.get("generation_sha256"):
+                raise SystemExit("rejection source is not the currently selected generation")
+            source_rel, _ = _review_relpaths(key, task_id, current["generation_id"])
+            source_bytes = _read_review_bytes(root, root / source_rel)
+            try:
+                source = json.loads(source_bytes)
+                validate_review_document(root, source)
+            except (json.JSONDecodeError, SystemExit) as exc:
+                raise SystemExit(f"selected rejection source is invalid: {exc}") from exc
+            if source.get("generation_id") != review_generation_id(source) \
+                    or hashlib.sha256(source_bytes).hexdigest() != current.get(
+                        "generation_sha256"):
+                raise SystemExit("selected rejection source identity is invalid")
+            lineage = _rejection_successor_problems(
+                generation, source, hashlib.sha256(source_bytes).hexdigest(),
+            )
+            _review_set_fail(lineage)
+            selected_source, _selected_pointer, source_problems = (
+                read_selected_review_generation(
+                    root, key, task_id, expected_delta_id=generation["delta_id"],
+                )
+            )
+            if (source_problems or not isinstance(selected_source, dict)
+                    or selected_source.get("generation_id") != source.get("generation_id")):
+                raise SystemExit(
+                    "selected rejection source lineage is invalid: "
+                    + "; ".join(source_problems or ["wrong selected source"])
+                )
+        if generation.get("origin") in {"combined", "rejection"}:
+            live_head = head_sha(root) or ""
+            if generation.get("inspected_commit") != live_head:
+                raise SystemExit("review generation inspected_commit is no longer current HEAD")
+            live_delta = product_delta_digest(
+                root, effective_review_base(root, task_id, live_head),
+            )
+            if generation.get("delta_id") != live_delta:
+                raise SystemExit("review generation delta_id is stale at publication")
+        for lesson_rel, lesson_body in lesson_records:
+            lesson_path = root / lesson_rel
+            _publish_immutable_review_file(root, lesson_path, lesson_body)
+        if generation.get("origin") == "rejection":
+            newest = generation["rejection"]["history"][-1]
+            lesson_bytes = _read_review_bytes(root, root / newest["lesson_path"])
+            if hashlib.sha256(lesson_bytes).hexdigest() != newest["lesson_sha256"]:
+                raise SystemExit("rejection lesson hash does not match before publication")
+        _publish_immutable_review_file(root, root / generation_rel, generation_body)
+        if current and current.get("generation_id") == generation["generation_id"] \
+                and current.get("generation_sha256") == generation_sha:
+            selection = current
+        else:
+            selection = {
+                "format": REVIEW_SELECTION_FORMAT, "story": key, "task_id": task_id,
+                "generation_id": generation["generation_id"],
+                "generation_sha256": generation_sha, "delta_id": generation["delta_id"],
+                "selected_at": now_iso(),
+            }
+            validate_review_document(root, selection)
+            if expected_source_id:
+                latest = json.loads(_read_review_bytes(root, selection_path))
+                if latest.get("generation_id") != expected_source_id:
+                    raise SystemExit("review selection changed before pointer replacement")
+            _replace_review_selection(root, selection_path, selection)
+        published, _pointer, published_problems = read_selected_review_generation(
+            root, key, task_id, expected_delta_id=generation["delta_id"],
+            sealed_commit=(generation.get("upgrade") or {}).get("sealed_commit", "")
+            if generation.get("origin") == "upgrade" else "",
+        )
+        if published_problems or not isinstance(published, dict) \
+                or published.get("generation_id") != generation["generation_id"]:
+            raise SystemExit(
+                "selected review generation failed readback: "
+                + "; ".join(published_problems or ["wrong selected generation"])
+            )
+        if update_stamp:
+            blocking = sum(
+                len(lens.get("blocking_findings") or [])
+                for lens in generation["lenses"].values()
+            )
+            from forge_cli.stages import revoke_stage_review_stamp, stamp_stage_review
+            if blocking:
+                revoke_stage_review_stamp(root, task_id)
+            else:
+                stamp_stage_review(root, task_id, lenses=("quality", "performance", "security"))
+        return generation, selection
 
 
 def head_sha(root: Path | None = None) -> str | None:
@@ -1988,7 +3541,11 @@ def plan_body_digest(path: Path) -> str:
     ``task approve`` would demand a spurious re-grill. Both callers run through
     this function, so normalising here keeps create and check symmetric on every OS.
     """
-    raw = path.read_bytes()
+    return _plan_body_digest_bytes(path.read_bytes())
+
+
+def _plan_body_digest_bytes(raw: bytes) -> str:
+    """Hash plan bytes using the same body-only rules as live plan reads."""
     normalised = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     normalised = strip_derived_sections(normalised)
     frontmatter = re.match(br"\A---\n(.*?)\n---\n", normalised, re.DOTALL)
@@ -2174,6 +3731,7 @@ def product_delta_digest(root: Path, base_sha: str, head: str = "") -> str:
     is not attributed to the stage.
     """
     from forge_cli.stages import _git, committed_paths
+    historical = bool(head)
     head = head or head_sha(root) or ""
     empty = hashlib.sha256(b"").hexdigest()
     if not base_sha or not head:
@@ -2181,16 +3739,21 @@ def product_delta_digest(root: Path, base_sha: str, head: str = "") -> str:
     excluded = product_excluded_prefixes(root)
     # The lossless git helper the stage measure uses (encoding-hygiene
     # allowlisted); a bare call here failed the hygiene gate.
-    staged_raw = _git(root, "diff", "--cached", "--name-only", "-z", base_sha)
-    paths = {path for path in staged_raw.split("\0") if path}
+    # Only add paths that differ between the current HEAD and index. Comparing
+    # the index with the stage base also attributes paths brought in by a trunk
+    # merge to this task, undoing committed_paths()' first-parent merge filter.
+    paths: set[str] = set()
+    if not historical:
+        staged_raw = _git(root, "diff", "--cached", "--name-only", "-z", "HEAD")
+        paths = {path for path in staged_raw.split("\0") if path}
     if base_sha != head:
         paths |= committed_paths(root, base_sha, head)
     ordered = sorted(path for path in paths if not path.startswith(excluded))
     if not ordered:
         return empty
+    range_args = [base_sha, head] if historical else ["--cached", base_sha]
     diff = subprocess.run(
-        ["git", "diff", "--binary", "--no-ext-diff", "--cached", base_sha,
-         "--", *ordered],
+        ["git", "diff", "--binary", "--no-ext-diff", *range_args, "--", *ordered],
         cwd=root, capture_output=True, env=clean_git_env(),
     )
     if diff.returncode != 0:
@@ -2250,13 +3813,38 @@ def _product_tree_digest_now(root: Path, treeish: str,
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def requirements_digest(root: Path, spec_path: Path) -> str:
-    """Bind a confirmed spec body to the current product tree."""
+def _requirements_digest(root: Path, spec_path: Path,
+                         exclude: tuple[str, ...], treeish: str = "") -> str:
     raw = spec_path.read_bytes()
     frontmatter = re.match(br"\A---\r?\n.*?\r?\n---\r?\n", raw, re.DOTALL)
     body = raw[frontmatter.end():] if frontmatter else raw
-    payload = body + b"\x00" + product_tree_digest(root).encode("ascii")
+    payload = body + b"\x00" + product_tree_digest(
+        root, treeish, exclude,
+    ).encode("ascii")
     return hashlib.sha256(payload).hexdigest()
+
+
+def requirements_digest(root: Path, spec_path: Path) -> str:
+    """Bind a confirmed spec body to the current product tree."""
+    return _requirements_digest(root, spec_path, product_excluded_prefixes(root))
+
+
+def requirements_digest_matches(
+    root: Path, spec_path: Path, recorded: str, recorded_commit: str,
+) -> bool:
+    """Accept current requirements proof and proof made with old exclusions."""
+    if not recorded:
+        return False
+    current = requirements_digest(root, spec_path)
+    if recorded == current:
+        return True
+    shared = product_excluded_prefixes(root)
+    legacy = (".factory/", "plans/")
+    return bool(
+        recorded_commit
+        and recorded == _requirements_digest(root, spec_path, legacy, recorded_commit)
+        and current == _requirements_digest(root, spec_path, shared, recorded_commit)
+    )
 
 
 GROUNDING_CONTRACT_FIELDS = (
@@ -2438,6 +4026,18 @@ def _stage_baseline_for(root: Path, task_id: str) -> str:
     except Exception:
         # Never let a baseline lookup decide a gate by crashing it.
         return ""
+
+
+def effective_review_base(root: Path, task_id: str, tip: str = "") -> str:
+    """Resolve the task base used by both review publication and proof readers."""
+    stage = task_stage_record(root, task_id)
+    if not stage:
+        return ""
+    from forge_cli.review import resolve_review_base
+    return resolve_review_base(
+        root, stage, load_json(run_state_path(root), default={}),
+        tip or head_sha(root) or "",
+    )
 
 
 _TASK_CONTRACT_FIELDS = (
@@ -2667,8 +4267,6 @@ def task_stage_record(root: Path, task_id: str) -> dict:
 
 def _task_schedule(root: Path) -> tuple[list[dict], dict[str, dict], set[str]]:
     """Tasks in declaration order, their stages, and the ids already done."""
-    run_state = load_json(run_state_path(root), default={})
-    is_task_level = bool(run_state.get("base_main_sha"))
     tasks = load_json(
         protected_decomposition_state_path(root), default={}
     ).get("tasks", [])
@@ -2679,6 +4277,7 @@ def _task_schedule(root: Path) -> tuple[list[dict], dict[str, dict], set[str]]:
         if isinstance(stage, dict)
     }
     key = _active_story_key(root)
+    is_task_level = run_is_task_level(root, key, [t for t in tasks if isinstance(t, dict)])
     done = {
         candidate.get("id")
         for candidate in tasks
@@ -2858,22 +4457,134 @@ def task_frontier_state(root: Path) -> tuple[str, dict] | None:
         root, key, frontier, stage_by_id.get(frontier.get("id"), {})), frontier
 
 
+def _proof_problem_action(task_id: object, first: str) -> str:
+    prefix = f"{task_id}: "
+    groups = {
+        "verify": ("no passing verify", "verify proof",
+                   "product content changed after verify proof"),
+        "tests": ("no passing automated tests", "tests proof",
+                  "product content changed after tests proof"),
+        "functional": ("user_facing, so a functional check is required",
+                       "functional check must be passed"),
+    }
+    for action, starts in groups.items():
+        if first.startswith(tuple(prefix + value for value in starts)):
+            return action
+    review_starts = tuple(
+        prefix + value
+        for lens in _PROOF_LENSES
+        for value in (f"no {lens} review", f"{lens} review",
+                      f"reviews.{lens} proof",
+                      f"product content changed after reviews.{lens} proof")
+    ) + tuple(prefix + value for value in (
+        "selected review", "rejection review", "upgrade review", "review brief",
+        "saved review brief", "tests.json review input",
+        "cannot render the complete approved-input section",
+    )) + ("quality, performance, and security reviews", "review_run_id",
+          "branch review is stale")
+    return "review" if first.startswith(review_starts) else "inspect-proof"
+
+
+def _recorded_failure_action(root: Path, key: str, task_id: str) -> str | None:
+    from forge_cli.readiness import tests_passed, verify_passed
+
+    verify = load_json(task_evidence_path(root, key, task_id, "verify.json"), default={})
+    tests = load_json(task_evidence_path(root, key, task_id, "tests.json"), default={})
+    current_head = head_sha(root)
+    if verify and verify.get("commit") == current_head and not verify_passed(verify):
+        return "fix-verify"
+    for name, action, functional in (
+        ("automated", "fix-tests", False),
+        ("functional", "fix-functional", True),
+    ):
+        report = tests.get(name) if isinstance(tests, dict) else None
+        if (tests.get("commit") == current_head and isinstance(report, dict)
+                and not tests_passed(report, functional=functional)):
+            return action
+    return None
+
+
+def _successful_delegation_action(
+    root: Path, key: str, task: dict, task_id: str,
+) -> str:
+    from forge_cli.review import _product_dirty
+    from forge_cli.readiness import review_passed
+
+    if _product_dirty(root):
+        return "commit"
+    failed = _recorded_failure_action(root, key, task_id)
+    if failed:
+        return failed
+    try:
+        current_delta = product_delta_digest(
+            root, effective_review_base(root, task_id),
+        )
+        generation, _selection, selected_problems = read_selected_review_generation(
+            root, key, task_id, expected_delta_id=current_delta,
+        )
+    except (Exception, SystemExit):
+        return "inspect-proof"
+    if not selected_problems and isinstance(generation, dict) and any(
+            not review_passed(generation["lenses"].get(lens))
+            for lens in _PROOF_LENSES):
+        return "fix-review"
+    problems = task_proof_problems(root, key, task, preseal=True)
+    return "stage-done" if not problems else _proof_problem_action(task_id, problems[0])
+
+
+def _waiting_delegation_action(
+    root: Path, ledger: list[dict], key: str, task_id: object,
+    started_at: str, digest: str,
+) -> str:
+    rows = [
+        row for row in ledger
+        if row.get("task") == task_id and row.get("story") == key
+        and row.get("write") is True and row.get("stage_started_at") == started_at
+        and row.get("task_sha256") == digest
+    ]
+    if not rows:
+        return "delegate"
+    latest = rows[-1]
+    if latest.get("launch_status") not in {"starting", "running"}:
+        return "inspect-delegate"
+    from forge_cli.codex_status import dead_launches
+    dead = {row.get("launch_id") for row in dead_launches(root)}
+    return ("inspect-delegate" if latest.get("launch_id") in dead
+            else "watch-delegate")
+
+
 def _task_action_state(root: Path, key: str, task: dict, stage: dict) -> str:
     """The next JIT action for ONE task, given its stage record."""
     task_id = task.get("id")
     if not _task_contract_complete(task):
         return "author-contract"
-
-    grill_path = evidence_path(root, key, f"grills/tasks/{task_id}.json")
-    grill = load_json(grill_path, default={})
+    grill = load_json(evidence_path(root, key, f"grills/tasks/{task_id}.json"), default={})
     plan_state = _task_plan_state(root, task, grill)
     if plan_state == "author-task-plan":
         return plan_state
     if not _task_grill_fresh(root, task, grill):
         return "grill"
-    if plan_state != "approved":
-        return plan_state
-    return "delegate" if stage.get("status") == "active" else "stage-start"
+    if plan_state != "approved" or stage.get("status") != "active":
+        return plan_state if plan_state != "approved" else "stage-start"
+
+    from forge_cli.delegate import current_delegation, load_delegations
+    started_at = str(stage.get("started_at") or "")
+    digest = task_digest(task)
+    try:
+        terminal = current_delegation(
+            root, str(task_id), stage_started_at=started_at,
+            task_sha256=digest, ignore_lock=True,
+        )
+        ledger = load_delegations(root)
+    except (Exception, SystemExit):
+        return "inspect-delegate"
+    if terminal and terminal.get("story") == key:
+        if terminal.get("launch_status") != "succeeded":
+            return "inspect-delegate"
+        return _successful_delegation_action(root, key, task, str(task_id))
+    return _waiting_delegation_action(
+        root, ledger, key, task_id, started_at, digest,
+    )
 
 
 INTERRUPT_REFUSAL = (
@@ -3197,11 +4908,14 @@ def require_task_sealed(root: Path, task_id: str) -> dict:
     )
     if not stage or stage.get("status") != "done":
         raise SystemExit(f"task {task_id} is not sealed: stage status must be done")
-    _require_reviewed_commit(root, stage, task)
     issue_key = state.get("issue_key") or state.get("story") or ""
     problems = task_seal_shared_problems(root, issue_key)
     if problems:
         raise SystemExit("Task not PR ready:\n- " + "\n- ".join(problems))
+    proof_problems = task_proof_problems(root, issue_key, task, preseal=True)
+    if proof_problems:
+        raise SystemExit("Task proof incomplete:\n- " + "\n- ".join(proof_problems))
+    _require_reviewed_commit(root, stage, task)
     return task
 
 
@@ -3221,6 +4935,20 @@ def changed_since(root: Path, stamp: str, prefixes: tuple[str, ...]) -> list[str
     if proc.returncode != 0:
         return [f"<commit {stamp[:8]} unknown to this repo>"]
     return [f for f in proc.stdout.splitlines() if f.startswith(prefixes)]
+
+
+def _paths_changed_after(
+    root: Path, commit: str, paths: list[str], *, head: str = "HEAD",
+) -> tuple[set[str], str]:
+    """Return every path touched after commit, including restored rewrites."""
+    proc = subprocess.run(
+        ["git", "log", "--format=", "--name-only", f"{commit}..{head}", "--", *paths],
+        cwd=root, capture_output=True, text=True, env=clean_git_env(),
+        encoding="utf-8",
+    )
+    if proc.returncode != 0:
+        return set(), proc.stderr.strip() or "git log failed"
+    return {path for path in proc.stdout.splitlines() if path}, ""
 
 
 def read_hook_input() -> dict[str, Any]:

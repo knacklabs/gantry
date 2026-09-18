@@ -23,6 +23,7 @@ from test_gates import (  # noqa: F401
     DECOMP, HARNESS, STAGE_TASK, delegation_ledger, fake_gh_env, git, head,
     load_factory_lib, measured_stage, record_stage_local, repo, run,
     stamp_and_commit, start_stage, story_state, write_in_scope,
+    write_task_proof,
 )
 
 sys.path.insert(0, str(HARNESS / "factory" / "scripts"))
@@ -118,6 +119,69 @@ def test_stage_done_survives_a_contract_rerecord(repo, tmp_path):
     assert stage["contract_changed"]["from"] == launched_under
 
 
+def test_native_stage_done_uses_the_scope_recorded_at_launch(repo, tmp_path):
+    """A native launch keeps the exact write grant it ran under when a later
+    contract re-record changes that grant."""
+    from forge_cli.codex_runtime import native_argv
+    from forge_cli.delegate import argv_digest, brief_path
+
+    launched_task = {
+        **STAGE_TASK,
+        "write_scope": ["src/", ".codex/launch-grant.json"],
+    }
+    start_stage(repo, tmp_path, launched_task)
+    ledger = delegation_ledger(repo)
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    launch_id = rows[-1]["launch_id"]
+    output = ledger.parent / "native-runs" / f"{launch_id}.jsonl"
+    stderr = ledger.parent / "native-runs" / f"{launch_id}.stderr.log"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        '{"type":"thread.started","thread_id":"native-fixture"}\n'
+        '{"type":"turn.completed"}\n',
+        encoding="utf-8",
+    )
+    stderr.write_text("", encoding="utf-8")
+
+    executable = "/usr/bin/codex"
+    native_rows = []
+    for row in rows:
+        argv = native_argv(
+            executable, repo, row["model"], row["effort"], True,
+            launched_task["write_scope"],
+        )
+        native = {
+            **row,
+            "transport": "native",
+            "executable_path": executable,
+            "brief_path": brief_path(repo, "T1").relative_to(repo).as_posix(),
+            "output_path": str(output),
+            "stderr_path": str(stderr),
+            "write_scope": launched_task["write_scope"],
+            "argv": argv,
+            "argv_sha256": argv_digest(argv),
+        }
+        native.pop("companion_path", None)
+        if native["launch_status"] == "succeeded":
+            native["session_id"] = "native-fixture"
+        native_rows.append(native)
+    ledger.write_text(
+        "".join(json.dumps(row) + "\n" for row in native_rows),
+        encoding="utf-8",
+    )
+
+    write_in_scope(repo, "src/core.py")
+    stamp_and_commit(repo)
+    changed_task = {
+        **launched_task,
+        "write_scope": ["src/", ".codex/current-grant.json"],
+    }
+    code, out = _rerecord(repo, changed_task)
+    assert code == 0, out
+    code, out = run(repo, "forge.py", "stage", "done", "T1")
+    assert code == 0, out
+
+
 def test_legacy_stamp_converts_in_place_when_still_fresh(repo, tmp_path):
     """Migration without a launch. A stamp recorded under the old rule and
     still fresh by that rule is accepted and given a delta_id on first check;
@@ -134,6 +198,7 @@ def test_legacy_stamp_converts_in_place_when_still_fresh(repo, tmp_path):
     stage["local_review_stamp"] = legacy
     from forge_cli.stages import write_stages
     write_stages(repo, data)
+    write_task_proof(repo, "T1", publish_review=True)
 
     assert stamp_is_fresh(repo, _stage(repo), task_for(repo, "T1"))
     converted = _stage(repo)["local_review_stamp"]
@@ -212,6 +277,7 @@ def _ship_ready(repo: Path, tmp_path: Path) -> dict:
         git(repo, "remote", "add", "origin", str(remote))
     git(repo, "push", "-q", "origin", f"{head(repo)}:refs/heads/main")
     git(repo, "fetch", "-q", "origin")
+    git(repo, "checkout", "-qb", "feat/test-close")
     start_stage(repo, tmp_path, STAGE_TASK)
     write_in_scope(repo, "src/core.py")
     stamp_and_commit(repo)
@@ -226,6 +292,10 @@ def _ship_ready(repo: Path, tmp_path: Path) -> dict:
         "base_main_sha": git(repo, "rev-parse", "origin/main"),
     })
     (control / "run.json").write_text(json.dumps(pointer), encoding="utf-8")
+    proof = write_task_proof(repo, "T1", publish_review=True)
+    git(repo, "add", proof.relative_to(repo).as_posix(),
+        ".factory/review-briefs/all.md")
+    git(repo, "commit", "-qm", "record T1 proof")
     env, _ = fake_gh_env(tmp_path)
     return env
 
@@ -249,7 +319,7 @@ def test_task_close_goes_from_built_to_pr_and_is_idempotent(repo, tmp_path):
     code, out = run(repo, "forge.py", "task", "close", "T1",
                     "--skill", str(tmp_path / "no-such-autoreview"), env=env)
     assert code == 0, out
-    assert "already sealed" in out
+    assert "is closed and its review covers the current diff" in out
     assert head(repo) == sealed_head
 
 
@@ -280,6 +350,74 @@ def test_task_close_reopens_a_done_stage_whose_diff_moved(repo, tmp_path):
     assert "local_review_stamp" not in stage
     events = [json.loads(p.read_text()) for p in (repo / ".factory" / "events").glob("*.json")]
     assert any(e.get("event") == "stage-reopened" for e in events)
+
+
+FAKE_REVIEW_WITH = r'''
+import json, os, pathlib, sys
+args = sys.argv[1:]
+out = pathlib.Path(args[args.index("--json-output") + 1])
+priority = os.environ["FAKE_PRIORITY"]
+findings = [
+    {"title": "[quality] VERDICT C1: implemented", "body": "src/core.py:1 runs green",
+     "priority": "P3", "confidence": 1, "category": "maintainability",
+     "source_attribution": None, "code_location": {"file_path": "src/core.py", "line": 1}},
+    {"title": "[quality] Name the literal", "body": "src/core.py:1 bare literal",
+     "priority": priority, "confidence": 0.9, "category": "maintainability",
+     "source_attribution": None, "code_location": {"file_path": "src/core.py", "line": 1}},
+]
+provider = {"findings": findings, "overall_correctness": "patch is incorrect",
+            "overall_explanation": (
+                "BEGIN FORGE ASSESSMENT quality\nRead.\nEND FORGE ASSESSMENT quality\n"
+                "BEGIN FORGE ASSESSMENT performance\nFine.\nEND FORGE ASSESSMENT performance\n"
+                "BEGIN FORGE ASSESSMENT security\nSafe.\nEND FORGE ASSESSMENT security"),
+            "overall_confidence": 0.9}
+out.write_text(json.dumps({**provider, "provider_report": provider, "review_status": "findings"},
+                          indent=2) + "\n", encoding="utf-8")
+sys.exit(1)
+'''
+
+
+def _post_seal_fix_with_a_review(repo: Path, tmp_path: Path, priority: str) -> tuple[dict, str]:
+    """Seal T1, move its diff, and close again with a helper that answers
+    with one finding of the given priority."""
+    env = _ship_ready(repo, tmp_path)
+    code, out = run(repo, "forge.py", "task", "close", "T1",
+                    "--skill", str(tmp_path / "no-such-autoreview"), env=env)
+    assert code == 0, out
+    write_in_scope(repo, "src/core.py", "version = 2\n")
+    git(repo, "add", "src/core.py")
+    git(repo, "commit", "-qm", "post-seal fix")
+    write_task_proof(repo, "T1")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "proof at the new tip")
+    skill = tmp_path / "fake-autoreview.py"
+    skill.write_text(FAKE_REVIEW_WITH, encoding="utf-8")
+    code, out = run(repo, "forge.py", "task", "close", "T1", "--engine", "claude",
+                    "--skill", str(skill), env={**env, "FAKE_PRIORITY": priority})
+    return {"code": code, "env": env, "skill": skill}, out
+
+
+def test_close_says_the_review_covers_the_whole_task_delta(repo, tmp_path):
+    """The stop message promised a re-review of "only the new diff"; a review
+    always covers the task delta, base to tip (0069), and says so."""
+    result, out = _post_seal_fix_with_a_review(repo, tmp_path, "P1")
+    assert result["code"] != 0, out
+    assert "1 blocking finding(s)" in out
+    assert "reviews the whole task delta, base to tip" in out
+    assert "only the new diff" not in out
+
+
+def test_recorded_non_blocking_follow_ups_never_trigger_another_review(repo, tmp_path):
+    """A P2 is a recorded follow-up: the stage seals on the stamp, and a
+    second close finds the stamp fresh and spends no review on it."""
+    result, out = _post_seal_fix_with_a_review(repo, tmp_path, "P2")
+    assert result["code"] == 0, out
+    assert "non-blocking=1" in out
+    assert measured_stage(repo)["status"] == "done"
+    code, out = run(repo, "forge.py", "task", "close", "T1",
+                    "--skill", str(tmp_path / "no-such-autoreview"), env=result["env"])
+    assert code == 0, out
+    assert "is closed and its review covers the current diff" in out
 
 
 def test_task_close_runs_the_proof_before_it_spends_a_review(repo, tmp_path):
@@ -328,6 +466,7 @@ def test_forge_next_and_the_review_hint_name_close(repo, tmp_path):
 def _record_quality_with_a_partial_contract(repo: Path) -> None:
     """What the recorder does with a partial verdict: it BECOMES a blocking
     finding in the recorded file, whatever the payload's own list said."""
+    write_task_proof(repo, "T1")
     code, out = run(repo, "forge.py", "review-brief", "--all")
     assert code == 0, out
     payload = {
@@ -345,9 +484,7 @@ def _record_quality_with_a_partial_contract(repo: Path) -> None:
 
 
 def test_the_review_verdict_is_counted_from_what_was_recorded(repo, tmp_path):
-    """G2. `forge review` printed blocking=0 from the composed artifact while
-    the recorder had written a blocking contract verdict into the file CI
-    reads. Two gates, one artifact, two answers."""
+    """A fixed diagnostic cannot compete with the selected generation."""
     from forge_cli.review import recorded_review_totals
     start_stage(repo, tmp_path, STAGE_TASK)
     write_in_scope(repo, "src/core.py")
@@ -356,11 +493,15 @@ def test_the_review_verdict_is_counted_from_what_was_recorded(repo, tmp_path):
     _record_quality_with_a_partial_contract(repo)
     blocking, caveats, recorded = recorded_review_totals(
         repo, "ENG-1", "T1", ("quality",))
-    assert blocking == 1 and caveats == 0
-    assert recorded["quality"]["blocking_findings"][0]["category"] == "plan-contract-partial"
+    assert blocking == 0 and caveats == 0 and recorded["quality"] == {}
+    write_task_proof(repo, "T1", publish_review=True)
+    blocking, caveats, recorded = recorded_review_totals(
+        repo, "ENG-1", "T1", ("quality",))
+    assert blocking == 0 and caveats == 0
+    assert recorded["quality"]["score"] == 10
 
 
-def test_the_delegate_brief_carries_the_recorded_findings(repo, tmp_path):
+def test_the_delegate_brief_carries_the_selected_current_findings(repo, tmp_path):
     """G4. A fix launch used to get a brief that said nothing about the
     findings it existed to fix; one made zero edits. The recorded findings
     are the channel."""
@@ -373,11 +514,18 @@ def test_the_delegate_brief_carries_the_recorded_findings(repo, tmp_path):
     before = compose_brief(repo, task, write=True, user_facing=False, story="ENG-1")
     assert "Review findings to fix" not in before
 
-    _record_quality_with_a_partial_contract(repo)
+    write_task_proof(repo, "T1", publish_review=True, review_blocked=True)
+    legacy = story_state(repo) / "tasks" / "T1" / "reviews" / "quality.json"
+    stale = json.loads(legacy.read_text())
+    stale["blocking_findings"] = [{
+        "category": "bug", "area": "old.py", "summary": "obsolete finding",
+    }]
+    legacy.write_text(json.dumps(stale))
     after = compose_brief(repo, task, write=True, user_facing=False, story="ENG-1")
     assert "Review findings to fix" in after
     assert "BLOCKING" in after
-    assert "[quality] plan-contract-partial: C1: the slice runs green" in after
+    assert "[security] security: selected current finding" in after
+    assert "obsolete finding" not in after
 
 
 # --------------------------------------------- the porcelain parse bug
@@ -404,4 +552,3 @@ def test_product_dirty_does_not_eat_the_first_path_character(repo):
     # entry precedes it.
     (repo / "src" / "core.py").write_text("v = 2\n", encoding="utf-8")
     assert _product_dirty(repo) == ["src/core.py"]
-

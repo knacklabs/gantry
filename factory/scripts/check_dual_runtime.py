@@ -28,6 +28,7 @@ from pathlib import Path
 
 DUP_WINDOW = 10  # consecutive identical non-blank lines that count as duplication
 CLAUDE_MD_MAX_LINES = 40
+CODEX_SESSION_START_SOURCES = ("startup", "resume", "clear", "compact")
 
 violations: list[str] = []
 warnings: list[str] = []
@@ -387,17 +388,76 @@ def check_path_parity(root: Path) -> None:
 
     codex_events = check_hook_registration(".codex/hooks.json")
     claude_events = check_hook_registration(".claude/settings.json")
-    # PreCompact and PostToolUse exist only in Claude Code — Codex sessions
-    # expose neither event. Their snapshot/provenance records are therefore
-    # Claude-only session machinery, not gates.
-    claude_only = {"PostToolUse", "PreCompact"}
-    if codex_events and claude_events and codex_events != claude_events - claude_only:
+    if codex_events and claude_events and codex_events != claude_events:
         violation(
             f"Hook parity broken: .codex/hooks.json registers {sorted(codex_events)} but "
             f".claude/settings.json registers {sorted(claude_events)}. Both runtimes must "
-            f"enforce the same GATES (Claude-only session/provenance events exempt: "
-            f"{sorted(claude_only)})."
+            "register equivalent gate and provenance events."
         )
+
+    # An event with the wrong matcher silently skips its gate. Check the
+    # runtime-specific question names against the shared handlers too.
+    for relative, event_tools in (
+        (".claude/settings.json", {
+            "PreToolUse": (
+                "Bash", "AskUserQuestion", "Edit", "Write", "MultiEdit", "NotebookEdit",
+            ),
+            "PostToolUse": ("Write", "Edit", "MultiEdit", "AskUserQuestion"),
+        }),
+        (".codex/hooks.json", {
+            "PreToolUse": (
+                "Bash", "Edit", "Write", "apply_patch", "request_user_input",
+                "request_user_input_async",
+            ),
+            "PostToolUse": ("request_user_input",),
+        }),
+    ):
+        try:
+            hooks = json.loads((root / relative).read_text(encoding="utf-8"))["hooks"]
+        except (OSError, ValueError, KeyError):
+            continue  # Missing/invalid registrations are reported above.
+        for event, tools in event_tools.items():
+            for tool in tools:
+                script = "pre_tool_use" if event == "PreToolUse" else "post_tool_use"
+                covered = False
+                for entry in hooks.get(event, []):
+                    matcher = entry.get("matcher") or ".*"
+                    try:
+                        matches = matcher == "*" or bool(re.search(matcher, tool))
+                    except re.error:
+                        matches = None
+                    if matches and any(
+                        f"factory/scripts/{script}.py" in hook_script_paths(hook.get("command", ""))
+                        for hook in entry.get("hooks", [])
+                    ):
+                        covered = True
+                if not covered:
+                    violation(f"{relative} ({event}) must route {tool} to forge hook {script}.")
+        covered_sources = set()
+        for entry in hooks.get("SessionStart", []):
+            matcher = entry.get("matcher")
+            if not any(
+                "factory/scripts/session_start.py" in hook_script_paths(
+                    hook.get("command", ""))
+                for hook in entry.get("hooks", [])
+            ):
+                continue
+            for source in CODEX_SESSION_START_SOURCES:
+                try:
+                    matches = (matcher in {None, "", "*"}
+                               or bool(re.search(str(matcher), source)))
+                except re.error:
+                    matches = False
+                if matches:
+                    covered_sources.add(source)
+        missing_sources = [source for source in CODEX_SESSION_START_SOURCES
+                           if source not in covered_sources]
+        if missing_sources:
+            violation(
+                f"{relative} (SessionStart) must independently match startup, "
+                f"resume, clear, and compact and route them to forge hook "
+                f"session_start (missing: {', '.join(missing_sources)})."
+            )
 
 
 ALLOWED_CLAUDE = {"CLAUDE.md", "settings.json", "settings.local.json", "launch.json"}
@@ -452,6 +512,7 @@ def check_thin_adapter(root: Path) -> None:
                 rel.as_posix() in {"config.toml", "hooks.json"}
                 # Overlay profiles (e.g. explore.config.toml) are config, not substance.
                 or (len(rel.parts) == 1 and rel.name.endswith(".config.toml"))
+                or rel.as_posix() == "agents/AGENTS.md"
                 or (rel.parts[0] == "agents" and f.suffix == ".toml")
                 or (
                     len(rel.parts) == 3
@@ -462,7 +523,8 @@ def check_thin_adapter(root: Path) -> None:
             if not ok:
                 violation(
                     f"{f.relative_to(root)} is not an adapter file. .codex/ may contain only "
-                    "config.toml, hooks.json, agents/*.toml, and skills/<name>/SKILL.md; "
+                    "config.toml, hooks.json, agents/AGENTS.md, agents/*.toml, and "
+                    "skills/<name>/SKILL.md; "
                     "scripts, prompts, and skill bodies live in factory/."
                 )
 
