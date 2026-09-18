@@ -34,6 +34,7 @@ describe('first-run onboarding gate', () => {
     expect(gate).toContain('/ui/api/agents?page=1&pageSize=1');
     expect(gate).toContain('/ui/api/onboarding/status');
     expect(gate).toContain('/ui/api/onboarding/complete');
+    expect(gate).toContain("query.data.data[0]?.id === 'agent:main_agent'");
     expect(gate).not.toContain('localStorage');
     expect(route).toContain("navigate({ to: '/overview' })");
     expect(route).not.toContain("eligibility.status === 'console'");

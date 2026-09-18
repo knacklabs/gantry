@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import { browserCsrfHeader, browserFetch } from '../../lib/auth/browser-auth';
 import { toast } from '../../ui/primitives/toast';
 
-type AgentPage = { total: number };
+type AgentPage = { data: Array<{ id: string }>; total: number };
 type OnboardingStatus = { completed: boolean };
 
 export const onboardingStatusQuery = queryOptions({
@@ -85,9 +85,13 @@ export function useOnboardingEligibility() {
     return { status: 'fallback' as const, query };
   if (statusQuery.data.completed) return { status: 'complete' as const, query };
   if (query.isPending) return { status: 'loading' as const, query };
+  const hasOnlySeedAgent =
+    query.data.total === 1 && query.data.data[0]?.id === 'agent:main_agent';
   return {
     status:
-      query.data.total === 0 ? ('onboarding' as const) : ('console' as const),
+      query.data.total === 0 || hasOnlySeedAgent
+        ? ('onboarding' as const)
+        : ('console' as const),
     query,
   };
 }
