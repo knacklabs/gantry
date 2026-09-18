@@ -40,7 +40,7 @@ describe('PostgresCanonicalJobRepository', () => {
     );
   });
 
-  it('marks stale lease runs as timed out when releasing job leases', async () => {
+  it('marks stale lease runs as timed out for running or administratively resumed active jobs', async () => {
     const selectWhere = vi.fn(async () => [
       { id: 'job-1', leaseRunId: 'run-1' },
       { id: 'job-2', leaseRunId: null },
@@ -103,6 +103,7 @@ describe('PostgresCanonicalJobRepository', () => {
     );
     const releasePredicate = updateWheres[0].mock.calls[0]?.[0];
     expect(flattenSqlShape(releasePredicate)).toContain('status');
+    expect(flattenSqlShape(releasePredicate)).toContain('active');
     expect(flattenSqlShape(releasePredicate)).toContain('lease_expires_at');
     expect(updateSets[1]).toHaveBeenCalledWith(
       expect.objectContaining({

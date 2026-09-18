@@ -80,6 +80,7 @@ const expectedControlRoutes = [
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
   'POST /v1/capability-tasks/recover',
+  'POST /v1/capability-tasks/{taskId}/artifacts/read',
   'POST /v1/capability-tasks/{taskId}/cancel',
   'POST /v1/capability-tasks/{taskId}/complete',
   'GET /v1/conversations',

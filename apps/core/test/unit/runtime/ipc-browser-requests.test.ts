@@ -162,4 +162,54 @@ describe('processBrowserRequestDirectory', () => {
       });
     }
   });
+
+  it('leaves browser requests pending when capacity is full instead of failing them', async () => {
+    const root = tempRoot();
+    const sourceAgentFolder = 'queued-team';
+    const chatJid = 'tg:queued-team';
+    const browserRequestsDir = path.join(root, sourceAgentFolder, 'browser-requests');
+    const responsesDir = path.join(root, sourceAgentFolder, 'browser-responses');
+    const runnerControlPort = new FilesystemRunnerControlPort(root);
+    fs.mkdirSync(browserRequestsDir, { recursive: true });
+    const responseEnvelope = createIpcAuthEnvelope(sourceAgentFolder);
+    registerBrowserIpcAuthorization({
+      turnToken: 'queued-turn-token',
+      browserProfileName: 'gantry',
+      workspaceKey: sourceAgentFolder,
+      chatJid,
+    });
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        const requestId = `queued-${index}`;
+        const payload = {
+          browserTurnToken: 'queued-turn-token',
+          requestId,
+          nonce: randomUUID(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          action: 'status',
+          payload: {},
+          context: { chatJid, responseKeyId: responseEnvelope.responseKeyId },
+        };
+        fs.writeFileSync(
+          path.join(browserRequestsDir, `${requestId}.json`),
+          JSON.stringify(signBrowserPayload(sourceAgentFolder, chatJid, payload)),
+        );
+      }
+
+      processBrowserRequestDirectory({
+        ipcBaseDir: root,
+        sourceAgentFolder,
+        browserRequestsDir,
+        runnerControlPort,
+        deps: deps(),
+        logger: { warn: () => undefined, error: () => undefined },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const responses = fs.existsSync(responsesDir) ? fs.readdirSync(responsesDir) : [];
+      expect(responses).toHaveLength(4);
+      expect(fs.existsSync(path.join(browserRequestsDir, 'queued-4.json'))).toBe(true);
+    } finally {
+      revokeBrowserIpcAuthorization({ workspaceKey: sourceAgentFolder, chatJid });
+    }
+  });
 });

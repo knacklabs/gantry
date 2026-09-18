@@ -12,7 +12,7 @@ export interface ReviewedMcpOperationContract {
   inputSchemaDigest: string;
   resultEnvelopeSchema?: Record<string, unknown>;
   resultEnvelopeSchemaDigest?: string;
-  executionMode?: 'sync' | 'durable_async';
+  executionMode?: 'sync' | 'durable_async' | 'gantry_hosted';
   requiresActiveJob?: boolean;
   deadlineMs?: number;
   suspensionCheckpoint?: {

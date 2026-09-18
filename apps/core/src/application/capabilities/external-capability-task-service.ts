@@ -21,6 +21,7 @@ export interface ExternalCapabilityTaskAcceptance {
   completionToken: string;
   status: 'waiting_external' | 'completed';
   created: boolean;
+  result?: Record<string, unknown>;
 }
 
 export type ExternalCapabilityTaskSettlement =
@@ -44,11 +45,17 @@ export class ExternalCapabilityTaskService {
     runId: string;
     capabilityId: string;
     operation: string;
+    contentDigest: string;
     invocationRef: string;
     idempotencyKey: string;
+    executionMode?: 'external' | 'gantry_hosted';
     summary?: string;
   }): Promise<ExternalCapabilityTaskAcceptance> {
     const normalized = validateAcceptance(input);
+    const previousCapabilityTask =
+      normalized.executionMode === 'gantry_hosted'
+        ? await previousCompletedCapabilityTask(this.repository, normalized)
+        : null;
     const completionToken = newExternalCapabilityCompletionToken();
     const now = nowIso();
     const created = await this.repository.createTaskIdempotently({
@@ -66,10 +73,18 @@ export class ExternalCapabilityTaskService {
       authoritySnapshotJson: {
         capabilityId: normalized.capabilityId,
         operation: normalized.operation,
+        contentDigest: normalized.contentDigest,
       },
       privateCorrelationJson: {
         invocationRef: normalized.invocationRef,
-        completionTokenHash: externalCapabilityCompletionTokenHash(completionToken),
+        ...(previousCapabilityTask
+          ? { previousCapabilityTaskId: previousCapabilityTask.id }
+          : {}),
+        ...(normalized.executionMode
+          ? { executionMode: normalized.executionMode }
+          : {}),
+        completionTokenHash:
+          externalCapabilityCompletionTokenHash(completionToken),
         progress: {
           phase: 'waiting_external',
           lastProgress: 'External capability accepted the invocation.',
@@ -106,6 +121,13 @@ export class ExternalCapabilityTaskService {
         completionToken: '',
         status: created.task.status,
         created: false,
+        ...(created.task.status === 'completed'
+          ? {
+              result: boundedResult(
+                objectResult(created.task.privateCorrelationJson.result),
+              ),
+            }
+          : {}),
       };
     }
     this.onChanged();
@@ -128,10 +150,12 @@ export class ExternalCapabilityTaskService {
   }): Promise<ExternalCapabilityTaskSettlement> {
     const task = await this.authorize(input);
     if (!task) return { outcome: 'not_found' };
-    if (!externalCapabilityCompletionTokenMatches(
-      task.privateCorrelationJson.completionTokenHash,
-      input.completionToken,
-    )) {
+    if (
+      !externalCapabilityCompletionTokenMatches(
+        task.privateCorrelationJson.completionTokenHash,
+        input.completionToken,
+      )
+    ) {
       return { outcome: 'forbidden' };
     }
     const priorCompletionId = task.privateCorrelationJson.completionId;
@@ -189,10 +213,12 @@ export class ExternalCapabilityTaskService {
   }): Promise<ExternalCapabilityTaskSettlement> {
     const task = await this.authorize(input);
     if (!task) return { outcome: 'not_found' };
-    if (!externalCapabilityCompletionTokenMatches(
-      task.privateCorrelationJson.completionTokenHash,
-      input.completionToken,
-    )) {
+    if (
+      !externalCapabilityCompletionTokenMatches(
+        task.privateCorrelationJson.completionTokenHash,
+        input.completionToken,
+      )
+    ) {
       return { outcome: 'forbidden' };
     }
     if (isAsyncTaskTerminal(task.status)) {
@@ -231,7 +257,8 @@ export class ExternalCapabilityTaskService {
     if (!updated) {
       const winner = await this.repository.getTask(task.id);
       if (!winner) return { outcome: 'not_found' };
-      return winner.privateCorrelationJson.cancellationId === input.cancellationId
+      return winner.privateCorrelationJson.cancellationId ===
+        input.cancellationId
         ? { outcome: 'idempotent', task: winner }
         : { outcome: 'late_ignored', task: winner };
     }
@@ -267,7 +294,8 @@ export class ExternalCapabilityTaskService {
       now: nowIso(),
       privateCorrelationJson: {
         ...task.privateCorrelationJson,
-        completionTokenHash: externalCapabilityCompletionTokenHash(completionToken),
+        completionTokenHash:
+          externalCapabilityCompletionTokenHash(completionToken),
       },
       expectedUpdatedAt: task.updatedAt,
       expectedPrivateCorrelationJson: task.privateCorrelationJson,
@@ -279,6 +307,29 @@ export class ExternalCapabilityTaskService {
       status: 'waiting_external',
       created: false,
     };
+  }
+
+  async authorizeArtifactRead(input: {
+    appId: string;
+    taskId: string;
+    completionToken: string;
+  }): Promise<
+    | { outcome: 'authorized'; task: AsyncTaskRecord }
+    | { outcome: 'not_found' | 'forbidden' | 'conflict' }
+  > {
+    const task = await this.authorize(input);
+    if (!task) return { outcome: 'not_found' };
+    if (
+      !externalCapabilityCompletionTokenMatches(
+        task.privateCorrelationJson.completionTokenHash,
+        input.completionToken,
+      )
+    ) {
+      return { outcome: 'forbidden' };
+    }
+    return task.status === 'waiting_external'
+      ? { outcome: 'authorized', task }
+      : { outcome: 'conflict' };
   }
 
   private async authorize(input: { appId: string; taskId: string }) {
@@ -299,6 +350,42 @@ function boundedResult(value: Record<string, unknown>) {
   return value;
 }
 
+async function previousCompletedCapabilityTask(
+  repository: AsyncTaskRepository,
+  input: {
+    appId: string;
+    agentId: string;
+    jobId: string;
+    capabilityId: string;
+    operation: string;
+  },
+): Promise<AsyncTaskRecord | null> {
+  const candidates = await repository.listTasks({
+    appId: input.appId,
+    agentId: input.agentId,
+    parentJobId: input.jobId,
+    kind: 'external_capability',
+    statuses: ['completed'],
+    order: 'newest_first',
+    limit: 100,
+  });
+  return (
+    candidates
+      .filter(
+        (task) =>
+          task.appId === input.appId &&
+          task.agentId === input.agentId &&
+          task.parentJobId === input.jobId &&
+          task.kind === 'external_capability' &&
+          task.status === 'completed' &&
+          task.authoritySnapshotJson.capabilityId === input.capabilityId &&
+          task.authoritySnapshotJson.operation === input.operation,
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ??
+    null
+  );
+}
+
 function validateAcceptance<
   T extends {
     appId: string;
@@ -309,8 +396,10 @@ function validateAcceptance<
     runId: string;
     capabilityId: string;
     operation: string;
+    contentDigest: string;
     invocationRef: string;
     idempotencyKey: string;
+    executionMode?: 'external' | 'gantry_hosted';
     summary?: string;
   },
 >(input: T) {
@@ -325,8 +414,10 @@ function validateAcceptance<
     runId: boundedReference(input.runId, 'runId'),
     capabilityId: boundedReference(input.capabilityId, 'capabilityId'),
     operation: boundedReference(input.operation, 'operation'),
+    contentDigest: boundedReference(input.contentDigest, 'contentDigest'),
     invocationRef: boundedReference(input.invocationRef, 'invocationRef'),
     idempotencyKey: boundedReference(input.idempotencyKey, 'idempotencyKey'),
+    executionMode: input.executionMode,
     summary: input.summary ? bounded(input.summary, 'summary') : undefined,
   };
 }
@@ -335,6 +426,7 @@ function assertSameAcceptance(
   task: AsyncTaskRecord,
   input: ReturnType<typeof validateAcceptance>,
 ) {
+  const existingContentDigest = task.authoritySnapshotJson.contentDigest;
   if (
     task.agentId !== input.agentId ||
     task.conversationId !== input.conversationId ||
@@ -343,6 +435,10 @@ function assertSameAcceptance(
     task.parentRunId !== input.runId ||
     task.authoritySnapshotJson.capabilityId !== input.capabilityId ||
     task.authoritySnapshotJson.operation !== input.operation ||
+    // Tasks admitted before content-bound idempotency have no digest. Preserve
+    // their legacy replay contract; every newly admitted task is digest-bound.
+    (typeof existingContentDigest === 'string' &&
+      existingContentDigest !== input.contentDigest) ||
     task.privateCorrelationJson.invocationRef !== input.invocationRef
   ) {
     throw new Error(
@@ -367,4 +463,10 @@ function boundedReference(value: string, name: string) {
     throw new Error(`${name} is too long.`);
   }
   return normalized;
+}
+
+function objectResult(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

@@ -238,6 +238,7 @@ export async function processTaskIpc(
           return undefined;
         }
       }),
+    getGantryHostedCapabilityRunner: deps.getGantryHostedCapabilityRunner,
     getPermissionRepository:
       deps.getPermissionRepository ??
       (() => {

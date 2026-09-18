@@ -11,9 +11,13 @@ import {
   TRIGGER_RATE_LIMIT_PER_APP,
   TRIGGER_RATE_LIMIT_PER_JOB,
 } from '../rate-limit.js';
+import { jobArtifactScope } from '../../../domain/ports/job-semantic-checkpoints.js';
+import type { FileArtifactId } from '../../../domain/file-artifacts/file-artifact.js';
 
 const BODY_LIMIT_BYTES = 512 * 1024;
 const TASK_ROUTE = /^\/v1\/capability-tasks\/([^/]+)\/(complete|cancel)$/u;
+const TASK_ARTIFACT_ROUTE =
+  /^\/v1\/capability-tasks\/([^/]+)\/artifacts\/read$/u;
 
 export async function handleCapabilityTaskRoutes(
   req: IncomingMessage,
@@ -22,6 +26,15 @@ export async function handleCapabilityTaskRoutes(
   pathname: string,
 ): Promise<boolean> {
   if (!pathname.startsWith('/v1/capability-tasks')) return false;
+  const artifactMatch = TASK_ARTIFACT_ROUTE.exec(pathname);
+  if (artifactMatch && req.method === 'POST') {
+    return handleCapabilityArtifactRead(
+      req,
+      res,
+      ctx,
+      decodeURIComponent(artifactMatch[1]!),
+    );
+  }
   const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
   if (!auth) return true;
   if (pathname === '/v1/capability-tasks/recover' && req.method === 'POST') {
@@ -177,6 +190,135 @@ export async function handleCapabilityTaskRoutes(
       409,
       'CAPABILITY_TASK_CONFLICT',
       'Capability task settlement could not be applied.',
+    );
+  }
+  return true;
+}
+
+async function handleCapabilityArtifactRead(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  taskId: string,
+): Promise<true> {
+  const auth = authorizeControlRequest(req, res, ctx.keys, [
+    'capability-artifacts:read',
+  ]);
+  if (!auth) return true;
+  const body = await bodyObject(req);
+  const completionToken = requiredString(body.completionToken);
+  const artifactId = requiredString(body.artifactId);
+  if (
+    !completionToken ||
+    !artifactId ||
+    !/^file-artifact:[0-9a-f-]{36}$/iu.test(artifactId)
+  ) {
+    sendError(
+      res,
+      400,
+      'INVALID_CAPABILITY_ARTIFACT_READ',
+      'completionToken and a FileArtifact artifactId are required.',
+    );
+    return true;
+  }
+  const storage = getRuntimeStorage();
+  const authorization = await new ExternalCapabilityTaskService(
+    storage.repositories.asyncTasks,
+  ).authorizeArtifactRead({ appId: auth.appId, taskId, completionToken });
+  if (authorization.outcome !== 'authorized') {
+    const status =
+      authorization.outcome === 'not_found'
+        ? 404
+        : authorization.outcome === 'forbidden'
+          ? 403
+          : 409;
+    sendError(
+      res,
+      status,
+      `CAPABILITY_ARTIFACT_${authorization.outcome.toUpperCase()}`,
+      authorization.outcome === 'forbidden'
+        ? 'Invalid task token.'
+        : authorization.outcome === 'conflict'
+          ? 'Task is not waiting for external completion.'
+          : 'Task not found.',
+    );
+    return true;
+  }
+  const capabilityId = String(
+    authorization.task.authoritySnapshotJson.capabilityId ?? '',
+  );
+  if (!auth.allowedCapabilityIds?.has(capabilityId)) {
+    sendError(
+      res,
+      403,
+      'CAPABILITY_ARTIFACT_AUDIENCE_FORBIDDEN',
+      'API key is not restricted to this capability.',
+    );
+    return true;
+  }
+  const parentJobId = authorization.task.parentJobId;
+  if (!parentJobId) {
+    sendError(
+      res,
+      403,
+      'CAPABILITY_ARTIFACT_FORBIDDEN',
+      'Task has no parent job.',
+    );
+    return true;
+  }
+  try {
+    const { artifact, content } = await storage.fileArtifacts.readFileArtifact({
+      id: artifactId as FileArtifactId,
+      appId: auth.appId,
+      agentId: authorization.task.agentId,
+    });
+    if (artifact.virtualScope !== jobArtifactScope(parentJobId)) {
+      sendError(
+        res,
+        403,
+        'CAPABILITY_ARTIFACT_SCOPE_INVALID',
+        'Artifact does not belong to the capability task parent job.',
+      );
+      return true;
+    }
+    const contentType = artifact.contentType
+      .split(';', 1)[0]
+      ?.trim()
+      .toLowerCase();
+    if (contentType !== 'application/json' && !contentType?.endsWith('+json')) {
+      sendError(
+        res,
+        415,
+        'CAPABILITY_ARTIFACT_CONTENT_TYPE_INVALID',
+        'Capability artifacts must use a JSON content type.',
+      );
+      return true;
+    }
+    const text =
+      typeof content === 'string'
+        ? content
+        : Buffer.from(content).toString('utf8');
+    if (Buffer.byteLength(text, 'utf8') > 10 * 1024 * 1024) {
+      sendError(
+        res,
+        413,
+        'CAPABILITY_ARTIFACT_TOO_LARGE',
+        'Artifact exceeds 10 MiB.',
+      );
+      return true;
+    }
+    sendJson(res, 200, {
+      artifactId: artifact.id,
+      contentHash: artifact.contentHash,
+      contentType: artifact.contentType,
+      value: JSON.parse(text) as unknown,
+    });
+  } catch {
+    sendError(
+      res,
+      404,
+      'CAPABILITY_ARTIFACT_NOT_FOUND',
+      'Artifact was not found or does not contain valid JSON.',
     );
   }
   return true;

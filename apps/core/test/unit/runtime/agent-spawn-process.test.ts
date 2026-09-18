@@ -112,6 +112,7 @@ vi.mock('child_process', async () => {
 /* ------------------------------------------------------------------ */
 
 import { executeRunnerProcess } from '@core/runtime/agent-spawn-process.js';
+import { registerVerifiedHostedCapabilityWait } from '@core/runtime/hosted-capability-wait.js';
 import { ACTIVE_RUN_STOP_REQUESTED } from '@core/runtime/group-queue-stop.js';
 import type { RunnerProcessSpec } from '@core/runtime/agent-spawn-types.js';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -586,6 +587,58 @@ describe('executeRunnerProcess', () => {
   /* ============================================================== */
 
   describe('timeout handling', () => {
+    it('keeps verified hosted work alive beyond idle threshold but stops after authority loss', async () => {
+      process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS = '60000';
+      const scope = {
+        appId: 'app-hosted',
+        agentId: 'agent-hosted',
+        jobId: 'job-hosted',
+        runId: 'run-hosted',
+        runLeaseToken: 'test-lease',
+        runLeaseFencingVersion: 1,
+      };
+      let valid = true;
+      const dispose = registerVerifiedHostedCapabilityWait({
+        ...scope,
+        taskId: 'task-hosted',
+        deadlineAtMs: Date.now() + 1800000,
+        verifyAuthority: async () => {
+          if (!valid) throw Error('lease lost');
+        },
+      });
+      try {
+        const resultP = executeRunnerProcess(
+          makeSpec({
+            input: {
+              ...scope,
+              prompt: 'test',
+              workspaceFolder: 'test-group',
+              chatJid: 'test@g.us',
+              isScheduledJob: true,
+            },
+            onOutput: vi.fn(async () => {}),
+            options: { timeoutMs: 1800000 },
+          }),
+        );
+        const emitHeartbeat = () =>
+          fakeProc.stdout.push(
+            `${OUTPUT_START_MARKER}\n${JSON.stringify({ status: 'success', result: null, runtimeEvents: [{ eventType: 'job.heartbeat', payload: { currentTool: 'external_capability_call', lastActivityAgoMs: 61000, pendingPermissionRequests: 0 } }] })}\n${OUTPUT_END_MARKER}\n`,
+          );
+        emitHeartbeat();
+        await vi.advanceTimersByTimeAsync(10);
+        expect(fakeProc.kill).not.toHaveBeenCalled();
+        valid = false;
+        emitHeartbeat();
+        await vi.advanceTimersByTimeAsync(10);
+        expect(fakeProc.kill).toHaveBeenCalledWith('SIGKILL');
+        fakeProc.emit('close', 137);
+        await vi.advanceTimersByTimeAsync(10);
+        expect((await resultP).status).toBe('error');
+      } finally {
+        dispose();
+        delete process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
+      }
+    });
     it('kills process after configured timeoutMs', async () => {
       const spec = makeSpec({ options: { timeoutMs: 200 } });
       const resultP = executeRunnerProcess(spec);

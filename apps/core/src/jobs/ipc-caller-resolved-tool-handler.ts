@@ -49,6 +49,19 @@ export function resolveCallerResolvedRunId(input: {
   );
 }
 
+export function callerResolvedToolFailureCode(
+  error: unknown,
+): 'interaction_timeout' | 'interaction_cancelled' | 'caller_tool_failed' {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/caller tool interaction expired/iu.test(message)) {
+    return 'interaction_timeout';
+  }
+  if (/caller tool interaction cancelled/iu.test(message)) {
+    return 'interaction_cancelled';
+  }
+  return 'caller_tool_failed';
+}
+
 export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   const responder = createTaskResponder(
     context.sourceAgentFolder,
@@ -223,7 +236,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   } catch (error) {
     responder.reject(
       error instanceof Error ? error.message : String(error),
-      'caller_tool_failed',
+      callerResolvedToolFailureCode(error),
     );
   }
 };

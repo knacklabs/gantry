@@ -21,7 +21,11 @@ import {
 } from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import { makeIpcId } from '../ipc-ids.js';
-import { MCP_PROXY_WAIT_MS } from './service-constants.js';
+import {
+  EXTERNAL_CAPABILITY_CALL_WAIT_MS_ENV,
+  MCP_PROXY_WAIT_MS,
+  resolveExternalCapabilityCallWaitMs,
+} from './service-constants.js';
 import {
   formatMcpCallToolResponse,
   formatMcpDescribeToolResponse,
@@ -353,7 +357,7 @@ export function registerMcpProxyTools(server: McpServer): void {
 
   server.tool(
     'external_capability_call',
-    'Submit an approved durable external capability operation, checkpoint it, and suspend this scheduled job until the capability completes it. For large arguments, write the complete JSON object as a job-scoped FileArtifact and pass argumentsArtifactId instead of arguments. A JSON value shaped exactly as {"$gantryArtifactJson":"file-artifact:<uuid>"} includes that same-job artifact value before schema validation.',
+    'Invoke an approved reviewed capability operation. Gantry-hosted operations complete inside this scheduled job; durable external operations checkpoint and suspend until completion. For large arguments, write the complete JSON object as a job-scoped FileArtifact and pass argumentsArtifactId instead of arguments. A JSON value shaped exactly as {"$gantryArtifactJson":"file-artifact:<uuid>"} includes that same-job artifact value before schema validation.',
     {
       serverName: z.string().describe('Connected MCP server name'),
       toolName: z.string().describe('Raw MCP tool name'),
@@ -401,7 +405,12 @@ export function registerMcpProxyTools(server: McpServer): void {
         payload: args,
         timestamp: nowIso(),
       });
-      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
+      const response = await waitForTaskResponse(
+        taskId,
+        resolveExternalCapabilityCallWaitMs(
+          process.env[EXTERNAL_CAPABILITY_CALL_WAIT_MS_ENV],
+        ),
+      );
       if (!response?.ok) {
         return {
           content: [

@@ -245,6 +245,52 @@ describe('browser direct driver', () => {
     expect(locator.evaluate).not.toHaveBeenCalled();
   });
 
+  it('retargets evaluation to a newly opened child tab when the selected page no longer contains the target', async () => {
+    const root = tempRoot();
+    const { page: listing, locator: listingLocator } = createPage({
+      url: 'https://93.184.216.34/listing',
+    });
+    const { page: detail, locator: detailLocator } = createPage({
+      url: 'https://93.184.216.34/detail/1',
+    });
+    listingLocator.count.mockResolvedValue(0);
+    detailLocator.count.mockResolvedValue(1);
+    detailLocator.evaluate.mockResolvedValue('detail-body');
+    const { browser } = createBrowser([listing, detail]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'evaluate',
+      arguments: { target: 'body', function: '() => "detail-body"' },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(detailLocator.evaluate).toHaveBeenCalledOnce();
+    expect(listingLocator.evaluate).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).toContain('detail-body');
+  });
+
+  it.each([
+    ['END', 'End'],
+    ['PAGEDOWN', 'PageDown'],
+    ['PAGEUP', 'PageUp'],
+  ])('normalizes the common key alias %s to %s', async (provided, expected) => {
+    const root = tempRoot();
+    const { page } = createPage({ url: 'https://93.184.216.34/' });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    await callBrowserTool({
+      toolName: 'press_key',
+      arguments: { key: provided },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(page.keyboard.press).toHaveBeenCalledWith(expected);
+  });
+
   it('reuses one Playwright CDP connection across browser actions', async () => {
     const root = tempRoot();
     const { page } = createPage({ url: 'https://93.184.216.34/' });

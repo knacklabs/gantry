@@ -263,7 +263,9 @@ async function dispatchBrowserToolInner(input: {
       });
     case 'press_key':
       return await runWithActivePage(input, async (page) => {
-        await page.keyboard.press(requiredString(input.args.key, 'key'));
+        await page.keyboard.press(
+          normalizeKeyboardShortcut(requiredString(input.args.key, 'key')),
+        );
         return textResult('Pressed key.');
       });
     case 'drag':
@@ -367,11 +369,26 @@ async function dispatchBrowserToolInner(input: {
       return await runWithActivePage(input, async (page) => {
         const source = requiredString(input.args.function, 'function');
         const target = stringValue(input.args.target);
-        const targetLocator = target
+        let targetLocator = target
           ? await resolveTargetLocator(page, target)
           : undefined;
         if (target && (await targetLocator!.count()) === 0) {
-          throw new Error(`Browser evaluate target was not found: ${target}`);
+          const pages = await allPages(input.connection.browser);
+          for (const candidate of pages) {
+            if (candidate === page || candidate.url() === 'about:blank') continue;
+            const candidateLocator = await resolveTargetLocator(candidate, target);
+            if ((await candidateLocator.count()) === 0) continue;
+            targetLocator = candidateLocator;
+            selectedBackendIndexBySession.set(
+              input.sessionKey,
+              pages.indexOf(candidate),
+            );
+            await candidate.bringToFront().catch(() => undefined);
+            break;
+          }
+          if ((await targetLocator!.count()) === 0) {
+            throw new Error(`Browser evaluate target was not found: ${target}`);
+          }
         }
         const value = targetLocator
           ? await targetLocator.evaluate((element, fnSource) => {
@@ -431,6 +448,36 @@ async function dispatchBrowserToolInner(input: {
     default:
       throw new Error(`Unsupported browser action: ${input.toolName}`);
   }
+}
+
+const PLAYWRIGHT_KEY_ALIASES = new Map<string, string>(
+  [
+    ['alt', 'Alt'],
+    ['backspace', 'Backspace'],
+    ['control', 'Control'],
+    ['delete', 'Delete'],
+    ['end', 'End'],
+    ['enter', 'Enter'],
+    ['escape', 'Escape'],
+    ['home', 'Home'],
+    ['insert', 'Insert'],
+    ['meta', 'Meta'],
+    ['pagedown', 'PageDown'],
+    ['pageup', 'PageUp'],
+    ['shift', 'Shift'],
+    ['tab', 'Tab'],
+    ['arrowdown', 'ArrowDown'],
+    ['arrowleft', 'ArrowLeft'],
+    ['arrowright', 'ArrowRight'],
+    ['arrowup', 'ArrowUp'],
+  ],
+);
+
+function normalizeKeyboardShortcut(shortcut: string): string {
+  return shortcut
+    .split('+')
+    .map((part) => PLAYWRIGHT_KEY_ALIASES.get(part.toLowerCase()) ?? part)
+    .join('+');
 }
 
 async function runWithTarget(

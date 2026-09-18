@@ -30,6 +30,7 @@ import type { BrowserSessionStatus } from '../runtime/browser-capability-types.j
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { JobSemanticCheckpointRepository } from '../domain/ports/job-semantic-checkpoints.js';
+import type { GantryHostedCapabilityRunner } from '../domain/ports/gantry-hosted-capability-runner.js';
 
 export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
@@ -77,6 +78,9 @@ export interface SchedulerDependencies {
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getJobSemanticCheckpointRepository?: () =>
     | JobSemanticCheckpointRepository
+    | undefined;
+  getGantryHostedCapabilityRunner?: () =>
+    | GantryHostedCapabilityRunner
     | undefined;
   getBrowserStatus?: (
     profileName: string,

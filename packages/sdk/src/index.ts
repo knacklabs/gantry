@@ -532,6 +532,20 @@ export class GantryClient {
   };
 
   readonly capabilityTasks = {
+    readArtifact: (
+      taskId: string,
+      input: { completionToken: string; artifactId: string },
+    ) =>
+      this.transport.request<{
+        artifactId: string;
+        contentHash: string;
+        contentType: string;
+        value: unknown;
+      }>({
+        method: 'POST',
+        path: `/v1/capability-tasks/${encodeURIComponent(taskId)}/artifacts/read`,
+        body: input,
+      }),
     complete: (
       taskId: string,
       input: {

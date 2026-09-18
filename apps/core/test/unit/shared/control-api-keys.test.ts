@@ -41,3 +41,31 @@ describe('control API key token limits', () => {
     },
   );
 });
+
+describe('capability artifact API key audience', () => {
+  it('requires and records an explicit capability audience', () => {
+    const [key] = parseControlApiKeysStrict({
+      rawJson: JSON.stringify([
+        {
+          ...validKey,
+          scopes: ['capability-artifacts:read'],
+          allowedCapabilityIds: ['manipal.website-recipe-evaluator'],
+        },
+      ]),
+    });
+
+    expect(key?.allowedCapabilityIds).toEqual(
+      new Set(['manipal.website-recipe-evaluator']),
+    );
+  });
+
+  it('rejects an artifact reader without a capability audience', () => {
+    expect(() =>
+      parseControlApiKeysStrict({
+        rawJson: JSON.stringify([
+          { ...validKey, scopes: ['capability-artifacts:read'] },
+        ]),
+      }),
+    ).toThrow('allowedCapabilityIds must name at least one capability');
+  });
+});

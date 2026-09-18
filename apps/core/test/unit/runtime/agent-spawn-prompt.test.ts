@@ -170,6 +170,7 @@ describe('compileSpawnSystemPrompt', () => {
           {
             capabilityId: 'manipal.website-recipe-evaluator',
             version: '1',
+            operations: [{ executionMode: 'gantry_hosted' }],
           } as never,
         ],
         callerResolvedTools: {
