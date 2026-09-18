@@ -1,0 +1,93 @@
+{
+  "generated_by": "griller",
+  "gate": "task",
+  "verdict": "pass",
+  "decision": "keep",
+  "issue": "cache-bug",
+  "task_id": "cache-bug-T3A",
+  "summary": "The T3A cold read found five incomplete boundary/proof surfaces. The execution contract and task plan now own the full turn-context and status wiring, both failover directions, a real Postgres lifecycle proof, and the governing constitutional references; the closing round confirmed an empty frontier.",
+  "gaps": [
+    "The recorded write scope omitted the domain ops port, canonical Postgres ops facade, and canonical session ops service required to filter before lifecycle side effects.",
+    "Public status filtering had no capability-aware provider-session port or production resolver wiring and could filter only after order/limit.",
+    "Failover proof covered DeepAgents-to-Claude but not Claude-to-DeepAgents, where process-local persistence state could suppress durable checkpoint behavior.",
+    "No Postgres integration leaf could falsify maintenance-lock release, ready-row promotion, or mixed-provider selection leakage.",
+    "Reviewer focus named no load-bearing provider-boundary or modular-monolith constitution."
+  ],
+  "contradictions": [],
+  "resolutions": [
+    "Scope now includes ops-repo.ts, canonical-ops-repo.postgres.ts, canonical-session-ops-service.ts, and the selecting repository; process-local filtering precedes lock release, promotion, ordering, and selection.",
+    "The provider-session repository port and production control-server wiring now receive the continuity resolver, and filtering occurs before order/limit so stale Claude rows cannot mask durable DeepAgents rows.",
+    "Required proof now covers both failover directions with candidate-specific non-hydrating generation-fenced re-reads and independent resume/persistence state.",
+    "A provider-session-continuity Postgres integration leaf proves process-local reads have no lifecycle side effects while durable rows remain selectable.",
+    "Reviewer focus cites constitution/pnp-provider-pattern-for-integration.md and constitution/pnp-coding-standards-modular-monolith.md and preserves the recurring contract-partial escalation tripwire."
+  ],
+  "open_items": [],
+  "questions_asked": 1,
+  "new_abstractions": [
+    "ProviderSessionContinuity: the adapter-owned process_local | durable_resume capability consumed by admission, lifecycle, failover, persistence, and projection."
+  ],
+  "current_flow": "Today the canonical turn-context repository may release maintenance locks, promote and select a provider row; live-execution then attaches that row to the run; group-agent-runner reuses one resume/persistence state across lifecycle and failover; Claude worker and inline SDK lanes resume and persist it; SessionInteractionModule queries the newest active provider row without adapter continuity. T3A moves one adapter capability ahead of every one of those effects while leaving the live worker MessageStream and DeepAgents durable state intact.",
+  "inspected_refs": [
+    "apps/core/src/application/agent-execution/agent-execution-adapter.ts",
+    "apps/core/src/domain/repositories/ops-repo.ts:367",
+    "apps/core/src/domain/ports/repositories.ts:331",
+    "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts:519",
+    "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:161",
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73",
+    "apps/core/src/adapters/storage/postgres/repositories/session-repositories.postgres.ts:242",
+    "apps/core/src/app/bootstrap/live-execution.ts:234",
+    "apps/core/src/control/server/index.ts:353",
+    "apps/core/src/runtime/group-agent-runner.ts:396",
+    "apps/core/src/runtime/group-agent-runner.ts:636",
+    "apps/core/src/application/sessions/session-interaction-module.ts:212",
+    "constitution/pnp-provider-pattern-for-integration.md",
+    "constitution/pnp-coding-standards-modular-monolith.md"
+  ],
+  "citations": [
+    {
+      "finding": "The recorded write scope omitted the domain ops port, canonical Postgres ops facade, and canonical session ops service required to filter before lifecycle side effects.",
+      "source": "apps/core/src/domain/repositories/ops-repo.ts:367; apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts:519; apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:161; apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73"
+    },
+    {
+      "finding": "Public status filtering had no capability-aware provider-session port or production resolver wiring and could filter only after order/limit.",
+      "source": "apps/core/src/domain/ports/repositories.ts:331; apps/core/src/control/server/index.ts:353; apps/core/src/adapters/storage/postgres/repositories/session-repositories.postgres.ts:242"
+    },
+    {
+      "finding": "Failover proof covered DeepAgents-to-Claude but not Claude-to-DeepAgents, where process-local persistence state could suppress durable checkpoint behavior.",
+      "source": "apps/core/src/runtime/group-agent-runner.ts:396 and apps/core/src/runtime/group-agent-runner.ts:636"
+    },
+    {
+      "finding": "No Postgres integration leaf could falsify maintenance-lock release, ready-row promotion, or mixed-provider selection leakage.",
+      "source": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73"
+    },
+    {
+      "finding": "Reviewer focus named no load-bearing provider-boundary or modular-monolith constitution.",
+      "source": "constitution/pnp-provider-pattern-for-integration.md and constitution/pnp-coding-standards-modular-monolith.md"
+    }
+  ],
+  "criteria_map": {
+    "Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.": "T3A-P1 is proven at live admission, both Claude SDK lanes, output persistence, session status, and the live MessageStream regression.",
+    "Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.": "T3A-P2 is proven by the production Postgres side-effect leaf, both failover directions, run-creation input assertions, lifecycle unit tests, and projection tests.",
+    "DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.": "T3A-P3 is proven by existing durable-resume/ceiling regressions, the Claude restart hermetic scenario, unchanged scheduled jobs, and same-PR canon reconciliation."
+  },
+  "rounds": [
+    {
+      "question": "The T3A task grill found five blockers. The task contract is now amended so: (1) the full turn-context chain\u2014domain ops port, canonical Postgres ops facade, canonical session ops service, and selecting repository\u2014is scoped, and process-local filtering happens before maintenance-lock release, ready-row promotion, ordering, or selection; (2) public status filtering has a capability-aware provider-session port plus production control-server resolver wiring, with filtering before order/limit so a stale Claude row cannot mask a valid DeepAgents row; (3) failover proof covers both DeepAgents-to-Claude and Claude-to-DeepAgents, with candidate-specific non-hydrating fenced re-reads and persistence state; (4) a real Postgres integration leaf proves no process-local lifecycle side effect while durable rows remain selectable; and (5) reviewer focus cites the provider-pattern and modular-monolith constitutions and retains the recurring partial-contract tripwire. Confirm these five resolutions and close the T3A task frontier?",
+      "options": [
+        "Confirm all five resolutions",
+        "Reopen \u2014 another concern"
+      ],
+      "chosen": "Confirm all five resolutions",
+      "frontier_empty": true
+    }
+  ],
+  "input_sha256": "25765b2142174bc7e79ac561b6ccb54f97589be367d1fd8da9829ae7814b0f95",
+  "grounding_basis": "working-tree",
+  "grounding_treeish": "",
+  "task_plan_sha256": "f13023e9d8ccd396d19f7ec55d4aa95984c5a448ac0f5b805e20c6941d8b7d3f",
+  "recorded_at": "2026-09-18T08:23:01+00:00",
+  "commit": "db70455da5c249d11458708e58bbdee136c9e2db",
+  "approved_task_plan_sha256": "f13023e9d8ccd396d19f7ec55d4aa95984c5a448ac0f5b805e20c6941d8b7d3f",
+  "approved_by": "Ravi",
+  "approved_at": "2026-09-18T08:23:18+00:00"
+}

@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The independent plan grill found fifteen blockers. The plan has now been structurally rewritten so: (1) it uses all nine required Forge sections with concrete failure-oriented verification; (2) Surface Impact uses the supported seven-surface taxonomy; (3) process-local filtering happens in turn-context selection before live-execution creates a run and all selection/repository/port files are owned; (4) /new publishes one successful retirement event per committed retired row; (5) T4 owns route metadata, operation schemas, and OpenAPI components; (6) the desired-state DTO is a typed envelope while the core runtime parser remains the sole full-document authority; (7) Claude materialization has inner session cleanup plus final whole-run-directory cleanup per decision 0010; (8) only the worker MessageStream promises live continuation, while inline attempts are fresh; (9) reconstruction tests prove canonical runs/events are retained but not replayed; (10) rollout filesystem cleanup has a concrete dry-run/apply Node helper with allowed-root, symlink, path-escape, idempotence, and sentinel tests; (11) task dependencies now name only real consumed behavior and each extra split states its bounded-review force; (12) every backend task is user_facing false; (13) each runtime PR carries its own canon changes and hermetic agent-e2e delta, or an explicit non-agent justification; (14) the Anthropic materialization architecture document is owned; and (15) a recurring contract-partial tripwire requires producer/consumer enumeration and escalation on recurrence. Confirm these fifteen resolutions and close the plan frontier?",
+      "options": [
+        "Confirm all fifteen \u2014 frontier empty",
+        "Reopen \u2014 another concern"
+      ],
+      "chosen": "Confirm all fifteen \u2014 frontier empty"
+    }
+  ],
+  "at": "2026-09-18T07:57:47.649037+00:00",
+  "session_id": "9c88b77f-0721-4cee-872a-ca05c737f2e9"
+}

@@ -1,4 +1,4 @@
-# Cold-read grill — gate: requirements — requirements for cache-bug (docs/specs/cache-bug.md)
+# Cold-read grill — gate: task — task plan cache-bug-T3A
 
 You did NOT write what follows. Read it cold, as an adversary trying to break the handover, never as its author defending it. You are READ-ONLY: return findings, change nothing.
 
@@ -358,7 +358,93 @@ A `pass` with unresolved findings is refused by the recorder. Grill hard;
 downstream implementation inherits whatever you let through.
 
 
+## Lessons already in force for these paths
 
+The plan must design AROUND these. A plan that ignores one is not merely unlucky later — it is wrong now, and saying so is part of this read.
+
+- Runtime state, jobs, control events, and memory use Postgres as the production storage model; schema or repository changes need repository tests and architecture/docs updates when contracts shift.
+- When replacing Postgres runtime schema in one cut, move active runtime persistence behind canonical Drizzle repositories/services in the same change; leaving schema-owned raw SQL or old table definitions creates drift and runtime failures after destructive migrations.
+- Keep provider-specific and channel-specific behavior behind adapters; domain and application code should depend on stable product concepts and ports, not SDK payloads or runtime wiring.
+- Risky tool execution must pass through deterministic permission evaluation and sandbox policy before any provider callback or runner grants access.
+- When memory IPC auth scope includes per-run reviewer authority, every runner boundary must forward memoryReviewerIsControlApprover into the Gantry MCP server env; otherwise approver runs sign memory_search and continuity_summary requests with a different scope than runtime verification.
+- Fleet compose rehearsal must run settings-seed through the normal Docker entrypoint so local auto-secrets are exported, and seed desired-state via the import service rather than the broad CLI bootstrap; the CLI bootstrap can close the shared runtime storage pool before settings import validation finishes. Docker-internal first-party Postgres hostnames need explicit plaintext allowance while real remote Postgres still requires sslmode=require.
+- Managed command policy can reject required VITEST_JUNIT/FORGE_TEST_ID commands when the exact testcase identifier contains a literal greater-than separator. Report the wrapper lane as blocked and do not call it passing.
+- A focused Vitest selector can complete its test but still exit 1 when the macOS watcher hits EMFILE; treat this as blocked verification and rerun with the canonical wrapper or a watcher-safe environment.
+- Postgres JSONB normalizes object key order and drops undefined; any equality check against persisted state (JSON.stringify ===) silently fails in prod while structuredClone-based fakes keep it green. Compare with util.isDeepStrictEqual and make repository fakes persist through a JSONB-faithful round trip (see test/unit/application/jsonb-round-trip.ts).
+- Managed execution can reject a required test when an inline environment assignment is the command prefix, reporting that the shell wrapper hides prefix inspection; invoke the same command through env so the executable prefix is visible, and report any remaining refusal separately.
+- When a follow-up delegate carries a fix Codex cannot reproduce in its sandbox (Postgres-only hang or failure), state in the note that the earlier fixes are accepted and that only the named file may change, with the host-side proof; otherwise Codex reasons the fix away and reverts autoreview-accepted work (JOBPERM-3-T1 run 9).
+- T3a order that fits one Codex run: (1) schema.ts + port + repository + domain/types.ts + the shared boundary canonicalPath, then run npm run db:migrations:generate -- --name permission_decision_memory_human (NEVER hand-write the SQL or snapshot; commit what drizzle-kit emits), then npx tsc --noEmit; (2) the scope-key module and the service; (3) tests ONE FILE AT A TIME in this order — provenance, scope, service, prospective-write pin, Postgres suite — running each file right after writing it and never re-reading a finished source file. Postgres tests need the TEST database: run 'source /private/tmp/claude-501/-Users-ravikiranvemula-Workdir-myclaw/b4051e43-dbea-4d62-ba73-ae6210455474/scratchpad/pgfix-env.sh' in the same shell before vitest (it exports GANTRY_TEST_DATABASE_URL for gantry_test; the live database gantry must never be touched). Required leaf titles are exact it() names from the brief.
+- The tree already holds partial T5b work (listing module, forget handler, parser, ports, four provider branches). Do NOT re-survey: read only the cited line ranges in the brief and the files you are about to edit. Order: 1 listing module + parser + session command; 2 forget handler + wiring setter + runtime-services bind; 3 audit read port + Postgres adapter + job-name hydration; 4 label carrier on both prompt paths + guidance line; 5 the four provider in-place edits; 6 tests one file at a time, running only the touched suite after each. Everything you write survives on disk across relaunches; commit nothing, finish the slice in front of you.
+- Every source file in the T5b scope is already edited, type-checks clean, and is committed. Do not re-read or rework sources unless a test proves a defect. Remaining, one file at a time, running only that suite after each: unit/runtime/group-processing.test.ts, unit/runtime/permission-decision-coordinator.test.ts, unit/bootstrap/runtime-app.test.ts, unit/bootstrap/channel-message-action-router.test.ts, unit/application/human-decision-memory-service.test.ts, unit/runtime/ipc-interaction-handler.test.ts, unit/bootstrap/inline-agent-loop-tools.test.ts, unit/runtime/prompt-profile.test.ts, unit/channels/telegram.test.ts, unit/channels/slack.test.ts, unit/channels/discord/discord.test.ts, unit/channels/teams/teams.test.ts, then unit/runtime/askfloor-tap-budget-harness.ts + askfloor-tap-budget.test.ts (S5). Each required_tests leaf id must appear verbatim as a test title.
+- Implementation and every test are committed and green; tsc passes. The ONLY remaining work is npm run check:architecture, which reports exactly: (1) channels/telegram/callback-handlers.ts 910 lines, limit 900; (2) runtime/ipc-interaction-processing.ts 866, limit 865; (3) session/session-commands.ts 742, limit 740 — trim or extract the smallest helper, no behaviour change; (4-6) app/bootstrap/runtime-group-processor-deps.ts imports adapters/storage/postgres/runtime-store, config/index and config/profiles — the layer checker treats a bootstrap file named runtime-* as runtime code: rename it to group-processor-deps.ts (update its importers) so it is judged as bootstrap, which may import adapters and config. Do not touch anything else. Finish with npm run check:architecture and npx tsc --noEmit both green.
+- Together with the three quality P2s these are the ONLY changes in this round: (4) the used-by lookup runs only for the rows actually rendered (the ten newest for bare /permissions, all for /permissions all), never for every remembered record; (5) job-name hydration is ONE batched read for the collected job ids, not a serial per-record loop; (6) a provider in-place edit failure must never suppress the Forget receipt — send the confirmation reply first or independently, then attempt the edit, and pin it with a test per provider where the edit throws; (7) keep behaviour otherwise identical. Run only the touched suites; tsc and check:architecture stay green.
+- Final fix cycle; change nothing else. (1) After a Forget tap the re-rendered list hydrates used-by ONLY for the rows it renders (the ten newest), same as the bare listing. (2) Job-name hydration is ONE bulk repository read for the deduplicated job ids (a single list/getMany call), not concurrent per-id reads — this also bounds /permissions all to one query. (3) Slack: when the replacement view has no buttons, clear the blocks (send an empty blocks array / text-only update) so stale buttons do not linger; pin with a test. (4) Move the 'Already forgotten.' string into the listing copy owner beside the other replies. Run only the touched suites; tsc and check:architecture stay green.
+- Product code is final. apps/core/test/integration/permission-decision-memory.postgres.integration.test.ts fails twice and both are test fixes: (1) 'lists one latest use per job…' inserts permission_decisions rows for app 'app-one' and 'app-two' without seeding those apps — permission_decisions.app_id has a foreign key to apps; seed the apps first the way the sibling Postgres suites do (reuse their helper or insert the app rows in the test's setup) and clean them up. (2) 'round-trips human decisions per person: putHumanDecision refreshes an active duplicate…' now gets [] because repository.list filters to the current rails version (a T5b contract: old-version rows are not listed); write that test's records with the CURRENT rails version so the refreshed row is returned, and keep one assertion that an old-version row is excluded. Run only this suite with GANTRY_TEST_DATABASE_URL set (it is exported in your environment); tsc must stay green. Touch nothing else.
+- Exact cause of the round-trip failure: T5b added a required railVersion input to repository.listHumanDecisions (eq(table.railVersion, input.railVersion)); the round-trip test calls it with only appId/agentFolder/actingPersonId while its records carry railVersion 4, so the query returns []. Fix the test call by passing railVersion: 4 (and any other listHumanDecisions call in that suite that omits it); do not loosen the repository filter. The FK failure in the audit test is separate: seed apps 'app-one' and 'app-two' before inserting permission_decisions rows.
+- The Codex sandbox has no GANTRY_TEST_DATABASE_URL and no Postgres; DB-gated integration tests skip there by design. Do not raise a blocked signal for it: run everything credential-free, state in your report which DB-gated files you could not run, and the orchestrator runs them on the host against a throwaway pgvector Postgres before stage close (rulings S-0083 on ASKFLOOR-1 and S-0093 on cache-bug).
+- Exactly five changes. (P1, blocking) app/bootstrap/runtime-services.ts ~line 597 binds the Forget handler's resolvePerson to resolveControlApproverPrincipal; it must resolve the tapping user to the CANONICAL DM memory person through the same path the /permissions command uses — resolveCanonicalMemoryPersonId from runtime/group-person-identity (DM-gated; a group route yields null → not_found). Pin in test/unit/bootstrap/runtime-services.test.ts that the bound resolver is the canonical one and that a group route resolves to null. (P2) used-by hydration fetches only the job ids actually referenced by the rendered rows, one bulk read, and the per-record dedup must be a single Set pass, not nested loops. (Tests) integration/permission-decision-memory.postgres.integration.test.ts: the audit test seeds apps 'app-one'/'app-two' before inserting permission_decisions rows (FK); the round-trip test passes railVersion: 4 to listHumanDecisions. Run runtime-services, forget-handler, listing suites and the Postgres suite (GANTRY_TEST_DATABASE_URL is exported); tsc and check:architecture green; ceilings measured after prettier.
+- Everything else is committed and green. The only failing test is 'lists one latest use per job by human decision record id…' in the Postgres suite: the adapter's listDecisionsByHumanDecisionRecordId returns lastUsedAt as the raw Postgres text ('2026-09-04 00:00:00+00') while the port promises an ISO string ('2026-09-04T00:00:00.000Z'). Fix it in adapters/storage/postgres/repositories/domain-repositories.postgres.ts by normalising the value the way the sibling reads in that file do (e.g. new Date(value).toISOString() or the existing timestamp helper); do not change the test's expectation. You cannot reach Postgres from your sandbox — the orchestrator runs that suite; just make the change, run tsc, and finish.
+- The review marked two contracts partial; close them and nothing else. (AC2) PermissionMemoryListMessageView and the list-view type live in application/permissions/permission-memory-listing.ts (the required owner) — move the type there and import it from the current location; no behaviour change. (AC5) the used-by read fetches ONLY the job ids referenced by the rendered records: collect the ids from the rows being rendered, dedupe once, and pass exactly that set to the single bulk job read; add a listing test asserting the bulk read receives only referenced ids. Run listing + forget-handler suites, tsc, check:architecture; ceilings measured after prettier.
+- Orchestrator ruling (signals S-0093 and S-0094 resolved): PermissionMemoryListMessageView is DOMAIN-owned by design and stays where it is; AC2's 'listing module owns the view type' clause is superseded by the layer rule (domain must not import application) and is considered implemented. Do NOT move the type, do NOT raise a contradiction about it, do NOT edit domain/message-actions.ts. The single remaining change is AC5: in application/permissions/permission-memory-listing.ts (or the forget handler where hydration is called) collect the job ids referenced by the rows being rendered, dedupe once, and pass exactly that set to the one bulk job read; add a listing unit test asserting the bulk read receives only the referenced ids. Run the listing and forget-handler suites, tsc, check:architecture; finish.
+- Exactly these changes, nothing else. (P1, blocking) app/bootstrap/runtime-services.ts ~line 601: the Forget handler's resolvePerson must canonicalise the caller in the CONVERSATION's app — derive the app id with appIdFromConversationJid(action.conversationJid) (the same value the handler later uses for the memory lookup) and pass it to resolveCanonicalMemoryPersonId instead of the process-wide runtime app id; pin with a runtime-services test where the conversation's app differs from the process app. (AC5) runtime-services.ts ~626 and app/bootstrap/group-processor-deps.ts ~87 bind a job reader that ignores the id set and lists ALL jobs; bind a by-ids read (add listJobsByIds(appId, ids) to the ops job repository port + Postgres adapter if none exists, or batch the existing getJobById) so only the referenced ids are read; pin it. (AC2) application/permissions/permission-memory-listing.ts ~155 duplicates the category-noun table; delete it and call the existing shared category-noun helper the card copy uses; add the one-job and two-job used-by cases to the listing suite beside the 3+ case. Run runtime-services, listing, forget-handler suites; tsc; check:architecture; ceilings after prettier (runtime-services ≤ 1186). You cannot reach Postgres; the orchestrator runs that lane.
+- Orchestrator ruling (S-0095 resolved): do NOT add listJobsByIds or touch ops-repo.ts / the jobs Postgres adapter (out of scope). AC5 is implemented by: collect the job ids referenced by the rows being rendered (≤10 for bare /permissions; all active rows for /permissions all), dedupe once, and resolve names with ONE concurrent batch — Promise.all over getJobById for exactly that set — in the reader bound at runtime-services.ts ~626 and group-processor-deps.ts ~87; never list every job. Pin with a listing test that the reader is invoked only with the referenced ids. Do not raise a contradiction about this. Then: (P1) runtime-services.ts ~601 pass appIdFromConversationJid(action.conversationJid) into resolveCanonicalMemoryPersonId (test: conversation app ≠ process app); (AC2) delete the duplicate category-noun table at permission-memory-listing.ts ~155 and call the shared helper; add the one-job and two-job used-by cases. Run runtime-services, listing, forget-handler suites, tsc, check:architecture; ceilings after prettier.
+- Orchestrator ruling (S-0097 resolved, AC2 amended): permission-memory-listing.ts OWNS the category-noun mapping (CATEGORY_NOUNS + exported permissionMemoryScopeNoun). No other noun helper exists; do not search for one, do not delete the table, do not raise a contradiction about nouns. Do exactly three things and finish: (1) P1 — runtime-services.ts ~601: pass appIdFromConversationJid(action.conversationJid) into resolveCanonicalMemoryPersonId; add a runtime-services test where the conversation's app differs from the process app. (2) AC5 — in the readers bound at runtime-services.ts ~626 and group-processor-deps.ts ~87, resolve names with one Promise.all over getJobById for the deduplicated referenced ids only (never list all jobs); test that only referenced ids are read. (3) AC5 tests — add one-job and two-job used-by cases in permission-memory-listing.test.ts beside the 3+ case. Run runtime-services, listing, forget-handler suites; tsc; check:architecture; ceilings after prettier.
+- Orchestrator ruling (review round 6): MemoryForgetMessageActionInput carries the agent identity as the bounded agentRouteKey — the codec key the round-3 grill ruled because Telegram's callback payload is size-limited; the host handler resolves the route-effective agentId from it. Do NOT add an agentId field to the domain input or to any provider payload; AC4 has been amended to say so. Do not raise a contradiction about it. The single remaining change: app/bootstrap/runtime-services.ts ~line 631 — the post-Forget used-by hydration (and any used-by read the Forget handler performs) must use the CONVERSATION's app id (appIdFromConversationJid(action.conversationJid), the same value the handler already uses for the memory lookup and the person resolver), never the process-wide app id; pin it with a runtime-services test where the conversation app differs from the process app. Run runtime-services + forget-handler suites, tsc, check:architecture; ceilings after prettier (runtime-services ≤ 1186 — extract a tiny helper if needed). Finish.
+- Work in this order and finish each slice before reading further; everything you write survives on disk across relaunches; commit nothing. Slice 1: NEW application/permissions/permission-judge-outage-latch.ts (pure latch: observe/reset/clearAll, keyed appId|providerAccountId|targetJid, the two exported copy strings) + NEW runtime/permission-judge-outage.ts (module-level judgeOutageLatch instance, unavailablePromptConsultResult(failureCode, startedAt) returning the full PermissionClassifierPromptConsultResult with decision 'ask', isJudgeUnavailable, sendJudgeOfflineNotice with { threadId, providerAccountId }, no-target skip, swallowed errors) + add 'wiring_missing' to the failure-code union at runtime/permission-classifier.ts:60. Slice 2: IPC — split eligibility from wiring at ipc-permission-classifier-decision.ts:361, synthetic result on wiring failure, notice call before requestPermissionApproval at :639 and :595 and before the terminal job decision, reason line, exclude Unavailable from the cache write at :502; the file is 691/700 — calls only; extract the verdict-cache helpers into the runtime glue module if needed. Slice 3: inline-agent-loop-tools.ts — split the :372 guard, notice in beforePrompt (:449-468) and before the scheduled cancel return at :410, reason line; 708/750. Slice 4: NEW latch suite, NEW glue suite, the wiring_missing case in permission-classifier.test.ts, the IPC-decision cases, the inline cases — one file at a time, run only that suite. Slice 5: harness knobs (classifierVerdict.status, sendMessage + publishRuntimeEvent spies returned from replayPermissionRequest, classifierConsult param on replayExactMemorySequence), S6 + aggregation in askfloor-tap-budget.test.ts, NEW askfloor-invariance.test.ts as an it.each table over harness fixtures with tuples copied verbatim. Test titles = required_tests ids VERBATIM. You cannot reach Postgres; the orchestrator runs that lane. Never list all jobs, never import channels/.
+- Exactly six changes; product design is otherwise final. (1) inline-agent-loop-tools.ts ~422: call observeJudgeAvailabilityForRequest BEFORE the successful-allow return so an answered allow clears the latch (pin: answered allow then unavailable → notice again). (2) askfloor-tap-budget.test.ts S6 ~324: the uncovered-read case must be a READ that the rails do not cover (e.g. a file read by path OUTSIDE the trusted root, or an mcp read binding not in reviewedMcpReadBindings) — not mcp__crm__update_record — and must assert exactly one tap and one notice; add the scheduled-job case (hostJobId set, judge unavailable): notice sent once to the job conversation, decision reason = JUDGE_OFFLINE_REASON, deterministic denial + card recovery unchanged. (3) askfloor-invariance.test.ts: build the matrix from the REAL harness fixtures — one row per lane in AF-AC6: ask, auto_strict, interactive auto, trusted-host autonomous via registerWorkerPermissionRunRestriction, the projection quartet via replayRememberedJobProjection (exact match allows, near-miss cards, revoked re-cards, rails-bump re-cards — the harness has these), YOLO backstop, unmapped forced ask, scheduler_delete_job, destructive via replayDestructiveExactMemory, the family rail hit asserting FAMILY_RULE_RAIL_HIT_REASON, the inline-scheduled path through the INLINE gate (pattern of inline-agent-loop-tools.test.ts:1115/1450, not the IPC replay), attachment_open via attachmentOpenIds; expected tuples copied verbatim from askfloor-tap-budget.test.ts:26/173/233 and ipc-permission-classifier-decision.test.ts:360/385/416; the Unavailable column for the six codes + wiring_missing differs only where AF-AC5/0157 say. (4) aggregation ~356: actually run the four TB1-TB4 interactive-auto fixtures and the four mirrors (protected write, outside-workspace write, scheduler_delete_job, raw-path attach) plus S1-S6 through replayPermissionRequest and sum taps per lane. (5) runtime/permission-judge-outage.ts:133: delete the unused exported sendJudgeOfflineNotice; keep only sendJudgeOfflineNoticeForRequest and test that one. (6) REGRESSION apps/core/test/unit/application/jobperm-ask-and-wait.test.ts 'denies a job request when its permission card cannot be attached' now fails (attachRequest 0 calls): on a job lane a synthetic wiring_missing result must flow into the SAME card/attach path as a real classifier ask (0157), never a terminal decision before attach — fix the IPC resolver so that test passes unchanged. Test titles must stay the required_tests ids verbatim. Run the touched suites + that jobperm suite; tsc; check:architecture; ceilings after prettier.
+- CORRECTS lesson 155, which was wrong. usage.modelRoute in the spawned DeepAgents lane ALREADY carries the resolved registry route: execution-adapter.ts:134 projects effectiveModelEntry.modelRoute.id into GANTRY_DEEPAGENTS_MODEL_PROVIDER, resolveModelProvider() reads it, and runner/index.ts:143 passes it as input.provider — so modelRoute: input.provider is the route id, and cache policy resolves at route granularity. Two autoreview rounds, a deferral (D-0083, now withdrawn) and lesson 155 all asserted provider-granularity because a field NAMED provider carries a route id, and nobody traced the value to its source. The general lesson: a finding about what a value CONTAINS must be verified by following the assignment chain to where the value is produced, not by reading the field's name or type at the point of use.
+
+## The contract as recorded (authoritative over any copy in the plan)
+
+## Contract (recorded)
+
+Rendered by the harness from the recorded decomposition; edit the decomposition, not this block. It is excluded from the plan's approval and grill digests, so a re-render never stales either.
+
+**Objective.** Add adapter-owned provider-session continuity and enforce it before admission, run linkage, failover, lifecycle, persistence, status, or projection. Claude becomes process-local while the worker's live MessageStream and all DeepAgents durable behavior remain intact.
+
+**Acceptance criteria**
+
+- Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.
+- Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.
+- DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.
+
+**Write scope** (what `stage done` measures the diff against)
+
+- apps/core/src/application/agent-execution
+- apps/core/src/application/sessions
+- apps/core/src/adapters/llm/anthropic-claude-agent
+- apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts
+- apps/core/src/adapters/storage/postgres/repositories
+- apps/core/src/app/bootstrap/live-execution.ts
+- apps/core/src/runtime
+- apps/core/test/unit
+- apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts
+- apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts
+- docs/architecture/session-resume.md
+- docs/architecture/runtime-components.md
+- docs/architecture/canonical-domain-model.md
+- docs/SPEC.md
+- apps/core/src/runner/AGENTS.md
+
+**Required tests** (run by `stage done`)
+
+- `continues a live Claude worker without provider persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runner/agent-runner-ipc.test.ts)
+- `starts a recovered Claude worker without a resume id or persisted handle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `starts every Claude inline attempt without resume or persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `filters a stale process-local row before run creation and lifecycle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `keeps provider-session state attempt-local across DeepAgents to Claude failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `hides stale process-local rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
+- `preserves durable DeepAgents resume and context ceiling behavior` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts)
+- `restarts Claude without duplicate provider history` -- `VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts)
+
+**Verify commands**
+
+- `npm run typecheck`
+- `npm run lint:changed`
+- `npm run test:e2e:agent:hermetic`
+- `python3 factory/scripts/verify.py`
+
+**Review budget.** 30 files / 2600 lines -- The task crosses admission, adapter setup, failover, lifecycle, projection, docs, and focused proof because one capability must fence every provider-session side effect atomically. Reconstruction, SDK filesystem lifetime, compaction, release, rollout cleanup, and the settings API are explicitly split into later tasks.
 
 ## Already answered on this story — verify, do not re-ask
 
@@ -491,334 +577,302 @@ These questions were put to the human and answered. Two obligations:
   A: Hand off as one task (Recommended)
 - Q: The amended spec resolves all nine Forge cold-read findings, and you've confirmed the two remaining design choices. Lock them in and close the spec grill: (1) Claude session-bearing SDK files are ephemeral per runner while stable config, skills, and credentials stay materialized; (2) drained rollout transactionally deletes only Claude provider-session rows and their pointers while DeepAgents rows survive. Any remaining gap before I record the spec-grill pass?
   A: Confirm both — ephemeral SDK sessions + Claude-only row deletion (Recommended)
+- Q: The requirements review found eleven conflicts between the old universal-resume cache-bug spec and the confirmed process-local Claude amendment. The artifact has now been amended so: (1) the amendment and decision 0163 take precedence for Claude; (2) mark/ceiling/retirement apply only to durable_resume adapters; (3) retired references carry agentSessionId; (4) rollout deletes only Claude rows and both latest/run pointers while preserving DeepAgents; (5) Claude compaction, failover, stale-row filtering, and status behavior are capability-driven; (6) obsolete Claude resume tests are replaced; (7) the full new acceptance surface is explicit; (8) architecture docs become capability-aware; (9) OpenAI-compatible cache booleans are true/true; (10) the high-water SQL includes the lower-mark predicate; and (11) observability proves Claude has no resumable association while DeepAgents remains. Confirm these resolutions and close the requirements frontier?
+  A: Confirm all eleven resolutions — frontier empty
+- Q: The independent plan grill found fifteen blockers. The plan has now been structurally rewritten so: (1) it uses all nine required Forge sections with concrete failure-oriented verification; (2) Surface Impact uses the supported seven-surface taxonomy; (3) process-local filtering happens in turn-context selection before live-execution creates a run and all selection/repository/port files are owned; (4) /new publishes one successful retirement event per committed retired row; (5) T4 owns route metadata, operation schemas, and OpenAPI components; (6) the desired-state DTO is a typed envelope while the core runtime parser remains the sole full-document authority; (7) Claude materialization has inner session cleanup plus final whole-run-directory cleanup per decision 0010; (8) only the worker MessageStream promises live continuation, while inline attempts are fresh; (9) reconstruction tests prove canonical runs/events are retained but not replayed; (10) rollout filesystem cleanup has a concrete dry-run/apply Node helper with allowed-root, symlink, path-escape, idempotence, and sentinel tests; (11) task dependencies now name only real consumed behavior and each extra split states its bounded-review force; (12) every backend task is user_facing false; (13) each runtime PR carries its own canon changes and hermetic agent-e2e delta, or an explicit non-agent justification; (14) the Anthropic materialization architecture document is owned; and (15) a recurring contract-partial tripwire requires producer/consumer enumeration and escalation on recurrence. Confirm these fifteen resolutions and close the plan frontier?
+  A: Confirm all fifteen — frontier empty
 
-## The artifact under interrogation (requirements for cache-bug (docs/specs/cache-bug.md))
+## The artifact under interrogation (task plan cache-bug-T3A)
 
----
-slug: cache-bug
-title: cache-bug — Retire oversized provider sessions across runner restarts
-status: confirmed
-saved: 2026-09-09T08:45:35+00:00
----
+# cache-bug-T3A — Capability-aware continuity and Claude execution
 
-# cache-bug — Retire oversized provider sessions across runner restarts
+Story plan: `plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md`.
+Specs: `docs/specs/cache-bug.md` and
+`docs/specs/process-local-claude-continuity.md`. Governing decisions: 0010,
+0018, 0078, 0089, 0158, 0159, and 0163. T1/T2 are already shipped; this task
+does not change their measurement or durable-resume ceiling contract.
 
-## Why
+## Problem
 
-Every persistent interactive runner start does two things at once: it resumes
-the persisted provider session (which already holds every earlier user,
-assistant and tool turn) AND it appends a freshly reconstructed briefing (up to
-12,000 characters of durable memory plus up to 16,000 bytes of recent channel /
-active thread context) as a new user turn. The per-turn briefing is a pinned
-guarantee (decision 0089: every provider turn sees the channel block plus the
-thread window; decision 0078: memory hydrates once per turn, with its
-session-fence rehydration fallback) and stays as is. What is NOT bounded is
-the transcript those briefings accumulate in: nothing expires a provider
-session by age, turn count or size — the idle timeout only closes the runner's
-stdin, and compaction fires only on explicit `/compact` or when the SDK
-reaches the model's context window.
+A provider session is currently selected by the canonical turn-context query,
+attached to a new run in `live-execution.ts`, passed through
+`group-agent-runner.ts`, and then resumed/persisted by the Claude SDK lanes.
+Stopping only the SDK `resume` option would be too late: a stale Claude row
+would still be linked to canonical execution, enter promotion/delta/ceiling
+logic, survive failover, and appear through session status.
 
-Production evidence (Slack): a one-word turn ("yes") read roughly 270k cached
-input tokens on each of two model calls inside one execution (pre-tool and
-post-tool), about 541k tokens for the turn. Prompt caching discounts the
-repeated prefix; it does not remove it from the context window, stop stale
-duplicate briefings reaching the model, or protect against cache misses.
+This task introduces one adapter-owned continuity capability and applies it
+before the first provider-session side effect. Claude declares
+`process_local`; DeepAgents declares `durable_resume`. Core code consumes the
+capability and never asks whether the provider is Claude or Anthropic.
 
-Both execution adapters are affected, differently:
+## Scope / Non-goals
 
-- Claude Agent SDK: model-visible context grows linearly until SDK autocompact
-  at the context window (≈1M on the deployed model). Cost and latency grow.
-- DeepAgents / LangChain: the library summarises at ~85% of a known window, so
-  model-visible history is bounded, but the LangGraph Postgres checkpoint keeps
-  the raw state, so checkpoint tables and checkpoint load latency grow instead.
-  No application path owns checkpoint deletion.
+In scope:
 
-Scheduled jobs already run non-persistent sessions on both adapters and are
-out of scope. The runner is channel-neutral, so this applies to every channel
-that holds a persistent interactive session, not only Slack.
+- the adapter capability and exhaustive declarations;
+- turn-context selection before `live-execution.ts` creates a run;
+- run linkage, runner resume selection, provider-row lifecycle, result
+  persistence, and failover attempt isolation;
+- Claude worker and inline SDK calls with `persistSession: false` and no
+  `resume`;
+- session/status/public resume projection filtering;
+- same-process worker MessageStream continuation;
+- same-PR architecture/runtime docs and a hermetic restart agent-e2e.
 
-Discovery: read-only Codex run `task-mttrhe3o-xh5mh1` (2026-09-09), plus the
-Claude-adapter trace in `apps/core/src/runtime/group-agent-runner.ts`,
-`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts`
-and `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts`.
+Non-goals: the exact fresh snapshot/digest/memory/job composition and SDK
+filesystem teardown (T3B), `/compact` (T3C), DeepAgents `releaseSession` and
+`/new` cleanup (T3D), rollout deletion (T3E), or the desired-state API (T4).
+No schema migration and no provider-name conditional are allowed.
 
-Grill resolutions (spec gate, 2026-09-09; human decisions in rounds 1–5,
-final cold read amended once per the one-read rule):
-- Keep 0089 and 0078 unchanged; contain growth with a session-size ceiling
-  only (a delta snapshot on resume is parked).
-- MINIMAL scope: the ceiling uses per-run usage the adapters already report,
-  corrected for provider cache semantics (`totalBillableInputTokens` subtracts
-  cache reads and would never catch the 270k case). No per-request seam, no
-  model-capacity clause, no retry system.
-- This is a **retire-after-observed-crossing** rule, not a hard bound.
-- Threshold is one global revisioned runtime setting per decision 0025.
-- DeepAgents checkpoint rows are reclaimed through an adapter cleanup port on
-  the named retirement paths only; orphans are an operator procedure.
-- Pre-existing sessions are retired by a manual pre-deploy reset run by the
-  deployment owner (decisions 0003 and 0112): no shipped command, no lazy
-  retirement, and a deployment stop condition.
-- Roadmap card: the acceptance criteria captured on `cache-bug` at intake
-  predate grill convergence and the harness does not edit an active card's
-  criteria. Human decision (round 5): this confirmed spec is LINKED to the
-  card and is the story's authority; the intake criteria are superseded by
-  the acceptance criteria below.
+## Workflow
 
-## Behaviour
+```mermaid
+flowchart TD
+    A[Resolve execution adapter] --> B{providerSessionContinuity}
+    B -->|process_local| C[Turn-context query excludes provider rows]
+    B -->|durable_resume| D[Turn-context may select resumable row]
+    C --> E[Create run with providerSessionId null]
+    D --> F[Create run with selected providerSessionId]
+    E --> G[Claude attempt: no resume, persistSession false]
+    F --> H[DeepAgents attempt: durable checkpoint resume]
+    G --> I[Ignore provider-handle output]
+    H --> J[Persist provider/checkpoint output]
+    I --> K[Status and public projection show no resume]
+    J --> L[Existing ceiling/delta/projection behavior]
 
-1. **Observed context per run.** The observed value is
-   `contextUsage.totalTokens` when the run reports it; only when it does not
-   does the host fall back to a derived `modelVisibleInputTokens` (decision
-   0158 §2, which governs — an earlier draft of this spec made the derived
-   figure primary, which would have violated the accepted decision). The
-   derived figure comes from provider-resolved usage components of a run. The provider registry entry that already names the cache usage
-   fields gains two booleans, `cacheReadsIncludedInInput` and
-   `cacheWritesIncludedInInput`:
-   - Anthropic (`cache_read_input_tokens`, `cache_creation_input_tokens`
-     additive to `input_tokens`): both false →
-     `inputTokens + cacheReadTokens + cacheWriteTokens`;
-   - OpenAI-compatible (`prompt_tokens_details.cached_tokens` ⊆
-     `prompt_tokens`): reads true, writes n/a → `inputTokens`;
-   - no cache accounting → `inputTokens`.
-   Mixed-provider or unresolved-provider usage uses the additive (largest)
-   form; over-approximation only retires sooner. Each adapter must surface
-   the usage it has accumulated so far on an error frame (Claude: the error
-   path in `query-loop-phases-messages.ts` currently emits none; DeepAgents:
-   the terminal snapshot), so costly errored turns cannot evade retirement.
-   Because usage is per run, the figure over-approximates a single call's
-   context; accepted for a retirement trigger. Billing fields and
-   `totalBillableInputTokens` are unchanged.
+    M[Live Claude worker still running] --> N[Follow-up written to same MessageStream]
+    N --> G
+```
 
-   The value written to the column is CLAMPED at 2,147,483,647, the maximum a
-   Postgres `integer` holds. Without the clamp a cumulative measurement above
-   that fails at SQL and leaves the session unmarked and therefore resumable,
-   defeating the very retirement it should trigger.
+The capability is resolved before `getAgentTurnContext`. The turn-context
+port/service/repository receives a continuity filter and does not return a
+process-local provider row. Consequently `live-execution.ts` creates the run
+with no provider association. The runner repeats the guard defensively before
+promotion, delta replay, ceiling/fingerprint retirement, input construction,
+run metadata update, and result persistence.
 
-   The clamp is deliberately tied to the COLUMN's limit, not to the cap
-   setting's maximum. An earlier draft clamped at 900,001 — one above the
-   largest configurable cap — which coupled two unrelated numbers: the cap
-   range (20,000–900,000) is a policy choice, while a model's context window
-   is a different quantity entirely (≈1M on the deployed model, per Why
-   above). A session can legitimately measure above 900,001, and if the cap
-   range were ever widened past 900,000 a clipped mark would stop exceeding
-   the cap — silently ending retirement for exactly the sessions it targets.
-   Clamping at the column limit removes that coupling and keeps every
-   physically meaningful magnitude; the exact figure also remains in
-   `model.usage`.
-2. **Typed per-session high-water mark, atomic and fenced.** A new nullable
-   integer column `provider_sessions.context_high_water_mark` (decision 0017:
-   resume-governing state is a typed column, never `metadata_json`). A new
-   repository operation `raiseProviderSessionContextHighWaterMark({
-   providerSessionId, agentSessionId, agentSessionResetAt, value })` runs one
-   `UPDATE ... SET context_high_water_mark = GREATEST(COALESCE(existing, 0),
-   value)` whose predicate fences on provider-session id, `agent_session_id`
-   ownership, a resumable status, and `agent_sessions.reset_at` equal to the
-   caller's generation, and returns whether a row changed. "Changed" means
-   the mark actually ROSE: an observation equal to or lower than the stored
-   mark reports no change, because `GREATEST` leaves the row untouched. A
-   caller must not read `false` as a lost fence — it means either a losing
-   predicate or an observation that was not a new high. A non-integer or
-   negative `value` is rejected before SQL. It is called after any run
-   (including an errored run) whose output carries usage; runs without usage
-   do not call it. The turn context projection returns
-   `contextHighWaterMark` alongside the existing provider-session fields.
-3. **Retire on resume when over the cap.** Preflight order: promote a
-   `ready` row first (existing behaviour), then evaluate the mark on the
-   selected row. If it exceeds the cap and the row is `active`, retire it via
-   behaviour 5 and start a fresh session from the ordinary bounded briefing.
-   A `maintenance_compact` row is never retired by the ceiling; it resumes
-   or waits as today. Sessions at or under the cap, with no mark, or in
-   maintenance resume exactly as today. The preflight adds no hydration
-   beyond what 0078 specifies. Allowed overshoot: the one run that first
-   exceeds the cap; the *next* resume retires it.
-4. **Cap setting.** Canonical desired-state path
-   `limits.provider_session_max_input_tokens`, a global scalar accepted by
-   the strict limits parser alongside the existing flat
-   `limits.<providerId>.requests_per_minute` entries; integer in
-   20,000–900,000, default 150,000 when absent; rendered by the existing
-   settings exporter; importable and exportable through the same YAML and
-   control-API surfaces as `limits`; distributed through
-   `settings_revisions`. Because the strict parser rejects unknown keys,
-   `CURRENT_SETTINGS_READER_VERSION` is bumped and revisions carrying the key
-   set that `min_reader_version`, so an older worker holds its prior revision
-   and alerts (0025 skew contract) instead of failing. A lowered value takes
-   effect on the next resume evaluated by a worker that has applied that
-   revision. No environment variable, no per-agent override.
-5. **Atomic retirement returning the retired reference.** A NEW
-   `retireProviderSession` is one atomic `active`→`expired` transition
-   fenced on provider-session id, `agent_session_id` ownership, status
-   `active`, and `agent_sessions.reset_at`; it returns the retired
-   `{ providerSessionId, externalSessionId, executionProviderId }` or nothing
-   if no row transitioned. The existing `expireProviderSession` REMAINS for
-   the compaction-delta degradation path, which operates on a `ready` row and
-   is unchanged: no release, no retirement event (0159 §4). Three callers move
-   to the new operation — the access-fingerprint change, the missing-session
-   retry, and the ops-service facade.
-   On a lost transition the host re-reads the turn
-   context and proceeds with what it finds; it does not persist a replacement
-   handle for a generation it does not own. Covered retirement paths:
-   ceiling (new), missing-session, access-fingerprint change, and `/new`,
-   whose reset selects the scoped provider-session references inside its
-   transaction and hands them to cleanup only after commit. Explicitly NOT
-   covered (retention stated): normal handle replacement (deletes the prior
-   row without cleanup; DeepAgents thread ids are stable across runs so this
-   is rare), agent and workspace removal cascades, and compaction failure or
-   cancellation paths, which today reactivate the session and promise
-   continuity to the user and keep doing so. Orphans from uncovered paths
-   are the operator procedure in behaviour 7.
-6. **Adapter cleanup port.** The execution-adapter contract gains an optional
-   `releaseSession({ externalSessionId, runtimeStorage })` capability; the
-   host calls it from a non-empty retirement result, passing the same
-   `runtimeStorage` it passes to `prepare()`, after the COMPLETE delivery
-   attempt settles. "Settles" means the primary send and any fallback
-   delivery have finished, successfully or not: a drain at the end of
-   `runAgent` would precede or delay the fallback reply, which happens after
-   `runAgent` returns. Cleanup must never block delivery and must never throw
-   through it, and both `/new` acknowledgements wrap it in `finally` so a
-   rejected acknowledgement cannot skip cleanup and leak the checkpoint. The DeepAgents adapter implements it by deriving the checkpoint
-   schema exactly as `prepare()` does and calling the saver's
-   `deleteThread(externalSessionId)`, which removes that thread's rows from
-   `checkpoints`, `checkpoint_blobs` and `checkpoint_writes`; it is
-   idempotent and on failure emits the cleanup-failed event of behaviour 8
-   and leaves the session expired. The Claude adapter does not implement it.
-   Core runtime stays provider-neutral: it never names a checkpoint table.
-7. **Briefing, jobs, and operator procedures.** Every turn still receives
-   the memory block and channel/thread snapshot exactly as 0089 and 0078
-   require. Scheduled jobs are untouched. `docs/memory/` records:
-   (a) the deployment owner's pre-deploy reset — drain live traffic, stop
-   workers, select the interactive provider sessions (rows whose agent
-   session has no `job_id` and a resumable status), delete the DeepAgents
-   rows for exactly those `external_session_id`s from `checkpoints`,
-   `checkpoint_blobs` and `checkpoint_writes` (never
-   `checkpoint_migrations`), delete those provider-session rows, verify zero
-   resumable interactive rows, then deploy; deploying with resumable
-   interactive rows present is a stop condition because those sessions carry
-   no mark and will resume normally; (b) the orphan reclamation procedure
-   driven by cleanup-failed events and the uncovered paths in behaviour 5.
-8. **Observability events.** Two registered runtime event types.
-   `session.provider.retired` carries a DISCRIMINATED payload on `reason` ∈
-   {ceiling, fingerprint, missing, new}: `providerSessionHash` and
-   `executionProviderId` always, plus `contextHighWaterMark` and `cap` ONLY
-   when `reason = ceiling`. The other three reasons are not caused by a cap
-   check, so those two fields are causal evidence that does not exist for
-   them; the type omits them rather than carrying nulls that cannot be told
-   apart from unknown values. Published at preflight with envelope
-   `sessionId = agentSessionId` and no run id for ceiling and fingerprint;
-   after the failed attempt with that attempt's `runId` for missing-session;
-   after commit for `/new`, one event PER RETIRED ROW, with `sessionId` taken
-   from the `agentSessionId` now carried on each retired reference (decision
-   0159) rather than from a separate boundary lookup that can fail while the
-   reset succeeds.
-   `session.provider.cleanup_failed` (payload: `providerSessionHash`,
-   `executionProviderId`, `error`). `providerSessionHash` is the full
-   lowercase hex SHA-256 of the raw external session id, and the recipe joins
-   with `encode(sha256(external_session_id::bytea), 'hex')`.
-9. **Observability recipe.** An operator-only read-only SQL recipe in
-   `docs/memory/`: per provider session (hashed), the typed mark and the
-   per-run `model.usage` series via `agent_runs` LEFT JOIN `runtime_events`
-   ordered by `agent_runs.started_at`, unioned with `session.provider.retired`
-   events by hash and `agent_session_id`; plus DeepAgents checkpoint-table
-   row counts per hashed thread id in the derived checkpoint schema.
+Failover creates isolated attempt state. Each attempt computes its resume input
+and persistence permission from its own adapter. A DeepAgents handle may not
+flow into a Claude fallback, and output from a Claude attempt may not replace a
+DeepAgents provider association. A successful DeepAgents attempt keeps its
+existing persistence behavior.
 
-## Settled requirements (R1-R7)
+The worker lane preserves only the already-live MessageStream. A later worker
+starts fresh. The inline lane has no long-lived stream and every invocation is
+fresh.
 
-Resolved at the requirements gate and binding on every task. They were
-recorded in `.factory/stories/cache-bug/grills/requirements.json` and carried
-only in the plan; a grill flagged their absence here, so they now live in the
-spec that governs the story.
+## Acceptance Criteria
 
-- **R1 — null-safe generation fences.** Every generation fence compares
-  `agent_sessions.reset_at` with `IS NOT DISTINCT FROM`, never plain equality:
-  `reset_at` is nullable, so a never-reset session would match no row under
-  `=`. Proof covers null/null succeeding and null/non-null being rejected.
-- **R2 — one cumulative partial-usage payload.** An errored turn's single
-  final error output carries one cumulative partial-usage payload with the
-  turn's stable usage identifier, and the host records the mark exactly once.
-  No double-write, no omitted mark, no second event shape.
-- **R3 — complete route metadata.** Every executable route declares explicit
-  cache read and write inclusion booleans, the registry validator rejects a
-  route missing either, and the DeepAgents normaliser carries the resolved
-  route. OpenAI and OpenRouter report nonzero cache writes, so "n/a" was
-  wrong.
-- **R4 — reply before release.** `/new` reset returns immutable retired
-  references after commit; the handler replies and then dispatches
-  best-effort cleanup. Orphans from process loss are covered by the operator
-  scan, not by a retry system.
-- **R5 — sanitised errors and event proof.** The host publishes both event
-  types directly through the runtime event exchange (0013) with `sessionId`.
-  A cleanup error is sanitised and never carries a raw external session id.
-  Proof covers publish, query and projection.
-- **R6 — non-hydrating race recovery.** A lost-race re-read uses
-  `hydrateMemory: false` and the existing generation-fenced carry from the
-  compaction-delta path, so decision 0078's exactly-once hydration holds.
-- **R7 — architecture alignment.** `docs/architecture/runtime-components.md`
-  and `canonical-domain-model.md` are aligned with `session-resume.md` as a
-  canon edit inside the task. The pages currently say a cold run restores
-  Gantry memory only, which contradicts the persisted-handle resume this
-  story depends on.
+The three criteria and their `T3A-P1` through `T3A-P3` plan contracts are
+rendered from the protected decomposition below. The implementation must
+satisfy them together: blocking SDK resume without blocking selection/run
+linkage is incomplete, and filtering selection while still accepting Claude
+output handles is also incomplete.
 
-## Acceptance criteria
+## Technical Approach
 
-1. Unit tests: `modelVisibleInputTokens` for an Anthropic usage of 1,000
-   input / 270,000 cache read / 500 cache write is 271,500; for an
-   OpenAI-compatible usage of 1,000 input / 800 cached is 1,000; a
-   mixed-provider usage uses the additive form; billing fields unchanged.
-2. Adapter tests: an errored Claude run and an errored DeepAgents run each
-   surface the usage accumulated before the error.
-3. Repository tests (Postgres): the raise operation keeps the larger value,
-   leaves `metadata_json` untouched, rejects a stale owner, rejects a stale
-   `reset_at` generation, ignores non-resumable rows, rejects invalid values
-   before SQL, and reports whether a row changed; the migration adds the
-   typed column.
-4. Unit tests (host): a usage-bearing errored run raises the mark; a run
-   with no usage does not call the operation.
-5. Unit tests: a session with a mark over the cap is not passed as the resume
-   id; retirement returns the reference; the run proceeds without resume; the
-   replacement handle is persisted; the reply is delivered. A session whose
-   run crosses the cap is retired on the following resume, not mid-run. A
-   `maintenance_compact` row over the cap is not retired. A `ready` row is
-   promoted before evaluation. A lost transition persists no replacement.
-6. Unit test: a session at or under the cap, or with no mark, resumes and
-   still carries the memory block and snapshot. Existing tests pinning that
-   (`group-processing.test.ts` "passes hydrated memory context with provider
-   session resume id", `agent-runner-ipc.test.ts` live-turn persist/resume,
-   `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user
-   message, `deepagents-memory-context.test.ts`) stay green and untouched.
-7. Settings tests: `limits.provider_session_max_input_tokens` parses next to
-   provider entries, defaults to 150,000 when absent, rejects values outside
-   20,000–900,000 with a path-level error, round-trips through export, is
-   applied from a new revision by a current worker, and a worker below the
-   bumped reader version holds its prior revision and alerts.
-8. Postgres integration test (DeepAgents, using the existing
-   `deepagents-checkpoint.postgres.integration.test.ts` harness and its
-   isolated schema fixture): for ceiling, missing-session, fingerprint and
-   `/new` paths, the retired thread's rows are removed from all three tables,
-   `checkpoint_migrations` and other threads' rows remain; a second call is a
-   no-op; a simulated deletion failure leaves the session expired, the reply
-   delivered, and a `session.provider.cleanup_failed` event recorded; a lost
-   retirement transition performs no cleanup.
-9. Unit tests: `session.provider.retired` is emitted with the specified
-   payload and timing per reason, carries `sessionId` or `runId` as stated,
-   and is not dropped by event forwarding.
-10. Scheduled-job tests are untouched and green.
-11. `verify.py` green.
-12. Both operator procedures and the observability recipe exist in
-    `docs/memory/`, and the query runs against the current schema.
+### Capability declaration
 
-## Non-goals
+Add:
 
-- Changing what a turn's briefing contains (0089, 0078) or its limits. A
-  delta snapshot on resume is parked: revisit if retirement alone leaves
-  turns too expensive.
-- A per-model-request context measurement or a model-capacity-aware cap
-  (parked; revisit if the per-run figure proves too coarse).
-- A hard mid-run bound; this rule retires after an observed crossing.
-- Replacing cross-process resume with briefing-only reconstruction.
-- Any shipped migration, cleanup, or lazy-retirement behaviour for
-  pre-existing state (0003, 0112).
-- Cleanup on handle replacement, agent/workspace removal cascades, or
-  compaction failure paths; and any durable cleanup retry system.
-- Fixing the DeepAgents usage normaliser's largest-not-summed billing
-  accounting (separate defect; recorded as a deferral).
+```ts
+type ProviderSessionContinuity = 'process_local' | 'durable_resume';
+```
+
+and a required readonly `providerSessionContinuity` field to
+`AgentExecutionAdapter`. Claude declares `process_local`; DeepAgents declares
+`durable_resume`. Test adapters must declare one explicitly so new adapters
+cannot accidentally inherit durable persistence.
+
+### Admission and repository selection
+
+Resolve the adapter before the turn-context read in live admission. Extend the
+turn-context application input with the capability (or the minimal typed
+selection policy derived from it) and have the Postgres query join/select a
+provider row only for `durable_resume`. The process-local branch still returns
+the canonical agent session and hydrated Gantry state; only provider-session
+fields are absent.
+
+`live-execution.ts` therefore passes `null`/absence to
+`createSessionAgentRun`. A unit/integration seam must assert the call itself,
+not merely inspect a later projection.
+
+### Runner lifecycle and failover
+
+Resolve continuity once per attempt. For `process_local`:
+
+- clear resume provider/external ids before compaction-delta, fingerprint, or
+  ceiling consumers;
+- set provider-session persistence disallowed;
+- omit `sessionId` from runner input;
+- ignore `newSessionId`/provider-session output and never update run provider
+  metadata;
+- keep scheduled-job behavior unchanged.
+
+Do not remove the existing durable-resume branches. DeepAgents keeps ready-row
+promotion, compaction delta replay, fingerprint/ceiling retirement, checkpoint
+resume, and persisted output.
+
+Failover attempt state is constructed fresh for each candidate adapter. Tests
+cover DeepAgents-to-Claude and Claude-to-DeepAgents boundaries so no handle or
+permission boolean is accidentally shared.
+
+### Claude SDK lanes
+
+In the worker query setup, pass `persistSession: false` and no `resume` even if
+an upstream test fixture supplies a session id. In the inline lane, do the same
+and do not surface a new SDK session id as provider-session output. Keep the
+live worker's MessageStream input path intact; do not create an equivalent
+persistent inline stream.
+
+### Projection
+
+The session interaction application service asks the provider-session
+repository only for durable-resume continuity (or applies the same typed
+repository input). `hasProviderResume` and public resume projections must be
+false/absent for stale Claude rows left by an incomplete rollout. This is a
+read-policy fence, not a destructive cleanup.
+
+### Canon
+
+Update `session-resume.md`, `runtime-components.md`,
+`canonical-domain-model.md`, the relevant `docs/SPEC.md` runtime sections, and
+`runner/AGENTS.md` in this PR. They must say that provider continuity is
+capability-aware, Claude resumes only inside its live worker stream, and
+DeepAgents remains durable.
+
+## Decisions
+
+No new decision record. Decision 0163 chooses process-local Claude continuity;
+0018 requires the provider-neutral adapter seam; 0158/0159 retain durable
+ceiling/release behavior; 0078 and 0089 preserve Gantry memory/snapshot
+ownership. The implementation must not reinterpret those decisions as a
+provider-id switch.
+
+Existing TypeScript, Drizzle repository patterns, Vitest, and the hermetic
+agent-e2e harness are the selected tools under decision 0005; no dependency is
+added.
+
+Recurring `contract-partial` tripwire: enumerate every producer and consumer
+of `providerSessionContinuity`. If review finds any selection, linkage,
+lifecycle, persistence, failover, or projection path still bypassing it, stop
+and escalate rather than patching only that site.
+
+## Surface Impact
+
+| Surface | Class | Reason |
+| --- | --- | --- |
+| Runtime behavior | Changed | Claude restarts fresh; live worker continuation and DeepAgents durability remain |
+| API | Changed | Existing session/status responses no longer report resumable Claude state |
+| Data/schema | Unchanged by design | No migration; stale rows are filtered now and removed by T3E |
+| CLI/ops | Unchanged by design | Rollout commands belong to T3E |
+| UI | N-A | No UI work |
+| Docs | Changed | Runtime/session canon changes with behavior |
+| Tests | Changed | Unit/integration plus hermetic restart agent-e2e |
+
+## Task Decomposition
+
+This is one bounded task. Admission, runner guards, SDK setup, failover, and
+projection must land together because any missing consumer reopens a durable
+Claude association. Reconstruction/filesystem lifetime, compaction, release,
+rollout deletion, and HTTP typing are separate tasks with different harnesses.
+
+## Risks
+
+- Filtering after run creation is too late. Assert the repository result and
+  `createSessionAgentRun` input.
+- A provider-name conditional would duplicate adapter policy and fail when a
+  new process-local adapter appears. Audit for ids/literals in changed core
+  code.
+- A shared mutable failover variable can carry a DeepAgents handle into Claude.
+  Construct and assert per-attempt state.
+- Setting `persistSession: false` could accidentally disable the live worker
+  stream. Pin same-process continuation separately from restart behavior.
+- Filtering stale rows only in the public DTO leaves ceiling/delta lifecycle
+  active. Test selection and every lifecycle entry, not just output shape.
+
+## Verify Plan
+
+- Run every required leaf rendered from the protected decomposition.
+- Run `npm run typecheck` and `npm run lint:changed`.
+- Run the relevant unit/integration suites for runner ceiling, live admission,
+  Claude SDK boundary, failover, and session interaction.
+- Run `npm run test:e2e:agent:hermetic`; the restart scenario must show one
+  fresh briefing and no provider-session association, while the live-stream
+  scenario still continues.
+- Run scheduled-job regressions unchanged.
+- Run `python3 factory/scripts/verify.py`.
+- Fail the task if any Claude path selects, attaches, resumes, persists,
+  promotes, delta-replays, retires, or projects a provider session; if any
+  DeepAgents durable behavior changes; or if canon still claims universal
+  provider-session resume.
+
+## Manual Verification
+
+1. Run the focused T3A unit and integration suites and confirm the new
+   process-local and unchanged DeepAgents cases pass.
+2. Run the hermetic agent-e2e scenario that sends a turn, stops/recreates the
+   Claude worker, then sends another turn. Observe a fresh Claude attempt with
+   no resume id or duplicate provider history.
+3. In the same harness, send a follow-up while the first worker remains alive.
+   Observe it use the same live MessageStream.
+4. Seed a stale Claude provider row and fetch session status. Observe no
+   `hasProviderResume` signal and no provider association on the new run.
+5. Run the corresponding DeepAgents restart case. Observe the checkpoint
+   resume and context-ceiling path remain active.
+
+<!-- forge:contract -->
+## Contract (recorded)
+
+Rendered by the harness from the recorded decomposition; edit the decomposition, not this block. It is excluded from the plan's approval and grill digests, so a re-render never stales either.
+
+**Objective.** Add adapter-owned provider-session continuity and enforce it before admission, run linkage, failover, lifecycle, persistence, status, or projection. Claude becomes process-local while the worker's live MessageStream and all DeepAgents durable behavior remain intact.
+
+**Acceptance criteria**
+
+- Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.
+- Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.
+- DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.
+
+**Write scope** (what `stage done` measures the diff against)
+
+- apps/core/src/application/agent-execution
+- apps/core/src/application/sessions
+- apps/core/src/adapters/llm/anthropic-claude-agent
+- apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts
+- apps/core/src/adapters/storage/postgres/repositories
+- apps/core/src/app/bootstrap/live-execution.ts
+- apps/core/src/runtime
+- apps/core/test/unit
+- apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts
+- apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts
+- docs/architecture/session-resume.md
+- docs/architecture/runtime-components.md
+- docs/architecture/canonical-domain-model.md
+- docs/SPEC.md
+- apps/core/src/runner/AGENTS.md
+
+**Required tests** (run by `stage done`)
+
+- `continues a live Claude worker without provider persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runner/agent-runner-ipc.test.ts)
+- `starts a recovered Claude worker without a resume id or persisted handle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `starts every Claude inline attempt without resume or persistence` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `filters a stale process-local row before run creation and lifecycle` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `keeps provider-session state attempt-local across DeepAgents to Claude failover` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/provider-session-continuity.test.ts)
+- `hides stale process-local rows from status and public resume projection` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/application/sessions/session-interaction-module.test.ts)
+- `preserves durable DeepAgents resume and context ceiling behavior` -- `VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts)
+- `restarts Claude without duplicate provider history` -- `VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}` (apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts)
+
+**Verify commands**
+
+- `npm run typecheck`
+- `npm run lint:changed`
+- `npm run test:e2e:agent:hermetic`
+- `python3 factory/scripts/verify.py`
+
+**Review budget.** 30 files / 2600 lines -- The task crosses admission, adapter setup, failover, lifecycle, projection, docs, and focused proof because one capability must fence every provider-session side effect atomically. Reconstruction, SDK filesystem lifetime, compaction, release, rollout cleanup, and the settings API are explicitly split into later tasks.
+<!-- /forge:contract -->
 
 
 ## What to return

@@ -2,7 +2,7 @@
 issue: cache-bug
 title: Bound provider-session context growth across runner restarts
 status: approved
-saved: 2026-09-11T12:45:21+00:00
+saved: 2026-09-18T08:03:39+00:00
 story: cache-bug
 decisions_reviewed:
   - 0000-credential-broker-boundary
@@ -141,554 +141,547 @@ decisions_reviewed:
   - 0158-provider-session-context-ceiling
   - 0159-adapter-session-release-port
   - 0160-physical-column-naming-is-snake-case
+  - 0161-granted-capabilities-must-be-discoverable
+  - 0162-local-bootstrap-host-port-env-exception
+  - 0163-process-local-claude-provider-continuity
 ---
 
-# cache-bug — Retire oversized provider sessions across runner restarts
+# cache-bug — Capability-aware provider-session continuity
 
-Spec: `docs/specs/cache-bug.md` (confirmed, linked; its twelve acceptance
-criteria supersede the intake-time card criteria). Requirements-gate
-resolutions R1–R7 (recorded in `.factory/stories/cache-bug/grills/`) are
-binding here and are mapped to tasks below. Decisions 0158 and 0159 are
-accepted and attested in the frontmatter.
+This plan replaces the earlier universal-resume plan body. The confirmed
+requirements are `docs/specs/cache-bug.md` plus the Claude amendment in
+`docs/specs/process-local-claude-continuity.md`. Decision 0163 controls every
+Claude-specific conflict with decisions 0158/0159; 0158/0159 remain in force
+for adapters that declare durable resume.
 
 ## Problem
 
-Every persistent interactive runner start resumes the stored provider session
-and appends a fresh bounded briefing (0078, 0089). The briefing is bounded;
-the transcript is not: nothing expires a provider session by size, the idle
-timeout only closes runner stdin, and compaction is explicit or at the model's
-context window. A one-word Slack turn read ~270k cached tokens twice. Claude
-sessions grow in model-visible context; DeepAgents sessions grow in LangGraph
-checkpoint rows. No application path deletes DeepAgents checkpoints.
+The old runtime resumes a stored Claude provider session and also sends a new
+bounded Slack briefing after a runner restart. The provider therefore sees the
+old briefing already in its transcript plus the new overlapping briefing. Each
+restart compounds overlap, cached tokens, latency, and SDK transcript files.
+If messages arrive between runners, relying only on the old provider session
+can also miss them; relying on a full new snapshot while resuming duplicates
+them.
+
+The desired outcome is:
+
+Claude continuity ends with the runner process. While one runner is alive,
+follow-up messages continue through its existing in-memory SDK query stream.
+After that runner ends, a later worker or inline run starts Claude without a
+resume id and without persistent SDK transcript state. Gantry sends the
+current bounded channel/thread snapshot, recent scoped session digests,
+durable memory, and active jobs exactly once.
+
+DeepAgents remains a durable-resume adapter. Its checkpoint, 150k context
+ceiling, compaction delta, and provider-session release lifecycle remain
+intact. T1 and T2 are already shipped containment for this durable path and
+are not reverted.
+
+```mermaid
+flowchart LR
+    A[Live runner] -->|follow-up| B[Same in-memory Claude stream]
+    A --> C[Runner stops]
+    C --> D[Delete session-bearing Claude SDK files]
+    D --> E[Later runner starts]
+    E --> F[No Claude resume id]
+    F --> G[One bounded snapshot + digests + memory + active jobs]
+    G --> H[Fresh Claude session]
+
+    I[DeepAgents restart] --> J[Resume durable checkpoint]
+    J --> K[Apply context ceiling and release lifecycle]
+```
 
 ## Scope / Non-goals
 
-In scope: a typed per-session context high-water mark raised after each run;
-a global cap that retires an over-cap session on its next resume through one
-atomic transition that returns the retired reference; a provider-neutral
-`releaseSession` port that DeepAgents implements with `deleteThread`; `/new`
-(active and idle paths) returning retired references and releasing them after
-the reply; two runtime events published best-effort by the host; adapters
-surfacing one cumulative partial-usage payload on error frames; registry
-cache-inclusion booleans and the resolved route on every usage result;
-operator procedures and an executed observability recipe in `docs/memory/`;
-alignment of `docs/architecture/runtime-components.md` and
-`docs/architecture/canonical-domain-model.md` with `session-resume.md`; and a
-core lint gate in `verify.py` and CI.
+- `AgentExecutionAdapter` declares `providerSessionContinuity` as
+  `process_local` or `durable_resume`; core policy branches on this capability,
+  never on a Claude/Anthropic provider id.
+- A `process_local` attempt receives no provider resume input and cannot
+  persist a provider handle, link one to an `agent_run`, promote/replay/retire
+  a provider row, or expose one through `/status`, `hasProviderResume`, or the
+  public session projection.
+- Claude worker and inline SDK calls use `persistSession: false` and omit
+  `resume`. Same-process MessageStream continuation remains unchanged.
+- Fresh reconstruction remains bounded by the existing Slack/channel limits.
+  Late and intervening messages inside that window appear once; older useful
+  state comes from existing durable digests and memory, not a provider
+  transcript.
+- Claude `/compact` resolves to `fresh_checkpoint` before provider locking.
+  The durable compaction task remains the single admission/deduplication
+  owner and returns the existing already-running, ready, or degraded receipt.
+  It creates no Claude maintenance provider session or delta replay.
+- Failover state is attempt-local. A DeepAgents attempt may read/write its
+  checkpoint; a Claude attempt cannot inherit or publish that handle.
+- Normal Claude cleanup deletes only per-run/session-bearing SDK artifacts.
+  Stable config, skills, credentials, and unrelated runtime files remain.
+- A drained rollout operation clears stale Claude provider rows plus both
+  `agent_sessions.latest_provider_session_id` and
+  `agent_runs.provider_session_id`. It preserves DeepAgents provider rows and
+  all DeepAgents checkpoint tables. Database cleanup is transactional and
+  idempotent; filesystem cleanup is explicit and path-scoped.
+- Scheduled jobs do not change.
 
-Non-goals (spec, 0158, 0159): changing the briefing or its limits; a
-per-request measurement seam or model-capacity cap; a hard mid-run bound;
-briefing-only reconstruction; any data migration, cleanup flow or lazy
-retirement for pre-existing sessions (0003, 0112 — the generated schema
-migration that adds the column is the only migration); release on handle
-replacement, agent or workspace removal, the compaction-delta degradation
-path (keeps expiring, uncovered), or compaction maintenance failure paths; a
-cleanup retry system; the DeepAgents largest-not-summed billing defect.
+Non-goals: delta-watermark resume, automatic digest creation on every idle
+close, a lazy startup sweeper, changing Slack snapshot limits, changing
+DeepAgents billing aggregation, or deleting canonical messages/run evidence.
 
 ## Acceptance Criteria
 
-Spec criteria S1–S12 and requirements resolutions R1–R7; each names the task
-that serves it.
-
-- S1 (T1) derivation: Anthropic 1,000 / 270,000 / 500 → 271,500;
-  OpenAI-compatible 1,000 input / 800 cached → 1,000; mixed route additive;
-  billing fields unchanged.
-- S2 (T1) an errored Claude run and an errored DeepAgents run each surface
-  the usage accumulated before the error.
-- S3 (T1) repository: raise keeps the larger value, leaves `metadata_json`
-  untouched, rejects a stale owner, rejects a stale `reset_at` generation,
-  ignores non-resumable rows, rejects invalid values before SQL, reports
-  whether a row changed; the migration adds the typed column.
-- S4 (T2) a usage-bearing errored run raises the mark; a run with no usage
-  does not call the operation.
-- S5 (T2) over-cap session is not passed as the resume id; retirement returns
-  the reference; the run proceeds fresh; the replacement handle is persisted;
-  the reply is delivered; a crossing run is retired on the following resume,
-  not mid-run; a `maintenance_compact` row is not retired; a `ready` row is
-  promoted first; a lost transition persists no replacement.
-- S6 (T2) under-cap or unmarked sessions resume with the memory block and the
-  snapshot; the four pinned tests (`group-processing.test.ts` "passes
-  hydrated memory context with provider session resume id",
-  `agent-runner-ipc.test.ts` live-turn persist/resume,
-  `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user message,
-  `deepagents-memory-context.test.ts`) stay green and untouched.
-- S7 (T2) `limits.provider_session_max_input_tokens` parses next to provider
-  entries, defaults to 150,000, rejects outside 20,000–900,000 with a
-  path-level error, round-trips through export and the revision document, is
-  applied from a new revision by a current worker, and a worker below the
-  bumped reader version holds its prior revision and alerts.
-- S8 (T3) DeepAgents Postgres integration: for ceiling, missing-session,
-  fingerprint and `/new`, the retired thread's rows leave all three tables,
-  `checkpoint_migrations` and other threads remain, a second call is a no-op,
-  a simulated failure leaves the session expired, the reply delivered and
-  `session.provider.cleanup_failed` recorded, and a lost transition performs
-  no cleanup.
-- S9 (T2 for the event types and the ceiling, fingerprint and
-  missing-session publications; T3 for the `/new` publication, which needs
-  both `/new` handlers) `session.provider.retired` is emitted with the
-  specified discriminated payload and timing per reason, carries `sessionId`
-  or `runId` as stated, and is not dropped. Split deliberately: a single
-  owner could not finish it, because the event types and the handlers sit in
-  different tasks.
-- S10 (T1, T2, T3) scheduled-job tests untouched and green.
-- S11 (all) `verify.py` green, now including the diff-scoped
-  `npm run lint:changed`.
-- S12 (T2) operator procedures and recipe in `docs/memory/`; the query is
-  executed by a Postgres test against the current schema.
-- R1 (T1) null-safe generation fence: null/null succeeds, null vs non-null
-  rejects, on both raise and retire.
-- R2 (T1) one cumulative partial-usage payload with the stable usage
-  identifier on the error frame; the host records the mark exactly once.
-- R3 (T1) every executable route declares both cache-inclusion booleans; a
-  route missing one fails registry validation; nonzero OpenAI/OpenRouter
-  cache-write usage yields `inputTokens` unchanged; DeepAgents usage carries
-  its resolved route.
-- R4 (T1 return type, T3 wiring) `resetScope` returns immutable retired
-  references after commit; both `/new` handlers reply before release.
-- R5 (T2 events, T3 sanitiser) events carry app and actor context, are
-  best-effort, and have publish, query and projection tests; the cleanup
-  error contains no external session id, thread id or connection string.
-- R6 (T2) a lost retirement race re-reads with `hydrateMemory: false` and
-  reuses the hydrated block when the generation matches.
-- R7 (T2) `runtime-components.md` and `canonical-domain-model.md` no longer
-  state that fresh runs restore memory only.
+- P1: the worker lane continues through its live in-process MessageStream. A
+  later worker and every inline attempt start fresh with no provider handle,
+  run linkage, promotion, delta replay, retirement, or public resume signal.
+- P2: a fresh worker and inline run each receive the bounded current snapshot,
+  recent scoped digests, active durable memory, and active jobs exactly once;
+  late/intervening in-window messages are present and old provider transcript
+  content is absent. Canonical runs and runtime events remain stored as
+  evidence but are not replayed into the prompt.
+- P3: every failover attempt applies only its active adapter's continuity
+  capability to resume input and result persistence.
+- P4: Claude compaction selects before locking, deduplicates through the
+  durable task, and preserves already-running/ready/degraded receipts without
+  creating provider maintenance state.
+- P5: stale Claude rows are ignored by lifecycle and projections even before
+  rollout cleanup.
+- P6: Claude session-bearing SDK files are removed at runner teardown while
+  stable materialized assets remain.
+- P7: DeepAgents durable resume, ceiling, provider compaction, checkpoints,
+  and idempotent `releaseSession` behavior remain green.
+- P8: retired references carry `agentSessionId`; active and idle `/new` reply
+  first, then release after the complete primary-plus-fallback delivery attempt
+  settles in `finally`; failures are sanitized and observable.
+- P9: the drained cleanup removes only stale Claude associations and legacy
+  Claude session directories, is safe to rerun, and proves DeepAgents and
+  canonical evidence survive.
+- P10: GET, PUT, and POST `/v1/settings/desired-state` have shared runtime-
+  validated contracts and OpenAPI schemas, including the cap under `limits`.
+- P11: focused unit/Postgres tests, the hermetic agent-e2e restart scenario,
+  scheduled-job regression tests, and `factory/scripts/verify.py` pass.
 
 ## Technical Approach
 
-**Measurement (0158 §2).** Prefer `output.contextUsage.totalTokens`
-(`RuntimeContextUsageSnapshot`, produced by the Claude runner via
-`readContextUsage` and by DeepAgents via `terminalContextUsage`). Fall back to
-`modelVisibleInputTokens(usage)` in `apps/core/src/shared/model-usage.ts`,
-driven by two new required booleans on every `cacheSupport.prompt` registry
-entry (`model-provider-registry.ts`, `model-provider-registry-openai-compatible.ts`):
-Anthropic false/false, OpenAI and OpenRouter true/true, no-cache routes
-true/true; the registry validator refuses an executable route missing either.
-The DeepAgents normaliser (`runner/stream-normalizer.ts`) carries
-`provider`/`modelRoute` on the normalised usage. T1 sets BOTH from
-`input.provider`, so cache policy resolves at provider granularity through the
-documented `usage.modelRoute ?? usage.provider` fallback; passing the genuinely
-resolved registry route needs the host-to-runner input contract widened and is
-**T2's** work (deferral D-0083), not T1's.
+### Capability and lifecycle policy
 
-Partial usage on error: `DeepAgentPartialUsage` (in
-`runner/stream-normalizer-partial-usage.ts`) IS the thrown value — there is no
-separate wrapper type — carrying the accumulated usage, the context-usage
-snapshot and the turn's `usageEventId`; `deep-agent-runner.ts` propagates it
-and `runner/index.ts` writes it as `usage` on the single error frame. A
-close-driven abort is the exception: it keeps its own identity and the partial
-usage rides on it as a non-enumerable property, so a graceful stop never
-becomes an error frame. Tool-permission denials and denial-driven aborts carry
-usage the same way. Both inline lanes (`deepagents-langchain/inline-lane` and
-`anthropic-claude-agent/inline-lane`) emit one terminal error output carrying
-the accumulated usage. Claude: the `result` error branch in
-`query-loop-phases-messages.ts` normalises the message's usage before
-throwing and the runner's error frame carries it.
+Add the capability to
+`apps/core/src/application/agent-execution/agent-execution-adapter.ts`.
+DeepAgents declares `durable_resume`; Claude declares `process_local`.
+`live-execution.ts`, the turn-context port/service/repository,
+`group-agent-runner.ts`, `group-agent-runner-context-ceiling.ts`,
+`group-agent-runner-compaction-delta.ts`, and failover attempt state consult
+the capability before any resume selection, provider-row transition, run
+attachment, or result persistence. Selection excludes process-local rows
+before `live-execution.ts` creates the run, so there is never a Claude
+`providerSessionId` to attach. Capability is resolved once per attempt.
+The default for any existing/test adapter is explicit `durable_resume`; no
+implicit provider-name fallback is introduced.
 
-**Storage (0158 §1, 0017).** Drizzle schema adds
-`contextHighWaterMark: integer('context_high_water_mark')` (nullable — the
-physical name is snake_case per decision 0160, which records this repository's
-deliberate deviation from the camelCase standard) to
-`providerSessionsPostgres`; migration generated with
-`npm run db:migrations:generate -- --name provider_session_context_high_water_mark`
-(never hand-written; `db:migrations:check` stays clean). Repository helper
-`raiseProviderSessionContextHighWaterMark` runs one `UPDATE provider_sessions
-SET context_high_water_mark = GREATEST(COALESCE(context_high_water_mark,0), $v),
-updated_at = now() FROM agent_sessions WHERE provider_sessions.id = $id AND
-provider_sessions.agent_session_id = $sid AND agent_sessions.id = $sid AND
-provider_sessions.status IN (resumable) AND agent_sessions.reset_at IS NOT
-DISTINCT FROM $gen` and returns `rowCount > 0`. A typed domain error
-`ProviderSessionMeasurementError` rejects non-integer or negative values
-before SQL. `providerSessionContext` returns `contextHighWaterMark`.
+`application/sessions/session-interaction-module.ts` and its repository input
+accept the continuity filter so stale process-local rows never become public
+resume state. Lifecycle filtering happens before projection, not by deleting
+fields after the fact.
 
-**Retirement (0158 §3).** A NEW `retireProviderSession` joins the existing
-`expireProviderSession`: `UPDATE ... SET status='expired', updated_at=now()
-FROM agent_sessions WHERE id AND agent_session_id AND provider AND
-external_session_id AND status='active' AND reset_at IS NOT DISTINCT FROM
-$gen RETURNING id, external_session_id, provider`, returning the retired
-reference or `undefined`. THREE callers switch to it: fingerprint
-(`group-agent-runner.ts:391`), missing-session (`:503`), and the
-`canonical-session-ops-service.ts` facade with its
-`canonical-ops-repo.postgres.ts` twin. The compaction-delta degradation path
-(`group-agent-runner-compaction-delta.ts:104`) does NOT switch: it operates on
-a `ready` row and keeps calling `expireProviderSession` unchanged, performing
-no release and emitting no retirement event, per decision 0159 §4. New ceiling preflight in
-`group-agent-runner.ts` after `prepareCompactionDeltaReplay` and the
-fingerprint check: if `turnContext.contextHighWaterMark > cap` and the row is
-`active`, call `retireProviderSession`; on success clear the resume ids,
-publish `session.provider.retired` (reason `ceiling`, `sessionId =
-agentSessionId`, no run id), and enqueue the release for after the reply; on
-a lost transition re-read via the existing `fencedFinalContext` pattern
-(`hydrateMemory: false`, carry the block when agent session id and
-null-normalised `resetAt` match) and persist no replacement. `ready`
-promotion already precedes this inside `getAgentTurnContext`;
-`maintenance_compact` is excluded by the `status='active'` predicate. After
-each run, in `wrappedOnOutput` beside `persistProviderSessionFromOutput`,
-compute the observed value and call the raise operation when a measurement
-exists, including on `status: 'error'` outputs that carry usage.
+### Claude execution and reconstruction
 
-**Setting (0158 §3, 0025).** `parseLimitsSettings` accepts the scalar key
-`provider_session_max_input_tokens` beside provider mappings;
-`RuntimeLimitSettings` gains `providerSessionMaxInputTokens: number`;
-`runtime-settings-defaults.ts` supplies 150,000; validation is 20,000–900,000
-with a path-level error; `settings-revision-document.ts` serialises and
-re-hydrates it under `limits`; `desired-state-current-export.ts` and the YAML
-renderer emit it; `CURRENT_SETTINGS_READER_VERSION` in
-`settings-fleet-import.ts` goes 15 → 16 — the importer already stamps every
-subsequent revision with the current reader version, so no per-key
-conditional is built; older workers hold their last revision and alert
-(0025 skew contract). The runner reads the cap through the settings accessor
-pattern used by `createConfiguredRunTokenBudget`.
+In the worker lane
+`adapters/llm/anthropic-claude-agent/execution-adapter.ts` and
+`runner/query-loop-phases-setup.ts`, and in
+`adapters/llm/anthropic-claude-agent/inline-lane/index.ts`, set
+`persistSession: false` and omit `resume`. The live runner still writes
+follow-ups to its current MessageStream.
 
-**Release port (0159).** `AgentExecutionAdapter.releaseSession?(input)` in
-`application/agent-execution/agent-execution-adapter.ts`; DeepAgents
-`execution-adapter.ts` implements it with `deepAgentsCheckpointSchema` and a
-short-lived `PostgresSaver` calling `deleteThread`. T3 owns the complete
-release coordinator `apps/core/src/runtime/provider-session-release.ts`:
-resolve the adapter via `resolveAgentExecutionAdapter` by
-`executionProviderId`, run after the turn's final reply path has unblocked
-(queued from ceiling and fingerprint preflight and from the missing-session
-retry, drained once at the end of `runAgent`), sanitise the error (strip the
-external session id, thread id and any `postgres://` URL), and publish
-`session.provider.cleanup_failed` best-effort. `resetScope` (T1) returns the
-retired references selected `FOR UPDATE` before delete and returned after
-commit; `canonical-session-ops-service.ts` and `app.clearSessionForChatJid`
-propagate them; both `/new` handlers — idle in `session/session-commands.ts`
-and active in `app/bootstrap/runtime-services-active-new.ts` — send their
-reply, then call the coordinator (T3).
+The existing group-processing/runner context builder remains Gantry's source
+of truth for a fresh start. Tests pin the composition: bounded channel/thread
+snapshot, latest scoped session digests, durable memory, and active jobs. No
+new digest is generated merely because a runner idles out.
 
-**Events (0013).** Register `SESSION_PROVIDER_RETIRED:
-'session.provider.retired'` and `SESSION_PROVIDER_CLEANUP_FAILED:
-'session.provider.cleanup_failed'` in `domain/events/runtime-event-types.ts`
-with typed payloads in `domain/events/events.ts`; owner: the runtime
-(group-agent-runner and the release coordinator). Publish through
-`deps.publishRuntimeEvent` directly with `appId`, `actor` (the runtime
-principal used by existing runner events), `sessionId`, and `runId` when
-applicable; publication is best-effort and never suppresses the reply.
-Tests cover publish, query (`runtime_events` filter by type and session) and
-projection (the run listing consumers ignore the new family cleanly).
+`claude-config-materializer.ts` uses two cleanup boundaries inside the
+decision-0010 temporary run directory. Inner attempt/session teardown removes
+only session-bearing SDK artifacts while config, skills, and credentials stay
+available for the remainder of that run. Final run teardown removes the whole
+temporary run directory, including those stable-for-run assets, exactly as
+decision 0010 requires. Tests use sentinel config/skill/credential/unrelated
+files to prove the inner boundary preserves them and the final boundary
+removes the run directory.
 
-Hash: `createHash('sha256').update(externalSessionId).digest('hex')` — the RAW
-EXTERNAL session id, never the internal `provider_sessions.id`. The documented
-operator SQL joins on the hash of the external id, so hashing the internal id
-would produce a value that silently matches nothing.
+### Compaction
 
-Publication is best-effort and never suppresses the reply, but it must never
-be the only record: when publishing `session.provider.cleanup_failed` itself
-fails, the coordinator emits a structured error log carrying the same hashed
-external session id and the sanitised cause, so a checkpoint orphaned by a
-double failure still leaves evidence for the operator scan. Swallowing both
-would violate the no-swallowed-errors and structured-logging rules
-(`constitution/07-exception-handling.md`, `05-logging-and-observability.md`).
-A test drives the publication failure and asserts the log.
+`session/session-compaction-command.ts` resolves the adapter capability before
+obtaining a provider-session lock. `process_local` selects
+`fresh_checkpoint`; `durable_resume` keeps provider compaction and delta
+replay. `session/session-commands.ts` and
+`runtime/group-session-command-state.ts` preserve the current durable task
+admission key and its concurrent/already-running, ready, and degraded
+receipts. No Claude provider row is created by maintenance.
 
-**Quality gate.** Core ESLint exists (`npm run lint`) but neither `verify.py`
-(`.envrc` `FACTORY_STRUCTURAL_CMD`) nor CI runs it. T1 adds a diff-scoped
-`npm run lint:changed` — ESLint over the TypeScript files changed against the
-merge-base with origin/main — to `FACTORY_STRUCTURAL_CMD` and as the BLOCKING
-CI check step, while full `npm run lint` runs as an advisory
-continue-on-error CI step. Gating on full lint would fail every branch on the
-82 pre-existing errors, so the diff-scoped gate is what blocks and the debt
-is a recorded deferral.
+### Durable release and `/new`
 
-**Docs.** `docs/memory/provider-session-ceiling-operations.md` carries the
-pre-deploy reset (drain, stop workers, select interactive sessions by
-`agent_sessions.job_id IS NULL AND provider_sessions.status IN (resumable)`,
-delete their rows from the three checkpoint tables — never
-`checkpoint_migrations` — delete the provider-session rows, verify zero,
-deploy; stop condition stated), the orphan scan, and the observability SQL;
-a Postgres test executes THE SQL EXTRACTED FROM THE DOCUMENT (or from a
-shared SQL artifact the document includes), never a copy pasted into the
-test — a duplicated query stays green while the operator-facing recipe
-drifts, which is the failure this proof exists to catch. `runtime-components.md` and
-`canonical-domain-model.md` are aligned with `session-resume.md`: a run with
-no provider handle is memory-only; a live run with a trusted stored handle
-may resume it and may be retired by 0158.
+Widen `RetiredProviderSessionReference` in
+`domain/sessions/provider-session-measurement.ts` and both SQL return paths in
+`canonical-session-repository-context-mark.postgres.ts` to include
+`agentSessionId`. Propagate it through the ops port/facades without a second
+lookup.
 
-Rejected simpler shape: a ceiling on `totalBillableInputTokens` (subtracts
-cache reads; never fires on the reported case). Rejected larger shapes are
-recorded in 0158 and 0159.
+Add optional `releaseSession` to the execution adapter. DeepAgents implements
+it through `PostgresSaver.deleteThread`; Claude has no durable release work.
+`runtime/provider-session-release.ts` owns idempotent adapter dispatch,
+sanitization, cleanup-failed event publication, and structured fallback
+logging.
+
+Change the idle `clearCurrentSession` contract and supplier/handler plumbing
+to return retired references. The active and idle `/new` paths enqueue those
+references, deliver the complete primary/fallback response, and drain exactly
+once from `group-processing.ts` in `finally` after delivery settles. Nothing
+drains at the end of `runAgent`.
+
+### Rollout and documentation
+
+`docs/memory/provider-session-ceiling-operations.md` owns executable,
+provider-scoped SQL for a drained deployment: stop workers, identify only
+Claude execution-provider rows, clear both pointers, delete those provider
+rows, verify none remain, and verify DeepAgents/checkpoint counts are
+unchanged. The Postgres test executes SQL extracted from the document/shared
+artifact. Legacy filesystem paths are enumerated and validated before removal;
+rollback restarts Claude fresh and never reconstructs deleted provider state.
+
+Reconcile `docs/architecture/session-resume.md`,
+`docs/architecture/runtime-components.md`,
+`docs/architecture/canonical-domain-model.md`, `docs/SPEC.md`, and
+`apps/core/src/runner/AGENTS.md` to the same capability-aware contract.
+
+### Desired-state HTTP contract
+
+Add shared Zod envelope DTOs in `packages/contracts/src/settings/index.ts`.
+`SettingsDocumentSchema` remains `record<string, unknown>` by design: the core
+runtime settings parser is the single full-document authority, and duplicating
+that large schema in the transport package would create a second validator.
+The boundary is no longer `unknown`; it is a parsed envelope containing a
+record-shaped document that is then passed to the authoritative parser:
+
+- write request for both PUT and POST: required `settings` document, optional
+  integer-or-null `expectedRevision`, optional string-or-null `note`;
+- write success: `{revision: integer}`;
+- GET empty state: `{revision: 0, settings: null, updatedAt: null}`;
+- GET configured state: revision, minReaderVersion, typed settings document,
+  createdBy, nullable note, and updatedAt;
+- existing standard 400/409 error envelopes remain unchanged.
+
+The route parses the shared request schema before the runtime settings parser;
+the latter remains authoritative for document-path validation. Register GET,
+PUT, and POST with matching OpenAPI schemas. No method is removed.
 
 ## Decisions
 
-- `docs/decisions/0158-provider-session-context-ceiling.md` (accepted) — the
-  ceiling rule, metric preference, typed column, global setting, no data
-  migration.
-- `docs/decisions/0159-adapter-session-release-port.md` (accepted) —
-  provider-neutral release port, `/new` returning references, covered and
-  uncovered paths including the compaction-delta degradation path.
-- `docs/decisions/0160-physical-column-naming-is-snake-case.md` (accepted) —
-  physical columns are snake_case, deviating deliberately from the camelCase
-  standard; recorded so `context_high_water_mark` is a documented choice
-  rather than an unexplained divergence.
+- 0158 remains the measurement/ceiling authority for `durable_resume` only.
+- 0159 remains the release authority and is amended by the four-field retired
+  reference already recorded in that decision.
+- 0160 keeps the shipped snake_case physical column.
+- 0161 is unaffected: this work adds no granted capability; the adapter
+  continuity declaration is internal execution metadata, not a discoverable
+  permission/tool.
+- 0162 is unaffected: this work adds no host/port/environment exception.
+- 0163 is the governing Claude continuity decision.
+- Decision 0005 already selects Node/TypeScript, Vitest, and the current
+  Postgres stack. The rollout helper uses those installed tools; no new
+  framework, dependency, or parallel validation authority is introduced.
+- D-0087 is fulfilled here rather than in a separate CACHE-2 story: the user
+  explicitly folded fresh Claude restart behavior into active `cache-bug`.
+- D-0089 is resolved by P10 and T4.
+- D-0090 is resolved by the post-delivery `finally` boundary in T3D.
+- D-0091 is resolved by the four-field reference in T3D.
+- D-0086 (per-request/model-relative ceiling) and D-0088 (DeepAgents billing
+  aggregation) remain open and out of scope.
 
-Tooling: no new packages. Drizzle migrations via `db:migrations:generate`,
-Vitest for unit and Postgres integration tests, the existing
-`deepagents-checkpoint.postgres.integration.test.ts` harness, ESLint already
-configured — all installed and the only fit for this repo.
+Recurring `contract-partial` tripwire: every changed contract in this plan
+must enumerate and test all producers and consumers (continuity capability,
+retired reference, compaction receipt, desired-state envelope). If review
+again finds one side updated without the other, stop the task and escalate
+under WORKFLOW.md Recurring Findings instead of applying another local patch.
 
 ## Surface Impact
 
-| Surface | Class | Note |
+| Surface | Class | Owner |
 | --- | --- | --- |
-| Runtime behaviour | Changed | over-cap sessions retire on next resume; DeepAgents retired threads released after reply; both `/new` paths release |
-| API | Changed | no new route, but `limits.provider_session_max_input_tokens` changes the typed JSON that `/v1/settings/desired-state` ACCEPTS and RETURNS, so the public payload shape moves; it rides the existing desired-state CRUD and the `limits` revision document |
-| Data/schema | Changed | `provider_sessions.context_high_water_mark` (generated migration); `resetScope` return type; `retireProviderSession` return type |
-| CLI/ops | Changed | new `limits.provider_session_max_input_tokens` key with defaults/export; reader version 16; operator procedures in docs/memory; `npm run lint:changed` blocking in verify and CI, full lint advisory |
-| UI | N-A | no console surface |
-| Docs | Changed | docs/memory procedures + executed recipe; `runtime-components.md` and `canonical-domain-model.md` aligned |
-| Tests | Changed | unit, repository, settings, event and Postgres integration tests per task; four pinned tests untouched |
-| Deferred | Recorded | D-0086 per-request measurement seam and model-capacity cap; D-0087 delta snapshot on resume; D-0088 DeepAgents largest-not-summed billing. Each carries its own trigger in `plans/deferrals.md` — recorded now rather than at story close, so nothing depends on a future closeout action |
+| Runtime behavior | Changed | T3A/T3B/T3C/T3D: capability-aware admission, fresh Claude attempts, compaction, and post-delivery release |
+| API | Changed | T3A removes stale Claude resume signals; T4 types/documents desired-state GET/PUT/POST |
+| Data/schema | Changed | T3D widens the retired reference in code/queries; T3E removes stale Claude associations without a new schema migration |
+| CLI/ops | Changed | T3E adds dry-run/apply legacy-session cleanup and drained SQL procedure |
+| UI | N-A | No screen, component, styling, or motion change |
+| Docs | Changed | Each runtime task updates its governing canon in the same PR; T3E owns rollout operations |
+| Tests | Changed | Each task carries focused unit/integration proof; every runtime-behavior PR carries its own agent-e2e delta or a concrete non-agent justification |
 
 ## Task Decomposition
 
-1. `cache-bug-T1` — Measurement, storage, and the quality gate.
-   `user_facing: false`. Registry booleans + validator;
-   `modelVisibleInputTokens`; DeepAgents normaliser receives and carries the
-   resolved route; typed partial-usage carrier through
-   `stream-normalizer → deep-agent-runner → index`; Claude error-branch usage;
-   schema column + generated migration; `raiseProviderSessionContextHighWaterMark`
-   with `ProviderSessionMeasurementError`; `retireProviderSession` returning
-   the reference with THREE callers switched (fingerprint, missing-session,
-   ops-service facade and its `canonical-ops-repo.postgres.ts` twin) while the
-   compaction-delta path keeps `expireProviderSession` unchanged (0159 §4 — it
-   operates on a `ready` row, which the new helper's `active` predicate would
-   not match); `resetScope` returning references
-   through `canonical-session-ops-service.ts` and `clearSessionForChatJid`;
-   turn-context projection; `npm run lint:changed` in `.envrc` and CI. Serves S1, S2,
-   S3, S10, S11, R1, R2, R3, R4 (return type). Write scope:
-   `apps/core/src/shared/model-usage.ts`,
-   `apps/core/src/shared/model-provider-registry*.ts`,
-   `apps/core/src/adapters/llm/deepagents-langchain/runner/{stream-normalizer,deep-agent-runner,index}.ts`,
-   `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-messages.ts`,
-   `apps/core/src/adapters/storage/postgres/schema/sessions.ts` + `migrations/`,
-   `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository*.ts`,
-   `apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts`,
-   `apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts`,
-   `apps/core/src/runtime/group-agent-runner.ts` (the fingerprint and
-   missing-session callers), `apps/core/src/app/bootstrap/runtime-app.ts` and
-   `runtime-services-active-new.ts` (retired-reference propagation through
-   `clearSessionForChatJid`), `apps/core/src/domain/sessions/provider-session-measurement.ts`,
-   `apps/core/src/adapters/llm/deepagents-langchain/runner/{stream-normalizer-partial-usage,stream-normalizer-usage}.ts`,
-   `apps/core/src/adapters/llm/deepagents-langchain/inline-lane/` and
-   `apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/`,
-   `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-failure.exception.ts`,
-   `apps/core/src/domain/repositories/ops-repo.ts`, `package.json` (the
-   `lint:changed` script), `.envrc`, `.github/workflows/ci.yml`, tests.
-   NOT in scope: `group-agent-runner-compaction-delta.ts` — that call site is
-   deliberately unchanged.
-   reviewer_focus: types, constants, domain error, data-access, mapping in
-   their own files; one SQL statement per operation; no JSONB for the mark;
-   null-safe fences; validation before SQL; the DeepAgents partial-usage
-   carrier is a typed value (`DeepAgentPartialUsage`) thrown directly, while
-   Claude's is a typed `Error` subclass (`QueryFailure` in
-   `runner/query-failure.exception.ts`) — both carry usage as declared fields,
-   neither bolts ad-hoc properties onto a bare `Error`.
-2. `cache-bug-T2` — Ceiling policy, the cap setting, and event types.
-   `user_facing: false`. Depends on T1. Serves S4, S5, S6, S7, S10, S12,
-   R6, and the event-type half of S9.
+T1 and T2 are already merged and remain recorded as done. One new backend
+task cannot fit a bounded implement/verify/review/fix session: the first plan
+grill demonstrated that combining admission, two SDK lanes, reconstruction,
+compaction concurrency, Postgres checkpoint deletion, delivery ordering,
+rollout cleanup, and a public HTTP contract was not reviewable. The split
+below is forced by those independently falsifiable contracts and their large,
+non-overlapping test harnesses—not by file count. Dependencies name only
+consumed behavior; independent tasks wait for normal one-PR-at-a-time human
+merging without false DAG edges.
 
-   Limits parser, types, defaults, revision document, export and YAML
-   renderer with reader version 16. Ceiling preflight and post-run raise in
-   `group-agent-runner.ts`: the preflight sits AFTER
-   `prepareCompactionDeltaReplay` and the fingerprint check so a `ready` row
-   is promoted first, and evaluates the mark on the selected row only.
+### cache-bug-T3A — Capability-aware continuity and Claude execution
 
-   THE OVERFLOW CLAMP (verified gap, and T2 owns it because it owns the
-   measurement path): `provider_sessions.context_high_water_mark` is a
-   Postgres `integer` (`schema/sessions.ts:89` and the merged migration),
-   while `assertProviderSessionContextHighWaterMark`
-   (`domain/sessions/provider-session-measurement.ts:16`) validates only
-   "non-negative integer". An observation above 2,147,483,647 therefore
-   reaches SQL and fails, leaving an over-cap session unmarked and resumable
-   — the exact outcome the ceiling exists to prevent. T2 clamps the stored
-   value at 2,147,483,647, the COLUMN's limit, with a unit test at the clamp
-   boundary. T1 is sealed and cannot carry this.
+Dependencies: T2. `user_facing: false`.
 
-   The clamp must NOT be tied to the cap setting's maximum. An earlier draft
-   used 900,001, one above the largest configurable cap (20,000–900,000),
-   which silently coupled a policy range to a storage limit: a real mark can
-   exceed 900,001 on a ≈1M-context model, and widening the cap range past
-   900,000 would leave a clipped mark failing to exceed the cap — ending
-   retirement for exactly the sessions it targets, undetectably. The
-   reviewer checks that the clamp constant derives from the column type, not
-   from the limits parser's bounds.
+Owns P1, P3, P5 and the execution half of P7. Add the adapter capability;
+make Claude worker/inline calls process-local; make selection, persistence,
+run attachment, failover, ceiling/delta lifecycle, status, and public resume
+projection capability-aware. Preserve live MessageStream continuation and
+durable DeepAgents behavior.
 
-   R6: on a LOST ceiling transition, re-read the turn context with
-   `hydrateMemory: false` and reuse the carried memory block ONLY when the
-   generation still matches; on a mismatch, discard the carried block and
-   rehydrate, because decision 0078's exactly-once guarantee is per turn and
-   a mismatch means a concurrent reset. Regression coverage for BOTH
-   branches — reusing on match and rehydrating on mismatch — since an
-   implementation that only handles the match branch would leak a stale
-   session's memory.
+Write scope:
 
-   Event TYPES and non-`/new` publication: register both types with typed
-   payloads, discriminated on `reason` so `contextHighWaterMark` and `cap`
-   exist only for `reason = ceiling`. Making that discrimination
-   compile-time safe requires changing the publish contract:
-   `RuntimeEventPublishInput` carries `payload: unknown`
-   (`domain/events/events.ts:76`), so standalone interfaces in `events.ts`
-   bind nothing. Either narrow the publish input for these families or
-   publish through a typed helper that does; the reviewer checks that a wrong
-   payload for a `reason` fails to compile. No event family in this
-   repository carries a `version` field today, so these follow the existing
-   convention; if canon requires versioning, that deviation gets its own
-   decision rather than a one-off versioned family here.
+- `apps/core/src/application/agent-execution/agent-execution-adapter.ts`
+- `apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts`
+- `apps/core/src/adapters/llm/anthropic-claude-agent/inline-lane/index.ts`
+- `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts`
+- `apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts`
+- `apps/core/src/runtime/group-agent-runner*.ts`
+- failover attempt-state modules under `apps/core/src/runtime/`
+- `apps/core/src/app/bootstrap/live-execution.ts`
+- the canonical turn-context application port/service and selecting Postgres
+  repository under `apps/core/src/application/sessions/` and
+  `apps/core/src/adapters/storage/postgres/repositories/`
+- `apps/core/src/application/sessions/session-interaction-module.ts`
+- `docs/architecture/session-resume.md`
+- `docs/architecture/runtime-components.md`
+- `docs/architecture/canonical-domain-model.md`
+- the capability/failover sections of `docs/SPEC.md` and
+  `apps/core/src/runner/AGENTS.md`
+- one hermetic agent-e2e restart scenario under `apps/core/test/agent-e2e/`
+- corresponding unit/integration tests
 
-   T2 publishes ceiling, fingerprint and missing-session events. It does NOT
-   publish the `/new` event — T3 owns both `/new` handlers.
+Completion checks: Claude restart supplies no resume id and records no handle;
+same-process continuation passes; process-local rows never enter lifecycle or
+projection; failover is attempt-local; DeepAgents resume/ceiling tests remain
+green; `npm run test:e2e:agent:hermetic` proves the restart has no duplicate
+briefing; the governing docs match the shipped behavior.
 
-   `docs/memory` procedures and the executed observability recipe, plus the
-   architecture alignment already applied to `runtime-components.md` extended
-   to `canonical-domain-model.md` (R7).
+### cache-bug-T3B — Fresh reconstruction and scoped SDK cleanup
 
-   Write scope:
-   `apps/core/src/config/settings/{runtime-settings-limits-parser,runtime-settings-types,runtime-settings-defaults,settings-revision-document,settings-fleet-import,desired-state-current-export}.ts`
-   and the YAML renderer, `apps/core/src/runtime/group-agent-runner.ts`,
-   `apps/core/src/domain/sessions/provider-session-measurement.ts` (the
-   clamp), `apps/core/src/domain/events/{runtime-event-types,events}.ts`,
-   `docs/memory/provider-session-ceiling-operations.md`,
-   `docs/architecture/canonical-domain-model.md`, tests.
-   NOT in scope: the resolved model route. It is already correct — the host
-   projects `effectiveModelEntry.modelRoute.id` into
-   `GANTRY_DEEPAGENTS_MODEL_PROVIDER` (`execution-adapter.ts:134`), the
-   runner reads it (`runner/index.ts:58`) and passes it as `input.provider`
-   (`:143`), so `usage.modelRoute` already carries the resolved route.
-   Deferral D-0083 asserted otherwise and is withdrawn; see lesson 157.
-   reviewer_focus: policy in a thin coordinator; cap read once per turn; the
-   clamp is at the domain boundary, not in SQL; both R6 branches proven;
-   event payload discrimination that actually fails to compile when wrong.
+Dependencies: T3A. `user_facing: false`; this is backend runtime behavior, so
+functional evidence is required by the acceptance contract without invoking
+UI-design skills.
 
-3. `cache-bug-T3` — Release port, cleanup coordinator, and the `/new` paths.
-   `user_facing: false`. Depends on T2. Serves S8, S10, R4, R5, and the
-   `/new` half of S9.
+Owns P2 and P6. Pin the fresh worker and inline reconstruction package,
+including late/intervening messages exactly once, and make Claude SDK
+session-bearing storage per-run and removable without touching stable assets.
+Split force: context-composition fixtures plus two-stage filesystem lifetime
+proof would push T3A beyond one reviewable session after its admission,
+failover, projection, and agent-e2e obligations.
 
-   `releaseSession` on the adapter contract; the DeepAgents implementation
-   via `deleteThread`; `provider-session-release.ts` coordinator with
-   adapter-registry resolution, the error sanitiser, and `cleanup_failed`
-   publication. When that publication ITSELF fails, emit a structured error
-   log carrying the hashed external session id and the sanitised cause, so a
-   double failure still leaves evidence for the operator scan.
+Write scope:
 
-   THE RETIRED REFERENCE GAINS `agentSessionId` (verified gap):
-   `RetiredProviderSessionReference`
-   (`domain/sessions/provider-session-measurement.ts:10`) has three fields,
-   and both producers project exactly those three — `retireProviderSession`'s
-   `.returning({...})` at `canonical-session-repository-context-mark.postgres.ts:114`
-   and `resetProviderSessionScope`'s `.select({...})` at `:180`. The reset
-   already filters on `agentSessionId` at `:186`, so the query change is
-   trivial; the cost is propagating the widened type through the ops port and
-   both facades. Decision 0159 §3 requires it so `/new` can publish one event
-   per retired row from the same committed read instead of a boundary lookup
-   that can fail while the reset succeeds.
+- group-processing context assembly and runner IPC modules under
+  `apps/core/src/runtime/` and `apps/core/src/runner/`
+- `apps/core/src/adapters/llm/anthropic-claude-agent/claude-config-materializer.ts`
+- Claude runner teardown modules
+- `docs/architecture/anthropic-claude-adapter-materialization.md`
+- reconstruction/materialization sections of `docs/SPEC.md` and
+  `apps/core/src/runner/AGENTS.md`
+- `apps/core/test/unit/runtime/group-processing.test.ts`
+- `apps/core/test/unit/runner/agent-runner-ipc.test.ts`
+- `apps/core/test/unit/adapters/claude-config-materializer.test.ts`
+- focused inline-lane integration tests
+- a hermetic agent-e2e late/intervening-message reconstruction scenario
 
-   THE DRAIN BOUNDARY IS IN `group-processing.ts`, NOT THE RUNNER (verified):
-   `runAgent` is awaited at `runtime/group-processing.ts:669` and
-   `finalizeGroupAgentUserVisibleOutput` runs at `:778`, after it. A drain at
-   the end of `runAgent` would therefore precede or delay the fallback reply.
-   Cleanup runs after the COMPLETE primary-plus-fallback attempt settles,
-   success or failure, never blocking and never throwing through delivery.
+Completion checks: both lanes prove bounded snapshot + digest + memory + jobs;
+raw provider transcript, canonical runs, and runtime events are absent from the
+prompt; inner/final cleanup sentinel tests pass; the agent-e2e reconstruction
+scenario and governing docs pass.
 
-   THE IDLE `/new` PATH NEEDS A CONTRACT CHANGE (verified):
-   `clearCurrentSession` is declared `() => Promise<void> | void`
-   (`session/session-commands.ts:176`) and called at `:316`; its only
-   supplier is `group-processing-session-command-handlers.ts:174`, which
-   delegates to `deps.clearSession` and discards the result. Nothing can
-   carry retired references out of the idle path until that return type
-   widens, so T3 owns the contract, the handler and the supplier — this is a
-   command-surface change, not wiring.
+### cache-bug-T3C — Capability-aware compaction
 
-   Write scope:
-   `apps/core/src/application/agent-execution/agent-execution-adapter.ts`,
-   `apps/core/src/adapters/llm/deepagents-langchain/{execution-adapter,checkpoint-setup}.ts`,
-   `apps/core/src/runtime/provider-session-release.ts` (new),
-   `apps/core/src/runtime/group-processing.ts` (the drain boundary),
-   `apps/core/src/runtime/group-processing-session-command-handlers.ts`,
-   `apps/core/src/runtime/group-processing-types.ts`,
-   `apps/core/src/session/session-commands.ts`,
-   `apps/core/src/domain/sessions/provider-session-measurement.ts` (the
-   fourth field), the repository, ops port and facades that propagate it,
-   `apps/core/src/app/bootstrap/{runtime-app,runtime-services-active-new}.ts`,
-   tests.
-   reviewer_focus: the adapter owns storage knowledge and the host never
-   names a checkpoint table; idempotent release; the error sanitised before
-   publish and before logging; cleanup never precedes the settled delivery
-   attempt; `finally` around both `/new` acknowledgements so a rejected send
-   cannot skip it; no retry loop.
+Dependencies: T3A. `user_facing: false`; this is a backend command path.
 
-4. `cache-bug-T4` — The desired-state settings contract. `user_facing:
-   false`. Depends on T2 (the key must exist before its contract is typed).
-   Serves the API half of S4.
+Owns P4 and the compaction half of P7. Resolve strategy before provider lock,
+route Claude to fresh checkpoint, retain durable task admission/dedupe and all
+receipt states, and leave DeepAgents locking/delta replay unchanged.
+Split force: lock ordering and concurrent receipt semantics need an isolated
+concurrency review; mixing them into admission or reconstruction would make a
+failure impossible to localize and exceed one bounded fix/review cycle.
 
-   The new key changes the public payload of `/v1/settings/desired-state`,
-   and that surface is currently untyped: the route accepts
-   `settings?: unknown` and returns record-shaped JSON, and the OpenAPI
-   registry documents `/v1/settings` but not `/v1/settings/desired-state`.
-   T4 gives the endpoint a typed request and response DTO and registers it in
-   the OpenAPI registry, satisfying `constitution/pnp-api-standards.md` and
-   the swagger documentation standard. The PUT/GET round trip in the Verify
-   Plan proves the field survives the surface; the DTO and registry entry are
-   what make the contract checkable rather than incidental.
+Write scope:
 
-   Separated from T2 deliberately: this is a public HTTP contract with its
-   own canon requirements, and folding it into the ceiling task is the
-   over-stuffing that two plan grills have already flagged.
+- `apps/core/src/session/session-compaction-command.ts`
+- `apps/core/src/session/session-commands.ts`
+- `apps/core/src/runtime/group-session-command-state.ts`
+- compaction sections of `docs/architecture/session-resume.md` and
+  `docs/SPEC.md`
+- compaction command/state tests
+- a hermetic agent-e2e `/compact` receipt scenario
 
-   Write scope: `apps/core/src/control/server/routes/settings.ts`, the
-   OpenAPI registry, the contracts package DTO, tests.
-   reviewer_focus: typed request AND response, no `unknown` at the boundary;
-   the registry entry matches the implementation; no behaviour change to the
-   settings pipeline T2 built.
+Completion checks: concurrent Claude requests return already-running; ready
+and degraded receipts are stable; no Claude maintenance row exists; the
+DeepAgents compaction suite remains green; agent-e2e and docs ship in this PR.
 
-Tasks run SEQUENTIALLY — T1 -> T2 -> T3 -> T4 — and each runs in its OWN task
-branch and sibling worktree cut by `./forge task start <id>`, merging before
-the next begins (WORKFLOW.md, AGENTS.md: per-task PRs are the standard). An
-earlier draft said "sequential in one story worktree", which contradicted that
-lifecycle and would have bypassed the per-task PR boundary. The order is a
-dependency chain, not a preference: T3 needs the event types and cleanup drain
-T2 introduces, and T4 types a settings contract whose key T2 adds. Each task
-traces to criteria above; no task exists for later.
+### cache-bug-T3D — Durable release and post-delivery `/new` cleanup
+
+Dependencies: T2. `user_facing: false`; this is backend session cleanup.
+
+Owns P7 and P8. Widen retired references, implement DeepAgents release, return
+references from the idle command surface, and drain active/idle `/new`
+cleanup only after full primary-plus-fallback delivery settles. Publish one
+successful `session.provider.retired` event per committed retired row before
+release, in addition to sanitized `cleanup_failed` evidence.
+Split force: this task uses the Postgres checkpoint harness and delivery
+ordering/failure matrix, independent of Claude admission; it already spans the
+maximum coherent release contract a reviewer can verify in one session.
+
+Write scope:
+
+- `apps/core/src/domain/sessions/provider-session-measurement.ts`
+- `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository-context-mark.postgres.ts`
+- canonical ops port/service/facade modules
+- `apps/core/src/runtime/provider-session-release.ts`
+- `apps/core/src/runtime/group-processing.ts`
+- `apps/core/src/runtime/group-processing-session-command-handlers.ts`
+- `apps/core/src/runtime/group-processing-types.ts`
+- `apps/core/src/session/session-commands.ts`
+- `apps/core/src/app/bootstrap/runtime-services-active-new.ts`
+- DeepAgents checkpoint setup/execution adapter modules
+- `/new` and release sections of `docs/architecture/session-resume.md`,
+  `docs/SPEC.md`, and `docs/memory/provider-session-ceiling-operations.md`
+- a hermetic agent-e2e `/new` delivery-ordering scenario
+- focused unit and Postgres integration tests
+
+Completion checks: all four retirement reasons delete only the target
+DeepAgents thread after reply; second release is a no-op; failure is sanitized,
+logged/evented, and never suppresses delivery; a lost transition does nothing.
+The success event carries `agentSessionId`; agent-e2e and docs ship in this PR.
+
+### cache-bug-T3E — Drained rollout cleanup
+
+Dependencies: T3A and T3B. `user_facing: false`; this is an operator/data
+cleanup surface.
+
+Owns P9 and the rollout portion of P11. Provide executable Claude-only cleanup
+and verification after the runtime has already learned to ignore stale rows.
+Split force: destructive operator tooling requires path-containment/security
+review and disposable-Postgres proof separate from live runtime behavior.
+
+Write scope:
+
+- `docs/memory/provider-session-ceiling-operations.md`
+- shared cleanup SQL artifact
+- `scripts/cleanup-legacy-claude-sessions.mjs`
+- fixture-driven tests for the cleanup script
+- provider-session operations Postgres integration test
+
+Completion checks: execute the documented SQL against Postgres; prove Claude
+rows/pointers disappear and DeepAgents/checkpoints/messages/runs survive;
+rerun safely. The filesystem helper supports `--dry-run` and explicit
+`--apply`, accepts only enumerated legacy subdirectories below a resolved
+runtime home, rejects root/symlink/path-escape targets, is idempotent, and
+preserves config/skills/credentials/unrelated sentinels. No agent-e2e delta is
+required because this task changes only a stopped, drained operator procedure;
+Postgres and fixture integration tests are its end-to-end proof. Run
+scheduled-job regressions and `python3 factory/scripts/verify.py`.
+
+### cache-bug-T4 — Typed desired-state API contract
+
+Dependencies: T2. `user_facing: false`.
+
+Owns P10. Define shared request/response schemas, runtime-parse GET/PUT/POST
+boundaries, register all three operations in OpenAPI, and prove empty state,
+configured state, malformed request, conflict, and cap round trip.
+Split force: this is a public control-API/OpenAPI contract with a distinct
+consumer and integration harness; combining it with runtime lifecycle or
+operator deletion would exceed review scope and couple unrelated rollback.
+
+Write scope:
+
+- `packages/contracts/src/settings/index.ts`
+- `apps/core/src/control/server/routes/settings.ts`
+- `apps/core/src/control/server/openapi-routes-core.ts`
+- `apps/core/src/control/server/openapi-operation-schemas.ts`
+- OpenAPI component-schema registration modules under
+  `apps/core/src/control/server/`
+- desired-state route/OpenAPI integration tests
+
+Completion checks: contract schemas and handlers agree; invalid bodies fail at
+the boundary with standard errors; PUT and POST share semantics; GET empty and
+configured unions are exact; the cap round-trips; `verify.py` passes.
+No agent-e2e delta is required because this is a control HTTP schema surface;
+route and generated-OpenAPI integration tests are the end-to-end proof.
 
 ## Risks
 
-- `contextUsage` absent on some runs (DeepAgents error path, an SDK without
-  `getContextUsage`): the derived fallback covers it; over-approximation
-  only retires sooner.
-- Fence regressions: the null-safe `reset_at` comparison is new SQL; covered
-  by the null/null and null/non-null repository tests (R1).
-- Reader-version bump: fleet workers on version 15 hold their revision and
-  alert until upgraded; documented in the operator procedure.
-- Orphaned DeepAgents rows on process loss between commit and release, and
-  from the uncovered paths: accepted (0159); operator scan documented.
-- Lint debt exposed by adding a lint gate to verify at all: T1 fixes what its
-  diff touches; the 82 pre-existing errors outside the diff are recorded as a
-  deferral with a trigger, not silently fixed, baselined or suppressed.
-- Recurring finding class `plan-contract-partial` touches repository
-  contracts: tripwire — if review flags it on T1, escalate per WORKFLOW.md
-  Recurring Findings rather than patching.
+- **Fence applied too late:** a Claude row could be linked to a run before the
+  runner sees the capability. Mitigation: filter at turn-context selection and
+  assert `live-execution.ts` receives no process-local provider id.
+- **Context loss on restart:** provider transcript removal could omit useful
+  state. Mitigation: positive snapshot/digest/memory/job assertions plus late
+  message agent-e2e; do not invent automatic idle digests.
+- **Evidence replay:** retained runs/events could accidentally enter prompts.
+  Mitigation: explicit negative reconstruction assertions.
+- **DeepAgents regression:** generic filtering could suppress durable state.
+  Mitigation: capability table tests and unchanged resume/ceiling/compaction/
+  checkpoint suites in every owning task.
+- **Cleanup escapes its target:** legacy deletion could remove stable assets or
+  another runtime home. Mitigation: dry-run default, explicit apply, resolved
+  allowed roots, symlink/path-escape refusal, sentinels, and idempotence tests.
+- **Partial contract update recurs:** any missing producer/consumer triggers
+  the recurring-finding escalation described in Decisions.
 
 ## Verify Plan
 
-- `python3 factory/scripts/verify.py` after each task (never bypassed);
-  from T1 on it includes `npm run lint:changed`.
-- T2: a control-API round trip over `/v1/settings/desired-state` — PUT a
-  document carrying `limits.provider_session_max_input_tokens`, GET it back,
-  and assert the value survives the public surface. The parser and exporter
-  tests cover the internals; only this proves the field is actually reachable
-  through the API whose payload shape it changes.
-- T1: `npm run db:migrations:check` clean; repository Postgres tests against
-  `GANTRY_TEST_DATABASE_URL` (raise, retire, resetScope references, R1
-  fences); unit tests for derivation, registry validation, normaliser route,
-  both runners' error frames.
-- T2: settings parser, defaults, revision-document, export and reader-hold
-  tests; `group-processing.test.ts` additions for preflight, post-run raise,
-  lost race; the four pinned tests untouched (diff shows no change); event
-  publish, query and projection tests; a Postgres test executing the docs
-  recipe.
-- T3: `deepagents-checkpoint.postgres.integration.test.ts` additions for the
-  four paths, idempotency, failure, lost transition, post-reply timing; both
-  `/new` handler tests.
-- Story close: `./forge review <id>` per task (one three-lens autoreview),
-  `./forge task pr-ready <id>` per task, CI green; each runtime-behaviour PR
-  carries its agent-e2e delta or states why not; deferrals recorded with
-  `./forge defer add`.
+T3A:
+
+- `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts apps/core/test/unit/application/sessions/session-interaction-module.test.ts`
+- `npx vitest run -c vitest.integration.config.ts apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts`
+- `npm run test:e2e:agent:hermetic`
+- Fail if any Claude restart selects, links, or persists a provider id; any
+  process-local row enters lifecycle/projection; same-process worker
+  continuation fails; or DeepAgents durable tests change behavior.
+
+T3B:
+
+- `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/group-processing.test.ts apps/core/test/unit/runner/agent-runner-ipc.test.ts apps/core/test/unit/adapters/claude-config-materializer.test.ts`
+- `npm run test:e2e:agent:hermetic`
+- Fail if an in-window message is absent/duplicated, a run/event/transcript is
+  replayed, a required digest/memory/job is absent, inner cleanup removes
+  stable-for-run assets, or final cleanup leaves the run directory.
+
+T3C:
+
+- `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/session/session-commands.test.ts apps/core/test/unit/runtime/group-session-command-state.test.ts`
+- `npm run test:e2e:agent:hermetic`
+- Fail if Claude obtains a provider lock/maintenance row, concurrent admission
+  creates duplicate tasks, receipt states drift, or DeepAgents delta replay
+  changes.
+
+T3D:
+
+- `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/group-processing.test.ts`
+- `npx vitest run -c vitest.integration.postgres.config.ts apps/core/test/integration/deepagents-checkpoint.postgres.integration.test.ts`
+- `npm run test:e2e:agent:hermetic`
+- Fail if cleanup precedes full delivery settlement, a committed retired row
+  lacks its success event, a failure leaks an external id/thread/connection
+  string or suppresses the reply, another thread/migration row is deleted, or
+  a second release is not a no-op.
+
+T3E:
+
+- run the document-extracted SQL through the provider-session operations
+  Postgres integration suite;
+- run fixture tests for `scripts/cleanup-legacy-claude-sessions.mjs` in dry-run,
+  apply, repeat, symlink, path-escape, and sentinel-preservation cases;
+- fail if any DeepAgents row/checkpoint or canonical message/run changes, either
+  pointer remains on a Claude association, or a filesystem target escapes the
+  enumerated runtime-home subdirectories.
+
+T4:
+
+- run desired-state route tests and generated-OpenAPI consistency tests;
+- fail if GET empty/configured shapes drift, PUT and POST differ, malformed
+  envelopes reach the runtime parser, standard 400/409 errors change, or the
+  cap does not round-trip.
+
+Every task then runs `python3 factory/scripts/verify.py`, one autoreview pass
+covering quality/performance/security, and the task-specific functional check
+when its acceptance contract changes an interactive command. Scheduled-job
+regression tests remain green. One task PR/worktree is merged before the next
+human-selected ready task starts; the DAG itself contains only real edges.
