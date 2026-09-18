@@ -2,6 +2,10 @@ import type { getRuntimeStorage } from '../../../adapters/storage/postgres/runti
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import { sendError, sendJson } from '../http.js';
+import {
+  AGENT_WORKFLOW_MAP_PATH,
+  buildAgentWorkflowMap,
+} from './browser-agent-workflow-map.js';
 
 const AGENT_AUDIT_PATH = /^\/ui\/api\/agents\/([^/]+)\/audit$/;
 const AGENT_USAGE_PATH = /^\/ui\/api\/agents\/([^/]+)\/usage$/;
@@ -15,6 +19,20 @@ export async function handleBrowserAgentObservabilityRoutes(input: {
   storage: RuntimeStorage;
   appId: AppId;
 }): Promise<boolean> {
+  const workflowMatch = input.pathname.match(AGENT_WORKFLOW_MAP_PATH);
+  if (workflowMatch) {
+    const agent = await input.storage.repositories.agents.getAgent(
+      decodeURIComponent(workflowMatch[1]!) as AgentId,
+    );
+    if (!agent || agent.appId !== input.appId)
+      return (sendError(input.res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+    sendJson(
+      input.res,
+      200,
+      await buildAgentWorkflowMap(input.storage, input.appId, agent),
+    );
+    return true;
+  }
   const auditMatch = input.pathname.match(AGENT_AUDIT_PATH);
   if (auditMatch) {
     const agentId = decodeURIComponent(auditMatch[1]!) as AgentId;

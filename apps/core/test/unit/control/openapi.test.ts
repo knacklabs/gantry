@@ -47,8 +47,10 @@ import { handleSystemRoutes } from '@core/control/server/routes/system.js';
 import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
 import { isBrowserOnboardingPath } from '@core/control/server/routes/browser-onboarding.js';
+import { isBrowserAgentsPath } from '@core/control/server/routes/browser-agents.js';
 
 const expectedControlRoutes = [
+  'GET /ui/api/agents/{agentId}/workflow-map',
   'GET /ui/api/onboarding/channel-manifest',
   'POST /llm/v1/chat/completions',
   'POST /llm/v1/messages',
@@ -372,6 +374,7 @@ function mockContext(): ControlRouteContext {
 
 async function isRecognizedByRuntime(method: string, pathname: string) {
   if (method === 'GET' && isBrowserOnboardingPath(pathname)) return true;
+  if (method === 'GET' && isBrowserAgentsPath(pathname)) return true;
   const req = request(method);
   const res = responseRecorder();
   const ctx = mockContext();

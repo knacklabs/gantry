@@ -31,6 +31,54 @@ export type BrowserPage<T> = {
 
 export type AgentDirectoryPage = BrowserPage<AgentDirectoryItem>;
 
+export type AgentWorkflowRelationship =
+  | {
+      id: string;
+      kind: 'conversation';
+      title: string;
+      providerLabel: string;
+      status: string;
+    }
+  | {
+      id: string;
+      kind: 'job';
+      name: string;
+      schedule: string;
+      status: string;
+      nextRun: string | null;
+    }
+  | {
+      id: string;
+      kind: 'model';
+      alias: string;
+      displayName: string;
+      provider: string;
+    }
+  | {
+      id: string;
+      kind: 'skill' | 'mcp_server';
+      name: string;
+      sourceStatus: string;
+    }
+  | { id: string; kind: 'approver'; displayName: string; conversation: string };
+
+export type AgentWorkflowMap = { relationships: AgentWorkflowRelationship[] };
+
+export function agentWorkflowMapQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'workflow-map', agentId] as const,
+    queryFn: async (): Promise<AgentWorkflowMap> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/workflow-map`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('Employee workflow could not be loaded.');
+      return response.json() as Promise<AgentWorkflowMap>;
+    },
+  });
+}
+
 export type AgentModel = {
   alias: string;
   displayName: string;

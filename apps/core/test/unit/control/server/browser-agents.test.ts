@@ -25,7 +25,14 @@ const observability = fs.readFileSync(
   ),
   'utf8',
 );
-const agentRouteSource = `${source}\n${helpers}\n${observability}`;
+const workflowMap = fs.readFileSync(
+  path.join(
+    repoRoot,
+    'apps/core/src/control/server/routes/browser-agent-workflow-map.ts',
+  ),
+  'utf8',
+);
+const agentRouteSource = `${source}\n${helpers}\n${observability}\n${workflowMap}`;
 
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
@@ -102,6 +109,18 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(agentRouteSource).toContain(
     'sendJson(res, 200, { retainedAgentCount:',
   );
+  expect(agentRouteSource).toContain('const AGENT_WORKFLOW_MAP_PATH');
+  expect(agentRouteSource).toContain(
+    'buildAgentWorkflowMap(input.storage, input.appId, agent)',
+  );
+  expect(agentRouteSource).toContain(
+    'storage.ops.listJobs({ appId, agentId: agent.id',
+  );
+  expect(agentRouteSource).toContain(
+    'listConversationApproversForConversations',
+  );
+  expect(agentRouteSource).toContain('PostgresPersonIdentityRepository');
+  expect(agentRouteSource).toContain("res.setHeader('Allow', 'GET')");
 });
 
 it('requires Administrator, Origin, CSRF, and reauthentication for mutations', () => {

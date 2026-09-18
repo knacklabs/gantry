@@ -5,22 +5,14 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Power,
-  RefreshCw,
-  X,
-} from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { ArrowRight, Check, Power, RefreshCw, X } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import {
   browserCsrfHeader,
   browserFetch,
 } from '../../../lib/auth/browser-auth';
 import { PageState } from '../../../ui/compositions/page-state';
-import { GantryMark } from '../../../ui/compositions/gantry-logo';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
 import {
@@ -46,7 +38,9 @@ import {
   agentQueryKeys,
   agentSourcesQuery,
   agentUsageQuery,
+  agentWorkflowMapQuery,
   type AgentDirectoryItem,
+  type AgentWorkflowMap,
   type BrowserRole,
 } from '../agents-queries';
 import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
@@ -66,6 +60,11 @@ import {
   type RoleEditorTarget,
 } from '../components/role-editor-dialog';
 import { AgentCreateDialog } from './agent-create-route';
+import { AgentDetailHeader } from '../detail/agent-detail-header';
+import { AgentDetailTabs } from '../detail/agent-detail-tabs';
+import { AgentJobsTab } from '../detail/tabs/agent-jobs-tab';
+import { AgentWorkflowMapView } from '../detail/workflow-map/agent-workflow-map';
+import type { AgentDetailTab } from '../detail/workflow-map/workflow-map-types';
 
 export function AgentDetailRoute() {
   const { agentId } = useParams({ from: '/agents/$agentId' });
@@ -73,10 +72,8 @@ export function AgentDetailRoute() {
   const navigate = useNavigate({ from: '/agents/$agentId' });
   const queryClient = useQueryClient();
   const detail = useQuery(agentDetailQuery(agentId));
-  const channelAccounts = useQuery(channelAccountsQuery());
-  const conversationInstalls = useQuery(
-    agentConversationInstallsQuery(agentId),
-  );
+  const workflow = useQuery(agentWorkflowMapQuery(agentId));
+  const tabRegionRef = useRef<HTMLDivElement>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [deploymentOpen, setDeploymentOpen] = useState(false);
   const status = useMutation({
@@ -125,95 +122,68 @@ export function AgentDetailRoute() {
     );
 
   const agent = detail.data.agent;
-  const ownedAccounts = (channelAccounts.data?.accounts ?? []).filter(
-    (account) => account.agentId === agent.id,
-  );
-  const installedCount = conversationInstalls.data?.installs.length ?? 0;
   const action =
     agent.status === 'offboarded'
       ? null
       : agent.status === 'active'
         ? 'disable'
         : 'enable';
-  const label = action === 'disable' ? 'Disable' : 'Enable';
+  const activateTab = (tab: AgentDetailTab) => {
+    void navigate({ search: { tab } }).then(() => {
+      requestAnimationFrame(() => {
+        const reduced =
+          document.documentElement.dataset.motion === 'reduced' ||
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        tabRegionRef.current?.scrollIntoView({
+          behavior: reduced ? 'auto' : 'smooth',
+          block: 'start',
+        });
+        tabRegionRef.current
+          ?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')
+          ?.focus({ preventScroll: true });
+      });
+    });
+  };
   return (
     <div className="grid w-full gap-4">
-      <Link
-        className="inline-flex min-h-8 w-fit items-center gap-1 text-xs font-semibold text-text-secondary no-underline hover:text-text"
-        to="/agents"
-        search={{ tab: 'agents', page: 1, pageSize: 25, q: '', status: 'all', role: 'all', sort: 'name', desc: false, kind: 'employees' }}
-      >
-        <ArrowLeft size={15} aria-hidden="true" /> Back to AI employees
-      </Link>
+      <AgentDetailHeader agent={agent} />
+      {workflow.isError ? (
+        <PageState
+          action={
+            <Button onClick={() => void workflow.refetch()}>
+              <RefreshCw size={15} />
+              Retry
+            </Button>
+          }
+          description="Try loading this employee workflow again."
+          icon={<Power size={18} />}
+          kind="error"
+          title="Workflow could not be loaded"
+        />
+      ) : workflow.data ? (
+        <AgentWorkflowMapView
+          agent={agent}
+          map={workflow.data}
+          onActivate={activateTab}
+        />
+      ) : (
+        <PageState
+          description="Loading configured relationships."
+          icon={<Power size={18} />}
+          kind="loading"
+          title="Loading workflow"
+        />
+      )}
       <section className="overflow-hidden rounded-[11px] border border-border bg-surface shadow-panel">
-        <header className="flex flex-col gap-4 border-b border-border px-6 py-5 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-[11px] border border-border bg-surface-strong text-text">
-              <GantryMark className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="mb-1 font-mono text-[10px] font-semibold tracking-[0.14em] text-text-secondary uppercase">
-                AI employee · {agent.id}
-              </p>
-              <h1 className="m-0 text-2xl font-semibold tracking-tight text-text">
-                {agent.name}
-              </h1>
-              <p className="mt-1 mb-2 text-sm text-text-secondary">
-                {agent.roleName ?? 'No role selected'} · {installedCount}{' '}
-                conversation{installedCount === 1 ? '' : 's'} ·{' '}
-                {ownedAccounts.length} channel account
-                {ownedAccounts.length === 1 ? '' : 's'}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <StatusPill status={agent.status} />
-                {!agent.roleName ? (
-                  <Badge variant="attention">No role assigned</Badge>
-                ) : null}
-                <Badge variant="attention">
-                  {agent.conversationCount
-                    ? `${agent.conversationCount} conversations`
-                    : 'Not connected'}
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Link
-              className="inline-flex h-8 items-center justify-center rounded-md border border-border-strong bg-surface px-3 text-xs font-semibold text-text no-underline shadow-panel hover:bg-surface-muted"
-              to="/channel-accounts"
-            >
-              Channel accounts
-            </Link>
-            <AgentVersionHistory agent={agent} />
-            {action ? (
-              <Button
-                disabled={status.isPending}
-                className={
-                  action === 'disable'
-                    ? 'border-danger/60 bg-surface px-3 text-xs font-semibold text-danger shadow-panel hover:bg-danger-soft'
-                    : 'border-border-strong bg-surface px-3 text-xs font-semibold shadow-panel hover:bg-surface-muted'
-                }
-                size="sm"
-                variant="outline"
-                onClick={() => setStatusOpen(true)}
-              >
-                {label}
-              </Button>
-            ) : null}
-          </div>
-        </header>
-        <section aria-label="Employee connections" className="grid gap-px border-b border-border bg-border lg:grid-cols-[1fr_auto_1fr]">
-          <div className="bg-surface px-6 py-4"><p className="m-0 font-mono text-[10px] font-semibold tracking-[0.12em] text-text-muted uppercase">Inputs</p><p className="mt-2 mb-0 text-sm text-text-secondary">{ownedAccounts.length ? `${ownedAccounts.length} channel account${ownedAccounts.length === 1 ? '' : 's'}` : 'No channel account assigned'}</p></div>
-          <div className="grid min-w-36 place-items-center bg-surface-strong px-5 py-4 text-center"><GantryMark className="size-5 text-text" /><span className="mt-1 text-sm font-semibold text-text">{agent.name}</span></div>
-          <div className="bg-surface px-6 py-4 text-right"><p className="m-0 font-mono text-[10px] font-semibold tracking-[0.12em] text-text-muted uppercase">Outputs</p><p className="mt-2 mb-0 text-sm text-text-secondary">{installedCount ? `${installedCount} active conversation${installedCount === 1 ? '' : 's'}` : 'No conversation assignments'}</p></div>
-        </section>
-        <DetailTabs
-          value={search.tab}
-          onValueChange={(tab) => void navigate({ search: { tab } })}
+        <AgentDetailTabs
+          ref={tabRegionRef}
+          value={search.tab as AgentDetailTab}
+          onValueChange={activateTab}
         />
         <Content
           agent={agent}
-          tab={search.tab}
+          map={workflow.data}
+          tab={search.tab as AgentDetailTab}
           onDeployRequest={() => setDeploymentOpen(true)}
           onStatusRequest={() => action && setStatusOpen(true)}
         />
@@ -241,77 +211,16 @@ export function AgentDetailRoute() {
   );
 }
 
-function DetailTabs({
-  onValueChange,
-  value,
-}: {
-  onValueChange: (
-    value:
-      | 'overview'
-      | 'conversations'
-      | 'instructions'
-      | 'access'
-      | 'audit'
-      | 'approvals'
-      | 'usage'
-      | 'settings',
-  ) => void;
-  value:
-    | 'overview'
-    | 'conversations'
-    | 'instructions'
-    | 'access'
-    | 'audit'
-    | 'approvals'
-    | 'usage'
-    | 'settings';
-}) {
-  const tabs = [
-    'overview',
-    'conversations',
-    'access',
-    'audit',
-    'approvals',
-    'usage',
-    'settings',
-  ] as const;
-  return (
-    <nav
-      aria-label="AI employee detail"
-      className="flex gap-0 border-y border-border bg-surface-muted px-[18px]"
-    >
-      {tabs.map((tab) => (
-        <button
-          aria-current={value === tab ? 'page' : undefined}
-          className="border-b-2 border-transparent bg-transparent px-[13px] pt-[11px] pb-[10px] text-xs font-semibold text-text-muted capitalize hover:text-text data-[active=true]:border-text data-[active=true]:bg-surface data-[active=true]:text-text"
-          data-active={value === tab}
-          key={tab}
-          type="button"
-          onClick={() => onValueChange(tab)}
-        >
-          {tab}
-        </button>
-      ))}
-    </nav>
-  );
-}
-
 function Content({
   agent,
+  map,
   tab,
   onDeployRequest,
   onStatusRequest,
 }: {
   agent: AgentDirectoryItem;
-  tab:
-    | 'overview'
-    | 'conversations'
-    | 'instructions'
-    | 'access'
-    | 'audit'
-    | 'approvals'
-    | 'usage'
-    | 'settings';
+  map?: AgentWorkflowMap;
+  tab: AgentDetailTab;
   onDeployRequest: () => void;
   onStatusRequest: () => void;
 }) {
@@ -319,6 +228,17 @@ function Content({
     return <Overview agent={agent} onDeployRequest={onDeployRequest} />;
   if (tab === 'conversations')
     return <Conversations agent={agent} onDeployRequest={onDeployRequest} />;
+  if (tab === 'jobs')
+    return map ? (
+      <AgentJobsTab map={map} />
+    ) : (
+      <PageState
+        description="Loading scheduled work."
+        icon={<Power size={18} />}
+        kind="loading"
+        title="Loading jobs"
+      />
+    );
   if (tab === 'access') return <Access agent={agent} />;
   if (tab === 'audit') return <Audit agent={agent} />;
   if (tab === 'approvals') return <Approvals agent={agent} />;
@@ -326,6 +246,9 @@ function Content({
   return (
     <>
       <Instructions agent={agent} />
+      <div className="flex justify-end border-t border-border px-5 pt-4">
+        <AgentVersionHistory agent={agent} />
+      </div>
       <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />
     </>
   );

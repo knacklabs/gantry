@@ -3,8 +3,10 @@ import { mcpOpenApiRouteDocs } from './openapi-mcp-routes.js';
 import { memoryReviewRouteDocs } from './openapi-memory-review-routes.js';
 import { peopleOpenApiRouteDocs } from './openapi-people.js';
 import { onboardingOpenApiRouteDocs } from './openapi-onboarding-routes.js';
+import { browserAgentOpenApiRouteDocs } from './openapi-browser-agent-routes.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
+  ...browserAgentOpenApiRouteDocs,
   ...onboardingOpenApiRouteDocs,
   doc(
     'get',

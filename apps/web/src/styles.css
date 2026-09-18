@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '@xyflow/react/dist/style.css' layer(base);
 
 @theme inline {
   --color-canvas: var(--canvas);
@@ -237,6 +238,103 @@
 }
 
 @layer components {
+  .workflow-map-panel [data-slot='card-header'] {
+    min-height: 46px !important;
+    padding-inline: 20px;
+  }
+
+  .workflow-map-canvas {
+    min-height: 352px;
+    background: color-mix(in srgb, var(--surface-muted) 82%, var(--canvas));
+  }
+
+  .workflow-map-fullscreen:fullscreen,
+  .workflow-map-fullscreen[data-fullscreen='fallback'] {
+    padding: 16px;
+    background: var(--canvas);
+  }
+
+  .workflow-map-fullscreen[data-fullscreen='fallback'] {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+  }
+
+  .workflow-map-fullscreen:fullscreen > [data-slot='card'],
+  .workflow-map-fullscreen[data-fullscreen='fallback'] > [data-slot='card'] {
+    height: 100%;
+  }
+
+  .workflow-map-fullscreen:fullscreen .workflow-map-canvas,
+  .workflow-map-fullscreen[data-fullscreen='fallback'] .workflow-map-canvas {
+    height: calc(100dvh - 80px) !important;
+  }
+
+  .workflow-employee-node {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--ink) 24%, transparent),
+      0 0 20px color-mix(in srgb, var(--ink) 14%, transparent),
+      var(--shadow-lift);
+  }
+
+  .workflow-map-canvas .react-flow {
+    --xy-edge-stroke-default: var(--border-strong);
+    --xy-edge-stroke-width-default: 1.5;
+    --xy-node-border-default: transparent;
+    --xy-node-background-color-default: transparent;
+    --xy-node-color-default: var(--text);
+    --xy-controls-button-background-color-default: var(--surface);
+    --xy-controls-button-background-color-hover-default: var(--surface-muted);
+    --xy-controls-button-color-default: var(--text-secondary);
+    --xy-controls-button-border-color-default: var(--border);
+  }
+
+  .workflow-map-canvas .react-flow__node {
+    width: auto;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .workflow-map-canvas .react-flow__handle {
+    width: 5px;
+    height: 5px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-strong);
+  }
+
+  .workflow-map-canvas .react-flow__controls {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-panel);
+  }
+
+  .workflow-map-canvas .react-flow__controls-button {
+    width: 30px;
+    height: 30px;
+    border-bottom-color: var(--border);
+  }
+
+  .workflow-map-canvas .react-flow__controls-button svg {
+    fill: currentColor;
+  }
+
+  .animate-status-pulse {
+    animation: status-pulse 2.4s var(--ease-gantry) infinite;
+  }
+
+  @keyframes status-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0
+        color-mix(in srgb, var(--status-success) 34%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 4px transparent;
+    }
+  }
+
   .gantry-toast {
     position: relative;
     display: flex;

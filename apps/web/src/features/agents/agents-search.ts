@@ -21,6 +21,7 @@ export const agentDetailSearchSchema = z.object({
     .enum([
       'overview',
       'conversations',
+      'jobs',
       'instructions',
       'access',
       'audit',

@@ -355,6 +355,11 @@ export async function handleBrowserAgentRoutes(
       true
     );
   }
+  if (/^\/ui\/api\/agents\/[^/]+\/workflow-map$/.test(pathname)) {
+    res.setHeader('Allow', 'GET');
+    sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
+    return true;
+  }
   const session = await requireBrowserMutationSession({
     req,
     res,

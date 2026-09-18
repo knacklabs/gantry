@@ -9,6 +9,16 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  getBrowserAgentWorkflowMap: {
+    type: 'object',
+    required: ['relationships'],
+    properties: {
+      relationships: {
+        type: 'array',
+        items: { type: 'object', required: ['id', 'kind'] },
+      },
+    },
+  },
   getBrowserOnboardingChannelManifest: {
     type: 'object',
     required: ['manifestJson', 'createUrl', 'permissionGroups'],
