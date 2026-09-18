@@ -18,14 +18,17 @@ instruction authority, permissions, credentials, or sandbox access.
 ## Provider Session Metadata
 
 Provider session handles may exist as adapter metadata attached to canonical
-`AgentSession` records. Live user-facing turns use those handles only as an
-adapter resume optimization; canonical continuity still belongs to Postgres.
+`AgentSession` records. Adapters declare whether that metadata supports
+`durable_resume` or only `process_local` continuity; canonical continuity still
+belongs to Postgres.
 
 - Canonical continuity record: `AgentSession` (provider-neutral app contract).
 - Adapter projection field: `ProviderSession.externalSessionId`.
-- Current live runtime projection: Anthropic/Claude SDK runs set
-  `persistSession: true` and pass `resume` from the trusted
-  `AgentInput.sessionId` when a provider handle exists.
+- DeepAgents declares `durable_resume`: live turns may select and persist its
+  checkpoint session, subject to the context ceiling and retirement rules.
+- Anthropic/Claude declares `process_local`: every worker or inline attempt
+  starts with `persistSession: false` and no SDK `resume`. The live worker's
+  `MessageStream` still accepts follow-ups while that process is running.
 - Current scheduled/autonomous job projection: jobs set `isScheduledJob: true`,
   do not pass `AgentInput.sessionId`, and the Claude SDK query runs with
   `persistSession: false`.
@@ -33,7 +36,7 @@ adapter resume optimization; canonical continuity still belongs to Postgres.
   digests, and runtime events; provider JSONL files are not continuity state.
 
 This keeps normal agent conversations canonically provider-neutral while
-allowing live runs to use the provider's own efficient resume path. If
+allowing durable-capable adapters to use their efficient resume path. If
 transcript export is needed, generate it from Postgres evidence into a
 FileArtifact instead of depending on provider-local session files.
 
@@ -98,9 +101,9 @@ fallback, or repair branches for that state.
 - Reset preserves canonical `agent_sessions` identity and scoped
   `agent_session_digests`; digest hydration still works after reset.
 - During live runs, Gantry persists canonical messages, runs, jobs, memory,
-  digests, and runtime events. Newly emitted SDK session ids are sensitive
-  adapter metadata attached to the canonical session, not standalone continuity
-  identity.
+  digests, and runtime events. Provider handles are persisted only for adapters
+  that declare `durable_resume`; process-local handles never enter run linkage,
+  status, or public projections.
 - Expiring or clearing provider-session metadata does not delete canonical
   session identity.
 
@@ -120,12 +123,9 @@ fallback, or repair branches for that state.
 
 ## Runtime Guardrails
 
-- `apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts` must pass explicit query-loop SDK
-  persistence options: live turns persist/resume, scheduled jobs do not.
-- Host live runner inputs may pass the trusted `turnContext.externalSessionId`
-  as `AgentInput.sessionId`; scheduler execution must not copy
-  `jobs.session_id` or `executionContext.sessionId` into that field.
-- Tests should assert live turns set `persistSession: true` and `resume` when
-  `AgentInput.sessionId` exists, while scheduled jobs run with
-  `persistSession: false` and no `resume` options. Postgres remains the
-  canonical evidence path for messages, runs, memory, jobs, and events.
+- Turn-context selection, run linkage, lifecycle, failover, persistence, and
+  projection must consume the adapter continuity declaration, never a provider
+  id branch. Unknown adapters fail closed in read-only projections.
+- Claude worker and inline queries always set `persistSession: false`, omit
+  `resume`, and suppress emitted SDK session handles. DeepAgents keeps durable
+  checkpoint resume. Scheduled jobs remain ephemeral for every adapter.

@@ -12,6 +12,8 @@ import type { RetiredProviderSessionReference } from '../sessions/provider-sessi
 import type { RunLease } from '../ports/worker-coordination.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
 
+export type ProviderSessionContinuity = 'process_local' | 'durable_resume';
+
 export interface JobUpsertInput {
   id: string;
   name: string;
@@ -369,6 +371,7 @@ export interface RuntimeAgentSessionRepository {
     appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity?: ProviderSessionContinuity;
     conversationJid: string;
     providerAccountId?: string | null;
     threadId?: string | null;

@@ -222,6 +222,7 @@ describe('host child-process runtime smoke', () => {
         runnerSandboxProvider: new DirectRunnerSandboxProvider(),
         executionAdapter: {
           id: 'anthropic:claude-agent-sdk',
+          providerSessionContinuity: 'process_local',
           async prepare(input) {
             const runnerPath = path.join(
               input.hostRuntime.runnerDistDir,

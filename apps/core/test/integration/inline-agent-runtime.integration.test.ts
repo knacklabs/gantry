@@ -1119,6 +1119,7 @@ maybeDescribe('inline session turns through the control API', () => {
     });
     const executionAdapter = {
       id: 'anthropic:claude-agent-sdk',
+      providerSessionContinuity: 'process_local' as const,
       prepare: vi.fn(),
     } as never;
     const app = createRuntimeApp({

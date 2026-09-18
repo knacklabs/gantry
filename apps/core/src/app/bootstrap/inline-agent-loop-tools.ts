@@ -666,6 +666,9 @@ export function wireInlineAgentLoopTools(input: {
         runRepository: input.opsRepository,
         getConversationRoutes: input.app.getConversationRoutes,
         resolveExecutionProviderId: input.app.resolveExecutionProviderId,
+        executionAdapter: input.executionAdapter ?? input.app.executionAdapter,
+        executionAdapters:
+          input.executionAdapters ?? input.app.executionAdapters,
         resolveRunAccess: async (agentId) => {
           const turnContext = laneInput.input.appId
             ? { appId: laneInput.input.appId, agentId }

@@ -31,6 +31,9 @@ import {
 } from '../../runtime/group-queue-types.js';
 import { taskContinuationThreadId } from '../../runtime/continuation-input.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
+import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import { providerSessionContinuityForExecutionProvider } from '../../application/agent-execution/agent-execution-adapter.js';
+import { type AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 
 const DEFAULT_DELEGATED_AGENT_TIMEOUT_MS = 30 * 60_000;
 const services = new WeakMap<AsyncTaskRepository, AsyncCommandTaskService>();
@@ -66,6 +69,11 @@ export function createInlineAgentTaskLifecycle(input: {
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
   ): Promise<ExecutionProviderId>;
+  executionAdapter: Pick<
+    AgentExecutionAdapter,
+    'id' | 'providerSessionContinuity'
+  >;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   resolveRunAccess(agentId: string): Promise<DelegatedRunAccess>;
   buildRunOptions(
     agentId: string,
@@ -131,11 +139,18 @@ export function createInlineAgentTaskLifecycle(input: {
               targetGroup,
               owner.conversationId,
             );
+            const providerSessionContinuity =
+              providerSessionContinuityForExecutionProvider({
+                executionProviderId,
+                registry: input.executionAdapters,
+                fallback: input.executionAdapter,
+              });
             const turnContext =
               await input.runRepository?.getAgentTurnContext?.({
                 appId: owner.appId,
                 agentFolder: targetGroup.folder,
                 executionProviderId,
+                providerSessionContinuity,
                 conversationJid: owner.conversationId,
                 providerAccountId: targetGroup.providerAccountId,
                 threadId: owner.threadId,

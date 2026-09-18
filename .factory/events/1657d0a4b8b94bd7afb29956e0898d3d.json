@@ -1,0 +1,1 @@
+{"event": "signal-resolved", "generated_by": "orchestrator", "at": "2026-09-18T09:30:55+00:00", "story": "cache-bug", "detail": "S-0125-8378: Resolved the worker's scope stop: re-recorded the protected T3A decomposition with live-recovery-coordinator.ts and inline-agent-task-lifecycle.ts from the approved amendment, and added runtime-servic"}

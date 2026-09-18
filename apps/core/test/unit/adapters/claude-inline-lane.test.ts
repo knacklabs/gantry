@@ -583,7 +583,12 @@ describe('Claude inline lane', () => {
       },
     );
     expect(input.emitOutput).toHaveBeenCalledWith(
-      expect.objectContaining({ result: 'first', newSessionId: 'session-1' }),
+      expect.objectContaining({ result: 'first' }),
+    );
+    expect(input.emitOutput.mock.calls.flat()).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ newSessionId: expect.any(String) }),
+      ]),
     );
     expect(input.emitOutput).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -630,7 +635,6 @@ describe('Claude inline lane', () => {
       expect(input.emitOutput).toHaveBeenCalledWith(
         expect.objectContaining({
           compactBoundary: true,
-          newSessionId: 'long-session',
         }),
       ),
     );
@@ -648,7 +652,6 @@ describe('Claude inline lane', () => {
     await expect(result).resolves.toMatchObject({
       status: 'success',
       result: 'continued ticket-42 after compact',
-      newSessionId: 'long-session',
       usageEventId: 'post-compact-result',
     });
     expect(prompts).toEqual([
@@ -799,7 +802,6 @@ describe('Claude inline lane', () => {
     await expect(result).resolves.toMatchObject({
       status: 'error',
       error: expect.stringContaining('aborted'),
-      newSessionId: 'session-abort',
     });
     expect(remoteProxy.close).toHaveBeenCalledOnce();
   });
@@ -879,7 +881,7 @@ describe('Claude inline lane', () => {
     ).toEqual(['scheduled-core-1', 'scheduled-tool-1']);
   });
 
-  it('uses a unique fallback usage id for each resumed inline run', async () => {
+  it('starts every Claude inline attempt without resume or persistence', async () => {
     sdk.query.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {
         yield {
@@ -899,13 +901,13 @@ describe('Claude inline lane', () => {
     const second = await runClaudeInlineAgentLoopLane(resumedInput());
 
     for (const call of sdk.query.mock.calls) {
-      expect(call[0].options).toMatchObject({
-        persistSession: true,
-        resume: 'session-1',
-      });
+      expect(call[0].options.persistSession).toBe(false);
+      expect(call[0].options).not.toHaveProperty('resume');
     }
     expect(first.usageEventId).toContain('session-1:run:');
     expect(second.usageEventId).not.toBe(first.usageEventId);
+    expect(first).not.toHaveProperty('newSessionId');
+    expect(second).not.toHaveProperty('newSessionId');
   });
 });
 

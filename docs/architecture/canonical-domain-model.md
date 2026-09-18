@@ -50,37 +50,37 @@ Identity rules:
 
 ## Core Ownership
 
-| Concept                    | Owner                    | Meaning                                                                                                                                                                                                    |
-| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `App`                      | Domain                   | A runtime namespace for agents, users, memory, policies, conversations, jobs, and SDK/API access.                                                                                                          |
-| `Agent`                    | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, Provider Accounts, and conversation installs.                                 |
-| `AgentConfigVersion`       | Domain                   | An immutable version of agent behavior: prompt profile, model selection, tool/skill catalog references, workspace defaults, permission policy references, and runtime limits.                              |
-| `LlmProfile`               | Domain                   | Provider-neutral model intent such as purpose, model alias, budget, thinking mode, embedding usage, and credential-broker reference. Concrete SDK names live in provider adapters.                         |
-| `Provider`                 | Adapter catalog          | A chat adapter type such as Telegram, WhatsApp, Slack, Teams, or Web UI. It describes capabilities and normalization rules.                                                                                |
-| `ProviderAccount`          | Application plus adapter | One native provider identity owned by exactly one Gantry agent, including workspace/team/bot/account identity evidence, runtime-owned secret refs, webhook/socket config, and enablement state.              |
-| `Conversation`             | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                                        |
-| `ConversationThread`       | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                                          |
-| `ConversationInstall`      | Domain                   | The relationship that says an agent's Provider Account is installed in a conversation or thread with sender/control policy, memory scope, and workspace projection.                                        |
-| `User`                     | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                                          |
-| `Message`                  | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                                               |
-| `MessagePart`              | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                                                  |
-| `MessageAttachment`        | Domain plus adapter      | Binary or external media attached to a message. The domain owns metadata and trust classification; adapters own download and upload mechanics.                                                             |
-| `AgentSession`             | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                                                  |
-| `ProviderSession`          | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                                                  |
-| `AgentRun`                 | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                                                  |
-| `RuntimeEvent`             | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and outbound webhook delivery events. Audit records remain in their owning modules.                                    |
-| `ExternalIngress`          | Application/storage      | A signed inbound authority record for external systems. It derives app scope, protects nonce replay, records invocations, and dispatches only to approved session, conversation, job, or template targets. |
-| `MemorySubject`            | Domain                   | A memory boundary for app, agent, user, group/team, conversation, or common shared memory.                                                                                                                 |
-| `Job`                      | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                                                   |
-| `ToolCatalogItem`          | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                                          |
-| `SkillCatalogItem`         | Domain catalog           | A reusable behavior package or prompt/tool bundle that can be attached to agent config versions.                                                                                                           |
-| `PermissionPolicy`         | Domain                   | A named policy attached to an app, agent, binding, tool, job, or sandbox profile.                                                                                                                          |
-| `PermissionRule`           | Domain                   | A deterministic rule inside a policy. It can allow, deny, require approval, or require a sandbox lease.                                                                                                    |
-| `PermissionDecision`       | Domain/application       | The audited result of evaluating a request against policy and runtime context.                                                                                                                             |
-| `SandboxProfile`           | Domain/application       | A named execution environment policy: filesystem, network, process, browser, credential, timeout, and approval behavior.                                                                                   |
-| `SandboxLease`             | Runtime/application      | A time-bounded grant to execute work under a sandbox profile for a specific run or tool call.                                                                                                              |
-| `WorkspaceSnapshot`        | Runtime/application      | A stable view of workspace files, mounts, prompt profile inputs, and generated runtime context used for an agent run.                                                                                      |
-| `BrowserProfile`           | Domain/application       | A named browser identity with storage state, auth markers, allowed usage, and ownership policy.                                                                                                            |
+| Concept               | Owner                    | Meaning                                                                                                                                                                                                    |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `App`                 | Domain                   | A runtime namespace for agents, users, memory, policies, conversations, jobs, and SDK/API access.                                                                                                          |
+| `Agent`               | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, Provider Accounts, and conversation installs.                                 |
+| `AgentConfigVersion`  | Domain                   | An immutable version of agent behavior: prompt profile, model selection, tool/skill catalog references, workspace defaults, permission policy references, and runtime limits.                              |
+| `LlmProfile`          | Domain                   | Provider-neutral model intent such as purpose, model alias, budget, thinking mode, embedding usage, and credential-broker reference. Concrete SDK names live in provider adapters.                         |
+| `Provider`            | Adapter catalog          | A chat adapter type such as Telegram, WhatsApp, Slack, Teams, or Web UI. It describes capabilities and normalization rules.                                                                                |
+| `ProviderAccount`     | Application plus adapter | One native provider identity owned by exactly one Gantry agent, including workspace/team/bot/account identity evidence, runtime-owned secret refs, webhook/socket config, and enablement state.            |
+| `Conversation`        | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                                        |
+| `ConversationThread`  | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                                          |
+| `ConversationInstall` | Domain                   | The relationship that says an agent's Provider Account is installed in a conversation or thread with sender/control policy, memory scope, and workspace projection.                                        |
+| `User`                | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                                          |
+| `Message`             | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                                               |
+| `MessagePart`         | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                                                  |
+| `MessageAttachment`   | Domain plus adapter      | Binary or external media attached to a message. The domain owns metadata and trust classification; adapters own download and upload mechanics.                                                             |
+| `AgentSession`        | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                                                  |
+| `ProviderSession`     | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                                                  |
+| `AgentRun`            | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                                                  |
+| `RuntimeEvent`        | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and outbound webhook delivery events. Audit records remain in their owning modules.                                    |
+| `ExternalIngress`     | Application/storage      | A signed inbound authority record for external systems. It derives app scope, protects nonce replay, records invocations, and dispatches only to approved session, conversation, job, or template targets. |
+| `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, or common shared memory.                                                                                                                 |
+| `Job`                 | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                                                   |
+| `ToolCatalogItem`     | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                                          |
+| `SkillCatalogItem`    | Domain catalog           | A reusable behavior package or prompt/tool bundle that can be attached to agent config versions.                                                                                                           |
+| `PermissionPolicy`    | Domain                   | A named policy attached to an app, agent, binding, tool, job, or sandbox profile.                                                                                                                          |
+| `PermissionRule`      | Domain                   | A deterministic rule inside a policy. It can allow, deny, require approval, or require a sandbox lease.                                                                                                    |
+| `PermissionDecision`  | Domain/application       | The audited result of evaluating a request against policy and runtime context.                                                                                                                             |
+| `SandboxProfile`      | Domain/application       | A named execution environment policy: filesystem, network, process, browser, credential, timeout, and approval behavior.                                                                                   |
+| `SandboxLease`        | Runtime/application      | A time-bounded grant to execute work under a sandbox profile for a specific run or tool call.                                                                                                              |
+| `WorkspaceSnapshot`   | Runtime/application      | A stable view of workspace files, mounts, prompt profile inputs, and generated runtime context used for an agent run.                                                                                      |
+| `BrowserProfile`      | Domain/application       | A named browser identity with storage state, auth markers, allowed usage, and ownership policy.                                                                                                            |
 
 ## Relationships And Lifecycle
 
@@ -159,13 +159,13 @@ The deterministic session key includes app, agent, conversation, thread, user,
 and job fields so Slack threads, Telegram topics, and Web UI branches do not
 collide inside one conversation.
 
-`ProviderSession` stores provider-specific diagnostic or export state for an
-`AgentSession`. Claude session ids, response ids, and transcript pointers are
-not Gantry runtime continuation handles. Active chat continuation uses the live
-provider stream while it is running. Later runs may resume a provider session
-until its observed context high-water mark exceeds the configured ceiling;
-after retirement, the replacement run starts from Gantry's bounded durable
-memory.
+`ProviderSession` stores provider-specific diagnostic or resume state for an
+`AgentSession`. Resume is capability-aware: DeepAgents declares durable resume
+and remains subject to the context high-water ceiling; Claude declares
+process-local continuity, so its SDK handles are neither selected nor
+persisted. Claude follow-ups continue only through the live provider stream
+while its worker is running. Every fresh process starts from Gantry's bounded
+durable memory.
 
 `AgentSessionSummary` is historical/observability state when present. It is not
 injected into runtime prompts and is not a replacement for provider-owned

@@ -14,6 +14,8 @@ import { modelVisibleInputTokens } from '../shared/model-usage.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 import { providerSessionAccessFingerprintMatches } from './provider-session-access-fingerprint.js';
 import { getConfiguredProviderSessionMaxInputTokens } from './agent-spawn-host.js';
+import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-delta.js';
+import type { ProviderSessionContinuity } from '../domain/repositories/ops-repo.js';
 
 type AgentTurnContext = Awaited<
   ReturnType<NonNullable<GroupProcessingRepository['getAgentTurnContext']>>
@@ -369,6 +371,212 @@ export async function prepareProviderSessionContext(input: {
       providerSessionPersistenceAllowed: true,
     }
   );
+}
+
+export async function prepareProviderSessionFailoverAttempt(input: {
+  previousContext: AgentTurnContext | undefined;
+  loadTurnContext: (
+    promoteReadyProviderSession: boolean,
+    hydrateMemory?: boolean,
+  ) => Promise<AgentTurnContext | undefined>;
+  repository: GroupProcessingRepository;
+  executionProviderId: ExecutionProviderId;
+  providerSessionContinuity: ProviderSessionContinuity;
+  group: Parameters<typeof prepareCompactionDeltaReplay>[0]['group'];
+  chatJid: string;
+  threadId: string | null;
+  currentAccessFingerprint: string;
+  publish: GroupProcessingDeps['publishRuntimeEvent'];
+  appId: string;
+  groupName: string;
+  patternsContextBlock: string;
+  approvedSkillContextBlock: string;
+  updateRunProviderMetadata(input: {
+    providerSessionId: string | null;
+  }): Promise<void>;
+  onRetired(reference: RetiredProviderSessionReference): void;
+}): Promise<{
+  turnContext: AgentTurnContext | undefined;
+  latestProviderSessionId: string | undefined;
+  currentProviderSessionId: string | undefined;
+  resumeProviderSessionId: string | undefined;
+  resumeExternalSessionId: string | undefined;
+  providerSessionPersistenceAllowed: boolean;
+  memoryContextBlock: string;
+}> {
+  const refreshed = await input.loadTurnContext(false, false);
+  const sameGeneration =
+    refreshed &&
+    refreshed.agentSessionId === input.previousContext?.agentSessionId &&
+    (refreshed.agentSessionResetAt ?? null) ===
+      (input.previousContext?.agentSessionResetAt ?? null);
+  const selectedContext = sameGeneration
+    ? {
+        ...refreshed,
+        memoryContextBlock: input.previousContext?.memoryContextBlock,
+      }
+    : await input.loadTurnContext(false, true);
+  const replay = await prepareCompactionDeltaReplay({
+    turnContext: selectedContext,
+    loadTurnContext: input.loadTurnContext,
+    repository: input.repository,
+    executionProviderId: input.executionProviderId,
+    group: input.group,
+    chatJid: input.chatJid,
+    threadId: input.threadId,
+    maintenanceProviderSession: undefined,
+  });
+  let turnContext = replay.turnContext;
+  let latestProviderSessionId = turnContext?.externalSessionId?.trim();
+  let currentProviderSessionId = turnContext?.providerSessionId;
+  let resumeProviderSessionId = turnContext?.providerSessionId;
+  let resumeExternalSessionId = turnContext?.externalSessionId;
+  let providerSessionPersistenceAllowed =
+    input.providerSessionContinuity === 'durable_resume';
+  if (providerSessionPersistenceAllowed) {
+    ({
+      turnContext,
+      latestProviderSessionId,
+      currentProviderSessionId,
+      resumeProviderSessionId,
+      resumeExternalSessionId,
+      providerSessionPersistenceAllowed,
+    } = await prepareProviderSessionContext({
+      turnContext,
+      latestProviderSessionId,
+      currentProviderSessionId,
+      resumeProviderSessionId,
+      resumeExternalSessionId,
+      maintenanceProviderSession: false,
+      currentAccessFingerprint: input.currentAccessFingerprint,
+      repository: input.repository,
+      executionProviderId: input.executionProviderId,
+      publish: input.publish,
+      appId: input.appId,
+      groupName: input.groupName,
+      loadTurnContext: input.loadTurnContext,
+      onRetired: input.onRetired,
+    }));
+    await input.updateRunProviderMetadata({
+      providerSessionId: resumeProviderSessionId ?? null,
+    });
+  } else {
+    latestProviderSessionId = undefined;
+    currentProviderSessionId = undefined;
+    resumeProviderSessionId = undefined;
+    resumeExternalSessionId = undefined;
+    await input.updateRunProviderMetadata({ providerSessionId: null });
+  }
+  return {
+    turnContext,
+    latestProviderSessionId,
+    currentProviderSessionId,
+    resumeProviderSessionId,
+    resumeExternalSessionId,
+    providerSessionPersistenceAllowed,
+    memoryContextBlock: [
+      replay.block,
+      turnContext?.memoryContextBlock,
+      input.patternsContextBlock,
+      input.approvedSkillContextBlock,
+    ]
+      .filter((block): block is string => Boolean(block?.trim()))
+      .join('\n\n'),
+  };
+}
+
+export async function updateRunProviderSessionMetadata(input: {
+  repository: GroupProcessingRepository;
+  runId: string | undefined;
+  metadata: {
+    providerRunId?: string | null;
+    providerSessionId?: string | null;
+  };
+  lease?: {
+    leaseToken: string;
+    workerInstanceId?: string;
+    fencingVersion?: number;
+  };
+  groupName: string;
+}): Promise<void> {
+  if (!input.runId || !input.repository.updateAgentRunProviderMetadata) return;
+  await input.repository
+    .updateAgentRunProviderMetadata({
+      runId: input.runId,
+      ...input.metadata,
+      ...input.lease,
+    })
+    .catch((err) => {
+      logger.warn(
+        { err, group: input.groupName, runId: input.runId },
+        'Failed to update runtime run provider metadata',
+      );
+    });
+}
+
+export async function persistDurableProviderSessionFromOutput(input: {
+  output: AgentOutput;
+  persistenceAllowed: boolean;
+  latestProviderSessionId: string | undefined;
+  turnContext: AgentTurnContext | undefined;
+  maintenanceProviderSession: boolean;
+  repository: GroupProcessingRepository;
+  agentFolder: string;
+  threadId: string | null;
+  appId: string;
+  executionProviderId: ExecutionProviderId;
+  conversationJid: string;
+  providerAccountId?: string;
+  conversationKind?: 'dm' | 'channel';
+  memoryUserId?: string;
+  accessFingerprint: string;
+  updateRunProviderMetadata(sessionId: string): Promise<void>;
+}): Promise<string | undefined> {
+  if (
+    input.output.status === 'error' ||
+    input.turnContext?.latestProviderSessionLocked ||
+    input.maintenanceProviderSession
+  ) {
+    return undefined;
+  }
+  const nextSessionId = (
+    input.output.providerSession?.externalSessionId ?? input.output.newSessionId
+  )?.trim();
+  if (
+    !input.persistenceAllowed ||
+    !nextSessionId ||
+    nextSessionId === input.latestProviderSessionId ||
+    !input.turnContext?.agentSessionId ||
+    !input.repository.setSession
+  ) {
+    return undefined;
+  }
+  const persisted = await input.repository.setSession(
+    input.agentFolder,
+    nextSessionId,
+    input.threadId,
+    {
+      appId: input.appId,
+      executionProviderId: input.executionProviderId,
+      conversationJid: input.conversationJid,
+      providerAccountId: input.providerAccountId,
+      conversationKind: input.conversationKind,
+      memoryUserId: input.memoryUserId,
+      expectedAgentSessionId: input.turnContext.agentSessionId,
+      expectedAgentSessionResetAt:
+        input.turnContext.agentSessionResetAt ?? null,
+      accessFingerprint: input.accessFingerprint,
+    },
+  );
+  if (persisted === false) {
+    logger.warn(
+      { group: input.agentFolder },
+      'Provider session update skipped because turn ownership changed',
+    );
+    return undefined;
+  }
+  await input.updateRunProviderMetadata(nextSessionId);
+  return nextSessionId;
 }
 
 export async function applyProviderSessionCeilingPreflight(input: {

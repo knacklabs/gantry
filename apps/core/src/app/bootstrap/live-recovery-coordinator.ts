@@ -1,6 +1,9 @@
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
+import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import { providerSessionContinuityForExecutionProvider } from '../../application/agent-execution/agent-execution-adapter.js';
+import { type AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
@@ -226,6 +229,7 @@ export interface LiveTurnScopeRepository {
   getAgentTurnContext?: (input: {
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity: AgentExecutionAdapter['providerSessionContinuity'];
     conversationJid: string;
     threadId: string | null;
     providerAccountId?: string | null;
@@ -262,7 +266,9 @@ interface LiveTurnScopeApp {
 export async function liveTurnScopeForQueue(input: {
   app: LiveTurnScopeApp;
   opsRepository: LiveTurnScopeRepository;
-  executionAdapter: { id: ExecutionProviderId };
+  executionAdapter: Pick<AgentExecutionAdapter, 'id'> &
+    Partial<Pick<AgentExecutionAdapter, 'providerSessionContinuity'>>;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   queueJid: string;
 }): Promise<LiveTurnScope | null> {
   const { app, opsRepository, executionAdapter, queueJid } = input;
@@ -277,9 +283,21 @@ export async function liveTurnScopeForQueue(input: {
   const executionProviderId =
     (await app.resolveExecutionProviderId?.(route, chatJid)) ??
     resolveRuntimeExecutionProviderId(executionAdapter);
+  const providerSessionContinuity =
+    providerSessionContinuityForExecutionProvider({
+      executionProviderId,
+      registry: input.executionAdapters,
+      fallback: executionAdapter.providerSessionContinuity
+        ? (executionAdapter as Pick<
+            AgentExecutionAdapter,
+            'id' | 'providerSessionContinuity'
+          >)
+        : undefined,
+    });
   const turnContext = await opsRepository.getAgentTurnContext?.({
     agentFolder: route.folder,
     executionProviderId,
+    providerSessionContinuity,
     conversationJid: chatJid,
     threadId: threadId ?? null,
     providerAccountId: providerAccountId ?? null,

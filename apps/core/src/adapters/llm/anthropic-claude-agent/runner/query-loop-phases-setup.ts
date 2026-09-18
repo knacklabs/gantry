@@ -206,6 +206,7 @@ export function createQueryLoopContext(
   });
   const context: QueryLoopContext = {
     ...input,
+    persistSdkSession: false,
     elapsedMs,
     stream,
     queryRunId: randomUUID(),

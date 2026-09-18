@@ -1092,7 +1092,7 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               provider: ['anthropic', 'sdk'].join('_'),
               diagnostic: 'runner_startup_timing',
-              persistSdkSession: true,
+              persistSdkSession: false,
               resumedSession: false,
               sdkQueryPreparedMs: expect.any(Number),
               sdkQueryIteratorMs: expect.any(Number),
@@ -1950,7 +1950,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'resumes and persists SDK sessions for live channel turns',
+    'starts live channel turns without SDK resume or persistence',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1968,8 +1968,8 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.persistSession).toBe(true);
-      expect(call?.resume).toBe('stale-sdk-session');
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
       const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
         (output) =>
@@ -1982,8 +1982,8 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               provider: ['anthropic', 'sdk'].join('_'),
               diagnostic: 'runner_startup_timing',
-              persistSdkSession: true,
-              resumedSession: true,
+              persistSdkSession: false,
+              resumedSession: false,
             }),
           }),
         ]),
@@ -2061,7 +2061,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'fails empty resumed SDK streams so the runtime can retry without resume',
+    'treats an upstream resume id as a fresh empty SDK stream',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2075,15 +2075,13 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(result.exitCode).toBe(1);
-      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBe(
-        'stale-sdk-session',
-      );
+      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBeUndefined();
       expect(readRunnerOutputs(result.stdout)).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             status: 'error',
             error: expect.stringContaining(
-              'No conversation found with session ID',
+              'Anthropic SDK query completed without messages or results',
             ),
           }),
         ]),
@@ -2119,7 +2117,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'routes /compact through a persistent live streaming SDK query',
+    'routes /compact through a process-local live streaming SDK query',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2132,7 +2130,7 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.promptKind).toBe('stream');
       expect(call?.streamMessages?.[0]).toBe('/compact');
-      expect(call?.persistSession).toBe(true);
+      expect(call?.persistSession).toBe(false);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
     },
@@ -2254,7 +2252,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'drains active-query IPC input into the stream in filename order',
+    'continues a live Claude worker without provider persistence',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2275,6 +2273,14 @@ describe('agent-runner IPC lifecycle', () => {
         'active follow-up first',
         'active follow-up second',
       ]);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
+      expect(readRunnerOutputs(result.stdout)).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ newSessionId: expect.any(String) }),
+        ]),
+      );
     },
     SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
   );

@@ -608,6 +608,7 @@
         "apps/core/src/app/bootstrap/live-execution.ts",
         "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
         "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
         "apps/core/src/control/server/index.ts",
         "apps/core/src/runtime",
         "apps/core/src/session/session-commands.ts",
@@ -822,6 +823,6 @@
       "cache-bug-T3E"
     ]
   ],
-  "commit": "d6407c946cd4de8e3ac9fed71a6d89806cdda521",
+  "commit": "46a25c069a371c40c20346562275dee5b7a71eb7",
   "plan_sha256": "98a2f2193ce6f02db02b955bb8ebba83bc78591094f51183147415c95010abf5"
 }

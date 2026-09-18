@@ -40,7 +40,7 @@ function createCompactionPathRunner(input: {
       _onOutput?: unknown,
     ) => ({ status: 'success', result: 'ok' }),
   );
-  const executionProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+  const executionProviderId = 'deepagents:langchain';
   const runner = createGroupAgentRunner({
     deps: {
       channelRuntime: {
@@ -71,8 +71,11 @@ function createCompactionPathRunner(input: {
       getRegisteredJids: () => new Set(),
       runAgent: runAgent as never,
       runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-      executionAdapter: { id: executionProviderId } as never,
-      getSelectedAgentHarness: () => 'auto',
+      executionAdapter: {
+        id: executionProviderId,
+        providerSessionContinuity: 'durable_resume',
+      } as never,
+      getSelectedAgentHarness: () => 'deepagents',
     },
     ops: () =>
       ({
@@ -164,6 +167,7 @@ describe('session-resume-runtime', () => {
         runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
         executionAdapter: {
           id: ['anth', 'ropic:claude-agent-sdk'].join(''),
+          providerSessionContinuity: 'process_local',
         } as never,
         getSelectedAgentHarness: () => 'auto',
       },
@@ -276,7 +280,10 @@ describe('session-resume-runtime', () => {
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
         runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: { id: defaultProviderId } as never,
+        executionAdapter: {
+          id: defaultProviderId,
+          providerSessionContinuity: 'process_local',
+        } as never,
         getSelectedAgentHarness: () => 'auto',
       },
       ops: () =>
@@ -711,7 +718,7 @@ describe('session-resume-runtime', () => {
         _onOutput?: unknown,
       ) => ({ status: 'success', result: 'ok' }),
     );
-    const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+    const defaultProviderId = 'deepagents:langchain';
     const runner = createGroupAgentRunner({
       deps: {
         channelRuntime: {
@@ -742,8 +749,11 @@ describe('session-resume-runtime', () => {
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
         runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: { id: defaultProviderId } as never,
-        getSelectedAgentHarness: () => 'auto',
+        executionAdapter: {
+          id: defaultProviderId,
+          providerSessionContinuity: 'durable_resume',
+        } as never,
+        getSelectedAgentHarness: () => 'deepagents',
       },
       ops: () =>
         ({
@@ -855,7 +865,7 @@ describe('session-resume-runtime', () => {
       .fn()
       .mockResolvedValueOnce({ status: 'error', result: null, error: 'boom' })
       .mockResolvedValueOnce({ status: 'success', result: 'ok' });
-    const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+    const defaultProviderId = 'deepagents:langchain';
     const runner = createGroupAgentRunner({
       deps: {
         channelRuntime: {
@@ -886,8 +896,11 @@ describe('session-resume-runtime', () => {
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
         runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: { id: defaultProviderId } as never,
-        getSelectedAgentHarness: () => 'auto',
+        executionAdapter: {
+          id: defaultProviderId,
+          providerSessionContinuity: 'durable_resume',
+        } as never,
+        getSelectedAgentHarness: () => 'deepagents',
       },
       ops: () =>
         ({
@@ -963,7 +976,10 @@ describe('session-resume-runtime', () => {
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
         runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-        executionAdapter: { id: 'deepagents:langchain' } as never,
+        executionAdapter: {
+          id: 'deepagents:langchain',
+          providerSessionContinuity: 'durable_resume',
+        } as never,
         getSelectedAgentHarness: () => 'deepagents',
       },
       ops: () =>

@@ -5,89 +5,96 @@
   "decision": "keep",
   "issue": "cache-bug",
   "task_id": "cache-bug-T3A",
-  "summary": "The T3A cold read found five incomplete boundary/proof surfaces. The execution contract and task plan now own the full turn-context and status wiring, both failover directions, a real Postgres lifecycle proof, and the governing constitutional references; the closing round confirmed an empty frontier.",
+  "summary": "The fresh T3A cold read found six incomplete contract surfaces. The amended decomposition and task plan now include every turn-context consumer and typed test adapter, isolate chat status filtering from /compact, require real DeepAgents checkpoint and both scheduled-job proofs, fail closed for unknown provider rows before ordering and limiting, and carry a review budget sized for the complete producer-consumer update. The ledgered closing round confirmed all six resolutions and an empty frontier.",
   "gaps": [
-    "The recorded write scope omitted the domain ops port, canonical Postgres ops facade, and canonical session ops service required to filter before lifecycle side effects.",
-    "Public status filtering had no capability-aware provider-session port or production resolver wiring and could filter only after order/limit.",
-    "Failover proof covered DeepAgents-to-Claude but not Claude-to-DeepAgents, where process-local persistence state could suppress durable checkpoint behavior.",
-    "No Postgres integration leaf could falsify maintenance-lock release, ready-row promotion, or mixed-provider selection leakage.",
-    "Reviewer focus named no load-bearing provider-boundary or modular-monolith constitution."
+    "Write scope omitted live-recovery-coordinator.ts and inline-agent-task-lifecycle.ts even though both read turn context and can trigger provider-session lifecycle effects.",
+    "The required continuity field could not be added exhaustively because concrete integration and e2e test adapters lived outside the recorded write scope.",
+    "Chat /status had neither a designed status-only continuity filter nor a command-path test, while filtering the shared compaction context could incorrectly change /compact before T3C.",
+    "AC3's real DeepAgents checkpoint-resume and Claude and DeepAgents scheduled-job guarantees were not selected by required tests or verify commands.",
+    "Unknown or removed provider rows had no defined read policy, allowing status to throw or accidentally treat an unregistered provider as durable.",
+    "The 30-file and 2600-line review budget was too small for the complete continuity producer-consumer and proof surface."
   ],
   "contradictions": [],
   "resolutions": [
-    "Scope now includes ops-repo.ts, canonical-ops-repo.postgres.ts, canonical-session-ops-service.ts, and the selecting repository; process-local filtering precedes lock release, promotion, ordering, and selection.",
-    "The provider-session repository port and production control-server wiring now receive the continuity resolver, and filtering occurs before order/limit so stale Claude rows cannot mask durable DeepAgents rows.",
-    "Required proof now covers both failover directions with candidate-specific non-hydrating generation-fenced re-reads and independent resume/persistence state.",
-    "A provider-session-continuity Postgres integration leaf proves process-local reads have no lifecycle side effects while durable rows remain selectable.",
-    "Reviewer focus cites constitution/pnp-provider-pattern-for-integration.md and constitution/pnp-coding-standards-modular-monolith.md and preserves the recurring contract-partial escalation tripwire."
+    "The write scope now includes live-recovery-coordinator.ts, inline-agent-task-lifecycle.ts, and runtime-services.ts for adapter-registry wiring; required tests pin recovered and inline task turns before provider-session linkage or lifecycle.",
+    "The write scope now includes the concrete e2e and integration fixture files; every concrete and test adapter must declare continuity explicitly with no permissive default.",
+    "The contract now requires a chat /status-only filter and a session-commands regression proving /compact admission is unchanged until T3C.",
+    "Required tests now include the real Postgres-backed DeepAgents gateway checkpoint persistence/resume leaf and both Claude and DeepAgents scheduled-job leaves.",
+    "Unknown or removed provider rows are excluded fail-closed from read-only status and resume projections before ordering and limiting through the registered durable-provider allowlist.",
+    "The review budget is raised to 40 files and 3600 lines for the complete producer-consumer update; the later reconstruction, compaction, release, cleanup, and API-typing tasks remain split."
   ],
   "open_items": [],
   "questions_asked": 1,
   "new_abstractions": [
-    "ProviderSessionContinuity: the adapter-owned process_local | durable_resume capability consumed by admission, lifecycle, failover, persistence, and projection."
+    "ProviderSessionContinuity: adapter-owned process_local | durable_resume capability consumed before selection, linkage, lifecycle, failover, persistence, and projection.",
+    "Registered durable-provider allowlist: a fail-closed read policy derived from registered adapters for status and resume projections."
   ],
-  "current_flow": "Today the canonical turn-context repository may release maintenance locks, promote and select a provider row; live-execution then attaches that row to the run; group-agent-runner reuses one resume/persistence state across lifecycle and failover; Claude worker and inline SDK lanes resume and persist it; SessionInteractionModule queries the newest active provider row without adapter continuity. T3A moves one adapter capability ahead of every one of those effects while leaving the live worker MessageStream and DeepAgents durable state intact.",
+  "current_flow": "Today live recovery and inline task lifecycle can read canonical turn context before continuity is known; live execution may then attach the selected provider row to a run; runner failover can share resume and persistence state; Claude worker and inline lanes resume and persist SDK sessions; and both public status and chat /status can expose stale provider-derived state. T3A resolves the adapter capability before those effects, makes every Claude attempt process-local while preserving the live worker MessageStream, and leaves DeepAgents checkpoint continuity durable.",
   "inspected_refs": [
-    "apps/core/src/application/agent-execution/agent-execution-adapter.ts",
-    "apps/core/src/domain/repositories/ops-repo.ts:367",
-    "apps/core/src/domain/ports/repositories.ts:331",
-    "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts:519",
-    "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:161",
-    "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73",
-    "apps/core/src/adapters/storage/postgres/repositories/session-repositories.postgres.ts:242",
-    "apps/core/src/app/bootstrap/live-execution.ts:234",
-    "apps/core/src/control/server/index.ts:353",
-    "apps/core/src/runtime/group-agent-runner.ts:396",
-    "apps/core/src/runtime/group-agent-runner.ts:636",
-    "apps/core/src/application/sessions/session-interaction-module.ts:212",
-    "constitution/pnp-provider-pattern-for-integration.md",
-    "constitution/pnp-coding-standards-modular-monolith.md"
+    "apps/core/src/app/bootstrap/live-recovery-coordinator.ts:280",
+    "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts:134",
+    "apps/core/src/app/bootstrap/runtime-services.ts",
+    "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:520",
+    "apps/core/test/integration/runtime-host-child-process.integration.test.ts:223",
+    "apps/core/test/integration/inline-agent-runtime.integration.test.ts:1120",
+    "apps/core/src/runtime/group-session-command-state.ts:356",
+    "apps/core/src/session/session-commands.ts:547",
+    "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts:754",
+    "apps/core/test/unit/runner/agent-runner-ipc.test.ts:2143",
+    "apps/core/test/unit/adapters/deepagents-inline-lane.test.ts:1598",
+    "apps/core/src/application/agent-execution/agent-execution-adapter-registry.ts:33",
+    ".factory/stories/cache-bug/decomposition.json",
+    ".factory/stories/cache-bug/task-plans/cache-bug-T3A.md"
   ],
   "citations": [
     {
-      "finding": "The recorded write scope omitted the domain ops port, canonical Postgres ops facade, and canonical session ops service required to filter before lifecycle side effects.",
-      "source": "apps/core/src/domain/repositories/ops-repo.ts:367; apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts:519; apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts:161; apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73"
+      "finding": "Write scope omitted live-recovery-coordinator.ts and inline-agent-task-lifecycle.ts even though both read turn context and can trigger provider-session lifecycle effects.",
+      "source": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts:280 and apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts:134"
     },
     {
-      "finding": "Public status filtering had no capability-aware provider-session port or production resolver wiring and could filter only after order/limit.",
-      "source": "apps/core/src/domain/ports/repositories.ts:331; apps/core/src/control/server/index.ts:353; apps/core/src/adapters/storage/postgres/repositories/session-repositories.postgres.ts:242"
+      "finding": "The required continuity field could not be added exhaustively because concrete integration and e2e test adapters lived outside the recorded write scope.",
+      "source": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:520; apps/core/test/integration/runtime-host-child-process.integration.test.ts:223; apps/core/test/integration/inline-agent-runtime.integration.test.ts:1120"
     },
     {
-      "finding": "Failover proof covered DeepAgents-to-Claude but not Claude-to-DeepAgents, where process-local persistence state could suppress durable checkpoint behavior.",
-      "source": "apps/core/src/runtime/group-agent-runner.ts:396 and apps/core/src/runtime/group-agent-runner.ts:636"
+      "finding": "Chat /status had neither a designed status-only continuity filter nor a command-path test, while filtering the shared compaction context could incorrectly change /compact before T3C.",
+      "source": "apps/core/src/runtime/group-session-command-state.ts:356 and apps/core/src/session/session-commands.ts:547"
     },
     {
-      "finding": "No Postgres integration leaf could falsify maintenance-lock release, ready-row promotion, or mixed-provider selection leakage.",
-      "source": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts:73"
+      "finding": "AC3's real DeepAgents checkpoint-resume and Claude and DeepAgents scheduled-job guarantees were not selected by required tests or verify commands.",
+      "source": "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts:754; apps/core/test/unit/runner/agent-runner-ipc.test.ts:2143; apps/core/test/unit/adapters/deepagents-inline-lane.test.ts:1598"
     },
     {
-      "finding": "Reviewer focus named no load-bearing provider-boundary or modular-monolith constitution.",
-      "source": "constitution/pnp-provider-pattern-for-integration.md and constitution/pnp-coding-standards-modular-monolith.md"
+      "finding": "Unknown or removed provider rows had no defined read policy, allowing status to throw or accidentally treat an unregistered provider as durable.",
+      "source": "apps/core/src/application/agent-execution/agent-execution-adapter-registry.ts:33"
+    },
+    {
+      "finding": "The 30-file and 2600-line review budget was too small for the complete continuity producer-consumer and proof surface.",
+      "source": ".factory/stories/cache-bug/task-plans/cache-bug-T3A.md and .factory/stories/cache-bug/decomposition.json"
     }
   ],
   "criteria_map": {
-    "Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.": "T3A-P1 is proven at live admission, both Claude SDK lanes, output persistence, session status, and the live MessageStream regression.",
-    "Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.": "T3A-P2 is proven by the production Postgres side-effect leaf, both failover directions, run-creation input assertions, lifecycle unit tests, and projection tests.",
-    "DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.": "T3A-P3 is proven by existing durable-resume/ceiling regressions, the Claude restart hermetic scenario, unchanged scheduled jobs, and same-PR canon reconciliation."
+    "Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.": "T3A-P1 is pinned across recovered and inline admission, both Claude SDK lanes, output persistence, run linkage, public and chat status, and the separate live MessageStream continuation regression.",
+    "Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.": "T3A-P2 is pinned by every scoped turn-context consumer, the real Postgres no-side-effect selection leaf, both failover directions, per-attempt persistence state, run-creation assertions, unknown-provider fail-closed filtering, and both projection paths.",
+    "DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.": "T3A-P3 is pinned by the real Postgres-backed DeepAgents checkpoint leaf, durable ceiling regression, both provider-specific scheduled-job leaves, canon reconciliation, and the hermetic Claude restart scenario."
   },
   "rounds": [
     {
-      "question": "The T3A task grill found five blockers. The task contract is now amended so: (1) the full turn-context chain\u2014domain ops port, canonical Postgres ops facade, canonical session ops service, and selecting repository\u2014is scoped, and process-local filtering happens before maintenance-lock release, ready-row promotion, ordering, or selection; (2) public status filtering has a capability-aware provider-session port plus production control-server resolver wiring, with filtering before order/limit so a stale Claude row cannot mask a valid DeepAgents row; (3) failover proof covers both DeepAgents-to-Claude and Claude-to-DeepAgents, with candidate-specific non-hydrating fenced re-reads and persistence state; (4) a real Postgres integration leaf proves no process-local lifecycle side effect while durable rows remain selectable; and (5) reviewer focus cites the provider-pattern and modular-monolith constitutions and retains the recurring partial-contract tripwire. Confirm these five resolutions and close the T3A task frontier?",
+      "question": "The fresh T3A task grill found six blockers. The contract is now amended so: (1) live recovery and inline-task lifecycle are scoped as continuity consumers; (2) every concrete and integration-test adapter must declare continuity explicitly; (3) chat /status gets a status-only filter that does not change /compact before T3C; (4) real DeepAgents checkpoint resume plus Claude and DeepAgents scheduled-job leaves are mandatory; (5) unknown or removed provider rows are excluded fail-closed from read-only status/resume projections before order and limit; and (6) the review budget is raised to 40 files and 3600 lines for the complete producer-consumer update. Confirm all six resolutions and close the T3A task frontier?",
       "options": [
-        "Confirm all five resolutions",
+        "Confirm all six resolutions",
         "Reopen \u2014 another concern"
       ],
-      "chosen": "Confirm all five resolutions",
+      "chosen": "Confirm all six resolutions",
       "frontier_empty": true
     }
   ],
-  "input_sha256": "25765b2142174bc7e79ac561b6ccb54f97589be367d1fd8da9829ae7814b0f95",
+  "input_sha256": "fda6d67107b06fd95bc28de1239e3d9c8cf8df45d0ed1bf18c48d97a339a2efc",
   "grounding_basis": "working-tree",
   "grounding_treeish": "",
-  "task_plan_sha256": "f13023e9d8ccd396d19f7ec55d4aa95984c5a448ac0f5b805e20c6941d8b7d3f",
-  "recorded_at": "2026-09-18T08:23:01+00:00",
-  "commit": "db70455da5c249d11458708e58bbdee136c9e2db",
-  "approved_task_plan_sha256": "f13023e9d8ccd396d19f7ec55d4aa95984c5a448ac0f5b805e20c6941d8b7d3f",
+  "task_plan_sha256": "f440e65f4ca441c3dad63be1f08e77aae2d69b798e4cb5ed1841e915fadbf769",
+  "recorded_at": "2026-09-18T09:32:17+00:00",
+  "commit": "46a25c069a371c40c20346562275dee5b7a71eb7",
+  "approved_task_plan_sha256": "f440e65f4ca441c3dad63be1f08e77aae2d69b798e4cb5ed1841e915fadbf769",
   "approved_by": "Ravi",
-  "approved_at": "2026-09-18T08:23:18+00:00"
+  "approved_at": "2026-09-18T09:34:16+00:00"
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { Agent } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
@@ -242,7 +242,9 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
   async getLatestProviderSession(input: {
     agentSessionId: AgentSession['id'];
     provider?: ExecutionProviderId;
+    durableExecutionProviderIds: readonly ExecutionProviderId[];
   }): Promise<ProviderSession | null> {
+    if (input.durableExecutionProviderIds.length === 0) return null;
     const ps = pgSchema.providerSessionsPostgres;
     const rows = await this.db
       .select()
@@ -251,6 +253,7 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
         and(
           eq(ps.agentSessionId, input.agentSessionId),
           eq(ps.status, 'active'),
+          inArray(ps.provider, [...input.durableExecutionProviderIds]),
           input.provider ? eq(ps.provider, input.provider) : undefined,
         ),
       )

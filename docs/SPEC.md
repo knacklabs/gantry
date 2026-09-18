@@ -620,10 +620,10 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
    `AgentSession` in Postgres.
 2. Runtime hydrates only scoped durable memory for a fresh runner or scheduled
    job.
-3. Live chat runs persist and resume provider SDK sessions as adapter metadata
-   when a trusted provider handle exists; scheduled/autonomous jobs remain
-   ephemeral with `persistSession: false` and no SDK `resume`,
-   `resumeSessionAt`, or `continue` handles.
+3. Each execution adapter declares provider-session continuity. DeepAgents
+   persists and resumes durable checkpoint sessions; Claude worker and inline
+   attempts are process-local, use `persistSession: false`, and omit SDK
+   `resume`. Scheduled/autonomous jobs remain ephemeral for every adapter.
 4. Active chat follow-ups are streamed into the same live SDK query. Provider
    transcript exports may exist for debugging, but they are not runtime state.
 
@@ -665,8 +665,9 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
 8. Agent spawn starts the child runner:
    ├── cwd: agents/{group-name}/
    ├── prompt: conversation history + current message
-   ├── persistSession: true for live chat; false for scheduled/autonomous jobs
-   ├── resume: trusted provider session ID when available for live chat
+   ├── provider continuity: adapter-declared durable or process-local
+   ├── DeepAgents: trusted checkpoint resume when available
+   ├── Claude: persistSession false and no resume on every attempt
    └── mcpServers: gantry (runtime tools over IPC)
    │
    ▼

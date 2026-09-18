@@ -42,6 +42,7 @@ import { assertSafeProviderSessionId } from '../../../../domain/sessions/provide
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
 import type { RetiredProviderSessionReference } from '../../../../domain/sessions/provider-session-measurement.js';
+import type { ProviderSessionContinuity } from '../../../../domain/repositories/ops-repo.js';
 export { buildCurrentScopeResetMatcher, makeOwnedAgentSessionScopeKey };
 export class PostgresCanonicalSessionRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
@@ -54,6 +55,7 @@ export class PostgresCanonicalSessionRepository {
     appId?: string;
     workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity?: ProviderSessionContinuity;
     chatJid: string;
     providerAccountId?: string | null;
     threadId?: string | null;
@@ -69,6 +71,14 @@ export class PostgresCanonicalSessionRepository {
       chatJid: input.chatJid,
     });
     const ensured = await this.ensureAgentSession({ ...input, appId });
+    if (input.providerSessionContinuity === 'process_local') {
+      return {
+        appId,
+        agentId: ensured.agentId,
+        agentSessionId: ensured.agentSessionId,
+        agentSessionResetAt: ensured.agentSessionResetAt ?? null,
+      };
+    }
     const executionProviderId = input.executionProviderId;
     await releaseStaleProviderSessionMaintenanceLocks(this.db, {
       agentSessionId: ensured.agentSessionId,

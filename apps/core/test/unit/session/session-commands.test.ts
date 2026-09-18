@@ -2420,6 +2420,41 @@ describe('handleSessionCommand', () => {
     expect(sentMsg).toContain('github.com');
   });
 
+  it('hides process-local provider compaction state from status without changing compact', async () => {
+    const getSessionCompactionStatus = vi
+      .fn()
+      .mockResolvedValue({ state: 'idle' });
+    const beginSessionCompaction = vi.fn().mockResolvedValue({
+      providerSessionId: 'provider-session:locked',
+      externalSessionId: 'provider-session:locked',
+    });
+    const deps = makeDeps({
+      getSessionCompactionStatus,
+      beginSessionCompaction,
+      runSessionCompaction: vi.fn().mockResolvedValue('success'),
+    });
+
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/status')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(deps.sendMessage).toHaveBeenLastCalledWith(
+      expect.stringContaining('Compaction status: idle'),
+    );
+
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(beginSessionCompaction).toHaveBeenCalledOnce();
+  });
+
   it('accepts versioned aliases and stores the recommended alias', async () => {
     const deps = makeDeps();
     const result = await handleSessionCommand({

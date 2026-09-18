@@ -306,6 +306,7 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - apps/core/src/app/bootstrap/live-execution.ts
 - apps/core/src/app/bootstrap/live-recovery-coordinator.ts
 - apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts
+- apps/core/src/app/bootstrap/runtime-services.ts
 - apps/core/src/control/server/index.ts
 - apps/core/src/runtime
 - apps/core/src/session/session-commands.ts
@@ -322,6 +323,10 @@ Rendered by the harness from the recorded decomposition; edit the decomposition,
 - docs/architecture/canonical-domain-model.md
 - docs/SPEC.md
 - apps/core/src/runner/AGENTS.md
+
+**Scope amendments** (measured paths the scope did not name, recorded with `forge stage amend-scope`)
+
+- apps/core/src/app/bootstrap/inline-agent-loop-tools.ts -- Include measured task-lifecycle caller wiring and legacy durable-continuity fixtures required to propagate the adapter capability and preserve DeepAgents behavior.
 
 **Required tests** (run by `stage done`)
 

@@ -131,9 +131,10 @@ Key runner inputs:
   `toolPolicyRules`, backed by the Gantry MCP surface in
   `apps/core/src/runner/gantry-mcp-tool-surface.ts`
 - Gantry MCP server config from `apps/core/src/runner/mcp/server.ts`
-- provider-session projection: live interactive turns may pass adapter resume
-  metadata from `ProviderSession`; scheduled jobs keep provider persistence
-  disabled and use Gantry job/session records as durable continuity
+- provider-session projection: only adapters declaring `durable_resume` may
+  receive or persist `ProviderSession` metadata. Claude is `process_local` and
+  continues same-process follow-ups only through its live `MessageStream`;
+  scheduled jobs keep provider persistence disabled
 - working directory and extra directories
 - `canUseTool`, the permission callback that projects each SDK request through
   the canonical tool execution boundary before sensitive tools run
@@ -155,20 +156,13 @@ The runner emits structured stdout markers back to the host. The group processor
 
 ## Durable Session Resume
 
-`AgentSession` is the runtime continuity record. `ProviderSession` records store
-provider-specific resume metadata such as Claude session ids and optional JSONL
-artifact references. Provider transcript artifacts are export/debug data, not a
-runtime continuation mechanism. Active chat continuity comes from the live
-Claude SDK streaming-input query. A cold start resolves the deterministic
-canonical session key, injects durable Gantry memory, AND resumes the stored
-provider-session handle when one is present and resumable — see
-`session-resume.md`, which is canon for the resume contract. This page
-previously said memory only, which contradicted that contract and the
-size-based retirement that depends on it: retirement exists precisely because
-a cold start resumes a handle whose transcript has grown without bound. A
-handle is an adapter resume optimisation, never canonical continuity; when it
-is absent, expired or retired, the turn proceeds from memory and the bounded
-briefing alone.
+`AgentSession` is the runtime continuity record. A `ProviderSession` is an
+adapter-owned resume optimization only when that adapter declares
+`durable_resume`; DeepAgents checkpoints retain ceiling and retirement
+behavior. Claude declares `process_local`, so a cold start uses Gantry memory
+and a fresh bounded briefing with no SDK resume handle. Its live streaming
+query still accepts same-process follow-ups. See `session-resume.md`, which is
+canon for the capability-aware resume contract.
 
 ## Tools And Permissions
 

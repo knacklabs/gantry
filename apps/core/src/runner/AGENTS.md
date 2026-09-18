@@ -25,12 +25,11 @@
   parentless prompts without a host-bound approved command fail closed. Never log
   raw hostnames or tool inputs for this gate.
 - One-shot scheduled jobs must close the SDK prompt stream after the initial prompt is queued. Keeping that async iterable open is live-run behavior for IPC continuations; in scheduled jobs it can leave the SDK waiting for another user turn after tool execution and produce an idle stall instead of a terminal result.
-- Claude SDK session persistence is split by run type. Live channel turns may
-  use `AgentInput.sessionId` to set `persistSession: true` and `resume`, but
-  scheduled/autonomous jobs must keep `isScheduledJob: true`, omit
-  `AgentInput.sessionId`, and run the SDK with `persistSession: false` even
-  when job metadata has `session_id` or `executionContext.sessionId` for
-  app/control correlation.
+- Claude SDK continuity is process-local. Every worker and inline attempt must
+  omit SDK `resume`, set `persistSession: false`, and never expose a provider
+  session handle. The live worker still uses `MessageStream` for same-process
+  follow-ups. Job metadata `session_id` and `executionContext.sessionId` remain
+  app/control correlation only.
 - Scoped command approval is argv-leaf based. Persist durable `RunCommand(...)`
   rules and project them to the SDK-native Bash tool only inside the selected
   execution harness. Parse `&&`, `||`, `;`, pipes, newlines, and subshell
