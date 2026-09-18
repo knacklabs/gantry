@@ -13,6 +13,11 @@ import {
   ensureRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import {
+  formatLocalDoctor,
+  freeLocalPort,
+  localDockerPrerequisites,
+} from './local-doctor.js';
 export const LOCAL_DATABASE_URL =
   'postgres://gantry_app:gantry_app_password@127.0.0.1:5432/gantry?schema=gantry';
 export const LOCAL_RESET_PATHS = [
@@ -357,7 +362,7 @@ export async function ensureLocalDatabase(
     if (!hostPortConflict(error)) throw error;
     const partial = ownedPostgres(repo, home);
     if (partial) composePg(repo, home, env, 'rm');
-    const fallbackPort = await freePort();
+    const fallbackPort = await freeLocalPort();
     url = localDatabaseUrl(fallbackPort);
     env.GANTRY_DATABASE_URL = url;
     env.GANTRY_POSTGRES_PORT = String(fallbackPort);
@@ -429,16 +434,6 @@ export async function stopLocalDevelopment(home: string): Promise<boolean> {
       } else reject(error);
     });
   });
-}
-async function freePort(): Promise<number> {
-  const server = net.createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const port = (server.address() as net.AddressInfo).port;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
 }
 export async function superviseLocal(
   repo: string,
@@ -581,15 +576,17 @@ export async function superviseLocal(
     )
       throw new Error('Local database migrations failed.');
     if (!restart) {
-      console.log('Local runtime reset. Run `gantry local start` when ready.');
+      console.log(
+        'Gantry local reset complete. Run `gantry local start` when ready.',
+      );
       await shutdown(0);
       return 0;
     }
-    const port = await freePort();
+    const coreOrigin = `http://127.0.0.1:${await freeLocalPort()}`;
     const core = launch(['--import', 'tsx', 'apps/core/src/index.ts'], {
       ...env,
       GANTRY_CONTROL_HOST: '127.0.0.1',
-      GANTRY_CONTROL_PORT: String(port),
+      GANTRY_CONTROL_PORT: new URL(coreOrigin).port,
     });
     const vite = launch(
       [
@@ -598,7 +595,7 @@ export async function superviseLocal(
         'apps/web/vite.config.ts',
         'apps/web',
       ],
-      { ...env, GANTRY_LOCAL_CORE_ORIGIN: `http://127.0.0.1:${port}` },
+      { ...env, GANTRY_LOCAL_CORE_ORIGIN: coreOrigin },
     );
     void core.then(() => {
       if (!stopping) {
@@ -615,7 +612,7 @@ export async function superviseLocal(
     let ready = false;
     for (let attempt = 0; attempt < 120 && !stopping; attempt += 1) {
       try {
-        const response = await fetch(`${origin}/healthz`, {
+        const response = await fetch(`${coreOrigin}/healthz`, {
           signal: AbortSignal.timeout(500),
         });
         if (
@@ -630,10 +627,7 @@ export async function superviseLocal(
       }
       await delay(500);
     }
-    if (!ready && !stopping)
-      throw new Error(
-        'Local runtime did not become healthy within 60 seconds.',
-      );
+    if (!ready && !stopping) throw new Error('Core readiness timed out.');
     if (ready) {
       console.log('Fresh one-time browser authorization link:');
       const authorization = await launch(
@@ -650,7 +644,7 @@ export async function superviseLocal(
           `Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`,
         );
       console.log(
-        `Gantry Web UI: ${origin}/ui/\nCtrl-C stops core and Vite; Postgres stays running.`,
+        `Gantry local ${reset || 'start'} ready\n  Web UI: ${origin}/ui/\n  Ctrl-C stops core and Vite; Postgres stays running.`,
       );
     }
     return await completion;
@@ -663,10 +657,7 @@ export async function superviseLocal(
     process.off('SIGTERM', onSignal);
   }
 }
-export async function runLocalCommand(
-  home: string,
-  args: string[],
-): Promise<number> {
+export async function runLocalCommand(home: string, args: string[]) {
   try {
     const repo = localSourceRoot();
     validateLocalHome(home, repo);
@@ -675,8 +666,10 @@ export async function runLocalCommand(
       console.log('Use gantry local start, reset, reset-db, or stop.');
       return 1;
     }
-    if (!['start', 'reset', 'reset-db', 'stop'].includes(command))
-      throw new Error('Use gantry local start, reset, reset-db, or stop.');
+    if (!['start', 'reset', 'reset-db', 'stop', 'doctor'].includes(command))
+      throw new Error(
+        'Use gantry local start, reset, reset-db, stop, or doctor.',
+      );
     const noStart = args[1] === '--no-start';
     if (
       args.length > 1 &&
@@ -684,12 +677,17 @@ export async function runLocalCommand(
     )
       throw new Error('Use `gantry local reset --no-start` only with reset.');
     validateLocalNode();
+    if (command === 'doctor') {
+      console.log(formatLocalDoctor(home));
+      return 0;
+    }
+    localDockerPrerequisites();
     const env = localEnvironment(home);
     const databaseUrl = env.GANTRY_DATABASE_URL!;
     const target = localDatabase(databaseUrl, command.startsWith('reset'));
     const origin = localOrigin(env);
     console.log(
-      `Gantry home: ${home}\nDatabase: ${target.hostname}:${target.port || '5432'}${target.pathname}\nUI origin: ${origin}`,
+      `Gantry local ${command}\n  Home: ${home}\n  Database: ${target.hostname}:${target.port || '5432'}${target.pathname}\n  UI: ${origin}`,
     );
     clearStaleResetMarker(home, args.includes('--after-manual-recovery'));
     if (command === 'stop') {
@@ -701,6 +699,7 @@ export async function runLocalCommand(
           execFileSync('docker', ['stop', container.id], { stdio: 'inherit' });
       } else
         console.log('Custom Postgres is externally managed; left running.');
+      console.log('Gantry local stop complete.');
       return 0;
     }
     if (command.startsWith('reset')) {

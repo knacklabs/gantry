@@ -87,6 +87,7 @@ Source-local commands:
 
 ```bash
 npm run dev        # start the complete source development stack
+npm run dev:doctor # verify Node, Docker and Docker Compose without changing state
 npm run reset:db   # reset database schemas, preserve files, restart
 npm run reset      # reset database and known runtime state, restart onboarding
 npm run reset:only # reset database and known runtime state, then exit
@@ -94,9 +95,9 @@ npm run dev:stop   # stop core, Vite and this home's managed Postgres
 npm run dev:core   # core only (requires an already configured database)
 ```
 
-The equivalent CLI commands are `gantry local start`, `gantry local reset-db`,
-`gantry local reset`, `gantry local reset --no-start`, and `gantry local stop`,
-when the CLI is built/linked from this checkout. Without a build, use
+The equivalent CLI commands are `gantry local start`, `gantry local doctor`,
+`gantry local reset-db`, `gantry local reset`, `gantry local reset --no-start`,
+and `gantry local stop`, when the CLI is built/linked from this checkout. Without a build, use
 `npm run cli:dev -- local <command>` after `npm run build:contracts`. Run these
 from the source checkout.
 

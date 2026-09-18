@@ -188,6 +188,22 @@ describe('source-local development', () => {
     );
   });
 
+  it('explains missing Docker prerequisites before local startup', async () => {
+    const execFileSync = vi.fn(() => {
+      const error = new Error('spawn docker ENOENT') as Error & {
+        code: string;
+      };
+      error.code = 'ENOENT';
+      throw error;
+    });
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { localDockerPrerequisites } =
+      await import('@core/cli/local-doctor.js');
+
+    expect(() => localDockerPrerequisites()).toThrow('Docker is not installed');
+    expect(() => localDockerPrerequisites()).toThrow('not Homebrew Postgres');
+  });
+
   it('starts managed Compose only for the default target with the selected home', async () => {
     const db = mockDatabase();
     const execFileSync = vi.fn(() => '');
@@ -418,6 +434,10 @@ describe('source-local development', () => {
           GANTRY_PROCESS_ROLE: 'all',
         }),
       });
+      expect(health).toHaveBeenCalledWith(
+        expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/healthz$/),
+        expect.anything(),
+      );
       expect(spawn.mock.invocationCallOrder[3]).toBeGreaterThan(
         health.mock.invocationCallOrder[0],
       );

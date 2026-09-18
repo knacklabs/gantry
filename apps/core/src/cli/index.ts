@@ -89,7 +89,7 @@ function usage(): string {
     '  gantry logs',
     '  gantry ui [authorize]',
     '  gantry auth access approve <reference> --role administrator|viewer',
-    '  gantry local start|reset [--no-start]|reset-db|stop|status|doctor',
+    '  gantry local start|reset [--no-start]|reset-db|stop|doctor',
     '  gantry provider list|connect|doctor|account',
     '  gantry conversation info|approvers  # direct/private and group/channel permission approvers',
     '  gantry agent list|info|name|add|remove|trigger|policy|access|harness|profile',

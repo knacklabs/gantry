@@ -62,6 +62,7 @@
     "dev": "npm run build:contracts && npm run cli:dev -- local start",
     "dev:core": "tsx apps/core/src/index.ts",
     "dev:stop": "npm run build:contracts && npm run cli:dev -- local stop",
+    "dev:doctor": "npm run build:contracts && npm run cli:dev -- local doctor",
     "reset": "npm run build:contracts && npm run cli:dev -- local reset",
     "reset:only": "npm run build:contracts && npm run cli:dev -- local reset --no-start",
     "reset:db": "npm run build:contracts && npm run cli:dev -- local reset-db",
