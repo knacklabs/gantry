@@ -18,6 +18,7 @@ const activateModelAndCreateEmployee = vi.hoisted(() => vi.fn());
 const recordProjectionReceipt = vi.hoisted(() => vi.fn());
 const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
 const isModelCredentialRejectedError = vi.hoisted(() => vi.fn());
+const sendBrowserJoinConversation = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/control/server/routes/browser-auth.js', () => ({
   activeSession,
@@ -33,6 +34,11 @@ vi.mock(
     verifyOnboardingModelCredential,
   }),
 );
+vi.mock('@core/control/server/routes/browser-conversation-members.js', () => ({
+  createBrowserConversationAdministrationService: vi.fn(() => ({})),
+  sendBrowserConversationMembers: vi.fn(),
+  sendBrowserJoinConversation,
+}));
 vi.mock(
   '@core/adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js',
   () => ({
@@ -227,6 +233,28 @@ it('rejects a viewer from reading the Slack app manifest', async () => {
   );
 
   expect(res.statusCode).toBe(403);
+});
+
+it('joins a discovered Slack channel through the protected mutation route', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {}),
+    res,
+    ctx,
+    '/ui/api/onboarding/conversations/conversation%3Aslack%3AC123/join',
+    settings,
+  );
+
+  expect(sendBrowserJoinConversation).toHaveBeenCalledWith(
+    res,
+    'default',
+    'conversation:slack:C123',
+  );
 });
 
 it('stages and checks credentials before a model is selected', async () => {

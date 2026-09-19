@@ -23,6 +23,21 @@ export async function sendBrowserConversationMembers(
   }
 }
 
+export async function sendBrowserJoinConversation(
+  res: ServerResponse,
+  appId: AppId,
+  conversationId: ConversationId,
+): Promise<void> {
+  try {
+    await createBrowserConversationAdministrationService(
+      appId,
+    ).joinConversation({ appId, conversationId });
+    sendJson(res, 200, { joined: true });
+  } catch (error) {
+    if (!sendApplicationError(res, error)) throw error;
+  }
+}
+
 export function createBrowserConversationAdministrationService(appId: AppId) {
   const { repositories } = getRuntimeStorage();
   return new ConversationAdministrationService(

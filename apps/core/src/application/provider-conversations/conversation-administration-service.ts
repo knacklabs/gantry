@@ -37,6 +37,9 @@ export interface ConversationMembershipValidator {
   listConversationMemberIds?(
     input: ConversationMembershipValidationInput,
   ): Promise<string[] | null>;
+  joinConversation?(
+    input: ConversationMembershipValidationInput,
+  ): Promise<boolean>;
 }
 
 export interface ConversationAdminSummary {
@@ -158,6 +161,40 @@ export class ConversationAdministrationService {
       );
     }
     return memberIds;
+  }
+
+  async joinConversation(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+  }): Promise<void> {
+    const { conversation, providerAccount } =
+      await this.requireConversation(input);
+    if (!this.membershipValidator?.joinConversation) {
+      throw new ApplicationError(
+        'NOT_IMPLEMENTED',
+        'Joining conversations is not available for this provider.',
+      );
+    }
+    try {
+      const joined = await this.membershipValidator.joinConversation({
+        providerId: providerAccount.providerId,
+        providerAccount,
+        conversation,
+        userIds: [],
+      });
+      if (!joined) {
+        throw new ApplicationError(
+          'NOT_IMPLEMENTED',
+          'Joining conversations is not available for this provider.',
+        );
+      }
+    } catch (error) {
+      if (error instanceof ApplicationError) throw error;
+      throw new ApplicationError(
+        'UNAVAILABLE',
+        'The provider could not join this conversation. Verify account permissions and retry.',
+      );
+    }
   }
 
   async isControlApproverAllowed(input: {

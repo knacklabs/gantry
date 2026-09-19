@@ -136,6 +136,8 @@ describe('Slack install scopes', () => {
       'canvases:read',
       'canvases:write',
     ]);
+    expect(SLACK_REQUIRED_BOT_SCOPES).toContain('users:read');
+    expect(SLACK_REQUIRED_BOT_SCOPES).toContain('channels:join');
   });
 
   it('detects an upgraded Slack install missing canvas scopes', async () => {
@@ -552,6 +554,118 @@ describe('cli slack helpers', () => {
     expect(result.chats).toHaveLength(2);
     expect(result.chats[0]?.chatJid).toBe('sl:C0123456789');
     expect(result.chats[0]?.chatTitle).toBe('ops-room');
+  });
+
+  it('paginates Slack workspace conversations and resolves DM display names', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            channels: [
+              {
+                id: 'C0123456789',
+                name: 'general',
+                is_member: false,
+                created: 3,
+              },
+              { id: 'D0123456789', is_im: true, user: 'U123', created: 2 },
+            ],
+            response_metadata: { next_cursor: 'next-page' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            channels: [
+              {
+                id: 'G0123456789',
+                name: 'leadership',
+                is_private: true,
+                is_member: true,
+                created: 1,
+              },
+            ],
+            response_metadata: { next_cursor: '' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            members: [
+              {
+                id: 'U123',
+                name: 'ada',
+                real_name: 'Ada Lovelace',
+                profile: { display_name: 'Ada' },
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listSlackRecentChats({
+      botToken: 'xoxb-valid-token',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.chats).toEqual([
+      expect.objectContaining({
+        chatTitle: 'general',
+        chatType: 'public_channel',
+        isMember: false,
+      }),
+      expect.objectContaining({
+        chatTitle: 'Ada',
+        chatType: 'im',
+        isMember: true,
+      }),
+      expect.objectContaining({
+        chatTitle: 'leadership',
+        chatType: 'private_channel',
+        isMember: true,
+      }),
+    ]);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('conversations.list');
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('limit=200');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain('cursor=next-page');
+    expect(String(fetchSpy.mock.calls[2]?.[0])).toContain('users.list');
+  });
+
+  it('retries Slack discovery once after a rate limit response', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('', { status: 429, headers: { 'retry-after': '0' } }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            channels: [{ id: 'C0123456789', name: 'general' }],
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listSlackRecentChats({
+      botToken: 'xoxb-valid-token',
+      timeoutMs: 100,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.chats[0]?.chatTitle).toBe('general');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('does not echo token-bearing HTTP error bodies from Slack discovery', async () => {

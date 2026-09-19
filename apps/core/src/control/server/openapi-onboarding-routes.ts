@@ -78,6 +78,15 @@ export const onboardingOpenApiRouteDocs: RouteDoc[] = [
   },
   {
     method: 'post',
+    path: '/ui/api/onboarding/conversations/{conversationId}/join',
+    operationId: 'joinBrowserOnboardingConversation',
+    tag: 'Onboarding',
+    summary: 'Join a public onboarding channel',
+    description:
+      'Joins the activated provider account to the selected public channel.',
+  },
+  {
+    method: 'post',
     path: '/ui/api/onboarding/assignment',
     operationId: 'bindBrowserOnboardingAssignment',
     tag: 'Onboarding',

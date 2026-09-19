@@ -36,7 +36,8 @@ const mocks = vi.hoisted(() => ({
       {
         chatJid: 'sl:C123',
         chatTitle: 'Engineering',
-        chatType: 'channel',
+        chatType: 'public_channel',
+        isMember: true,
       },
     ],
   })),
@@ -225,6 +226,7 @@ describe('RuntimeSecretConversationDiscovery', () => {
         externalId: 'C123',
         title: 'Engineering',
         kind: 'channel',
+        membership: 'joined',
         externalRef: { kind: 'conversation', value: 'C123' },
       },
     ]);

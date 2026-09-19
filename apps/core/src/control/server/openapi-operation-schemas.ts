@@ -69,6 +69,11 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
     required: ['conversations', 'nextCursor'],
   },
   listBrowserOnboardingConversationMembers: { type: 'object' },
+  joinBrowserOnboardingConversation: {
+    type: 'object',
+    required: ['joined'],
+    properties: { joined: { type: 'boolean', const: true } },
+  },
   bindBrowserOnboardingAssignment: { type: 'object', required: ['assignment'] },
   getBrowserOnboardingChallenge: { type: 'object', required: ['challenge'] },
   createBrowserOnboardingChallenge: { type: 'object', required: ['challenge'] },

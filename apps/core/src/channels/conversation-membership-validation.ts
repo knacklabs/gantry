@@ -120,6 +120,34 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     );
   }
 
+  async joinConversation(
+    input: ConversationMembershipValidationInput,
+  ): Promise<boolean> {
+    if (normalizeProviderId(String(input.providerId)) !== 'slack') return false;
+    const botToken = await this.resolveSecret(
+      input.providerAccount.runtimeSecretRefs,
+      ['bot_token'],
+    );
+    if (!botToken) throw new Error('Slack bot token is not configured.');
+    const response = await fetchWithTimeout(
+      'https://slack.com/api/conversations.join',
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${botToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel: externalConversationValue(input).replace(/^sl:/, ''),
+        }),
+      },
+    );
+    if (!response.ok) throw new Error('Slack channel join failed');
+    const payload = (await response.json()) as { ok?: boolean };
+    if (!payload.ok) throw new Error('Slack channel join failed');
+    return true;
+  }
+
   private async validateTelegram(
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {

@@ -61,6 +61,7 @@ export interface DiscoveredConversation {
   title?: string;
   kind: 'direct' | 'group' | 'channel' | 'service' | 'web';
   status?: 'active' | 'archived' | 'disabled';
+  membership?: 'joined' | 'joinable' | 'invite_required';
   externalRef?: ExternalRef<'conversation'>;
 }
 
@@ -425,6 +426,7 @@ export class DiscoverProviderConversationsService {
         kind: item.kind,
         title: item.title,
         status: item.status ?? 'active',
+        ...(item.membership ? { membership: item.membership } : {}),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };

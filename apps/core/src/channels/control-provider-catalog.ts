@@ -157,7 +157,18 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
               chat.chatJid,
             ),
             title: chat.chatTitle,
-            kind: chat.chatType === 'im' ? 'direct' : 'channel',
+            kind:
+              chat.chatType === 'im'
+                ? 'direct'
+                : chat.chatType === 'mpim'
+                  ? 'group'
+                  : 'channel',
+            membership:
+              chat.isMember === true
+                ? 'joined'
+                : chat.chatType === 'public_channel'
+                  ? 'joinable'
+                  : 'invite_required',
             ...(chat.isArchived === true ? { status: 'archived' } : {}),
             externalRef: {
               kind: 'conversation',

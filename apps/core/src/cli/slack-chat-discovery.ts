@@ -4,6 +4,7 @@ export interface SlackRecentChat {
   chatJid: string;
   chatTitle: string;
   chatType: string;
+  isMember?: boolean;
   isArchived?: boolean;
   sourceTs: number;
 }
@@ -95,56 +96,89 @@ export async function listSlackRecentChats(options: {
   }
 
   const timeoutMs = options.timeoutMs ?? 10_000;
-  const limit = Math.max(1, Math.min(200, options.limit ?? 100));
+  const limit = Math.max(1, Math.min(200, options.limit ?? 200));
   const excludeArchived = options.includeArchived === true ? 'false' : 'true';
 
   try {
-    const response = await fetchWithTimeout(
-      `https://slack.com/api/users.conversations?types=public_channel,private_channel,mpim,im&exclude_archived=${excludeArchived}&limit=${limit}`,
+    const rows: Array<{
+      id?: string;
+      name?: string;
+      user?: string;
+      is_im?: boolean;
+      is_mpim?: boolean;
+      is_private?: boolean;
+      is_member?: boolean;
+      is_archived?: boolean;
+      latest?: { ts?: string };
+      updated?: number;
+      created?: number;
+    }> = [];
+    let cursor = '';
+    do {
+      const url = new URL('https://slack.com/api/conversations.list');
+      url.searchParams.set('types', 'public_channel,private_channel,mpim,im');
+      url.searchParams.set('exclude_archived', excludeArchived);
+      url.searchParams.set('limit', String(limit));
+      if (cursor) url.searchParams.set('cursor', cursor);
+      let response = await fetchWithTimeout(url.toString(), timeoutMs, {
+        headers: { authorization: `Bearer ${botToken}` },
+      });
+      if (response.status === 429) {
+        const requestedDelay = Number(response.headers.get('retry-after'));
+        const retryAfter = Math.min(
+          60,
+          Math.max(0, Number.isFinite(requestedDelay) ? requestedDelay : 1),
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryAfter * 1_000));
+        response = await fetchWithTimeout(url.toString(), timeoutMs, {
+          headers: { authorization: `Bearer ${botToken}` },
+        });
+      }
+      if (!response.ok) {
+        return {
+          ok: false,
+          chats: [],
+          message: `Slack conversations.list failed with HTTP ${response.status}.`,
+          nextAction:
+            'Check token scopes/network and retry. Raw token-bearing transport details are intentionally not printed.',
+        };
+      }
+      const payload = await readSlackPayload<{
+        channels?: Array<{
+          id?: string;
+          name?: string;
+          user?: string;
+          is_im?: boolean;
+          is_mpim?: boolean;
+          is_private?: boolean;
+          is_member?: boolean;
+          is_archived?: boolean;
+          latest?: { ts?: string };
+          updated?: number;
+          created?: number;
+        }>;
+        response_metadata?: { next_cursor?: string };
+      }>(response);
+      if (!payload.ok) {
+        return {
+          ok: false,
+          chats: [],
+          message: `Slack conversation discovery failed: ${safeSlackErrorCode(payload.error)}.`,
+          nextAction:
+            'Ensure the bot has the required conversation scopes and retry.',
+        };
+      }
+      rows.push(...(Array.isArray(payload.channels) ? payload.channels : []));
+      cursor = payload.response_metadata?.next_cursor?.trim() || '';
+    } while (cursor);
+
+    const dmNames = await slackUserNames(
+      botToken,
       timeoutMs,
-      {
-        headers: {
-          authorization: `Bearer ${botToken}`,
-        },
-      },
+      rows
+        .filter((row) => row.is_im && row.user)
+        .map((row) => String(row.user)),
     );
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        chats: [],
-        message: `Slack users.conversations failed with HTTP ${response.status}.`,
-        nextAction:
-          'Check token scopes/network and retry. Raw token-bearing transport details are intentionally not printed.',
-      };
-    }
-
-    const payload = await readSlackPayload<{
-      channels?: Array<{
-        id?: string;
-        name?: string;
-        user?: string;
-        is_im?: boolean;
-        is_mpim?: boolean;
-        is_private?: boolean;
-        is_archived?: boolean;
-        latest?: { ts?: string };
-        updated?: number;
-        created?: number;
-      }>;
-    }>(response);
-
-    if (!payload.ok) {
-      return {
-        ok: false,
-        chats: [],
-        message: `Slack conversation discovery failed: ${safeSlackErrorCode(payload.error)}.`,
-        nextAction:
-          'Ensure bot has conversations:read and is invited to target channels.',
-      };
-    }
-
-    const rows = Array.isArray(payload.channels) ? payload.channels : [];
     const chats: SlackRecentChat[] = [];
     for (const row of rows) {
       const normalized = normalizeSlackChatJid(String(row.id || ''));
@@ -152,13 +186,19 @@ export async function listSlackRecentChats(options: {
       const chatType = resolveChatType(row);
       const chatTitle =
         row.name?.trim() ||
-        (chatType === 'im' ? `dm-${row.user || 'unknown'}` : normalized);
+        (chatType === 'im'
+          ? dmNames.get(String(row.user)) || `dm-${row.user || 'unknown'}`
+          : normalized);
       const sourceTs =
         parseTs(row.latest?.ts) || parseTs(row.updated) || parseTs(row.created);
       chats.push({
         chatJid: normalized,
         chatTitle,
         chatType,
+        isMember:
+          chatType === 'im' || chatType === 'mpim'
+            ? true
+            : row.is_member === true,
         ...(row.is_archived === true ? { isArchived: true } : {}),
         sourceTs,
       });
@@ -171,7 +211,7 @@ export async function listSlackRecentChats(options: {
         chats: [],
         message: 'No discoverable Slack conversations found for this bot.',
         nextAction:
-          'Invite the bot to a channel/DM and rerun `gantry provider connect slack`.',
+          'Create a public channel or invite the app to a private channel, then retry.',
       };
     }
 
@@ -189,4 +229,49 @@ export async function listSlackRecentChats(options: {
         'Check internet access and retry. Raw token-bearing transport details are intentionally not printed.',
     };
   }
+}
+
+async function slackUserNames(
+  botToken: string,
+  timeoutMs: number,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const wanted = new Set(userIds);
+  const names = new Map<string, string>();
+  if (wanted.size === 0) return names;
+  let cursor = '';
+  try {
+    do {
+      const url = new URL('https://slack.com/api/users.list');
+      url.searchParams.set('limit', '200');
+      if (cursor) url.searchParams.set('cursor', cursor);
+      const response = await fetchWithTimeout(url.toString(), timeoutMs, {
+        headers: { authorization: `Bearer ${botToken}` },
+      });
+      if (!response.ok) return names;
+      const payload = await readSlackPayload<{
+        members?: Array<{
+          id?: string;
+          name?: string;
+          real_name?: string;
+          profile?: { display_name?: string; real_name?: string };
+        }>;
+        response_metadata?: { next_cursor?: string };
+      }>(response);
+      if (!payload.ok) return names;
+      for (const member of payload.members ?? []) {
+        if (!member.id || !wanted.has(member.id)) continue;
+        const name =
+          member.profile?.display_name?.trim() ||
+          member.profile?.real_name?.trim() ||
+          member.real_name?.trim() ||
+          member.name?.trim();
+        if (name) names.set(member.id, name);
+      }
+      cursor = payload.response_metadata?.next_cursor?.trim() || '';
+    } while (cursor && names.size < wanted.size);
+  } catch {
+    return names;
+  }
+  return names;
 }

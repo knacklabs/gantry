@@ -66,4 +66,25 @@ describe('first-run onboarding gate', () => {
     expect(step).not.toContain('browserFetch');
     expect(step).not.toContain('fetch(');
   });
+
+  it('reports Slack connection failures through a toast only', () => {
+    const step = readFileSync(
+      'src/features/onboarding/steps/connect-workspace-step.tsx',
+      'utf8',
+    );
+
+    expect(step).toContain('toast.error(');
+    expect(step).not.toContain('onboarding-validation-checks');
+    expect(step).not.toContain('errors.form');
+  });
+
+  it('requires joining a public Slack channel before member discovery', () => {
+    const step = readFileSync(
+      'src/features/onboarding/steps/assign-work-step.tsx',
+      'utf8',
+    );
+
+    expect(step).toContain('Join channel');
+    expect(step).toContain('/join');
+  });
 });

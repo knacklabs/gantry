@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
 
+import { toast } from '../../../ui/primitives/toast';
 import type { OnboardingDraft } from '../onboarding-state';
 import { onboardingGet, onboardingMutation } from '../onboarding-http-client';
 import { onboardingStatusQuery } from '../first-run';
@@ -11,6 +12,12 @@ type Conversation = {
   title: string | null;
   kind: string;
   status: string;
+  membership: 'joined' | 'joinable' | 'invite_required';
+};
+
+type ConversationResponse = {
+  conversations: Conversation[];
+  nextCursor: null;
 };
 
 export function AssignWorkStep({
@@ -26,21 +33,58 @@ export function AssignWorkStep({
   const queryClient = useQueryClient();
   const [conversationId, setConversationId] = useState('');
   const [approverId, setApproverId] = useState('');
+  const [joining, setJoining] = useState(false);
+  const conversationQueryKey = ['onboarding', 'conversations'] as const;
   const conversations = useQuery({
-    queryKey: ['onboarding', 'conversations'],
-    queryFn: () =>
-      onboardingGet<{ conversations: Conversation[]; nextCursor: null }>(
-        '/conversations',
-      ),
+    queryKey: conversationQueryKey,
+    queryFn: () => onboardingGet<ConversationResponse>('/conversations'),
+    retry: false,
   });
+  const selectedConversation = conversations.data?.conversations.find(
+    (conversation) => conversation.id === conversationId,
+  );
+  const joined = selectedConversation?.membership === 'joined';
   const members = useQuery({
     queryKey: ['onboarding', 'conversation-members', conversationId],
-    enabled: Boolean(conversationId),
+    enabled: Boolean(conversationId && joined),
     queryFn: () =>
       onboardingGet<{ memberIds: string[] }>(
         `/conversations/${encodeURIComponent(conversationId)}/members`,
       ),
   });
+
+  async function joinChannel() {
+    if (!selectedConversation || selectedConversation.membership !== 'joinable')
+      return;
+    setJoining(true);
+    try {
+      await onboardingMutation(
+        `/conversations/${encodeURIComponent(selectedConversation.id)}/join`,
+        {},
+      );
+      queryClient.setQueryData<ConversationResponse>(
+        conversationQueryKey,
+        (current) =>
+          current
+            ? {
+                ...current,
+                conversations: current.conversations.map((conversation) =>
+                  conversation.id === selectedConversation.id
+                    ? { ...conversation, membership: 'joined' }
+                    : conversation,
+                ),
+              }
+            : current,
+      );
+      toast.success(`Joined #${selectedConversation.title}.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Slack channel join failed.',
+      );
+    } finally {
+      setJoining(false);
+    }
+  }
 
   const bind = useCallback(async () => {
     if (!conversationId || !approverId) return;
@@ -90,6 +134,7 @@ export function AssignWorkStep({
             </option>
             {(conversations.data?.conversations ?? []).map((conversation) => (
               <option key={conversation.id} value={conversation.id}>
+                {conversation.kind === 'channel' ? '# ' : ''}
                 {conversation.title ?? conversation.id}
               </option>
             ))}
@@ -100,10 +145,33 @@ export function AssignWorkStep({
             {conversations.error.message}
           </p>
         ) : null}
+        {selectedConversation?.membership === 'joinable' ? (
+          <div className="grid justify-items-start gap-2">
+            <small className="onboarding-help">
+              Gantry must join this public channel before it can read members or
+              reply.
+            </small>
+            <button
+              className="onboarding-primary"
+              disabled={joining}
+              onClick={() => void joinChannel()}
+              type="button"
+            >
+              {joining ? 'Joining channel…' : 'Join channel'}
+            </button>
+          </div>
+        ) : selectedConversation?.membership === 'invite_required' ? (
+          <small className="onboarding-help">
+            Invite the Gantry app to this private channel in Slack, then refresh
+            this page.
+          </small>
+        ) : null}
         <label className="onboarding-field">
           <span>Who approves its riskier actions?</span>
           <select
-            disabled={!conversationId || members.isPending || members.isError}
+            disabled={
+              !conversationId || !joined || members.isPending || members.isError
+            }
             onChange={(event) => {
               setApproverId(event.target.value);
               onChange({ approver: event.target.value });
@@ -111,9 +179,11 @@ export function AssignWorkStep({
             value={approverId}
           >
             <option value="">
-              {members.isPending && conversationId
-                ? 'Refreshing Slack members…'
-                : 'Choose one verified member'}
+              {selectedConversation?.membership === 'joinable'
+                ? 'Join the channel first'
+                : members.isPending && conversationId
+                  ? 'Refreshing Slack members…'
+                  : 'Choose one verified member'}
             </option>
             {(members.data?.memberIds ?? []).map((memberId) => (
               <option key={memberId} value={memberId}>

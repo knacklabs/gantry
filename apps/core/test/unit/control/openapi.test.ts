@@ -55,6 +55,7 @@ const expectedControlRoutes = [
   'GET /ui/api/onboarding/channel-manifest',
   'GET /ui/api/onboarding/conversations',
   'GET /ui/api/onboarding/conversations/{conversationId}/members',
+  'POST /ui/api/onboarding/conversations/{conversationId}/join',
   'GET /ui/api/onboarding/status',
   'POST /llm/v1/chat/completions',
   'POST /llm/v1/messages',

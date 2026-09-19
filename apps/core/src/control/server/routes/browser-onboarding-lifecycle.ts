@@ -38,13 +38,19 @@ import { nowIso } from '../../../shared/time/datetime.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
 import { browserRoleAllowsScope } from '../browser-scope-policy.js';
 import type { ControlRouteContext } from '../handler-context.js';
-import { readJson, sendError, sendJson } from '../http.js';
+import {
+  readJson,
+  sendApplicationError,
+  sendError,
+  sendJson,
+} from '../http.js';
 import {
   activeSession,
   requireBrowserMutationSession,
 } from './browser-auth.js';
 import {
   createBrowserConversationAdministrationService,
+  sendBrowserJoinConversation,
   sendBrowserConversationMembers,
 } from './browser-conversation-members.js';
 
@@ -138,19 +144,24 @@ export async function handleBrowserOnboardingRoutes(
       ids: { generate: randomUUID },
       clock: { now: nowIso },
     });
-    const conversations = await discovery.execute({
-      appId: session.appId as AppId,
-      providerAccountId: providerAccountId as ProviderAccountId,
-    });
-    sendJson(res, 200, {
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        title: conversation.title ?? null,
-        kind: conversation.kind,
-        status: conversation.status,
-      })),
-      nextCursor: null,
-    });
+    try {
+      const conversations = await discovery.execute({
+        appId: session.appId as AppId,
+        providerAccountId: providerAccountId as ProviderAccountId,
+      });
+      sendJson(res, 200, {
+        conversations: conversations.map((conversation) => ({
+          id: conversation.id,
+          title: conversation.title ?? null,
+          kind: conversation.kind,
+          status: conversation.status,
+          membership: conversation.membership ?? 'joined',
+        })),
+        nextCursor: null,
+      });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
     return true;
   }
 
@@ -201,6 +212,19 @@ export async function handleBrowserOnboardingRoutes(
   if (!session) return true;
   if (!browserRoleAllowsScope(session.role as ConsoleRole, 'agents:admin')) {
     sendError(res, 403, 'FORBIDDEN', 'Administrator access is required.');
+    return true;
+  }
+
+  const joinConversationMatch = pathname.match(
+    /^\/ui\/api\/onboarding\/conversations\/([^/]+)\/join$/,
+  );
+  if (joinConversationMatch) {
+    if (req.method !== 'POST') return wrongMethod(res, 'POST');
+    await sendBrowserJoinConversation(
+      res,
+      session.appId as AppId,
+      decodeURIComponent(joinConversationMatch[1]!) as ConversationId,
+    );
     return true;
   }
 
