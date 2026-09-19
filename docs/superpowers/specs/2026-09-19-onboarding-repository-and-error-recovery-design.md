@@ -11,7 +11,7 @@ No onboarding behavior, database schema, error telemetry, or recovery workflow c
 
 ## Persistence boundaries
 
-Remove `onboarding-lifecycle-repository.postgres.ts` after moving its behavior into four repositories under `repositories/onboarding/`:
+Retain `onboarding-lifecycle-repository.postgres.ts` as the small public composition façade and move its persistence behavior into four repositories under `repositories/onboarding/`:
 
 ```text
 apps/core/src/adapters/storage/postgres/repositories/onboarding/
@@ -39,7 +39,9 @@ Owns verification challenge creation, expiry and supersession, trusted inbound m
 
 ### Composition and callers
 
-Runtime wiring constructs the four repositories directly. Browser routes receive the repositories they need, and runtime ingress receives only the verification repository. No compatibility facade, re-export-only module, generic utility folder, or new interface with one implementation is introduced.
+`PostgresOnboardingLifecycleRepository` remains at its current import path and preserves its current public methods. It constructs the four repositories and explicitly delegates lifecycle operations to them. This keeps browser routes, runtime ingress, boot wiring, and existing mocks stable while moving every query, encryption operation, and transaction into its focused owner.
+
+The façade contains no duplicated queries or business logic and stays below the repository line budget. No compatibility shim, re-export-only module, generic utility folder, or new interface with one implementation is introduced.
 
 Existing transaction boundaries, app/user scoping, error behavior, encryption, and public API contracts remain unchanged.
 
@@ -94,7 +96,7 @@ Both variants reuse one small recovery-panel composition and the existing `Butto
 - Existing route and state-machine tests continue to pass after dependency rewiring.
 - Add focused repository tests for encrypted candidate transitions and successful verification-to-Ready correlation.
 - Run typecheck, lint, migration validation, production builds, and the architecture checker.
-- Confirm no caller still imports the removed lifecycle repository.
+- Confirm every caller still uses the stable lifecycle façade and no SQL remains in it.
 
 ### Web
 
