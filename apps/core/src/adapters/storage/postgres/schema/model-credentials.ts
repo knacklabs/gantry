@@ -23,6 +23,7 @@ export const modelCredentialsPostgres = pgTable(
     fingerprint: text('fingerprint').notNull(),
     fieldFingerprintsJson: text('field_fingerprints_json').notNull(),
     status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })

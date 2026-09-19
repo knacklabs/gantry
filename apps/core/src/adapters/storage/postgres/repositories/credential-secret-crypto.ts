@@ -16,7 +16,11 @@ const CREDENTIAL_SECRET_PREFIX = `gcred:${CREDENTIAL_SECRET_FORMAT_VERSION}:`;
 
 export type CredentialSecretAadContext = {
   appId: string;
-  subjectKind: 'capability_secret' | 'model_credential' | 'oidc_transaction';
+  subjectKind:
+    | 'capability_secret'
+    | 'model_credential'
+    | 'oidc_transaction'
+    | 'onboarding_candidate';
   subjectId: string;
   authMode?: string;
   schemaVersion: number;

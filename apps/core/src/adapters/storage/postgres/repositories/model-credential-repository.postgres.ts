@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { EnvRuntimeSecretProvider } from '../../../credentials/env-runtime-secret-provider.js';
 import type { RuntimeSecretProvider } from '../../../../domain/ports/runtime-secret-provider.js';
@@ -127,6 +127,7 @@ export class PostgresModelCredentialRepository implements ModelCredentialReposit
           fingerprint: input.fingerprint,
           fieldFingerprintsJson: JSON.stringify(input.fieldFingerprints),
           status: 'active',
+          revision: sql`${pgSchema.modelCredentialsPostgres.revision} + 1`,
           updatedBy: input.actor ?? null,
           updatedAt: now,
         },
@@ -146,6 +147,7 @@ export class PostgresModelCredentialRepository implements ModelCredentialReposit
       .update(pgSchema.modelCredentialsPostgres)
       .set({
         status: 'disabled',
+        revision: sql`${pgSchema.modelCredentialsPostgres.revision} + 1`,
         updatedBy: input.actor ?? null,
         updatedAt: input.now ?? nowIso(),
       })

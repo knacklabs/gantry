@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -40,6 +41,7 @@ export const providerAccountsPostgres = pgTable(
     externalIdentityRefJson: text('external_identity_ref_json'),
     label: text('label').notNull(),
     status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
     configJson: text('config_json').notNull().default('{}'),
     runtimeSecretRefsJson: text('runtime_secret_refs_json')
       .notNull()
