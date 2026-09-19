@@ -1,5 +1,6 @@
 import { createRouter } from '@tanstack/react-router';
 
+import { RouteErrorPage } from './critical-error-boundary';
 import { rootRoute } from './root-route';
 import { administrationRoutes } from './routes/administration-routes';
 import { conversationRoutes } from './routes/conversation-routes';
@@ -31,6 +32,7 @@ const routeTree = developmentRoutes.length
 
 export const router = createRouter({
   basepath: '/ui',
+  defaultErrorComponent: RouteErrorPage,
   defaultPreload: 'intent',
   routeTree,
 });
