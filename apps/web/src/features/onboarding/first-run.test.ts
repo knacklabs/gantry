@@ -86,5 +86,10 @@ describe('first-run onboarding gate', () => {
 
     expect(step).toContain('Join channel');
     expect(step).toContain('/join');
+    expect(step).toContain('Loading conversations…');
+    expect(step).toContain('role="status"');
+    expect(step).toContain("id: 'onboarding-conversations-error'");
+    expect(step).toContain("id: 'onboarding-conversation-members-error'");
+    expect(step).not.toContain('className="onboarding-error"');
   });
 });

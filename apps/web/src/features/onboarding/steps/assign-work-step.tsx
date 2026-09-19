@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { toast } from '../../../ui/primitives/toast';
@@ -52,6 +53,20 @@ export function AssignWorkStep({
         `/conversations/${encodeURIComponent(conversationId)}/members`,
       ),
   });
+
+  useEffect(() => {
+    if (!conversations.isError) return;
+    toast.error(conversations.error.message, {
+      id: 'onboarding-conversations-error',
+    });
+  }, [conversations.error, conversations.isError]);
+
+  useEffect(() => {
+    if (!members.isError) return;
+    toast.error(members.error.message, {
+      id: 'onboarding-conversation-members-error',
+    });
+  }, [members.error, members.isError]);
 
   async function joinChannel() {
     if (!selectedConversation || selectedConversation.membership !== 'joinable')
@@ -113,7 +128,23 @@ export function AssignWorkStep({
       />
       <article className="onboarding-card">
         <label className="onboarding-field">
-          <span>Give it one place to start</span>
+          <span className="flex items-center justify-between gap-3">
+            <span>Give it one place to start</span>
+            {conversations.isPending ? (
+              <span
+                aria-live="polite"
+                className="flex items-center gap-1.5 text-[11px] font-normal text-text-secondary"
+                role="status"
+              >
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="onboarding-spinner shrink-0"
+                  size={13}
+                />
+                Loading conversations…
+              </span>
+            ) : null}
+          </span>
           <select
             disabled={conversations.isPending || conversations.isError}
             onChange={(event) => {
@@ -127,11 +158,7 @@ export function AssignWorkStep({
             }}
             value={conversationId}
           >
-            <option value="">
-              {conversations.isPending
-                ? 'Discovering Slack conversations…'
-                : 'Choose a conversation'}
-            </option>
+            <option value="">Choose a conversation</option>
             {(conversations.data?.conversations ?? []).map((conversation) => (
               <option key={conversation.id} value={conversation.id}>
                 {conversation.kind === 'channel' ? '# ' : ''}
@@ -140,11 +167,6 @@ export function AssignWorkStep({
             ))}
           </select>
         </label>
-        {conversations.isError ? (
-          <p className="onboarding-error" role="alert">
-            {conversations.error.message}
-          </p>
-        ) : null}
         {selectedConversation?.membership === 'joinable' ? (
           <div className="grid justify-items-start gap-2">
             <small className="onboarding-help">
@@ -192,11 +214,6 @@ export function AssignWorkStep({
             ))}
           </select>
         </label>
-        {members.isError ? (
-          <p className="onboarding-error" role="alert">
-            {members.error.message}
-          </p>
-        ) : null}
         <small className="onboarding-help">
           Continue refreshes Slack membership, then saves the conversation,
           verified person, approver policy and installation together.
