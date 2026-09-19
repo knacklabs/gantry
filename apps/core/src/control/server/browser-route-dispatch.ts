@@ -23,7 +23,7 @@ import { handleBrowserModelProviderRoutes } from './routes/browser-model-provide
 import {
   handleBrowserOnboardingRoutes,
   isBrowserOnboardingPath,
-} from './routes/browser-onboarding.js';
+} from './routes/browser-onboarding-lifecycle.js';
 import {
   handleBrowserNavigationSummary,
   isBrowserNavigationSummaryPath,
@@ -45,7 +45,7 @@ type BrowserSettings = Parameters<typeof handleBrowserAgentRoutes>[5] &
   Parameters<typeof handleBrowserChannelAccountRoutes>[4] &
   Parameters<typeof handleBrowserMcpServerRoutes>[4] &
   Parameters<typeof handleBrowserModelProviderRoutes>[3] &
-  Parameters<typeof handleBrowserOnboardingRoutes>[3] &
+  Parameters<typeof handleBrowserOnboardingRoutes>[4] &
   Parameters<typeof handleBrowserNavigationSummary>[4] &
   Parameters<typeof handleBrowserPeopleRoutes>[3] &
   Parameters<typeof handleBrowserRuntimeStatus>[4] &
@@ -138,6 +138,7 @@ export async function handleBrowserControlRoutes(input: {
     (await handleBrowserOnboardingRoutes(
       input.req,
       input.res,
+      input.ctx,
       input.pathname,
       settings,
       input.url,

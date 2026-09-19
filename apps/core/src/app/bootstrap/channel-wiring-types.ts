@@ -7,7 +7,6 @@ import type {
   OnBrainDreamReviewMessageAction,
   MessageSendOptions,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -164,6 +163,22 @@ export interface ChannelWiringDeps {
   brainHarvestTap?: BrainChannelHarvestTap;
   historyCoverage?: ConversationHistoryCoverageRepository;
   messageAttachments?: MessageAttachmentRepository;
+  onboardingVerification?: {
+    match(input: {
+      appId: string;
+      agentId: string;
+      providerAccountId: string;
+      conversationId: string;
+      senderExternalUserId: string;
+      content: string;
+    }): Promise<{ attemptId: string | null; blocked: boolean }>;
+    consume(input: {
+      attemptId: string;
+      conversationJid: string;
+      externalMessageId: string;
+      providerAccountId: string;
+    }): Promise<boolean>;
+  };
 }
 
 export interface ChannelWiring {

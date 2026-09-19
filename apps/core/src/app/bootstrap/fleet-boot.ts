@@ -46,6 +46,7 @@ import {
   markSettingsNotLoaded,
 } from '../../runtime/settings-load-state.js';
 import { SettingsRevisionListener } from '../../runtime/settings-revision-listener.js';
+import { PostgresOnboardingLifecycleRepository } from '../../adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js';
 import type { RuntimeApp } from './runtime-app.js';
 import type {
   ControlAgentSettingsPort,
@@ -368,6 +369,10 @@ export async function startFleetSubsystems(input: {
       (context, message) => logger.warn(context, message),
     ),
     reloadRuntimeState: () => input.app.loadState(),
+    recordRevisionReceipt: (receipt) =>
+      new PostgresOnboardingLifecycleRepository(
+        storage.service.db,
+      ).recordProjectionReceipt(receipt),
     onFirstRevisionApplied: async (settings) => {
       // No-op when everything already started at boot (settingsLoaded).
       if (capabilitySubsystemsStarted) return;

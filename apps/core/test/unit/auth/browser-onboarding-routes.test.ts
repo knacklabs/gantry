@@ -7,6 +7,14 @@ const activeSession = vi.hoisted(() => vi.fn());
 const requireBrowserMutationSession = vi.hoisted(() => vi.fn());
 const onboardingCompletedAt = vi.hoisted(() => vi.fn());
 const markOnboardingCompleted = vi.hoisted(() => vi.fn());
+const onboardingStatus = vi.hoisted(() => vi.fn());
+const operationReplay = vi.hoisted(() => vi.fn());
+const saveOperation = vi.hoisted(() => vi.fn());
+const stageModelCredentialCandidate = vi.hoisted(() => vi.fn());
+const getModelCredentialCandidate = vi.hoisted(() => vi.fn());
+const transitionModelCredentialCandidate = vi.hoisted(() => vi.fn());
+const bindModelSelectionForVerification = vi.hoisted(() => vi.fn());
+const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/control/server/routes/browser-auth.js', () => ({
   activeSession,
@@ -15,6 +23,24 @@ vi.mock('@core/control/server/routes/browser-auth.js', () => ({
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeStorage: () => ({ service: { db: {} } }),
 }));
+vi.mock(
+  '@core/application/onboarding/model-credential-verification.js',
+  () => ({ verifyOnboardingModelCredential }),
+);
+vi.mock(
+  '@core/adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js',
+  () => ({
+    PostgresOnboardingLifecycleRepository: class {
+      status = onboardingStatus;
+      operationReplay = operationReplay;
+      saveOperation = saveOperation;
+      stageModelCredentialCandidate = stageModelCredentialCandidate;
+      getModelCredentialCandidate = getModelCredentialCandidate;
+      transitionModelCredentialCandidate = transitionModelCredentialCandidate;
+      bindModelSelectionForVerification = bindModelSelectionForVerification;
+    },
+  }),
+);
 vi.mock(
   '@core/adapters/storage/postgres/repositories/authentication-repository.postgres.js',
   () => ({
@@ -28,7 +54,7 @@ vi.mock(
 import {
   handleBrowserOnboardingRoutes,
   isBrowserOnboardingPath,
-} from '@core/control/server/routes/browser-onboarding.js';
+} from '@core/control/server/routes/browser-onboarding-lifecycle.js';
 
 const settings = {
   authentication: {
@@ -37,11 +63,16 @@ const settings = {
   },
 };
 const session = { appId: 'default', userId: 'local-console:default' };
+const ctx = { syncSettingsFromProjection: vi.fn() } as never;
 
-function request(method: string): IncomingMessage {
-  const req = Readable.from([]) as IncomingMessage;
+function request(method: string, body?: unknown): IncomingMessage {
+  const req = Readable.from(
+    body ? [JSON.stringify(body)] : [],
+  ) as IncomingMessage;
   req.method = method;
-  req.headers = {};
+  req.headers = body
+    ? { 'content-type': 'application/json', 'idempotency-key': 'test-key' }
+    : {};
   return req;
 }
 
@@ -56,7 +87,21 @@ function response() {
   } as unknown as ServerResponse & { body: string };
 }
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  operationReplay.mockResolvedValue(null);
+  onboardingStatus.mockResolvedValue({ completed: false, deployment: null });
+  stageModelCredentialCandidate.mockResolvedValue({
+    id: '00000000-0000-4000-8000-000000000001',
+    providerId: 'anthropic',
+    authMode: 'api_key',
+    state: 'staged',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  });
+  transitionModelCredentialCandidate.mockResolvedValue({});
+  bindModelSelectionForVerification.mockResolvedValue({});
+  verifyOnboardingModelCredential.mockResolvedValue({ routeId: 'anthropic' });
+});
 
 it('reads completion for the authenticated user only', async () => {
   activeSession.mockResolvedValue(session);
@@ -66,12 +111,13 @@ it('reads completion for the authenticated user only', async () => {
   await handleBrowserOnboardingRoutes(
     request('GET'),
     res,
+    ctx,
     '/ui/api/onboarding/status',
     settings,
   );
 
   expect(res.statusCode).toBe(200);
-  expect(JSON.parse(res.body)).toEqual({ completed: false });
+  expect(JSON.parse(res.body)).toEqual({ completed: false, deployment: null });
   expect(onboardingCompletedAt).toHaveBeenCalledWith(session);
 });
 
@@ -82,16 +128,29 @@ it('requires the standard mutation session before completing onboarding', async 
   await handleBrowserOnboardingRoutes(
     request('POST'),
     denied,
+    ctx,
     '/ui/api/onboarding/complete',
     settings,
   );
   expect(markOnboardingCompleted).not.toHaveBeenCalled();
 
-  requireBrowserMutationSession.mockResolvedValue(session);
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  onboardingStatus.mockResolvedValue({
+    completed: false,
+    deployment: {
+      state: 'ready',
+      readyAt: '2026-09-18T00:00:00.000Z',
+      version: 2,
+    },
+  });
   const accepted = response();
   await handleBrowserOnboardingRoutes(
-    request('POST'),
+    request('POST', { expectedVersion: 2 }),
     accepted,
+    ctx,
     '/ui/api/onboarding/complete',
     settings,
   );
@@ -119,6 +178,7 @@ it('returns the administrator-only Slack app manifest without credentials', asyn
   await handleBrowserOnboardingRoutes(
     request('GET'),
     res,
+    ctx,
     '/ui/api/onboarding/channel-manifest',
     settings,
     new URL(
@@ -141,6 +201,7 @@ it('rejects a viewer from reading the Slack app manifest', async () => {
   await handleBrowserOnboardingRoutes(
     request('GET'),
     res,
+    ctx,
     '/ui/api/onboarding/channel-manifest',
     settings,
     new URL(
@@ -150,3 +211,127 @@ it('rejects a viewer from reading the Slack app manifest', async () => {
 
   expect(res.statusCode).toBe(403);
 });
+
+it('stages and checks credentials before a model is selected', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  const staged = response();
+  await handleBrowserOnboardingRoutes(
+    request('POST', {
+      providerId: 'anthropic',
+      authMode: 'api_key',
+      credentials: { api_key: 'secret' },
+    }),
+    staged,
+    ctx,
+    '/ui/api/onboarding/model-candidates',
+    settings,
+  );
+
+  expect(staged.statusCode).toBe(201);
+  expect(stageModelCredentialCandidate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      providerId: 'anthropic',
+      payload: { api_key: 'secret' },
+    }),
+  );
+  expect(stageModelCredentialCandidate.mock.calls[0]?.[0]).not.toHaveProperty(
+    'modelAlias',
+  );
+
+  getModelCredentialCandidate.mockResolvedValue(modelCandidate());
+  const checked = response();
+  await handleBrowserOnboardingRoutes(
+    request('POST', {}),
+    checked,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/check',
+    settings,
+  );
+
+  expect(checked.statusCode).toBe(200);
+  expect(JSON.parse(checked.body)).toEqual({
+    candidate: {
+      id: '00000000-0000-4000-8000-000000000001',
+      state: 'checked',
+    },
+  });
+  expect(transitionModelCredentialCandidate).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({ state: 'validating' }),
+  );
+  expect(transitionModelCredentialCandidate).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({ state: 'checked' }),
+  );
+});
+
+it('binds the selected model immediately before live verification', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue(modelCandidate());
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', { modelAlias: 'Sonnet 4.6' }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/verify',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(200);
+  expect(bindModelSelectionForVerification).toHaveBeenCalledWith(
+    expect.objectContaining({
+      modelAlias: 'Sonnet 4.6',
+      routeId: 'anthropic',
+    }),
+  );
+  expect(verifyOnboardingModelCredential).toHaveBeenCalledWith(
+    expect.objectContaining({ modelAlias: 'Sonnet 4.6' }),
+  );
+  expect(JSON.stringify(JSON.parse(res.body))).not.toContain('secret');
+});
+
+it('rejects a model owned by another provider before inference', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue(modelCandidate());
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', { modelAlias: 'GPT-5.5' }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/verify',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(400);
+  expect(bindModelSelectionForVerification).not.toHaveBeenCalled();
+  expect(verifyOnboardingModelCredential).not.toHaveBeenCalled();
+});
+
+function modelCandidate() {
+  return {
+    id: '00000000-0000-4000-8000-000000000001',
+    appId: session.appId,
+    userId: session.userId,
+    providerId: 'anthropic',
+    authMode: 'api_key',
+    modelAlias: null,
+    routeId: null,
+    payload: { api_key: 'secret' },
+    schemaVersion: 1,
+    state: 'checked',
+    requestHash: 'request-hash',
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    createdAt: '2026-09-19T00:00:00.000Z',
+  };
+}

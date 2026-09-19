@@ -11,6 +11,7 @@ import {
 } from '@core/config/settings/runtime-settings.js';
 
 afterEach(() => {
+  delete process.env.GANTRY_DATABASE_URL;
   vi.restoreAllMocks();
   vi.resetModules();
   vi.doUnmock('@core/adapters/storage/postgres/storage-service.js');
@@ -74,6 +75,41 @@ describe('inspectRuntimeStorageReadiness', () => {
     expect(result.status).toBe('pass');
     expect(assertMigrationsCurrent).toHaveBeenCalledBefore(healthCheck);
     expect(close).toHaveBeenCalled();
+  });
+
+  it('prefers the active process database url over a stale runtime env file', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
+    saveRuntimeSettings(runtimeHome, settings);
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:5432/gantry\n',
+    );
+    process.env.GANTRY_DATABASE_URL =
+      'postgres://gantry_app:pass@localhost:61204/gantry';
+    const createStorageService = vi.fn(() => ({
+      assertMigrationsCurrent: vi.fn().mockResolvedValue(undefined),
+      healthCheck: vi.fn().mockResolvedValue({
+        lexicalSearch: true,
+        vectorSearch: true,
+        textSearch: true,
+        jobQueue: true,
+        runtimeEvents: true,
+        eventBusOutbox: true,
+      }),
+      close: vi.fn().mockResolvedValue(undefined),
+    }));
+    vi.doMock('@core/adapters/storage/postgres/storage-service.js', () => ({
+      createStorageService,
+    }));
+    const { inspectRuntimeStorageReadiness: inspectWithMock } =
+      await import('@core/adapters/storage/postgres/storage-readiness.js');
+
+    expect((await inspectWithMock(runtimeHome)).status).toBe('pass');
+    expect(createStorageService).toHaveBeenCalledWith(
+      expect.objectContaining({ postgresUrl: process.env.GANTRY_DATABASE_URL }),
+    );
   });
 
   it('passes the fleet rehearsal postgres hostname allowlist into storage', async () => {

@@ -56,6 +56,12 @@ export interface SettingsRevisionListenerDeps {
   onFirstRevisionApplied?: (
     settings: EffectiveControlRuntimeSettings,
   ) => Promise<void> | void;
+  recordRevisionReceipt?: (input: {
+    appId: string;
+    revision: number;
+    status: 'applied' | 'failed';
+    failureCode?: string;
+  }) => Promise<void> | void;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
   logInfo?: (context: Record<string, unknown>, message: string) => void;
   setIntervalFn?: typeof setInterval;
@@ -214,20 +220,36 @@ export class SettingsRevisionListener {
   }
 
   private async applyRevision(revision: SettingsRevision): Promise<number> {
-    const applied = await applySettingsRevisionWithMcpFenceRecovery({
-      runtimeHome: this.deps.runtimeHome,
-      ops: this.deps.ops,
-      repositories: this.deps.repositories,
-      appId: this.deps.appId,
-      revision,
-      reloadRuntimeState: this.deps.reloadRuntimeState,
-      revisionMirror: {
-        settingsRevisions: this.deps.settingsRevisions,
-        pool: this.deps.revisionPool,
-        createdBy: 'settings-revision-listener:mcp-fence-recovery',
-        logWarn: this.deps.logWarn,
-      },
-    });
+    let applied;
+    try {
+      applied = await applySettingsRevisionWithMcpFenceRecovery({
+        runtimeHome: this.deps.runtimeHome,
+        ops: this.deps.ops,
+        repositories: this.deps.repositories,
+        appId: this.deps.appId,
+        revision,
+        reloadRuntimeState: this.deps.reloadRuntimeState,
+        revisionMirror: {
+          settingsRevisions: this.deps.settingsRevisions,
+          pool: this.deps.revisionPool,
+          createdBy: 'settings-revision-listener:mcp-fence-recovery',
+          logWarn: this.deps.logWarn,
+        },
+      });
+      await this.deps.recordRevisionReceipt?.({
+        appId: revision.appId,
+        revision: revision.revision,
+        status: 'applied',
+      });
+    } catch (error) {
+      await this.deps.recordRevisionReceipt?.({
+        appId: revision.appId,
+        revision: revision.revision,
+        status: 'failed',
+        failureCode: 'SETTINGS_PROJECTION_FAILED',
+      });
+      throw error;
+    }
     const previousRevision = this.appliedRevision;
     if (previousRevision === 0) {
       await this.deps.onFirstRevisionApplied?.(applied.settings);

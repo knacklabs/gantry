@@ -9,6 +9,74 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  getBrowserOnboardingStatus: {
+    type: 'object',
+    required: ['completed', 'deployment'],
+    properties: {
+      completed: { type: 'boolean' },
+      deployment: {
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              modelCandidate: {
+                oneOf: [
+                  {
+                    type: 'object',
+                    required: [
+                      'id',
+                      'providerId',
+                      'authMode',
+                      'state',
+                      'modelAlias',
+                      'expiresAt',
+                      'verificationExpiresAt',
+                    ],
+                  },
+                  { type: 'null' },
+                ],
+              },
+            },
+          },
+          { type: 'null' },
+        ],
+      },
+    },
+  },
+  stageBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['candidate'],
+  },
+  checkBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['candidate'],
+  },
+  verifyBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['candidate'],
+  },
+  activateBrowserOnboardingModelCandidate: { type: 'object' },
+  cancelBrowserOnboardingModelCandidate: { type: 'object' },
+  stageBrowserOnboardingProviderCandidate: {
+    type: 'object',
+    required: ['candidate'],
+  },
+  validateBrowserOnboardingProviderCandidate: { type: 'object' },
+  activateBrowserOnboardingProviderCandidate: { type: 'object' },
+  cancelBrowserOnboardingProviderCandidate: { type: 'object' },
+  discoverBrowserOnboardingConversations: {
+    type: 'object',
+    required: ['conversations', 'nextCursor'],
+  },
+  listBrowserOnboardingConversationMembers: { type: 'object' },
+  bindBrowserOnboardingAssignment: { type: 'object', required: ['assignment'] },
+  getBrowserOnboardingChallenge: { type: 'object', required: ['challenge'] },
+  createBrowserOnboardingChallenge: { type: 'object', required: ['challenge'] },
+  completeBrowserOnboarding: {
+    type: 'object',
+    required: ['completed'],
+    properties: { completed: { type: 'boolean', const: true } },
+  },
   getBrowserAgentWorkflowMap: {
     type: 'object',
     required: ['relationships'],
@@ -152,6 +220,40 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
+  stageBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['providerId', 'credentials'],
+    properties: {
+      providerId: { type: 'string' },
+      authMode: { type: 'string' },
+      credentials: { type: 'object', additionalProperties: true },
+    },
+    additionalProperties: false,
+  },
+  checkBrowserOnboardingModelCandidate: {
+    type: 'object',
+    additionalProperties: false,
+  },
+  verifyBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['modelAlias'],
+    properties: { modelAlias: { type: 'string' } },
+    additionalProperties: false,
+  },
+  activateBrowserOnboardingModelCandidate: {
+    type: 'object',
+    required: ['name', 'title'],
+    properties: {
+      name: { type: 'string' },
+      title: { type: 'string' },
+      responsibilities: { type: 'string' },
+    },
+    additionalProperties: false,
+  },
+  cancelBrowserOnboardingModelCandidate: {
+    type: 'object',
+    additionalProperties: false,
+  },
   bindMcpServerToAgent: ref('AgentMcpServerBindingRequest'),
   bindSkillToAgent: ref('AgentSkillBindingRequest'),
   connectMcpServer: ref('McpServerRequest'),

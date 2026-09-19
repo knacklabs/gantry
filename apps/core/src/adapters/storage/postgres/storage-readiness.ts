@@ -68,7 +68,7 @@ export async function inspectRuntimeStorageReadiness(
   const env = readEnvFile(envFilePath(runtimeHome));
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
   const postgresUrl =
-    env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
+    process.env[postgresUrlEnv]?.trim() || env[postgresUrlEnv]?.trim() || '';
   if (!postgresUrl) {
     return {
       status: 'fail',
@@ -178,7 +178,7 @@ export async function inspectRuntimeSecretReadiness(
   const env = readEnvFile(envFilePath(runtimeHome));
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
   const postgresUrl =
-    env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
+    process.env[postgresUrlEnv]?.trim() || env[postgresUrlEnv]?.trim() || '';
   const { createStorageRuntime } = await import('./factory.js');
   const storage = createStorageRuntime({
     postgresUrl,

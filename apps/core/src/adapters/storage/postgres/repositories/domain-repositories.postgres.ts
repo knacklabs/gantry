@@ -586,6 +586,7 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
             runtimeSecretRefsJson: encodeJson(
               providerAccount.runtimeSecretRefs,
             ),
+            revision: sql`${pgSchema.providerAccountsPostgres.revision} + 1`,
             updatedAt: providerAccount.updatedAt,
           },
         });
@@ -627,7 +628,10 @@ export class PostgresProviderAccountRepository implements ProviderAccountReposit
     return await this.db.transaction(async (tx) => {
       const rows = await tx
         .update(pgSchema.providerAccountsPostgres)
-        .set(set)
+        .set({
+          ...set,
+          revision: sql`${pgSchema.providerAccountsPostgres.revision} + 1`,
+        })
         .where(
           and(
             eq(pgSchema.providerAccountsPostgres.appId, input.appId),

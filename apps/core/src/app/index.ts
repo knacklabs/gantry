@@ -66,6 +66,7 @@ import { getOldestWaitingLiveAdmissionSeconds } from './bootstrap/runtime-servic
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup.js';
 import { createRepositoryRuntimeSecretProvider } from '../adapters/credentials/repository-runtime-secret-provider.js';
+import { PostgresOnboardingLifecycleRepository } from '../adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js';
 import {
   createResolveObserverStatus,
   type EffectiveControlRuntimeSettings,
@@ -123,6 +124,16 @@ export async function startGantryRuntime(
       ),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
+    },
+    onboardingVerification: {
+      match: (input) =>
+        new PostgresOnboardingLifecycleRepository(
+          getRuntimeStorage().service.db,
+        ).matchInboundChallenge(input),
+      consume: (input) =>
+        new PostgresOnboardingLifecycleRepository(
+          getRuntimeStorage().service.db,
+        ).consumeInboundChallenge(input),
     },
   });
   const controlServerRef: {

@@ -521,22 +521,35 @@ export async function superviseLocal(
     await ensureLocalDatabase(repo, home, env);
     if (reset) {
       if (fs.existsSync(path.join(home, 'settings.yaml'))) {
-        const storage = await (
-          await import('../adapters/storage/postgres/runtime-store.js')
-        ).initializeRuntimeStorage({
-          runtimeSettings: ensureRuntimeSettings(home),
-        });
-        const revision =
-          await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-            'default',
+        try {
+          const storage = await (
+            await import('../adapters/storage/postgres/runtime-store.js')
+          ).initializeRuntimeStorage({
+            runtimeSettings: ensureRuntimeSettings(home),
+          });
+          const revision =
+            await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+              'default',
+            );
+          if (revision)
+            saveRuntimeSettings(
+              home,
+              (
+                await import('../config/settings/settings-revision-document.js')
+              ).settingsFromRevisionDocument(revision.settingsDocument),
+            );
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            !error.message.startsWith(
+              'Postgres schema migrations are not current:',
+            )
+          )
+            throw error;
+          console.log(
+            'Existing database is behind the current migrations; resetting it without exporting its stale settings projection.',
           );
-        if (revision)
-          saveRuntimeSettings(
-            home,
-            (
-              await import('../config/settings/settings-revision-document.js')
-            ).settingsFromRevisionDocument(revision.settingsDocument),
-          );
+        }
       }
       writeResetMarker(home, reset);
       await resetLocalDatabase(env.GANTRY_DATABASE_URL!);

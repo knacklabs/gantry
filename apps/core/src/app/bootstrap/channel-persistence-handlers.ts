@@ -209,28 +209,77 @@ export function createChannelPersistenceHandlers({
         msg.thread_id,
         msg.providerAccountId,
       );
+      const routeAdmissions = await Promise.all(
+        routes.map(async (route) => {
+          const providerAccountId =
+            msg.providerAccountId ?? route.providerAccountId;
+          const agentId = route.agentId ?? agentIdForFolder(route.folder);
+          if (
+            !resolved.onboardingVerification ||
+            !providerAccountId ||
+            !route.conversationId ||
+            msg.is_from_me ||
+            msg.is_bot_message
+          ) {
+            return { route, providerAccountId, agentId, attemptId: null };
+          }
+          const classification = await resolved.onboardingVerification.match({
+            appId: resolved.appId,
+            agentId,
+            providerAccountId,
+            conversationId: route.conversationId,
+            senderExternalUserId: msg.sender,
+            content: msg.content,
+          });
+          return classification.blocked
+            ? null
+            : {
+                route,
+                providerAccountId,
+                agentId,
+                attemptId: classification.attemptId,
+              };
+        }),
+      );
+      const admittedRoutes = routeAdmissions.filter(
+        (item): item is NonNullable<typeof item> => item !== null,
+      );
 
       const persistMessage = async () => {
         try {
           const repository = ops();
           const shouldEnqueueLiveAdmission =
-            routes.length > 0 && !msg.is_from_me && !msg.is_bot_message;
+            admittedRoutes.length > 0 && !msg.is_from_me && !msg.is_bot_message;
           let stored = false;
           if (
             shouldEnqueueLiveAdmission &&
             repository.storeMessageWithLiveAdmission
           ) {
-            for (const route of routes) {
+            for (const admission of admittedRoutes) {
               await repository.storeMessageWithLiveAdmission(msg, {
                 appId: resolved.appId,
-                agentId: route.agentId ?? agentIdForFolder(route.folder),
-                providerAccountId: route.providerAccountId,
+                agentId: admission.agentId,
+                providerAccountId: admission.providerAccountId,
                 triggerDecision: {
                   source: 'channel_persistence',
-                  requiresTrigger: route.requiresTrigger !== false,
-                  conversationKind: route.conversationKind ?? null,
+                  requiresTrigger:
+                    admission.attemptId !== null
+                      ? false
+                      : admission.route.requiresTrigger !== false,
+                  conversationKind: admission.route.conversationKind ?? null,
+                  ...(admission.attemptId
+                    ? { onboardingVerificationId: admission.attemptId }
+                    : {}),
                 },
               });
+              if (admission.attemptId && resolved.onboardingVerification) {
+                await resolved.onboardingVerification.consume({
+                  attemptId: admission.attemptId,
+                  conversationJid: chatJid,
+                  externalMessageId: msg.external_message_id ?? msg.id,
+                  providerAccountId: admission.providerAccountId,
+                });
+              }
             }
             stored = true;
           } else {

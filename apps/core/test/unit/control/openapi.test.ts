@@ -46,15 +46,31 @@ import { handleSkillRoutes } from '@core/control/server/routes/skills.js';
 import { handleSystemRoutes } from '@core/control/server/routes/system.js';
 import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
-import { isBrowserOnboardingPath } from '@core/control/server/routes/browser-onboarding.js';
+import { isBrowserOnboardingPath } from '@core/control/server/routes/browser-onboarding-lifecycle.js';
 import { isBrowserAgentsPath } from '@core/control/server/routes/browser-agents.js';
 
 const expectedControlRoutes = [
   'GET /ui/api/agents/{agentId}/workflow-map',
+  'GET /ui/api/onboarding/challenge',
   'GET /ui/api/onboarding/channel-manifest',
+  'GET /ui/api/onboarding/conversations',
+  'GET /ui/api/onboarding/conversations/{conversationId}/members',
+  'GET /ui/api/onboarding/status',
   'POST /llm/v1/chat/completions',
   'POST /llm/v1/messages',
   'POST /llm/v1/messages/count_tokens',
+  'POST /ui/api/onboarding/assignment',
+  'POST /ui/api/onboarding/challenge',
+  'POST /ui/api/onboarding/complete',
+  'POST /ui/api/onboarding/model-candidates',
+  'POST /ui/api/onboarding/model-candidates/{candidateId}/activate',
+  'POST /ui/api/onboarding/model-candidates/{candidateId}/cancel',
+  'POST /ui/api/onboarding/model-candidates/{candidateId}/check',
+  'POST /ui/api/onboarding/model-candidates/{candidateId}/verify',
+  'POST /ui/api/onboarding/provider-candidates',
+  'POST /ui/api/onboarding/provider-candidates/{candidateId}/activate',
+  'POST /ui/api/onboarding/provider-candidates/{candidateId}/cancel',
+  'POST /ui/api/onboarding/provider-candidates/{candidateId}/validate',
   'GET /v1/agents',
   'POST /v1/agents',
   'GET /v1/agents/{agentId}',
@@ -373,7 +389,7 @@ function mockContext(): ControlRouteContext {
 }
 
 async function isRecognizedByRuntime(method: string, pathname: string) {
-  if (method === 'GET' && isBrowserOnboardingPath(pathname)) return true;
+  if (isBrowserOnboardingPath(pathname)) return true;
   if (method === 'GET' && isBrowserAgentsPath(pathname)) return true;
   const req = request(method);
   const res = responseRecorder();
