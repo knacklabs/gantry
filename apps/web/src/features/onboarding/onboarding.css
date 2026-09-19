@@ -589,9 +589,16 @@
     padding: 22px 18px;
     text-align: center;
   }
+  .onboarding-hello > p[role='status'] {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
   .onboarding-ping {
     display: flex;
-    max-width: 100%;
+    width: min(100%, 430px);
+    min-width: 0;
     align-items: center;
     gap: 9px;
     border: 1px dashed var(--border-strong);
@@ -600,12 +607,17 @@
     padding: 7px 9px 7px 13px;
   }
   .onboarding-ping code {
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 12.5px;
+  }
+  .onboarding-status-check {
+    color: var(--status-success);
   }
   .onboarding-sweep {
     width: min(100%, 230px);

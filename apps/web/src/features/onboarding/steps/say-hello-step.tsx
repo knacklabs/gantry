@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, LoaderCircle, MessageCircle } from 'lucide-react';
-import { useEffect } from 'react';
+import { Check } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 import { CopyButton } from '../../../ui/primitives/copy-button';
 import { GantryMark } from '../components/onboarding-shell';
@@ -40,6 +40,7 @@ const labels: Record<ChallengeState, string> = {
 
 export function SayHelloStep({ draft }: { draft: OnboardingDraft }) {
   const queryClient = useQueryClient();
+  const autoCreateStarted = useRef(false);
   const challenge = useQuery({
     queryKey: ['onboarding', 'challenge'],
     queryFn: () => onboardingGet<{ challenge: Challenge | null }>('/challenge'),
@@ -48,7 +49,7 @@ export function SayHelloStep({ draft }: { draft: OnboardingDraft }) {
       !['succeeded', 'failed', 'expired', 'superseded'].includes(
         query.state.data.challenge.state,
       )
-        ? 1_000
+        ? 5_000
         : false,
   });
   const create = useMutation({
@@ -61,6 +62,12 @@ export function SayHelloStep({ draft }: { draft: OnboardingDraft }) {
   const current = challenge.data?.challenge ?? null;
 
   useEffect(() => {
+    if (!challenge.isSuccess || current || autoCreateStarted.current) return;
+    autoCreateStarted.current = true;
+    create.mutate();
+  }, [challenge.isSuccess, create, current]);
+
+  useEffect(() => {
     if (current?.state !== 'succeeded') return;
     void queryClient.invalidateQueries({
       queryKey: onboardingStatusQuery.queryKey,
@@ -70,54 +77,49 @@ export function SayHelloStep({ draft }: { draft: OnboardingDraft }) {
   return (
     <>
       <Heading
-        body="Send one exact message from the selected approver. Gantry will confirm the matching run and every delivered final-answer segment."
+        body="Open the selected Slack conversation and send this exact message from the approver account. Gantry waits here until it lands."
         title={`Ping ${draft.name || 'your agent'}`}
       />
       <article className="onboarding-card onboarding-hello">
-        {current ? (
-          <div className="onboarding-ping">
+        <div className="onboarding-ping">
+          {current ? (
             <code>{current.message}</code>
+          ) : (
+            <code>Preparing your Slack message…</code>
+          )}
+          {current ? (
             <CopyButton
-              label="Copy Slack challenge"
-              size="xs"
+              label="Copy"
+              size="sm"
               value={current.message}
-              variant="ghost"
+              variant="outline"
             />
-          </div>
-        ) : (
-          <button
-            className="onboarding-primary"
-            disabled={create.isPending}
-            onClick={() => create.mutate()}
-            type="button"
-          >
-            <MessageCircle aria-hidden size={14} />
-            {create.isPending ? 'Creating challenge…' : 'Say hello'}
-          </button>
-        )}
+          ) : null}
+        </div>
         <GantryMark hero />
-        {current && current.state !== 'succeeded' ? (
+        {!current || current.state !== 'succeeded' ? (
           <span className="onboarding-sweep">
             <i />
           </span>
         ) : null}
         {current ? (
           <p aria-live="polite" role="status">
-            {current.state === 'succeeded' ? (
-              <Check aria-hidden size={15} />
-            ) : (
-              <LoaderCircle
+            {['queued', 'succeeded'].includes(current.state) ? (
+              <Check
                 aria-hidden
-                className="animate-spin motion-reduce:animate-none"
-                size={15}
+                className="onboarding-status-check"
+                size={16}
               />
-            )}
+            ) : null}
             {labels[current.state]}
           </p>
         ) : (
-          <p>Create a single-use, 10-minute Slack challenge to continue.</p>
+          <p aria-live="polite" role="status">
+            Preparing your Slack message…
+          </p>
         )}
-        {current && ['failed', 'expired'].includes(current.state) ? (
+        {(current && ['failed', 'expired'].includes(current.state)) ||
+        (!current && create.isError) ? (
           <button
             className="onboarding-secondary"
             disabled={create.isPending}

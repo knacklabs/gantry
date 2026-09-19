@@ -10,7 +10,10 @@ import {
   getModelProviderDefinition,
   resolveModelCredentialMode,
 } from '../../../../../shared/model-provider-registry.js';
-import type { CanonicalDb } from '../canonical-graph-repository.postgres.js';
+import {
+  configVersionIdForAgent,
+  type CanonicalDb,
+} from '../canonical-graph-repository.postgres.js';
 import { encryptCredentialSecretValue } from '../credential-secret-crypto.js';
 import { stableId } from '../person-identity-mappers.postgres.js';
 import { PostgresSettingsRevisionRepository } from '../settings-revision-repository.postgres.js';
@@ -84,7 +87,7 @@ export class OnboardingEmployeeActivationRepository {
       }
       const agentId = `agent:${randomUUID()}`;
       const roleId = `custom-role:${randomUUID()}`;
-      const configId = `agent-config:${randomUUID()}`;
+      const configId = configVersionIdForAgent(agentId);
       const llmProfileId = `llm:onboarding:${randomUUID()}`;
       const roleName = `${input.name.trim()} — ${input.title.trim()}`;
       const rolePrompt = [

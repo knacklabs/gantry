@@ -1,9 +1,22 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from 'drizzle-orm';
 
 import { stableSha256Json } from '../../../../../shared/stable-hash.js';
-import type { CanonicalDb } from '../canonical-graph-repository.postgres.js';
+import {
+  conversationIdForJid,
+  type CanonicalDb,
+} from '../canonical-graph-repository.postgres.js';
 import { messageIdFor } from '../canonical-message-repository-identifiers.js';
 import * as schema from '../../schema/schema.js';
 import type { OnboardingDeploymentRepository } from './onboarding-deployment-repository.postgres.js';
@@ -129,19 +142,28 @@ export class OnboardingVerificationRepository {
     const a = schema.onboardingVerificationAttemptsPostgres;
     const aliases = schema.userAliasesPostgres;
     const [deployment] = await this.db
-      .select({ state: d.state })
+      .select({ id: d.id, state: d.state, conversationId: d.conversationId })
       .from(d)
       .where(
         and(
           eq(d.appId, input.appId),
           eq(d.agentId, input.agentId),
           eq(d.providerAccountId, input.providerAccountId),
-          eq(d.conversationId, input.conversationId),
         ),
       )
       .limit(1);
     if (!deployment || deployment.state === 'ready') {
       return { attemptId: null, blocked: false };
+    }
+    if (
+      !deployment.conversationId ||
+      !(await this.sameProviderConversation(
+        deployment.conversationId,
+        input.conversationId,
+        input.providerAccountId,
+      ))
+    ) {
+      return { attemptId: null, blocked: true };
     }
     const rows = await this.db
       .select({ id: a.id, challengeText: a.challengeText })
@@ -164,7 +186,7 @@ export class OnboardingVerificationRepository {
           eq(d.appId, input.appId),
           eq(d.agentId, input.agentId),
           eq(d.providerAccountId, input.providerAccountId),
-          eq(d.conversationId, input.conversationId),
+          eq(d.id, deployment.id),
           eq(a.deploymentVersion, d.version),
           eq(a.state, 'waiting_for_message'),
           sql`${a.expiresAt} > now()`,
@@ -183,29 +205,72 @@ export class OnboardingVerificationRepository {
     externalMessageId: string;
     providerAccountId: string;
   }): Promise<boolean> {
-    const [row] = await this.db
-      .update(schema.onboardingVerificationAttemptsPostgres)
-      .set({
-        state: 'queued',
-        inboundMessageId: messageIdFor(
-          input.conversationJid,
-          input.externalMessageId,
-          input.providerAccountId,
-        ),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(schema.onboardingVerificationAttemptsPostgres.id, input.attemptId),
-          eq(
-            schema.onboardingVerificationAttemptsPostgres.state,
-            'waiting_for_message',
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(schema.onboardingVerificationAttemptsPostgres)
+        .set({
+          state: 'queued',
+          inboundMessageId: messageIdFor(
+            input.conversationJid,
+            input.externalMessageId,
+            input.providerAccountId,
           ),
-          sql`${schema.onboardingVerificationAttemptsPostgres.expiresAt} > now()`,
-        ),
-      )
-      .returning({ id: schema.onboardingVerificationAttemptsPostgres.id });
-    return Boolean(row);
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(
+              schema.onboardingVerificationAttemptsPostgres.id,
+              input.attemptId,
+            ),
+            eq(
+              schema.onboardingVerificationAttemptsPostgres.state,
+              'waiting_for_message',
+            ),
+            sql`${schema.onboardingVerificationAttemptsPostgres.expiresAt} > now()`,
+          ),
+        )
+        .returning({
+          deploymentId:
+            schema.onboardingVerificationAttemptsPostgres.deploymentId,
+        });
+      if (!row) return false;
+      await tx
+        .update(schema.onboardingDeploymentsPostgres)
+        .set({
+          conversationId: conversationIdForJid(
+            input.conversationJid,
+            input.providerAccountId,
+          ),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.onboardingDeploymentsPostgres.id, row.deploymentId));
+      return true;
+    });
+  }
+
+  private async sameProviderConversation(
+    configuredConversationId: string,
+    inboundConversationId: string,
+    providerAccountId: string,
+  ): Promise<boolean> {
+    if (configuredConversationId === inboundConversationId) return true;
+    const c = schema.conversationsPostgres;
+    const rows = await this.db
+      .select({
+        id: c.id,
+        providerAccountId: c.providerAccountId,
+        externalId: sql<string>`${c.externalRefJson}::jsonb ->> 'value'`,
+      })
+      .from(c)
+      .where(inArray(c.id, [configuredConversationId, inboundConversationId]));
+    if (rows.length !== 2) return false;
+    const [first, second] = rows;
+    return (
+      Boolean(first?.externalId) &&
+      first?.externalId === second?.externalId &&
+      rows.every((row) => row.providerAccountId === providerAccountId)
+    );
   }
 
   private async refreshChallenge(
@@ -228,7 +293,7 @@ export class OnboardingVerificationRepository {
       .from(schema.agentsPostgres)
       .where(eq(schema.agentsPostgres.id, deployment.agentId))
       .limit(1);
-    const [run] = await this.db
+    let [run] = await this.db
       .select()
       .from(schema.agentRunsPostgres)
       .where(
@@ -239,7 +304,9 @@ export class OnboardingVerificationRepository {
             schema.agentRunsPostgres.conversationId,
             deployment.conversationId,
           ),
-          eq(schema.agentRunsPostgres.messageId, attempt.inboundMessageId),
+          attempt.runId
+            ? eq(schema.agentRunsPostgres.id, attempt.runId)
+            : eq(schema.agentRunsPostgres.messageId, attempt.inboundMessageId),
           agent?.currentConfigVersionId
             ? eq(
                 schema.agentRunsPostgres.configVersionId,
@@ -250,6 +317,40 @@ export class OnboardingVerificationRepository {
       )
       .orderBy(desc(schema.agentRunsPostgres.createdAt))
       .limit(1);
+    if (!run && !attempt.runId) {
+      const [inboundMessage] = await this.db
+        .select({ threadId: schema.messagesPostgres.threadId })
+        .from(schema.messagesPostgres)
+        .where(eq(schema.messagesPostgres.id, attempt.inboundMessageId))
+        .limit(1);
+      if (!inboundMessage) return attempt;
+      const candidates = await this.db
+        .select()
+        .from(schema.agentRunsPostgres)
+        .where(
+          and(
+            eq(schema.agentRunsPostgres.appId, deployment.appId),
+            eq(schema.agentRunsPostgres.agentId, deployment.agentId),
+            eq(
+              schema.agentRunsPostgres.conversationId,
+              deployment.conversationId,
+            ),
+            inboundMessage.threadId
+              ? eq(schema.agentRunsPostgres.threadId, inboundMessage.threadId)
+              : isNull(schema.agentRunsPostgres.threadId),
+            gte(schema.agentRunsPostgres.createdAt, attempt.updatedAt),
+            agent?.currentConfigVersionId
+              ? eq(
+                  schema.agentRunsPostgres.configVersionId,
+                  agent.currentConfigVersionId,
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(schema.agentRunsPostgres.createdAt))
+        .limit(2);
+      if (candidates.length === 1) [run] = candidates;
+    }
     if (!run) return attempt;
     if (run.status === 'failed' || run.status === 'canceled') {
       return this.updateAttempt(attempt.id, {
@@ -279,51 +380,79 @@ export class OnboardingVerificationRepository {
       )
       .orderBy(desc(schema.outboundDeliveriesPostgres.createdAt))
       .limit(1);
-    if (!delivery) {
-      return this.updateAttempt(attempt.id, {
-        state: 'awaiting_delivery',
-        runId: run.id,
-      });
-    }
-    const [finalAnswer] = await this.db
-      .select()
-      .from(schema.outboundDeliveryFinalAnswersPostgres)
-      .where(
-        eq(schema.outboundDeliveryFinalAnswersPostgres.deliveryId, delivery.id),
-      )
-      .limit(1);
-    const items = await this.db
-      .select()
-      .from(schema.outboundDeliveryItemsPostgres)
-      .where(eq(schema.outboundDeliveryItemsPostgres.deliveryId, delivery.id));
-    const receipts = items.length
-      ? await this.db
-          .select()
-          .from(schema.outboundDeliveryReceiptsPostgres)
-          .where(
-            inArray(
-              schema.outboundDeliveryReceiptsPostgres.itemId,
-              items.map((item) => item.id),
-            ),
-          )
-      : [];
-    const receiptItemIds = new Set(
-      receipts
-        .filter((receipt) => Boolean(receipt.providerMessageId))
-        .map((receipt) => receipt.itemId),
-    );
-    const delivered =
-      Boolean(finalAnswer) &&
-      finalAnswer!.segmentCount === items.length &&
-      items.length > 0 &&
-      items.every(
-        (item) => item.status === 'sent' && receiptItemIds.has(item.id),
+    let deliveryProofId: string | null = delivery?.id ?? null;
+    let delivered = false;
+    if (delivery) {
+      const [finalAnswer] = await this.db
+        .select()
+        .from(schema.outboundDeliveryFinalAnswersPostgres)
+        .where(
+          eq(
+            schema.outboundDeliveryFinalAnswersPostgres.deliveryId,
+            delivery.id,
+          ),
+        )
+        .limit(1);
+      const items = await this.db
+        .select()
+        .from(schema.outboundDeliveryItemsPostgres)
+        .where(
+          eq(schema.outboundDeliveryItemsPostgres.deliveryId, delivery.id),
+        );
+      const receipts = items.length
+        ? await this.db
+            .select()
+            .from(schema.outboundDeliveryReceiptsPostgres)
+            .where(
+              inArray(
+                schema.outboundDeliveryReceiptsPostgres.itemId,
+                items.map((item) => item.id),
+              ),
+            )
+        : [];
+      const receiptItemIds = new Set(
+        receipts
+          .filter((receipt) => Boolean(receipt.providerMessageId))
+          .map((receipt) => receipt.itemId),
       );
+      delivered =
+        Boolean(finalAnswer) &&
+        finalAnswer!.segmentCount === items.length &&
+        items.length > 0 &&
+        items.every(
+          (item) => item.status === 'sent' && receiptItemIds.has(item.id),
+        );
+    } else {
+      const streamedReceipts = await this.db
+        .select({ id: schema.messagesPostgres.id })
+        .from(schema.messagesPostgres)
+        .where(
+          and(
+            eq(schema.messagesPostgres.appId, deployment.appId),
+            eq(
+              schema.messagesPostgres.conversationId,
+              deployment.conversationId,
+            ),
+            eq(schema.messagesPostgres.direction, 'outbound'),
+            eq(schema.messagesPostgres.deliveryStatus, 'sent'),
+            isNotNull(schema.messagesPostgres.deliveredAt),
+            gte(schema.messagesPostgres.createdAt, run.createdAt),
+            run.endedAt
+              ? lte(schema.messagesPostgres.createdAt, run.endedAt)
+              : undefined,
+          ),
+        )
+        .limit(2);
+      if (streamedReceipts.length === 1) {
+        delivered = true;
+        deliveryProofId = streamedReceipts[0]!.id;
+      }
+    }
     if (!delivered) {
       return this.updateAttempt(attempt.id, {
         state: 'awaiting_delivery',
         runId: run.id,
-        deliveryId: delivery.id,
+        deliveryId: deliveryProofId,
       });
     }
     const now = new Date().toISOString();
@@ -333,7 +462,7 @@ export class OnboardingVerificationRepository {
         .set({
           state: 'succeeded',
           runId: run.id,
-          deliveryId: delivery.id,
+          deliveryId: deliveryProofId,
           succeededAt: now,
           updatedAt: now,
         })

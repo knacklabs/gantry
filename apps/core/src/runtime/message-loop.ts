@@ -521,7 +521,9 @@ export async function processLiveAdmissionWorkItem(
   }
   return processQueueMessages(deps, item.queueJid, messages, replay, {
     trustedTriggerBypass:
-      item.triggerDecision.source === 'callable_agent_follow_up',
+      item.triggerDecision.source === 'callable_agent_follow_up' ||
+      (typeof item.triggerDecision.onboardingVerificationId === 'string' &&
+        item.triggerDecision.onboardingVerificationId.trim().length > 0),
   });
 }
 

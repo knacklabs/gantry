@@ -1523,6 +1523,41 @@ describe('thread queue routing', () => {
     expect(deps.sentTo).toEqual(['group@g.us']);
   });
 
+  it('admits an onboarding verification message in a trigger-required conversation', async () => {
+    mockGetMessagesSince.mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        content: 'are you there? · 41A5FEE4',
+      },
+    ]);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+    });
+
+    await expect(
+      processLiveAdmissionWorkItem(
+        deps,
+        makeAdmissionItem({
+          triggerDecision: {
+            source: 'channel_persistence',
+            requiresTrigger: false,
+            onboardingVerificationId: 'verification-1',
+          },
+        }),
+      ),
+    ).resolves.toBe('completed');
+
+    expect(deps.sentTo).toEqual(['group@g.us']);
+  });
+
   it('ignores untagged messages in a new thread when the parent conversation requires a trigger', async () => {
     const message = {
       ...makePendingMessage(1),
