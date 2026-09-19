@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 class MockSettingsStaleMutationError extends Error {}
 class MockSettingsRevisionConflictError extends Error {}
-const leases = { tryAcquire: vi.fn() };
+const releaseLease = vi.fn();
+const leases = {
+  tryAcquire: vi.fn(async () => ({ release: releaseLease })),
+};
 
 function mockProjectionSync(
   settings: Array<{
@@ -17,6 +20,7 @@ function mockProjectionSync(
     projectionMarker: value.revisionMarker,
   }));
   const importWorkstationSettings = vi.fn();
+  const applySettingsRevisionWithMcpFenceRecovery = vi.fn();
   vi.doMock('@core/config/settings/desired-state-service.js', () => ({
     SettingsDesiredStateService: class {
       exportCurrent(value) {
@@ -33,6 +37,7 @@ function mockProjectionSync(
     withRuntimeModelAliases: vi.fn((_settings, fn) => fn()),
   }));
   vi.doMock('@core/config/settings/settings-import-service.js', () => ({
+    applySettingsRevisionWithMcpFenceRecovery,
     importWorkstationSettings,
     SettingsStaleMutationError: MockSettingsStaleMutationError,
     SettingsRevisionConflictError: MockSettingsRevisionConflictError,
@@ -45,6 +50,7 @@ function mockProjectionSync(
     validateLoadedRuntimeSettings: vi.fn(),
   }));
   return {
+    applySettingsRevisionWithMcpFenceRecovery,
     exportCurrent,
     importWorkstationSettings,
     loadRuntimeSettings,
@@ -136,6 +142,51 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       }),
       exported,
     );
+  });
+
+  it('projects an already-committed revision without importing stale YAML', async () => {
+    const mocks = mockProjectionSync([]);
+    mocks.applySettingsRevisionWithMcpFenceRecovery.mockResolvedValue({
+      settings: { runtime: { deploymentMode: 'workstation' } },
+      revision: 2,
+    });
+    const revision = {
+      appId: 'app:test',
+      revision: 2,
+      settingsDocument: { runtime: { deployment_mode: 'workstation' } },
+      minReaderVersion: 0,
+      createdBy: 'browser:test',
+      note: null,
+      createdAt: '2026-09-19T00:00:00.000Z',
+    };
+    const settingsRevisions = {
+      getSettingsRevision: vi.fn(async () => revision),
+      getLatestSettingsRevision: vi.fn(async () => revision),
+    } as never;
+
+    const { syncRuntimeSettingsFromProjection } =
+      await import('@core/config/settings/restart-sync.js');
+    await syncRuntimeSettingsFromProjection({
+      runtimeHome: '/tmp/gantry-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'app:test' as never,
+      settingsRevisions,
+      leases,
+      overrides: { requiredRevision: 2 },
+    });
+
+    expect(
+      mocks.applySettingsRevisionWithMcpFenceRecovery,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        revision,
+        revisionMirror: expect.objectContaining({ settingsRevisions }),
+      }),
+    );
+    expect(mocks.loadRuntimeSettings).not.toHaveBeenCalled();
+    expect(mocks.importWorkstationSettings).not.toHaveBeenCalled();
   });
 
   it('applies an explicit provider secret clear to the exported settings revision', async () => {

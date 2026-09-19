@@ -14,6 +14,8 @@ const stageModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const getModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const transitionModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const bindModelSelectionForVerification = vi.hoisted(() => vi.fn());
+const activateModelAndCreateEmployee = vi.hoisted(() => vi.fn());
+const recordProjectionReceipt = vi.hoisted(() => vi.fn());
 const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
 const isModelCredentialRejectedError = vi.hoisted(() => vi.fn());
 
@@ -42,6 +44,8 @@ vi.mock(
       getModelCredentialCandidate = getModelCredentialCandidate;
       transitionModelCredentialCandidate = transitionModelCredentialCandidate;
       bindModelSelectionForVerification = bindModelSelectionForVerification;
+      activateModelAndCreateEmployee = activateModelAndCreateEmployee;
+      recordProjectionReceipt = recordProjectionReceipt;
     },
   }),
 );
@@ -104,6 +108,14 @@ beforeEach(() => {
   });
   transitionModelCredentialCandidate.mockResolvedValue({});
   bindModelSelectionForVerification.mockResolvedValue({});
+  activateModelAndCreateEmployee.mockResolvedValue({
+    agentId: 'agent:atlas',
+    name: 'Atlas',
+    version: 1,
+    desiredStateRevision: 2,
+    replayed: false,
+  });
+  recordProjectionReceipt.mockResolvedValue(undefined);
   isModelCredentialRejectedError.mockReturnValue(false);
   verifyOnboardingModelCredential.mockResolvedValue({ routeId: 'anthropic' });
 });
@@ -300,6 +312,43 @@ it('binds the selected model immediately before live verification', async () => 
     expect.objectContaining({ modelAlias: 'Sonnet 4.6' }),
   );
   expect(JSON.stringify(JSON.parse(res.body))).not.toContain('secret');
+});
+
+it('projects the revision committed by employee activation', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue({
+    ...modelCandidate(),
+    state: 'verified',
+    modelAlias: 'Sonnet 4.6',
+    routeId: 'anthropic',
+    verificationExpiresAt: '2099-01-01T00:00:00.000Z',
+  });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {
+      name: 'Atlas',
+      title: 'General assistant',
+      responsibilities: 'Answer questions.',
+    }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/activate',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(201);
+  expect(ctx.syncSettingsFromProjection).toHaveBeenCalledWith('default', {
+    requiredRevision: 2,
+  });
+  expect(recordProjectionReceipt).toHaveBeenCalledWith({
+    appId: 'default',
+    revision: 2,
+    status: 'applied',
+  });
 });
 
 it('reports a rejected provider credential without exposing it', async () => {

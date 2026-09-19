@@ -38,7 +38,10 @@ export class OnboardingEmployeeActivationRepository {
       userId: input.userId,
       id: input.candidateId,
     });
-    if (!candidate || candidate.state !== 'verified') {
+    if (
+      !candidate ||
+      (candidate.state !== 'verified' && candidate.state !== 'activated')
+    ) {
       throw new Error('A verified model candidate is required.');
     }
     if (!candidate.modelAlias || !candidate.routeId) {
@@ -47,8 +50,9 @@ export class OnboardingEmployeeActivationRepository {
     const modelAlias = candidate.modelAlias;
     const now = new Date().toISOString();
     if (
-      !candidate.verificationExpiresAt ||
-      Date.parse(candidate.verificationExpiresAt) <= Date.now()
+      candidate.state === 'verified' &&
+      (!candidate.verificationExpiresAt ||
+        Date.parse(candidate.verificationExpiresAt) <= Date.now())
     ) {
       throw new Error(
         'The model verification receipt expired. Test the model again.',
@@ -69,8 +73,14 @@ export class OnboardingEmployeeActivationRepository {
           agentId: deployment.agentId,
           name: agent?.name ?? input.name,
           version: deployment.version,
+          desiredStateRevision: deployment.desiredStateRevision ?? undefined,
           replayed: true,
         };
+      }
+      if (candidate.state === 'activated') {
+        throw new Error(
+          'Activated model candidate has no employee deployment.',
+        );
       }
       const agentId = `agent:${randomUUID()}`;
       const roleId = `custom-role:${randomUUID()}`;

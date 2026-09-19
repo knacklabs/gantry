@@ -8,6 +8,7 @@ import {
 } from '../../domain/mcp/mcp-servers.js';
 import type { SettingsRevisionRepository } from '../../domain/ports/fleet-capability-state.js';
 import type { RuntimeLeasePort } from '../../domain/ports/runtime-lease.js';
+import { withSettingsProjectorLease } from '../../domain/ports/settings-projector-lease.js';
 import type { SettingsRevisionMirror } from './settings-import-service.js';
 import type {
   SettingsDesiredStateOps,
@@ -39,6 +40,7 @@ import {
 const MAX_STALE_SETTINGS_RETRIES = 3;
 
 type ProjectionSettingsOverrides = {
+  requiredRevision?: number;
   providerAccount?: {
     id: string;
     runtimeSecretRefs: Record<string, string>;
@@ -164,6 +166,40 @@ export async function syncRuntimeSettingsFromProjection(input: {
   overrides?: ProjectionSettingsOverrides;
   leases?: RuntimeLeasePort;
 }): Promise<void> {
+  const requiredRevision = input.overrides?.requiredRevision;
+  if (requiredRevision !== undefined) {
+    if (!input.settingsRevisions || !input.leases) {
+      throw new Error(
+        'Committed settings revision projection requires revisions and leases.',
+      );
+    }
+    const appId = input.appId ?? ('default' as AppId);
+    await withSettingsProjectorLease(input.leases, appId, async () => {
+      const revision = await input.settingsRevisions!.getSettingsRevision({
+        appId,
+        revision: requiredRevision,
+      });
+      if (!revision) {
+        throw new Error(`Settings revision ${requiredRevision} was not found.`);
+      }
+      const { applySettingsRevisionWithMcpFenceRecovery } =
+        await import('./settings-import-service.js');
+      await applySettingsRevisionWithMcpFenceRecovery({
+        runtimeHome: input.runtimeHome,
+        ops: input.ops,
+        repositories: input.repositories,
+        appId,
+        revision,
+        reloadRuntimeState: input.reloadRuntimeState,
+        revisionMirror: {
+          settingsRevisions: input.settingsRevisions!,
+          pool: input.pool,
+          createdBy: input.createdBy ?? 'projection-sync',
+        },
+      });
+    });
+    return;
+  }
   const service = new SettingsDesiredStateService({
     ops: input.ops,
     repositories: input.repositories,

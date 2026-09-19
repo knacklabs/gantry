@@ -366,14 +366,19 @@ export async function handleBrowserOnboardingRoutes(
                     .filter(Boolean)
                 : [],
           });
-          await ctx.syncSettingsFromProjection(session.appId as AppId);
-          if (result.desiredStateRevision) {
-            await onboarding.recordProjectionReceipt({
-              appId: session.appId,
-              revision: result.desiredStateRevision,
-              status: 'applied',
-            });
+          if (!result.desiredStateRevision) {
+            throw new Error(
+              'Employee activation did not produce a settings revision.',
+            );
           }
+          await ctx.syncSettingsFromProjection(session.appId as AppId, {
+            requiredRevision: result.desiredStateRevision,
+          });
+          await onboarding.recordProjectionReceipt({
+            appId: session.appId,
+            revision: result.desiredStateRevision,
+            status: 'applied',
+          });
           return {
             statusCode: result.replayed ? 200 : 201,
             response: { agent: result },

@@ -30,6 +30,7 @@ import type { RateLimiter } from './rate-limit.js';
 import type { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 
 type ProjectionSettingsOverrides = {
+  requiredRevision?: number;
   providerAccount?: {
     id: string;
     runtimeSecretRefs: Record<string, string>;
