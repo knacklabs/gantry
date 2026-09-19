@@ -37,7 +37,7 @@ support, and measured sandbox/load gates.
   across users.
 - Gantry now has 38 Bedrock OpenAI-compatible chat/job catalog entries routed
   through the Bedrock Model Access modes and regional
-  `bedrock-runtime.<region>.amazonaws.com/v1` Chat Completions endpoint.
+  `bedrock-runtime.<region>.amazonaws.com/openai/v1` Chat Completions endpoint.
 - AWS CLI discovery confirms `ap-south-1` currently returns 42 ON_DEMAND
   text-output foundation models for this account. The catalog includes the 38
   general chat/job aliases and intentionally excludes the 2 Claude-on-Bedrock
@@ -196,7 +196,7 @@ AWS ECS docs checked on 2026-06-22:
    - Record model IDs and inference support for `ap-south-1` and `ap-south-2`.
    - Filter to models usable through the current Bedrock OpenAI-compatible
      route:
-     `https://bedrock-runtime.<region>.amazonaws.com/v1/chat/completions`.
+     `https://bedrock-runtime.<region>.amazonaws.com/openai/v1/chat/completions`.
    - Add only confirmed OpenAI-compatible Bedrock model aliases in
      `apps/core/src/shared/model-catalog-bedrock.ts`, wired into the
      OpenAI-compatible catalog.

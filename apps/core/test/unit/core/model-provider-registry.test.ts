@@ -746,7 +746,7 @@ describe('model provider registry', () => {
     expect(bedrock).toBeDefined();
     expect(bedrock!.responseFamily).toBe('openai');
     expect(bedrock!.gateway.pathSegment).toBe('bedrock');
-    expect(bedrock!.gateway.upstreamPathPrefix).toBe('/v1');
+    expect(bedrock!.gateway.upstreamPathPrefix).toBe('/openai/v1');
     expect(bedrock!.gateway.upstreamResolver).toBeDefined();
     expect(
       bedrock!.gateway.upstreamResolver!({
@@ -756,8 +756,8 @@ describe('model provider registry', () => {
         },
       }),
     ).toEqual({
-      origin: 'https://bedrock-mantle.ap-south-1.api.aws',
-      pathPrefix: '/v1',
+      origin: 'https://bedrock-runtime.ap-south-1.amazonaws.com',
+      pathPrefix: '/openai/v1',
     });
     expect(bedrock!.cacheSupport.prompt.mode).toBe('none');
     expect(bedrock!.supportedWorkloads).toEqual([

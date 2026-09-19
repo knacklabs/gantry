@@ -13,7 +13,10 @@ import {
   ConversationInstallControlService,
   DiscoverProviderConversationsService,
 } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
-import { verifyOnboardingModelCredential } from '../../../application/onboarding/model-credential-verification.js';
+import {
+  isModelCredentialRejectedError,
+  verifyOnboardingModelCredential,
+} from '../../../application/onboarding/model-credential-verification.js';
 import { validateSlackWorkspaceCandidate } from '../../../application/onboarding/slack-workspace-validation.js';
 import { ONBOARDING_VERIFICATION_TTL_MS } from '../../../application/onboarding/onboarding-state-machine.js';
 import { channelSetupManifestFor } from '../../../channels/control-provider-catalog.js';
@@ -473,8 +476,13 @@ export async function handleBrowserOnboardingRoutes(
             },
           };
         } catch (error) {
+          const credentialRejected = isModelCredentialRejectedError(error);
           const failedChecks = [
-            { id: 'credentials', label: 'Credentials', status: 'pass' },
+            {
+              id: 'credentials',
+              label: 'Credentials',
+              status: credentialRejected ? 'fail' : 'pass',
+            },
             { id: 'route', label: 'Model route', status: 'pass' },
             { id: 'inference', label: 'Live inference', status: 'fail' },
           ];

@@ -15,6 +15,14 @@ import { ONBOARDING_MODEL_PROBE_TIMEOUT_MS } from './onboarding-state-machine.js
 
 const PROBE_TEXT = 'Reply with exactly: GANTRY_MODEL_OK';
 
+class ModelCredentialRejectedError extends Error {}
+
+export function isModelCredentialRejectedError(
+  error: unknown,
+): error is ModelCredentialRejectedError {
+  return error instanceof ModelCredentialRejectedError;
+}
+
 export async function verifyOnboardingModelCredential(input: {
   appId: AppId;
   credential: ModelCredential;
@@ -55,6 +63,7 @@ export async function verifyOnboardingModelCredential(input: {
       baseUrl,
       token,
       entry: selection.entry,
+      providerLabel: provider.label,
       timeoutMs: input.timeoutMs ?? ONBOARDING_MODEL_PROBE_TIMEOUT_MS,
     });
     return {
@@ -81,6 +90,7 @@ async function invokeProbe(input: {
   baseUrl: string;
   token: string;
   entry: ModelCatalogEntry;
+  providerLabel: string;
   timeoutMs: number;
 }): Promise<void> {
   const anthropic = input.entry.responseFamily === 'anthropic';
@@ -113,6 +123,11 @@ async function invokeProbe(input: {
   );
   const body = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new ModelCredentialRejectedError(
+        `${input.providerLabel} rejected the credentials. Generate a current credential and retry.`,
+      );
+    }
     throw new Error(
       `Model probe failed with upstream status ${response.status}.`,
     );

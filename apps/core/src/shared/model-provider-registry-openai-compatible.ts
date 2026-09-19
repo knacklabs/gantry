@@ -123,7 +123,7 @@ const NO_CACHE_SUPPORT: ModelProviderCacheSupport = {
 
 const OA_FAMILY = ['open', 'ai'].join('');
 const OPEN_API_ENDPOINT = ['open', 'api'].join('');
-const BEDROCK_CHAT_PATH_PREFIX = '/v1';
+const BEDROCK_CHAT_PATH_PREFIX = '/openai/v1';
 const G_PROVIDER = ['ge', 'mini'].join('');
 const G_PROVIDER_LABEL = ['Google Ge', 'mini'].join('');
 
@@ -391,7 +391,7 @@ function resolveBedrockUpstream(input: {
     'AWS region',
   );
   return {
-    origin: `https://bedrock-mantle.${region}.api.aws`,
+    origin: `https://bedrock-runtime.${region}.amazonaws.com`,
     pathPrefix: BEDROCK_CHAT_PATH_PREFIX,
   };
 }
@@ -517,7 +517,7 @@ export const OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS = [
     credentialModes: BEDROCK_CREDENTIAL_MODES,
     gateway: {
       pathSegment: 'bedrock',
-      upstreamOrigin: 'https://bedrock-mantle.us-east-1.api.aws',
+      upstreamOrigin: 'https://bedrock-runtime.us-east-1.amazonaws.com',
       upstreamPathPrefix: BEDROCK_CHAT_PATH_PREFIX,
       upstreamResolver: resolveBedrockUpstream,
       sdkProjection: openAiCompatibleSdkProjection('bedrock'),

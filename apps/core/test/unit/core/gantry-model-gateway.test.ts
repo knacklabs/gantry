@@ -328,7 +328,7 @@ describe('GantryModelGatewayBroker', () => {
     signAwsSigV4Request({
       method: 'POST',
       url: new URL(
-        'https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions?b=two&a=one&a=zero&space=a%20b',
+        'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions?b=two&a=one&a=zero&space=a%20b',
       ),
       headers,
       body: Buffer.from('{"model":"openai.gpt-oss-120b-1:0"}'),
@@ -347,7 +347,7 @@ describe('GantryModelGatewayBroker', () => {
       'e6f5b76929970d12f510677a95e505022a28268c8cfcc023e92171adbc006101',
     );
     expect(headers.authorization).toBe(
-      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-meta-a;x-amz-meta-z;x-amz-security-token, Signature=4cdbaf49e3dfc9fba8f49918ba3b3ba947962ef45872812d5fdce97ac16a38dc',
+      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;x-amz-meta-a;x-amz-meta-z;x-amz-security-token, Signature=9de8178ec3b808de2eb860072e16d957ba0bee0c621ba1242b9c387b9e372076',
     );
   });
 
@@ -359,7 +359,7 @@ describe('GantryModelGatewayBroker', () => {
     signAwsSigV4Request({
       method: 'POST',
       url: new URL(
-        'https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions?x=a+b&plus=%2B',
+        'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions?x=a+b&plus=%2B',
       ),
       headers,
       body: Buffer.from('{"model":"openai.gpt-oss-120b-1:0"}'),
@@ -373,7 +373,7 @@ describe('GantryModelGatewayBroker', () => {
     });
 
     expect(headers.authorization).toBe(
-      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=17644a21688828ebaed34d77b4061cb80824ff7eb88412c6ee7a666d3dfe120d',
+      'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260614/us-east-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date, Signature=ff3f5da667eb17cba3654b18053a2619b7c06f8473792b88fa907875beac0f74',
     );
   });
 
@@ -2164,7 +2164,9 @@ describe('GantryModelGatewayBroker', () => {
 
       expect(response.status).toBe(200);
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
+        new URL(
+          'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions',
+        ),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: 'Bearer bedrock-upstream-key',
@@ -2215,7 +2217,9 @@ describe('GantryModelGatewayBroker', () => {
       });
       expect(awsDefaultCredentialProviderMock).toHaveBeenCalledTimes(1);
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
+        new URL(
+          'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions',
+        ),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: expect.stringContaining(
@@ -2259,7 +2263,9 @@ describe('GantryModelGatewayBroker', () => {
         SecretId: 'prod/bedrock/api-key',
       });
       expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL('https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions'),
+        new URL(
+          'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/chat/completions',
+        ),
         expect.objectContaining({
           headers: expect.objectContaining({
             authorization: 'Bearer bedrock-secret-ref-key',

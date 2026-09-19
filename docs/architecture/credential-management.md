@@ -162,7 +162,7 @@ API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI, xAI,
 OpenRouter, Bedrock, and Vertex routes through the Gantry Model Gateway and
 cannot use Claude OAuth/subscription credentials. Bedrock `aws_default_chain`
 uses the host AWS credential chain to SigV4-sign requests to the regional
-`bedrock-runtime.<region>.amazonaws.com/v1` endpoint; `bedrock_api_key_ref`
+`bedrock-runtime.<region>.amazonaws.com/openai/v1` endpoint; `bedrock_api_key_ref`
 resolves an `aws-sm:` ref host-side; `bedrock_api_key` stores an encrypted
 Bedrock API key. Vertex `google_adc` uses host Application Default Credentials,
 `service_account_ref` resolves a `gcp-sm:` ref host-side, and
@@ -528,7 +528,7 @@ The current Bedrock and Vertex strategy is intentionally narrow:
   Completions. That OpenAI-compatible route authenticates with AWS role/profile
   identity, an Amazon Bedrock API key resolved from AWS Secrets Manager, or an
   encrypted Amazon Bedrock API key, and uses the regional
-  `bedrock-runtime.<region>.amazonaws.com/v1` base URL. Model availability is
+  `bedrock-runtime.<region>.amazonaws.com/openai/v1` base URL. Model availability is
   region-specific; CLI evidence on 2026-06-22 confirmed these ON_DEMAND
   text-output chat models in `ap-south-1`, while `ap-south-2` returned no
   models for the same filter in this account. Claude on Bedrock, GPT-OSS

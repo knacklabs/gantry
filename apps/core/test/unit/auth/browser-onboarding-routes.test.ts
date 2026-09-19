@@ -15,6 +15,7 @@ const getModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const transitionModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const bindModelSelectionForVerification = vi.hoisted(() => vi.fn());
 const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
+const isModelCredentialRejectedError = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/control/server/routes/browser-auth.js', () => ({
   activeSession,
@@ -25,7 +26,10 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 }));
 vi.mock(
   '@core/application/onboarding/model-credential-verification.js',
-  () => ({ verifyOnboardingModelCredential }),
+  () => ({
+    isModelCredentialRejectedError,
+    verifyOnboardingModelCredential,
+  }),
 );
 vi.mock(
   '@core/adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js',
@@ -100,6 +104,7 @@ beforeEach(() => {
   });
   transitionModelCredentialCandidate.mockResolvedValue({});
   bindModelSelectionForVerification.mockResolvedValue({});
+  isModelCredentialRejectedError.mockReturnValue(false);
   verifyOnboardingModelCredential.mockResolvedValue({ routeId: 'anthropic' });
 });
 
@@ -295,6 +300,42 @@ it('binds the selected model immediately before live verification', async () => 
     expect.objectContaining({ modelAlias: 'Sonnet 4.6' }),
   );
   expect(JSON.stringify(JSON.parse(res.body))).not.toContain('secret');
+});
+
+it('reports a rejected provider credential without exposing it', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue(modelCandidate());
+  verifyOnboardingModelCredential.mockRejectedValue(
+    new Error('Anthropic rejected the credentials.'),
+  );
+  isModelCredentialRejectedError.mockReturnValue(true);
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', { modelAlias: 'Sonnet 4.6' }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/verify',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(422);
+  expect(JSON.parse(res.body)).toMatchObject({
+    error: {
+      code: 'MODEL_PROBE_FAILED',
+      details: {
+        checks: [
+          { id: 'credentials', status: 'fail' },
+          { id: 'route', status: 'pass' },
+          { id: 'inference', status: 'fail' },
+        ],
+      },
+    },
+  });
+  expect(res.body).not.toContain('secret');
 });
 
 it('rejects a model owned by another provider before inference', async () => {
