@@ -4,6 +4,7 @@ import { Check, CircleHelp, ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { browserFetch } from '../../../lib/auth/browser-auth';
+import { toast } from '../../../ui/primitives/toast';
 import { channelProvidersQuery } from '../../channel-accounts/channel-account-queries';
 import { SlackManifestDrawer } from '../slack-manifest-drawer';
 import { SlackTokenGuideDrawer } from '../slack-token-guide-drawer';
@@ -14,10 +15,7 @@ import {
   SLACK_TOKEN_DETAILS,
   slackTokenError,
 } from '../onboarding-workspace-content';
-import {
-  onboardingMutation,
-  type LifecycleCheck,
-} from '../onboarding-http-client';
+import { onboardingMutation } from '../onboarding-http-client';
 import { onboardingStatusQuery } from '../first-run';
 
 const previewCredentialKeys: Record<string, string[]> = {
@@ -58,9 +56,6 @@ export function ConnectWorkspaceStep({
   const [guideOpen, setGuideOpen] = useState(false);
   const [slackCreated, setSlackCreated] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [validationChecks, setValidationChecks] = useState<LifecycleCheck[]>(
-    [],
-  );
   const keys = previewCredentialKeys[id] ?? [];
   const ready = useMemo(
     () => keys.every((key) => Boolean(values[key]?.trim())),
@@ -96,7 +91,6 @@ export function ConnectWorkspaceStep({
     setSlackCreated(false);
     setManifestOpen(false);
     setGuideOpen(false);
-    setValidationChecks([]);
   }, [id]);
 
   async function connect() {
@@ -119,10 +113,10 @@ export function ConnectWorkspaceStep({
         agentId,
         credentials: values,
       });
-      const validated = await onboardingMutation<{
-        candidate: { checks: LifecycleCheck[] };
-      }>(`/provider-candidates/${staged.candidate.id}/validate`, {});
-      setValidationChecks(validated.candidate.checks);
+      await onboardingMutation(
+        `/provider-candidates/${staged.candidate.id}/validate`,
+        {},
+      );
       await onboardingMutation(
         `/provider-candidates/${staged.candidate.id}/activate`,
         {},
@@ -133,16 +127,9 @@ export function ConnectWorkspaceStep({
       });
       onConnect();
     } catch (error) {
-      const payload = (
-        error as {
-          payload?: { error?: { details?: { checks?: LifecycleCheck[] } } };
-        }
-      ).payload;
-      setValidationChecks(payload?.error?.details?.checks ?? []);
-      setErrors({
-        form:
-          error instanceof Error ? error.message : 'Slack validation failed.',
-      });
+      toast.error(
+        error instanceof Error ? error.message : 'Slack validation failed.',
+      );
     } finally {
       setConnecting(false);
     }
@@ -306,23 +293,6 @@ export function ConnectWorkspaceStep({
                             {connecting ? 'Validating Slack…' : 'Connect'}{' '}
                             <Check aria-hidden size={12} />
                           </button>
-                          {errors.form ? (
-                            <p className="onboarding-error" role="alert">
-                              {errors.form}
-                            </p>
-                          ) : null}
-                          {validationChecks.length ? (
-                            <ul
-                              className="onboarding-validation-checks"
-                              aria-live="polite"
-                            >
-                              {validationChecks.map((check) => (
-                                <li key={check.id}>
-                                  <Check aria-hidden size={12} /> {check.label}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
                         </div>
                       )
                     ) : slack ? (

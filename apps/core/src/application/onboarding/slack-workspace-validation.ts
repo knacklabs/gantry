@@ -105,11 +105,35 @@ export async function validateSlackWorkspaceCandidate(input: {
     await app.stop().catch(() => undefined);
   }
 
-  const botResponse = (await app.client.bots.info({ bot: auth.bot_id })) as {
+  let botResponse: {
     ok?: boolean;
     bot?: { app_id?: string };
     error?: string;
   };
+  try {
+    botResponse = (await app.client.bots.info({ bot: auth.bot_id })) as {
+      ok?: boolean;
+      bot?: { app_id?: string };
+      error?: string;
+    };
+  } catch (error) {
+    const missingScopes = missingScopesFromSlackError(error);
+    const detail =
+      missingScopes.length > 0
+        ? `Missing scopes: ${missingScopes.join(', ')}`
+        : error instanceof Error
+          ? error.message
+          : 'Slack could not verify the bot and app pairing.';
+    throw validationError(
+      checks,
+      missingScopes.length > 0 ? 'scopes' : 'app_pairing',
+      missingScopes.length > 0
+        ? 'Required bot scopes'
+        : 'Bot and app token pairing',
+      detail,
+      missingScopes,
+    );
+  }
   const tokenAppId = appIdFromAppToken(input.appToken);
   const botAppId = botResponse.bot?.app_id;
   if (!tokenAppId || !botResponse.ok || !botAppId || tokenAppId !== botAppId) {
@@ -150,6 +174,22 @@ function validationError(
   detail: string,
   missingScopes: string[] = [],
 ) {
-  checks.push({ id, label, status: 'fail', detail });
+  const check = { id, label, status: 'fail' as const, detail };
+  const existing = checks.findIndex((item) => item.id === id);
+  if (existing >= 0) checks[existing] = check;
+  else checks.push(check);
   return Object.assign(new Error(detail), { checks, missingScopes });
+}
+
+function missingScopesFromSlackError(error: unknown): string[] {
+  if (!error || typeof error !== 'object') return [];
+  const data = (error as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return [];
+  const response = data as { error?: unknown; needed?: unknown };
+  if (response.error !== 'missing_scope' || typeof response.needed !== 'string')
+    return [];
+  return response.needed
+    .split(',')
+    .map((scope) => scope.trim())
+    .filter(Boolean);
 }
