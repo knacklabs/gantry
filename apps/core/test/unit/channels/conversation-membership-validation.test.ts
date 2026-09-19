@@ -13,12 +13,94 @@ function secretRefName(ref: { ref?: string; env?: string }): string {
 }
 
 describe('RuntimeSecretConversationMembershipValidator', () => {
-  it('lists Slack conversation member IDs without exposing credentials', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, members: ['U123', 'U456'] }), {
-        status: 200,
-      }),
-    );
+  it('lists named internal Slack humans without bots or external users', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            members: [
+              'U123',
+              'U456',
+              'UBOT',
+              'UAPP',
+              'UEXTERNAL',
+              'UDELETED',
+              'USLACKBOT',
+            ],
+            response_metadata: { next_cursor: 'members-page-2' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            members: ['U789'],
+            response_metadata: { next_cursor: '' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, team_id: 'T1' }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            members: [
+              {
+                id: 'U456',
+                team_id: 'T1',
+                profile: { display_name: 'Zed' },
+              },
+              { id: 'UBOT', team_id: 'T1', is_bot: true, name: 'bot' },
+              {
+                id: 'UAPP',
+                team_id: 'T1',
+                is_app_user: true,
+                name: 'app',
+              },
+              {
+                id: 'UEXTERNAL',
+                team_id: 'T2',
+                is_stranger: true,
+                name: 'external',
+              },
+              { id: 'UDELETED', team_id: 'T1', deleted: true, name: 'gone' },
+              { id: 'USLACKBOT', team_id: 'T1', name: 'slackbot' },
+            ],
+            response_metadata: { next_cursor: 'users-page-2' },
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            members: [
+              {
+                id: 'U123',
+                team_id: 'T1',
+                real_name: 'Ada Lovelace',
+              },
+              {
+                id: 'U789',
+                team_id: 'T1',
+                profile: { real_name: 'Bob Stone' },
+              },
+            ],
+            response_metadata: { next_cursor: '' },
+          }),
+          { status: 200 },
+        ),
+      );
     vi.stubGlobal('fetch', fetchMock);
     const validator = new RuntimeSecretConversationMembershipValidator({
       getSecret(ref) {
@@ -32,7 +114,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
     });
 
     await expect(
-      validator.listConversationMemberIds({
+      validator.listConversationMembers({
         providerId: 'slack' as never,
         providerAccount: {
           id: 'providerAccount-slack',
@@ -59,7 +141,89 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
         },
         userIds: [],
       }),
-    ).resolves.toEqual(['U123', 'U456']);
+    ).resolves.toEqual([
+      { id: 'U123', displayName: 'Ada Lovelace' },
+      { id: 'U789', displayName: 'Bob Stone' },
+      { id: 'U456', displayName: 'Zed' },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('rejects Slack bots and external users as control approvers', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              members: ['U123', 'UBOT', 'UEXTERNAL'],
+            }),
+            { status: 200 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ ok: true, team_id: 'T1' }), {
+            status: 200,
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              ok: true,
+              members: [
+                { id: 'U123', team_id: 'T1', real_name: 'Ada Lovelace' },
+                { id: 'UBOT', team_id: 'T1', is_bot: true, name: 'bot' },
+                {
+                  id: 'UEXTERNAL',
+                  team_id: 'T2',
+                  is_stranger: true,
+                  name: 'external',
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+    const validator = new RuntimeSecretConversationMembershipValidator({
+      getSecret: () => 'slack-token',
+      getOptionalSecret: () => 'slack-token',
+    });
+
+    await expect(
+      validator.validateControlApprovers({
+        providerId: 'slack' as never,
+        providerAccount: {
+          id: 'providerAccount-slack',
+          appId: 'default' as never,
+          agentId: 'main_agent' as never,
+          providerId: 'slack' as never,
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        conversation: {
+          id: 'conversation:slack:C123' as never,
+          appId: 'default' as never,
+          providerAccountId: 'providerAccount-slack' as never,
+          externalRef: { kind: 'conversation', value: 'slack:C123' },
+          kind: 'channel',
+          title: 'Support',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        userIds: ['U123', 'UBOT', 'UEXTERNAL'],
+      }),
+    ).resolves.toEqual({
+      validUserIds: ['U123'],
+      invalidUserIds: ['UBOT', 'UEXTERNAL'],
+    });
   });
 
   it('joins a public Slack conversation with the configured bot token', async () => {

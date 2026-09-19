@@ -16,17 +16,53 @@ const transitionModelCredentialCandidate = vi.hoisted(() => vi.fn());
 const bindModelSelectionForVerification = vi.hoisted(() => vi.fn());
 const activateModelAndCreateEmployee = vi.hoisted(() => vi.fn());
 const recordProjectionReceipt = vi.hoisted(() => vi.fn());
+const bindWorkAssignment = vi.hoisted(() => vi.fn());
+const recordSlackWorkAssignment = vi.hoisted(() => vi.fn());
+const getSlackWorkspaceCandidate = vi.hoisted(() => vi.fn());
+const recordSlackWorkspaceActivation = vi.hoisted(() => vi.fn());
 const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
 const isModelCredentialRejectedError = vi.hoisted(() => vi.fn());
 const sendBrowserJoinConversation = vi.hoisted(() => vi.fn());
+const listConversationMembers = vi.hoisted(() => vi.fn());
+const validateControlAllowlist = vi.hoisted(() => vi.fn());
+const latestSettingsRevision = vi.hoisted(() => vi.fn());
+const createProviderAccount = vi.hoisted(() => vi.fn());
+const updateProviderAccount = vi.hoisted(() => vi.fn());
+const setCapabilitySecret = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/control/server/routes/browser-auth.js', () => ({
   activeSession,
   requireBrowserMutationSession,
 }));
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  getRuntimeStorage: () => ({ service: { db: {} } }),
+  getRuntimeStorage: () => ({
+    service: { db: {} },
+    repositories: {
+      settingsRevisions: { getLatestSettingsRevision: latestSettingsRevision },
+      providerAccounts: { listProviderAccounts: vi.fn(async () => []) },
+      capabilitySecrets: {},
+    },
+    runtimeEvents: { publish: vi.fn() },
+  }),
 }));
+vi.mock(
+  '@core/application/provider-conversations/provider-conversation-control-use-cases.js',
+  () => ({
+    ProviderAccountControlService: class {
+      create = createProviderAccount;
+      update = updateProviderAccount;
+    },
+    DiscoverProviderConversationsService: class {},
+  }),
+);
+vi.mock(
+  '@core/application/capability-secrets/capability-secret-service.js',
+  () => ({
+    CapabilitySecretService: class {
+      set = setCapabilitySecret;
+    },
+  }),
+);
 vi.mock(
   '@core/application/onboarding/model-credential-verification.js',
   () => ({
@@ -35,7 +71,10 @@ vi.mock(
   }),
 );
 vi.mock('@core/control/server/routes/browser-conversation-members.js', () => ({
-  createBrowserConversationAdministrationService: vi.fn(() => ({})),
+  createBrowserConversationAdministrationService: vi.fn(() => ({
+    listConversationMembers,
+    validateControlAllowlist,
+  })),
   sendBrowserConversationMembers: vi.fn(),
   sendBrowserJoinConversation,
 }));
@@ -52,6 +91,10 @@ vi.mock(
       bindModelSelectionForVerification = bindModelSelectionForVerification;
       activateModelAndCreateEmployee = activateModelAndCreateEmployee;
       recordProjectionReceipt = recordProjectionReceipt;
+      bindWorkAssignment = bindWorkAssignment;
+      recordSlackWorkAssignment = recordSlackWorkAssignment;
+      getSlackWorkspaceCandidate = getSlackWorkspaceCandidate;
+      recordSlackWorkspaceActivation = recordSlackWorkspaceActivation;
     },
   }),
 );
@@ -77,7 +120,9 @@ const settings = {
   },
 };
 const session = { appId: 'default', userId: 'local-console:default' };
-const ctx = { syncSettingsFromProjection: vi.fn() } as never;
+const syncSettingsFromProjection = vi.fn();
+const connectProjectedChannels = vi.fn();
+const ctx = { syncSettingsFromProjection, connectProjectedChannels } as never;
 
 function request(method: string, body?: unknown): IncomingMessage {
   const req = Readable.from(
@@ -122,6 +167,37 @@ beforeEach(() => {
     replayed: false,
   });
   recordProjectionReceipt.mockResolvedValue(undefined);
+  bindWorkAssignment.mockResolvedValue({
+    approverPersonId: 'person:approver',
+  });
+  recordSlackWorkAssignment.mockResolvedValue({ version: 2 });
+  listConversationMembers.mockResolvedValue([
+    { id: 'U123', displayName: 'Ada Lovelace' },
+  ]);
+  validateControlAllowlist.mockResolvedValue({
+    validUserIds: ['U123'],
+    invalidUserIds: [],
+  });
+  latestSettingsRevision.mockResolvedValue({ revision: 7 });
+  getSlackWorkspaceCandidate.mockResolvedValue({
+    id: 'provider-candidate-1',
+    agentId: 'agent:atlas',
+    state: 'verified',
+    credentials: { bot_token: 'bot-secret', app_token: 'app-secret' },
+    externalIdentityJson: {
+      appId: 'A123',
+      teamId: 'T123',
+      teamName: 'Workspace',
+    },
+    expiresAt: '2099-01-01T00:00:00.000Z',
+  });
+  createProviderAccount.mockResolvedValue({ id: 'slack-account' });
+  updateProviderAccount.mockResolvedValue({
+    id: 'slack-account',
+    providerId: 'slack',
+    label: 'Workspace',
+    status: 'active',
+  });
   isModelCredentialRejectedError.mockReturnValue(false);
   verifyOnboardingModelCredential.mockResolvedValue({ routeId: 'anthropic' });
 });
@@ -254,6 +330,70 @@ it('joins a discovered Slack channel through the protected mutation route', asyn
     res,
     'default',
     'conversation:slack:C123',
+  );
+});
+
+it('connects projected provider channels after Slack activation', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {}),
+    res,
+    ctx,
+    '/ui/api/onboarding/provider-candidates/provider-candidate-1/activate',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(201);
+  expect(syncSettingsFromProjection).toHaveBeenCalled();
+  expect(connectProjectedChannels).toHaveBeenCalledOnce();
+  expect(syncSettingsFromProjection.mock.invocationCallOrder[0]).toBeLessThan(
+    connectProjectedChannels.mock.invocationCallOrder[0]!,
+  );
+});
+
+it('binds a newly discovered Slack human without requiring prior message history', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  onboardingStatus.mockResolvedValue({
+    completed: false,
+    deployment: {
+      agentId: 'agent:atlas',
+      providerAccountId: 'slack-account',
+    },
+  });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {
+      conversationId: 'conversation:slack-account:C123',
+      approverExternalUserId: 'U123',
+    }),
+    res,
+    ctx,
+    '/ui/api/onboarding/assignment',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(200);
+  expect(listConversationMembers).toHaveBeenCalledWith({
+    appId: 'default',
+    conversationId: 'conversation:slack-account:C123',
+  });
+  expect(bindWorkAssignment).toHaveBeenCalledWith(
+    expect.objectContaining({
+      appId: 'default',
+      agentId: 'agent:atlas',
+      providerAccountId: 'slack-account',
+      approverExternalUserId: 'U123',
+      approverDisplayName: 'Ada Lovelace',
+    }),
   );
 });
 

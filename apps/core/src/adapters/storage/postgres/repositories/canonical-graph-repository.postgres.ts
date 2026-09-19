@@ -401,6 +401,7 @@ export class PostgresCanonicalGraphRepository {
 
   async ensureParticipant(
     input: {
+      appId?: string;
       conversationId: string;
       providerId: string;
       providerAccountId: string;
@@ -415,9 +416,10 @@ export class PostgresCanonicalGraphRepository {
     }
     const externalUserId = input.externalUserId.trim();
     if (!externalUserId) return null;
+    const appId = input.appId ?? CANONICAL_APP_ID;
     const providerAccountId = input.providerAccountId.trim();
     const participantId = stableId('participant', [
-      CANONICAL_APP_ID,
+      appId,
       input.conversationId,
       input.providerId,
       providerAccountId,
@@ -425,7 +427,7 @@ export class PostgresCanonicalGraphRepository {
     ]);
     const now = input.timestamp || currentIso();
     const aliasKey = {
-      appId: CANONICAL_APP_ID,
+      appId,
       provider: input.providerId,
       providerAccountId,
       externalUserId,
@@ -437,7 +439,7 @@ export class PostgresCanonicalGraphRepository {
         .from(pgSchema.userAliasesPostgres)
         .where(
           and(
-            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.appId, appId),
             eq(pgSchema.userAliasesPostgres.provider, input.providerId),
             sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
             eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
@@ -462,7 +464,7 @@ export class PostgresCanonicalGraphRepository {
         .set({ displayName: observedName, updatedAt: observedAt })
         .where(
           and(
-            eq(pgSchema.usersPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.usersPostgres.appId, appId),
             eq(pgSchema.usersPostgres.id, participantUserId),
             sql`${pgSchema.usersPostgres.displayName} IS DISTINCT FROM ${observedName}`,
           ),
@@ -472,7 +474,7 @@ export class PostgresCanonicalGraphRepository {
         .set({ displayName: observedName, updatedAt: observedAt })
         .where(
           and(
-            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.appId, appId),
             eq(pgSchema.userAliasesPostgres.provider, input.providerId),
             sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
             eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
@@ -497,7 +499,7 @@ export class PostgresCanonicalGraphRepository {
         .from(pgSchema.userAliasesPostgres)
         .where(
           and(
-            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.appId, appId),
             eq(pgSchema.userAliasesPostgres.provider, input.providerId),
             sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
             eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
@@ -507,7 +509,7 @@ export class PostgresCanonicalGraphRepository {
         .orderBy(asc(pgSchema.userAliasesPostgres.id));
       if (retiredAlias) return null;
       const identityParts = [
-        CANONICAL_APP_ID,
+        appId,
         input.providerId,
         providerAccountId,
         externalUserId,
@@ -519,7 +521,7 @@ export class PostgresCanonicalGraphRepository {
         .insert(pgSchema.usersPostgres)
         .values({
           id: userId,
-          appId: CANONICAL_APP_ID,
+          appId,
           kind: 'human',
           displayName,
           status: 'active',
@@ -534,7 +536,7 @@ export class PostgresCanonicalGraphRepository {
         .insert(pgSchema.userAliasesPostgres)
         .values({
           id: aliasId,
-          appId: CANONICAL_APP_ID,
+          appId,
           userId,
           provider: input.providerId,
           providerAccountId,
@@ -555,7 +557,7 @@ export class PostgresCanonicalGraphRepository {
       .insert(pgSchema.conversationParticipantsPostgres)
       .values({
         id: participantId,
-        appId: CANONICAL_APP_ID,
+        appId,
         conversationId: input.conversationId,
         provider: input.providerId,
         providerAccountId,

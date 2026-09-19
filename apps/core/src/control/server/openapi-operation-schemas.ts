@@ -68,7 +68,23 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
     type: 'object',
     required: ['conversations', 'nextCursor'],
   },
-  listBrowserOnboardingConversationMembers: { type: 'object' },
+  listBrowserOnboardingConversationMembers: {
+    type: 'object',
+    required: ['members'],
+    properties: {
+      members: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['id', 'displayName'],
+          properties: {
+            id: { type: 'string' },
+            displayName: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
   joinBrowserOnboardingConversation: {
     type: 'object',
     required: ['joined'],

@@ -91,5 +91,9 @@ describe('first-run onboarding gate', () => {
     expect(step).toContain("id: 'onboarding-conversations-error'");
     expect(step).toContain("id: 'onboarding-conversation-members-error'");
     expect(step).not.toContain('className="onboarding-error"');
+    expect(step).toContain('members: ConversationMember[]');
+    expect(step).toContain('{member.displayName}');
+    expect(step).toContain('Loading members…');
+    expect(step).not.toContain('memberIds');
   });
 });

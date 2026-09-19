@@ -120,6 +120,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
               providerId,
               chat.chatJid,
             ),
+            conversationJid: chat.chatJid,
             title: chat.chatTitle,
             kind:
               chat.chatType === 'private'
@@ -156,6 +157,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
               providerId,
               chat.chatJid,
             ),
+            conversationJid: chat.chatJid,
             title: chat.chatTitle,
             kind:
               chat.chatType === 'im'
@@ -208,6 +210,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
               providerId,
               channel.chatJid,
             ),
+            conversationJid: channel.chatJid,
             title: channel.chatTitle,
             kind: 'channel',
             ...(channel.isArchived === true ? { status: 'archived' } : {}),
@@ -247,6 +250,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
               providerId,
               channel.chatJid,
             ),
+            conversationJid: channel.chatJid,
             title: channel.chatTitle,
             kind: 'channel',
             externalRef: {

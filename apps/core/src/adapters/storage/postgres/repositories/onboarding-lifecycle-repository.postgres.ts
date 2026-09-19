@@ -1,4 +1,5 @@
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import { OnboardingAssignmentRepository } from './onboarding/onboarding-assignment-repository.postgres.js';
 import { OnboardingCandidateRepository } from './onboarding/onboarding-candidate-repository.postgres.js';
 import { OnboardingDeploymentRepository } from './onboarding/onboarding-deployment-repository.postgres.js';
 import { OnboardingEmployeeActivationRepository } from './onboarding/onboarding-employee-activation-repository.postgres.js';
@@ -8,12 +9,14 @@ export type { OnboardingStatusProjection } from './onboarding/onboarding-deploym
 
 export class PostgresOnboardingLifecycleRepository {
   private readonly deployment: OnboardingDeploymentRepository;
+  private readonly assignment: OnboardingAssignmentRepository;
   private readonly candidate: OnboardingCandidateRepository;
   private readonly employeeActivation: OnboardingEmployeeActivationRepository;
   private readonly verification: OnboardingVerificationRepository;
 
   constructor(db: CanonicalDb) {
     this.deployment = new OnboardingDeploymentRepository(db);
+    this.assignment = new OnboardingAssignmentRepository(db);
     this.candidate = new OnboardingCandidateRepository(db, this.deployment);
     this.employeeActivation = new OnboardingEmployeeActivationRepository(
       db,
@@ -62,6 +65,12 @@ export class PostgresOnboardingLifecycleRepository {
     >[0],
   ) {
     return this.deployment.recordSlackWorkAssignment(input);
+  }
+
+  bindWorkAssignment(
+    input: Parameters<OnboardingAssignmentRepository['bindWorkAssignment']>[0],
+  ) {
+    return this.assignment.bindWorkAssignment(input);
   }
 
   stageModelCredentialCandidate(

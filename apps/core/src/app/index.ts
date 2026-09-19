@@ -451,6 +451,14 @@ export async function startGantryRuntime(
       }),
       agentSettings: createControlAgentSettingsPort(runtimeLease),
       settingsImport: createControlSettingsImportPort(runtimeLease),
+      connectProjectedChannels: async () => {
+        const projectedSettings = loadRuntimeSettings(GANTRY_HOME);
+        await channelWiring.disconnectChannels();
+        await channelWiring.connectEnabledChannels(projectedSettings, {
+          providerInbound: roleCaps.providerInbound,
+        });
+        effectiveRuntimeSettings = projectedSettings;
+      },
       leases: runtimeLease,
       resolveObserverStatus: createResolveObserverStatus({
         getEffectiveRuntimeSettings: () => effectiveRuntimeSettings,

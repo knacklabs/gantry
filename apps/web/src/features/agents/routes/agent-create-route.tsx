@@ -269,9 +269,11 @@ export function AgentCreateDialog({
   );
   const isSlackConversation =
     selectedAccount?.providerId === 'slack' && Boolean(conversationId);
-  const visibleSlackMemberIds = (loadSlackMembers.data?.memberIds ?? [])
-    .filter((memberId) =>
-      memberId.toLowerCase().includes(slackMemberSearch.trim().toLowerCase()),
+  const visibleSlackMembers = (loadSlackMembers.data?.members ?? [])
+    .filter((member) =>
+      `${member.displayName} ${member.id}`
+        .toLowerCase()
+        .includes(slackMemberSearch.trim().toLowerCase()),
     )
     .slice(0, 100);
   const approvalsVerified =
@@ -784,8 +786,8 @@ export function AgentCreateDialog({
                         Slack members
                       </h3>
                       <p className="mt-1 mb-0 text-xs text-text-secondary">
-                        Load Slack member IDs to add them above, or paste IDs
-                        manually.
+                        Load eligible Slack members to add them above, or paste
+                        IDs manually.
                       </p>
                     </div>
                     <Button
@@ -804,35 +806,40 @@ export function AgentCreateDialog({
                     <>
                       <TextField
                         id="slack-member-search"
-                        label="Search loaded member IDs"
-                        placeholder="U0123ABC"
+                        label="Search loaded members"
+                        placeholder="Name or member ID"
                         value={slackMemberSearch}
                         onChange={(event) =>
                           setSlackMemberSearch(event.target.value)
                         }
                       />
                       <div className="grid max-h-40 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-                        {visibleSlackMemberIds.map((memberId) => (
+                        {visibleSlackMembers.map((member) => (
                           <Button
-                            className="justify-start font-mono text-xs"
-                            key={memberId}
+                            className="justify-start text-xs"
+                            key={member.id}
                             size="sm"
                             type="button"
                             variant="ghost"
                             onClick={() => {
                               setApproverIds((current) =>
-                                appendMemberId(current, memberId),
+                                appendMemberId(current, member.id),
                               );
                               verifyApprovers.reset();
                             }}
                           >
-                            {memberId}
+                            <span className="truncate">
+                              {member.displayName}
+                            </span>
+                            <span className="ml-auto font-mono text-[10px] text-text-muted">
+                              {member.id}
+                            </span>
                           </Button>
                         ))}
                       </div>
-                      {visibleSlackMemberIds.length === 0 ? (
+                      {visibleSlackMembers.length === 0 ? (
                         <p className="m-0 text-xs text-text-secondary">
-                          No loaded member IDs match this search.
+                          No eligible Slack members match this search.
                         </p>
                       ) : null}
                     </>

@@ -21,6 +21,11 @@ type ConversationResponse = {
   nextCursor: null;
 };
 
+type ConversationMember = {
+  id: string;
+  displayName: string;
+};
+
 export function AssignWorkStep({
   onChange,
   onContinueActionChange,
@@ -49,7 +54,7 @@ export function AssignWorkStep({
     queryKey: ['onboarding', 'conversation-members', conversationId],
     enabled: Boolean(conversationId && joined),
     queryFn: () =>
-      onboardingGet<{ memberIds: string[] }>(
+      onboardingGet<{ members: ConversationMember[] }>(
         `/conversations/${encodeURIComponent(conversationId)}/members`,
       ),
   });
@@ -189,7 +194,23 @@ export function AssignWorkStep({
           </small>
         ) : null}
         <label className="onboarding-field">
-          <span>Who approves its riskier actions?</span>
+          <span className="flex items-center justify-between gap-3">
+            <span>Who approves its riskier actions?</span>
+            {members.isFetching ? (
+              <span
+                aria-live="polite"
+                className="flex items-center gap-1.5 text-[11px] font-normal text-text-secondary"
+                role="status"
+              >
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="onboarding-spinner shrink-0"
+                  size={13}
+                />
+                Loading members…
+              </span>
+            ) : null}
+          </span>
           <select
             disabled={
               !conversationId || !joined || members.isPending || members.isError
@@ -207,9 +228,9 @@ export function AssignWorkStep({
                   ? 'Refreshing Slack members…'
                   : 'Choose one verified member'}
             </option>
-            {(members.data?.memberIds ?? []).map((memberId) => (
-              <option key={memberId} value={memberId}>
-                {memberId}
+            {(members.data?.members ?? []).map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.displayName}
               </option>
             ))}
           </select>

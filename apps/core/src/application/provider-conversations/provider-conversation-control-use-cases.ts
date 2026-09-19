@@ -58,6 +58,7 @@ export interface ConversationInstallPatch {
 
 export interface DiscoveredConversation {
   externalId: string;
+  conversationJid?: string;
   title?: string;
   kind: 'direct' | 'group' | 'channel' | 'service' | 'web';
   status?: 'active' | 'archived' | 'disabled';
@@ -414,7 +415,7 @@ export class DiscoverProviderConversationsService {
       const conversation = {
         id:
           existing?.id ??
-          (`conversation:${providerAccount.id}:${item.externalId}` as ConversationId),
+          (`conversation:${providerAccount.id}:${item.conversationJid ?? item.externalId}` as ConversationId),
         appId: input.appId,
         providerAccountId: providerAccount.id,
         externalRef:

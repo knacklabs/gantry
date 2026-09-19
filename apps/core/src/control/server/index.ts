@@ -263,6 +263,7 @@ export function startControlServer(input: {
   agentSettings?: ControlRouteContext['agentSettings'];
   settingsImport?: ControlRouteContext['settingsImport'];
   resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
+  connectProjectedChannels?: ControlRouteContext['connectProjectedChannels'];
   leases?: RuntimeLeasePort;
 }): ControlServerHandle {
   const leases = input.leases ?? {
@@ -477,6 +478,7 @@ export function startControlServer(input: {
         overrides,
       });
     },
+    connectProjectedChannels: input.connectProjectedChannels,
     getSelectedAgentHarness: (agentFolder?: string) =>
       getSelectedAgentHarness(agentFolder),
     getConfiguredAgentRuntime: (agentFolder?: string) =>

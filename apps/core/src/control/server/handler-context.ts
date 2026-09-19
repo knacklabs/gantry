@@ -171,6 +171,7 @@ export type ControlRouteContext = {
     appId: AppId,
     overrides?: ProjectionSettingsOverrides,
   ) => Promise<void>;
+  connectProjectedChannels?: () => Promise<void>;
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   getConfiguredAgentRuntime?: (
     agentFolder?: string,

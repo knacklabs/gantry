@@ -14,10 +14,10 @@ export async function sendBrowserConversationMembers(
   conversationId: ConversationId,
 ): Promise<void> {
   try {
-    const memberIds = await createBrowserConversationAdministrationService(
+    const members = await createBrowserConversationAdministrationService(
       appId,
-    ).listConversationMemberIds({ appId, conversationId });
-    sendJson(res, 200, { memberIds });
+    ).listConversationMembers({ appId, conversationId });
+    sendJson(res, 200, { members });
   } catch (error) {
     if (!sendApplicationError(res, error)) throw error;
   }

@@ -163,7 +163,7 @@ export async function verifyConversationApprovers(
 
 export async function loadSlackConversationMembers(
   conversationId: string,
-): Promise<{ memberIds: string[] }> {
+): Promise<{ members: Array<{ id: string; displayName: string }> }> {
   const response = await browserFetch(
     `/ui/api/conversations/${encodeURIComponent(conversationId)}/members`,
     { credentials: 'same-origin' },

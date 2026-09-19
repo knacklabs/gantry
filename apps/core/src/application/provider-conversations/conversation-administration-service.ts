@@ -30,13 +30,18 @@ export interface ConversationMembershipValidationResult {
   reason?: string;
 }
 
+export interface ConversationMemberSummary {
+  id: string;
+  displayName: string;
+}
+
 export interface ConversationMembershipValidator {
   validateControlApprovers(
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult>;
-  listConversationMemberIds?(
+  listConversationMembers?(
     input: ConversationMembershipValidationInput,
-  ): Promise<string[] | null>;
+  ): Promise<ConversationMemberSummary[] | null>;
   joinConversation?(
     input: ConversationMembershipValidationInput,
   ): Promise<boolean>;
@@ -128,21 +133,21 @@ export class ConversationAdministrationService {
     });
   }
 
-  async listConversationMemberIds(input: {
+  async listConversationMembers(input: {
     appId: AppId;
     conversationId: ConversationId;
-  }): Promise<string[]> {
+  }): Promise<ConversationMemberSummary[]> {
     const { conversation, providerAccount } =
       await this.requireConversation(input);
-    if (!this.membershipValidator?.listConversationMemberIds) {
+    if (!this.membershipValidator?.listConversationMembers) {
       throw new ApplicationError(
         'NOT_IMPLEMENTED',
         'Conversation member lists are not available for this provider.',
       );
     }
-    let memberIds: string[] | null;
+    let members: ConversationMemberSummary[] | null;
     try {
-      memberIds = await this.membershipValidator.listConversationMemberIds({
+      members = await this.membershipValidator.listConversationMembers({
         providerId: providerAccount.providerId,
         providerAccount,
         conversation,
@@ -154,13 +159,13 @@ export class ConversationAdministrationService {
         'Conversation members could not be loaded. Verify the account and retry.',
       );
     }
-    if (memberIds === null) {
+    if (members === null) {
       throw new ApplicationError(
         'NOT_IMPLEMENTED',
         'Conversation member lists are not available for this provider.',
       );
     }
-    return memberIds;
+    return members;
   }
 
   async joinConversation(input: {

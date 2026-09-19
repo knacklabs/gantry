@@ -2,6 +2,7 @@ import type {
   ConversationMembershipValidationInput,
   ConversationMembershipValidationResult,
   ConversationMembershipValidator,
+  ConversationMemberSummary,
 } from '../application/provider-conversations/conversation-administration-service.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
 import {
@@ -105,19 +106,20 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     };
   }
 
-  async listConversationMemberIds(
+  async listConversationMembers(
     input: ConversationMembershipValidationInput,
-  ): Promise<string[] | null> {
+  ): Promise<ConversationMemberSummary[] | null> {
     if (normalizeProviderId(String(input.providerId)) !== 'slack') return null;
     const botToken = await this.resolveSecret(
       input.providerAccount.runtimeSecretRefs,
       ['bot_token'],
     );
     if (!botToken) throw new Error('Slack bot token is not configured.');
-    return this.listSlackMembers(
+    const memberIds = await this.listSlackMembers(
       botToken,
       externalConversationValue(input).replace(/^sl:/, ''),
     );
+    return this.listEligibleSlackMembers(botToken, memberIds);
   }
 
   async joinConversation(
@@ -226,8 +228,12 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     }
     const channelId = externalConversationValue(input).replace(/^sl:/, '');
     try {
-      const members = await this.listSlackMembers(botToken, channelId);
-      const memberSet = new Set(members);
+      const memberIds = await this.listSlackMembers(botToken, channelId);
+      const eligibleMembers = await this.listEligibleSlackMembers(
+        botToken,
+        memberIds,
+      );
+      const memberSet = new Set(eligibleMembers.map((member) => member.id));
       return {
         validUserIds: input.userIds.filter((id) => memberSet.has(id)),
         invalidUserIds: input.userIds.filter((id) => !memberSet.has(id)),
@@ -266,6 +272,89 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
       cursor = payload.response_metadata?.next_cursor || '';
     } while (cursor);
     return members;
+  }
+
+  private async listEligibleSlackMembers(
+    botToken: string,
+    memberIds: string[],
+  ): Promise<ConversationMemberSummary[]> {
+    const authResponse = await fetchWithTimeout(
+      'https://slack.com/api/auth.test',
+      { headers: { authorization: `Bearer ${botToken}` } },
+    );
+    if (!authResponse.ok) throw new Error('Slack identity check failed');
+    const auth = (await authResponse.json()) as {
+      ok?: boolean;
+      team_id?: string;
+    };
+    if (!auth.ok || !auth.team_id)
+      throw new Error('Slack identity check failed');
+
+    const wanted = new Set(memberIds);
+    const members: ConversationMemberSummary[] = [];
+    let cursor = '';
+    do {
+      const url = new URL('https://slack.com/api/users.list');
+      url.searchParams.set('limit', '200');
+      if (cursor) url.searchParams.set('cursor', cursor);
+      const response = await fetchWithTimeout(url.toString(), {
+        headers: { authorization: `Bearer ${botToken}` },
+      });
+      if (!response.ok) throw new Error('Slack user directory failed');
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        members?: Array<{
+          id?: string;
+          team_id?: string;
+          name?: string;
+          real_name?: string;
+          deleted?: boolean;
+          is_bot?: boolean;
+          is_app_user?: boolean;
+          is_stranger?: boolean;
+          profile?: {
+            display_name?: string;
+            real_name?: string;
+            bot_id?: string;
+            api_app_id?: string;
+          };
+        }>;
+        response_metadata?: { next_cursor?: string };
+      };
+      if (!payload.ok) throw new Error('Slack user directory failed');
+      for (const member of payload.members ?? []) {
+        if (
+          !member.id ||
+          !wanted.has(member.id) ||
+          member.team_id !== auth.team_id ||
+          member.deleted ||
+          member.is_bot ||
+          member.is_app_user ||
+          member.is_stranger ||
+          member.id === 'USLACKBOT' ||
+          member.profile?.bot_id ||
+          member.profile?.api_app_id
+        ) {
+          continue;
+        }
+        members.push({
+          id: member.id,
+          displayName:
+            member.profile?.display_name?.trim() ||
+            member.profile?.real_name?.trim() ||
+            member.real_name?.trim() ||
+            member.name?.trim() ||
+            member.id,
+        });
+      }
+      cursor = payload.response_metadata?.next_cursor?.trim() || '';
+    } while (cursor);
+
+    return members.sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) ||
+        left.id.localeCompare(right.id),
+    );
   }
 
   private async validateDiscord(

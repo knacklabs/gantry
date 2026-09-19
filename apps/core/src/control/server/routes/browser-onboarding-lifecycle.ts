@@ -9,10 +9,7 @@ import {
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { CapabilitySecretService } from '../../../application/capability-secrets/capability-secret-service.js';
 import { ProviderAccountControlService } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
-import {
-  ConversationInstallControlService,
-  DiscoverProviderConversationsService,
-} from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
+import { DiscoverProviderConversationsService } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
 import {
   isModelCredentialRejectedError,
   verifyOnboardingModelCredential,
@@ -793,6 +790,7 @@ export async function handleBrowserOnboardingRoutes(
         await ctx.syncSettingsFromProjection(session.appId as AppId, {
           providerAccount: { id: active.id, runtimeSecretRefs: refs },
         });
+        await ctx.connectProjectedChannels?.();
         const latest =
           await storage.repositories.settingsRevisions.getLatestSettingsRevision(
             session.appId,
@@ -870,63 +868,29 @@ export async function handleBrowserOnboardingRoutes(
         const admin = createBrowserConversationAdministrationService(
           session.appId as AppId,
         );
-        const validation = await admin.validateControlAllowlist({
+        const members = await admin.listConversationMembers({
           appId: session.appId as AppId,
           conversationId,
-          userIds: [approverId],
         });
-        if (
-          validation.validUserIds.length !== 1 ||
-          validation.invalidUserIds.length > 0
-        ) {
+        const approver = members.find((member) => member.id === approverId);
+        if (!approver) {
           return {
             statusCode: 422,
             response: errorBody(
               'APPROVER_NOT_ELIGIBLE',
-              validation.reason ??
-                'The approver must be a verified human member of the conversation.',
+              'The approver must be an internal human member of the conversation.',
             ),
           };
         }
-        await new ConversationInstallControlService({
-          agents: storage.repositories.agents,
-          providerAccounts: storage.repositories.providerAccounts,
-          conversations: storage.repositories.conversations,
-          ids: { generate: randomUUID },
-          clock: { now: nowIso },
-        }).enable({
+        const assignment = await onboarding.bindWorkAssignment({
           appId: session.appId as AppId,
+          userId: session.userId,
           agentId: deployment.agentId as AgentId,
+          providerAccountId: deployment.providerAccountId as ProviderAccountId,
           conversationId,
-          patch: {
-            providerAccountId:
-              deployment.providerAccountId as ProviderAccountId,
-            memoryScope: 'conversation',
-          },
+          approverExternalUserId: approver.id,
+          approverDisplayName: approver.displayName,
         });
-        await admin.replaceControlAllowlist({
-          appId: session.appId as AppId,
-          conversationId,
-          userIds: [approverId],
-          updatedAt: nowIso(),
-        });
-        const principal =
-          await storage.repositories.conversations.resolveConversationApproverPrincipal(
-            {
-              appId: session.appId as AppId,
-              conversationId,
-              externalUserId: approverId,
-            },
-          );
-        if (!principal) {
-          return {
-            statusCode: 422,
-            response: errorBody(
-              'APPROVER_IDENTITY_UNRESOLVED',
-              'The approver does not have a verified Gantry identity.',
-            ),
-          };
-        }
         await ctx.syncSettingsFromProjection(session.appId as AppId);
         const latest =
           await storage.repositories.settingsRevisions.getLatestSettingsRevision(
@@ -938,7 +902,7 @@ export async function handleBrowserOnboardingRoutes(
           appId: session.appId,
           userId: session.userId,
           conversationId,
-          approverPersonId: principal.personId,
+          approverPersonId: assignment.approverPersonId,
           desiredStateRevision: latest.revision,
         });
         await onboarding.recordProjectionReceipt({
@@ -951,7 +915,7 @@ export async function handleBrowserOnboardingRoutes(
           response: {
             assignment: {
               conversationId,
-              approverPersonId: principal.personId,
+              approverPersonId: assignment.approverPersonId,
               deploymentVersion: updated.version,
               state: 'verification_required',
             },

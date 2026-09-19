@@ -3,7 +3,10 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { App, AppId } from '../../../../domain/app/app.js';
 import type { Conversation } from '../../../../domain/conversation/conversation.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 
 function safeIdPart(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
@@ -105,8 +108,9 @@ export async function replaceConversationApproverIdentities(
     externalUserIds: string[];
     updatedAt: string;
   },
+  executor?: CanonicalExecutor,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
+  const replace = async (tx: CanonicalExecutor) => {
     const externalUserIds = [...new Set(input.externalUserIds)];
     const identities = new Map<
       string,
@@ -269,5 +273,10 @@ export async function replaceConversationApproverIdentities(
         updatedAt: input.updatedAt,
       })),
     );
-  });
+  };
+  if (executor) {
+    await replace(executor);
+    return;
+  }
+  await db.transaction(replace);
 }

@@ -301,6 +301,55 @@ describe('ProviderAccountControlService', () => {
 });
 
 describe('DiscoverProviderConversationsService', () => {
+  it('uses the provider conversation JID for the canonical conversation id', async () => {
+    const saveConversation = vi.fn(async () => {});
+    const service = new DiscoverProviderConversationsService({
+      providerAccounts: {
+        getProviderAccount: vi.fn(async () => ({
+          id: 'slack_default',
+          appId: 'default',
+          agentId: 'main_agent',
+          providerId: 'slack',
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
+          createdAt: iso,
+          updatedAt: iso,
+        })),
+      } as never,
+      conversations: {
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation,
+      } as never,
+      discovery: {
+        discover: vi.fn(async () => [
+          {
+            externalId: 'C123',
+            conversationJid: 'sl:C123',
+            title: 'engineering',
+            kind: 'channel' as const,
+          },
+        ]),
+      },
+      ids: { generate: vi.fn(() => 'id-1') },
+      clock: { now: () => iso },
+    });
+
+    const [conversation] = await service.execute({
+      appId: 'default' as never,
+      providerAccountId: 'slack_default' as never,
+    });
+
+    expect(conversation?.id).toBe('conversation:slack_default:sl:C123');
+    expect(saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:slack_default:sl:C123',
+        externalRef: { kind: 'conversation', value: 'C123' },
+      }),
+    );
+  });
+
   it('fails closed when discovered external ids use a mismatched explicit provider prefix', async () => {
     const service = new DiscoverProviderConversationsService({
       providerAccounts: {
