@@ -1,31 +1,45 @@
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, LoaderCircle } from 'lucide-react';
 
 import type { OnboardingStep } from '../onboarding-state';
 
 export function OnboardingFooter({
-  busy = false,
+  disabled = false,
   onBack,
   onNext,
+  pending = false,
   step,
 }: {
-  busy?: boolean;
+  disabled?: boolean;
   onBack: () => void;
   onNext: () => void;
+  pending?: boolean;
   step: OnboardingStep;
 }) {
   return (
     <footer className="onboarding-actions">
-      <button className="onboarding-secondary" onClick={onBack} type="button">
+      <button
+        className="onboarding-secondary"
+        disabled={pending}
+        onClick={onBack}
+        type="button"
+      >
         Back
       </button>
       <button
         className="onboarding-primary"
-        disabled={busy}
+        disabled={disabled || pending}
         onClick={onNext}
         type="button"
       >
-        {step === 4 ? 'Open the console' : 'Continue'}
-        <ChevronRight aria-hidden="true" size={15} />
+        {pending ? (
+          <LoaderCircle
+            aria-hidden="true"
+            className="onboarding-spinner"
+            size={15}
+          />
+        ) : null}
+        {pending ? 'Saving…' : step === 4 ? 'Open the console' : 'Continue'}
+        {!pending ? <ChevronRight aria-hidden="true" size={15} /> : null}
       </button>
     </footer>
   );

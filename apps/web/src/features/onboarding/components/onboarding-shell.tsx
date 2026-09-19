@@ -30,6 +30,7 @@ type OnboardingShellProps = {
   onNext: () => void;
   onStepChange: (step: OnboardingStep) => void;
   nextDisabled?: boolean;
+  nextPending?: boolean;
   step: OnboardingStep;
 };
 
@@ -39,6 +40,7 @@ export function OnboardingShell({
   onNext,
   onStepChange,
   nextDisabled,
+  nextPending,
   step,
 }: OnboardingShellProps) {
   const { effectiveTheme, preferences, setTheme } = usePreferences();
@@ -116,9 +118,10 @@ export function OnboardingShell({
         <main className="onboarding-main">
           <section className="onboarding-content">{children}</section>
           <OnboardingFooter
-            busy={nextDisabled}
+            disabled={nextDisabled}
             onBack={onBack}
             onNext={onNext}
+            pending={nextPending}
             step={step}
           />
         </main>

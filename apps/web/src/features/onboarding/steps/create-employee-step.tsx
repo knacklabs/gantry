@@ -4,10 +4,14 @@ import siGoogleCloud from '@iconify-icons/simple-icons/googlecloud';
 import siOpenAi from '@iconify-icons/simple-icons/openai';
 import siOpenRouter from '@iconify-icons/simple-icons/openrouter';
 import { Icon } from '@iconify/react';
-import { Check, ChevronDown, KeyRound } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, ChevronDown, KeyRound, LoaderCircle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { toast } from '../../../ui/primitives/toast';
+import { modelProviderQuery } from '../../operations/operations-queries';
+import { onboardingMutation } from '../onboarding-http-client';
+import { onboardingStatusQuery, type OnboardingStatus } from '../first-run';
 import { modelOptions, type OnboardingDraft } from '../onboarding-state';
 
 const providers = [
@@ -18,216 +22,229 @@ const providers = [
   ['vertex', 'Google Vertex AI', siGoogleCloud],
 ] as const;
 
-type PreviewField = {
-  label: string;
-  multiline?: boolean;
-  name: string;
-  optional?: boolean;
-  secret?: boolean;
-};
-
-type ProviderSetup = {
-  modes: readonly {
-    fields: readonly PreviewField[];
-    help: string;
-    label: string;
-  }[];
-};
-
-const providerSetup: Record<OnboardingDraft['provider'], ProviderSetup> = {
-  anthropic: {
-    modes: [
-      {
-        fields: [{ label: 'Anthropic key', name: 'apiKey', secret: true }],
-        help: 'Use an Anthropic account key for direct Anthropic access.',
-        label: 'API key',
-      },
-      {
-        fields: [
-          {
-            label: 'Claude Code OAuth token',
-            name: 'oauthToken',
-            secret: true,
-          },
-        ],
-        help: 'Use a Claude Code OAuth token. Gantry stores it and uses it only inside the Model Gateway.',
-        label: 'Claude Code OAuth',
-      },
-    ],
-  },
-  bedrock: {
-    modes: [
-      {
-        fields: [
-          {
-            label: 'AWS region',
-            name: 'region',
-          },
-          {
-            label: 'AWS profile (optional)',
-            name: 'profile',
-            optional: true,
-            secret: false,
-          },
-        ],
-        help: 'Use the host AWS credential chain for SigV4 Bedrock Chat Completions. In production, prefer an ECS task role, EC2 instance profile, EKS IRSA, or assumed role.',
-        label: 'AWS role or profile',
-      },
-      {
-        fields: [
-          {
-            label: 'AWS region',
-            name: 'region',
-          },
-          {
-            label: 'AWS Secrets Manager ref (aws-sm:...)',
-            name: 'apiKeyRef',
-            secret: false,
-          },
-        ],
-        help: 'Resolve an Amazon Bedrock API key from AWS Secrets Manager at gateway time.',
-        label: 'Bedrock API key in AWS Secrets Manager',
-      },
-      {
-        fields: [
-          {
-            label: 'AWS region',
-            name: 'region',
-          },
-          { label: 'Bedrock API key', name: 'apiKey', secret: true },
-        ],
-        help: 'Use an Amazon Bedrock API key for OpenAI-compatible chat completions.',
-        label: 'Bedrock API key',
-      },
-    ],
-  },
-  openai: {
-    modes: [
-      {
-        fields: [{ label: 'OpenAI key', name: 'apiKey', secret: true }],
-        help: 'Use an OpenAI account key for OpenAI API access.',
-        label: 'API key',
-      },
-    ],
-  },
-  openrouter: {
-    modes: [
-      {
-        fields: [{ label: 'OpenRouter key', name: 'apiKey', secret: true }],
-        help: 'Use an OpenRouter key for Anthropic-compatible routing.',
-        label: 'API key',
-      },
-    ],
-  },
-  vertex: {
-    modes: [
-      {
-        fields: [
-          {
-            label: 'Google Cloud location (currently global)',
-            name: 'region',
-            secret: false,
-          },
-          {
-            label: 'Google Cloud project ID',
-            name: 'projectId',
-            secret: false,
-          },
-        ],
-        help: 'Use Google Application Default Credentials to mint a host-side OAuth token for Vertex AI.',
-        label: 'Google ADC or workload identity',
-      },
-      {
-        fields: [
-          {
-            label: 'Google Cloud location (currently global)',
-            name: 'region',
-            secret: false,
-          },
-          {
-            label: 'Google Cloud project ID',
-            name: 'projectId',
-            secret: false,
-          },
-          {
-            label: 'Google Secret Manager ref (gcp-sm:...)',
-            name: 'serviceAccountJsonRef',
-            secret: false,
-          },
-        ],
-        help: 'Resolve a Google service account JSON key from Google Secret Manager at gateway time.',
-        label: 'Service account JSON in Google Secret Manager',
-      },
-      {
-        fields: [
-          {
-            label: 'Google Cloud location (currently global)',
-            name: 'region',
-            secret: false,
-          },
-          {
-            label: 'Google Cloud project ID',
-            name: 'projectId',
-            secret: false,
-          },
-          {
-            label: 'Service account JSON',
-            multiline: true,
-            name: 'serviceAccountJson',
-            secret: true,
-          },
-        ],
-        help: 'Use a Google Cloud service account JSON key for OpenAI-compatible chat completions.',
-        label: 'Service account',
-      },
-    ],
-  },
-};
+type ModelCandidate = NonNullable<
+  NonNullable<OnboardingStatus['deployment']>['modelCandidate']
+>;
+type StepPhase =
+  | 'idle'
+  | 'checking'
+  | 'checked'
+  | 'verifying'
+  | 'verified'
+  | 'activating';
 
 export function CreateEmployeeStep({
+  candidate,
   draft,
   onChange,
-  previewReady,
-  setPreviewReady,
+  onContinueActionChange,
 }: {
+  candidate: ModelCandidate | null;
   draft: OnboardingDraft;
   onChange: (update: Partial<OnboardingDraft>) => void;
-  previewReady: boolean;
-  setPreviewReady: (value: boolean) => void;
+  onContinueActionChange: (
+    action: (() => Promise<void>) | null,
+    disabled: boolean,
+  ) => void;
 }) {
+  const queryClient = useQueryClient();
+  const { data: registryProviders = [] } = useQuery(modelProviderQuery);
+  const resumableCandidate = candidateIsCurrent(candidate) ? candidate : null;
   const [modeIndex, setModeIndex] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const setup = providerSetup[draft.provider];
-  const mode = setup.modes[modeIndex] ?? setup.modes[0];
+  const [candidateId, setCandidateId] = useState<string | null>(
+    resumableCandidate?.id ?? null,
+  );
+  const [phase, setPhase] = useState<StepPhase>(() =>
+    phaseForCandidate(resumableCandidate),
+  );
+  const [verificationExpiresAt, setVerificationExpiresAt] = useState<
+    string | null
+  >(resumableCandidate?.verificationExpiresAt ?? null);
+  const setup = registryProviders.find(
+    (provider) => provider.providerId === draft.provider,
+  );
+  const mode = setup?.credentialModes[modeIndex] ?? setup?.credentialModes[0];
   const selectedProvider = providers.find(([id]) => id === draft.provider);
+  const pending =
+    phase === 'checking' || phase === 'verifying' || phase === 'activating';
+  const credentialsChecked =
+    phase === 'checked' || phase === 'verifying' || phase === 'verified';
+  const modelVerified = phase === 'verified' || phase === 'activating';
 
   useEffect(() => {
-    setModeIndex(0);
-    setValues({});
-    setFieldError(null);
-    setPreviewReady(false);
-  }, [draft.provider, setPreviewReady]);
+    if (!setup || !resumableCandidate) return;
+    const resumedMode = setup.credentialModes.findIndex(
+      (item) => item.id === resumableCandidate.authMode,
+    );
+    if (resumedMode >= 0) setModeIndex(resumedMode);
+  }, [resumableCandidate, setup]);
+
+  useEffect(() => {
+    if (phase !== 'verified' || !verificationExpiresAt) return;
+    const remaining = Date.parse(verificationExpiresAt) - Date.now();
+    if (remaining <= 0) {
+      setPhase('checked');
+      return;
+    }
+    const timeout = window.setTimeout(() => setPhase('checked'), remaining);
+    return () => window.clearTimeout(timeout);
+  }, [phase, verificationExpiresAt]);
 
   const complete = useMemo(
     () =>
-      mode.fields.every(
-        (field) => field.optional || values[field.name]?.trim(),
+      Boolean(
+        mode?.fields.every(
+          (field) => !field.required || values[field.name]?.trim(),
+        ),
       ),
-    [mode.fields, values],
+    [mode, values],
   );
 
+  const discardCandidate = useCallback(() => {
+    if (candidateId) {
+      void onboardingMutation(
+        `/model-candidates/${candidateId}/cancel`,
+        {},
+      ).catch(() => undefined);
+    }
+    setCandidateId(null);
+    setPhase('idle');
+    setVerificationExpiresAt(null);
+  }, [candidateId]);
+
+  function changeProvider(provider: OnboardingDraft['provider']) {
+    if (provider === draft.provider || pending) return;
+    discardCandidate();
+    setModeIndex(0);
+    setValues({});
+    setFieldError(null);
+    onChange({ model: modelOptions[provider][0], provider });
+  }
+
   function changeMode(index: number) {
+    if (pending) return;
+    discardCandidate();
     setModeIndex(index);
     setValues({});
     setFieldError(null);
-    setPreviewReady(false);
   }
 
   function changeValue(name: string, value: string) {
-    setValues((current) => ({ ...current, [name]: value }));
+    if (pending) return;
+    if (phase !== 'idle') discardCandidate();
+    setValues((current) =>
+      phase === 'idle' ? { ...current, [name]: value } : { [name]: value },
+    );
     setFieldError(null);
-    setPreviewReady(false);
+  }
+
+  function changeModel(model: string) {
+    if (pending) return;
+    onChange({ model });
+    if (phase === 'verified') {
+      setPhase('checked');
+      setVerificationExpiresAt(null);
+    }
+  }
+
+  const activate = useCallback(async () => {
+    if (!candidateId || phase !== 'verified') return;
+    setPhase('activating');
+    try {
+      await onboardingMutation(`/model-candidates/${candidateId}/activate`, {
+        name: draft.name,
+        title: draft.title,
+        responsibilities: draft.responsibilities,
+      });
+      setValues({});
+      await queryClient.invalidateQueries({
+        queryKey: onboardingStatusQuery.queryKey,
+      });
+      toast.success('Employee created with the verified model.');
+    } catch (error) {
+      setPhase('verified');
+      throw error;
+    }
+  }, [
+    candidateId,
+    draft.name,
+    draft.responsibilities,
+    draft.title,
+    phase,
+    queryClient,
+  ]);
+
+  useEffect(() => {
+    onContinueActionChange(
+      phase === 'verified' ? activate : null,
+      phase !== 'verified',
+    );
+    return () => onContinueActionChange(null, false);
+  }, [activate, onContinueActionChange, phase]);
+
+  async function checkCredentials() {
+    if (!complete || pending) {
+      setFieldError('Complete the required fields to check these credentials.');
+      return;
+    }
+    setFieldError(null);
+    setPhase('checking');
+    try {
+      const staged = await onboardingMutation<{
+        candidate: { id: string };
+      }>('/model-candidates', {
+        providerId: draft.provider,
+        authMode: mode?.id,
+        credentials: values,
+      });
+      setCandidateId(staged.candidate.id);
+      await onboardingMutation(
+        `/model-candidates/${staged.candidate.id}/check`,
+        {},
+      );
+      setValues({});
+      setPhase('checked');
+      await queryClient.invalidateQueries({
+        queryKey: onboardingStatusQuery.queryKey,
+      });
+      toast.success('Credentials checked.');
+    } catch (error) {
+      setCandidateId(null);
+      setValues({});
+      setPhase('idle');
+      setFieldError(
+        error instanceof Error ? error.message : 'Credential check failed.',
+      );
+    }
+  }
+
+  async function testModel() {
+    if (!candidateId || (phase !== 'checked' && phase !== 'verified')) return;
+    setFieldError(null);
+    setPhase('verifying');
+    try {
+      const verified = await onboardingMutation<{
+        candidate: { verificationExpiresAt: string };
+      }>(`/model-candidates/${candidateId}/verify`, {
+        modelAlias: draft.model,
+      });
+      setVerificationExpiresAt(verified.candidate.verificationExpiresAt);
+      setPhase('verified');
+      await queryClient.invalidateQueries({
+        queryKey: onboardingStatusQuery.queryKey,
+      });
+      toast.success('Live model inference succeeded.');
+    } catch (error) {
+      setCandidateId(null);
+      setValues({});
+      setVerificationExpiresAt(null);
+      setPhase('idle');
+      setFieldError(
+        error instanceof Error ? error.message : 'Model verification failed.',
+      );
+    }
   }
 
   return (
@@ -244,11 +261,11 @@ export function CreateEmployeeStep({
               {providers.map(([id, label, icon]) => (
                 <button
                   className={draft.provider === id ? 'is-selected' : ''}
+                  disabled={pending}
                   key={id}
-                  onClick={() => {
-                    const provider = id as OnboardingDraft['provider'];
-                    onChange({ model: modelOptions[provider][0], provider });
-                  }}
+                  onClick={() =>
+                    changeProvider(id as OnboardingDraft['provider'])
+                  }
                   type="button"
                 >
                   <span className="onboarding-provider-mark">
@@ -268,21 +285,24 @@ export function CreateEmployeeStep({
               </span>
               <span>
                 <b>{selectedProvider?.[1]}</b>
-                <small>{mode.label}</small>
+                <small>
+                  {mode?.label ?? 'Loading authentication methods…'}
+                </small>
               </span>
             </span>
           </div>
           <div className="onboarding-model-scroll onboarding-credential-fields">
-            {setup.modes.length > 1 ? (
+            {(setup?.credentialModes.length ?? 0) > 1 ? (
               <label className="onboarding-field">
                 <span>Authentication method</span>
                 <span className="onboarding-select-wrap">
                   <select
+                    disabled={pending}
                     onChange={(event) => changeMode(Number(event.target.value))}
                     value={modeIndex}
                   >
-                    {setup.modes.map((item, index) => (
-                      <option key={item.label} value={index}>
+                    {setup?.credentialModes.map((item, index) => (
+                      <option key={item.id} value={index}>
                         {item.label}
                       </option>
                     ))}
@@ -291,21 +311,33 @@ export function CreateEmployeeStep({
                 </span>
               </label>
             ) : null}
-            <p className="onboarding-credential-help">{mode.help}</p>
-            {mode.fields.map((field) => (
+            <p className="onboarding-credential-help">{mode?.helpText}</p>
+            {mode?.fields.map((field) => (
               <label className="onboarding-field" key={field.name}>
                 <span>{field.label}</span>
                 {field.multiline ? (
                   <textarea
+                    disabled={pending}
                     onChange={(event) =>
                       changeValue(field.name, event.target.value)
+                    }
+                    placeholder={
+                      credentialsChecked ? 'Checked for this setup' : undefined
                     }
                     value={values[field.name] ?? ''}
                   />
                 ) : (
                   <input
+                    disabled={pending}
                     onChange={(event) =>
                       changeValue(field.name, event.target.value)
+                    }
+                    placeholder={
+                      credentialsChecked
+                        ? field.secret
+                          ? '••••••••'
+                          : 'Checked for this setup'
+                        : undefined
                     }
                     type={field.secret ? 'password' : 'text'}
                     value={values[field.name] ?? ''}
@@ -319,53 +351,101 @@ export function CreateEmployeeStep({
               </small>
             ) : null}
             <button
-              className="onboarding-validate"
-              onClick={() => {
-                if (!complete) {
-                  setFieldError(
-                    'Complete the required fields to validate this preview.',
-                  );
-                  return;
-                }
-                setPreviewReady(true);
-                toast.success(
-                  'Connected — preview only. No provider request was made.',
-                );
-              }}
+              className={`onboarding-validate ${credentialsChecked || modelVerified ? 'is-success' : ''}`}
+              disabled={pending || credentialsChecked || modelVerified}
+              onClick={() => void checkCredentials()}
               type="button"
             >
-              {previewReady ? (
+              {phase === 'checking' ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="onboarding-spinner"
+                  size={13}
+                />
+              ) : credentialsChecked || modelVerified ? (
                 <Check aria-hidden="true" size={13} />
               ) : (
                 <KeyRound aria-hidden="true" size={13} />
               )}
-              {previewReady
-                ? 'Connected — preview only'
-                : 'Validate configuration'}
+              {phase === 'checking'
+                ? 'Checking credentials…'
+                : credentialsChecked || modelVerified
+                  ? 'Credentials checked'
+                  : 'Check credentials'}
             </button>
-            <div className="onboarding-model-choice">
-              <label className="onboarding-field">
-                <span>Which one should it use?</span>
-                <span className="onboarding-select-wrap">
-                  <select
-                    onChange={(event) =>
-                      onChange({ model: event.target.value })
-                    }
-                    value={draft.model}
-                  >
-                    {modelOptions[draft.provider].map((model) => (
-                      <option key={model}>{model}</option>
-                    ))}
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </span>
-              </label>
+            <div
+              className={`onboarding-model-choice ${!credentialsChecked && !modelVerified ? 'is-disabled' : ''}`}
+            >
+              <div className="onboarding-model-action-row">
+                <label className="onboarding-field">
+                  <span>Which one should it use?</span>
+                  <span className="onboarding-select-wrap">
+                    <select
+                      disabled={!credentialsChecked || pending}
+                      onChange={(event) => changeModel(event.target.value)}
+                      value={draft.model}
+                    >
+                      {modelOptions[draft.provider].map((model) => (
+                        <option key={model}>{model}</option>
+                      ))}
+                    </select>
+                    <ChevronDown aria-hidden="true" />
+                  </span>
+                </label>
+                <button
+                  className={`onboarding-test-model ${modelVerified ? 'is-success' : ''}`}
+                  disabled={!credentialsChecked || pending || modelVerified}
+                  onClick={() => void testModel()}
+                  type="button"
+                >
+                  {phase === 'verifying' ? (
+                    <LoaderCircle
+                      aria-hidden="true"
+                      className="onboarding-spinner"
+                      size={13}
+                    />
+                  ) : modelVerified ? (
+                    <Check aria-hidden="true" size={13} />
+                  ) : null}
+                  {phase === 'verifying'
+                    ? 'Testing model…'
+                    : modelVerified
+                      ? 'Model verified'
+                      : 'Test model'}
+                </button>
+              </div>
+              <small className="onboarding-model-guidance">
+                Add credentials and check the configuration, then select a model
+                and test it.
+              </small>
             </div>
           </div>
         </section>
       </article>
     </div>
   );
+}
+
+function candidateIsCurrent(candidate: ModelCandidate | null) {
+  return Boolean(
+    candidate &&
+    Date.parse(candidate.expiresAt) > Date.now() &&
+    (candidate.state === 'checked' || candidate.state === 'verified'),
+  );
+}
+
+function phaseForCandidate(candidate: ModelCandidate | null): StepPhase {
+  if (!candidate) return 'idle';
+  if (
+    candidate.state === 'verified' &&
+    candidate.verificationExpiresAt &&
+    Date.parse(candidate.verificationExpiresAt) > Date.now()
+  ) {
+    return 'verified';
+  }
+  return candidate.state === 'checked' || candidate.state === 'verified'
+    ? 'checked'
+    : 'idle';
 }
 
 export function Heading({ body, title }: { body: string; title: string }) {

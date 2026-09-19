@@ -36,8 +36,7 @@ export const initialOnboardingDraft: OnboardingDraft = {
   workspace: '#team-operations',
 };
 
-// Display names are a curated preview of the provider-owned catalog entries.
-// Credentials remain browser-local; this is not a runtime model selection.
+// Display names mirror the provider-owned model catalog used by onboarding.
 export const modelOptions: Record<OnboardingDraft['provider'], string[]> = {
   anthropic: ['Fable 5.1', 'Opus 5', 'Sonnet 4.6', 'Haiku 4.5'],
   bedrock: [

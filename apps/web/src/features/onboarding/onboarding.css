@@ -512,6 +512,38 @@
     border-top: 1px solid var(--border);
     padding: 13px 16px 16px;
   }
+  .onboarding-model-choice.is-disabled {
+    color: var(--text-muted);
+  }
+  .onboarding-model-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+  }
+  .onboarding-model-action-row > .onboarding-field {
+    min-width: 0;
+  }
+  .onboarding-test-model {
+    display: inline-flex;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--surface-muted);
+    color: var(--text);
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .onboarding-model-guidance {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+  }
   .onboarding-model-scroll .onboarding-model-choice {
     margin: 2px -20px -20px;
   }
@@ -528,6 +560,24 @@
     padding: 0 12px;
     font-size: 12px;
     font-weight: 500;
+  }
+  .onboarding-validate.is-success,
+  .onboarding-test-model.is-success {
+    border-color: var(--status-success);
+    background: var(--status-success-soft);
+    color: var(--status-success);
+    opacity: 1;
+  }
+  .onboarding-validate:disabled:not(.is-success),
+  .onboarding-test-model:disabled:not(.is-success),
+  .onboarding-field input:disabled,
+  .onboarding-field select:disabled,
+  .onboarding-credential-fields textarea:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .onboarding-spinner {
+    animation: onboarding-spin 0.8s linear infinite;
   }
   .onboarding-help {
     color: var(--text-secondary);
@@ -607,6 +657,11 @@
   .onboarding-primary:active,
   .onboarding-secondary:active {
     transform: translateY(1px) scale(0.98);
+  }
+  .onboarding-primary:disabled,
+  .onboarding-secondary:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
   }
   .gantry-mark {
     display: grid;
@@ -910,9 +965,13 @@
 :root[data-motion='reduced'] .onboarding-splash-role-list {
   animation: none;
 }
+:root[data-motion='reduced'] .onboarding-spinner {
+  animation: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .onboarding-splash-role-list {
+  .onboarding-splash-role-list,
+  .onboarding-spinner {
     animation: none;
   }
 }
@@ -937,6 +996,12 @@
   .onboarding-main {
     min-height: calc(100dvh - 64px);
     padding: 20px 16px;
+  }
+  .onboarding-model-action-row {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-test-model {
+    justify-self: start;
   }
   .onboarding-content {
     align-content: start;
@@ -964,5 +1029,11 @@
   .onboarding-split-card .onboarding-model-scroll {
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+}
+
+@keyframes onboarding-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

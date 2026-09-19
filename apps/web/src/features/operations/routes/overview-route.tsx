@@ -1,24 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, Navigate } from '@tanstack/react-router';
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   CircleDotDashed,
-  X,
 } from 'lucide-react';
 
-import {
-  useCompleteOnboarding,
-  useOnboardingEligibility,
-} from '../../onboarding/first-run';
+import { useOnboardingEligibility } from '../../onboarding/first-run';
 import { useConnectionGate } from '../../../ui/compositions/connection-gate';
 import { MetricTile } from '../../../ui/compositions/metric-tile';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { Panel } from '../../../ui/compositions/panel';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
-import { toast } from '../../../ui/primitives/toast';
 import {
   conversations,
   overviewMetrics,
@@ -36,19 +31,12 @@ export function OverviewRoute() {
   const { data: diagnostics } = useQuery(diagnosticPreviewQuery);
   const { requestConnection } = useConnectionGate();
   const onboarding = useOnboardingEligibility();
-  const completion = useCompleteOnboarding();
   const healthyChecks = diagnostics.filter(
     (check) => check.status === 'passing',
   ).length;
-  const showOnboardingReminder = onboarding.status === 'console';
-  const dismissOnboardingReminder = () => {
-    completion.mutate(undefined, {
-      onError: () =>
-        toast.error('Gantry could not dismiss onboarding.', {
-          action: { label: 'Retry', onClick: dismissOnboardingReminder },
-        }),
-    });
-  };
+
+  if (onboarding.status === 'onboarding')
+    return <Navigate replace to="/onboarding" />;
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-6">
@@ -57,29 +45,6 @@ export function OverviewRoute() {
         title="Overview"
         description="Readiness, activity, and the items that need owner attention."
       />
-
-      {showOnboardingReminder ? (
-        <section className="flex items-center gap-3 rounded-xl border border-status-attention/35 bg-status-attention-soft px-3 py-3">
-          <button
-            aria-label="Dismiss onboarding reminder"
-            className="grid size-8 shrink-0 place-items-center rounded-md text-status-attention hover:bg-status-attention/15 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:opacity-50"
-            disabled={completion.isPending}
-            onClick={dismissOnboardingReminder}
-            type="button"
-          >
-            <X aria-hidden="true" size={16} />
-          </button>
-          <p className="min-w-0 flex-1 text-sm font-medium text-text">
-            Do you want to complete onboarding?
-          </p>
-          <Link
-            className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground no-underline hover:bg-primary/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring"
-            to="/onboarding"
-          >
-            Yes
-          </Link>
-        </section>
-      ) : null}
 
       <section
         aria-label="Operational metrics"
