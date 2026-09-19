@@ -266,7 +266,7 @@ children are confirmed stopped.
 ### Approved automatic local authorization addition
 
 On every successful source-local start, including ordinary restarts and both
-reset variants, attempt to print a fresh short-lived (ten-minute), single-use
+reset variants, attempt to print a fresh short-lived (thirty-minute), single-use
 authorization link after health readiness — health meaning the public Vite
 origin's proxied `/healthz` responds healthy, not the deeper `/readyz`
 onboarding-readiness check, since fresh onboarding can legitimately leave
@@ -289,7 +289,7 @@ origin (decision 0132); refuse with remediation before startup if not,
 rather than starting a healthy stack and then failing authorization on every
 retry.
 
-The raw authorization URL is a ten-minute administrator credential. Print it
+The raw authorization URL is a thirty-minute administrator credential. Print it
 in full only when stdout is an interactive terminal (a TTY); when stdout is
 not a TTY (redirected to a file, captured by an IDE task runner, or CI),
 keep the healthy development stack running and print only the stable UI URL

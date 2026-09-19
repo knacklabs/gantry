@@ -22,7 +22,7 @@ Confirmed by Ravi in the approved WEB-AUTH-1 design, 2026-08-18:
 
 1. Browser authentication is an independent local-or-hosted setting. Local
    authorization is loopback-only and begins with a trusted CLI-created,
-   ten-minute, one-use, hash-only fragment token. Hosted authentication is
+   thirty-minute, one-use, hash-only fragment token. Hosted authentication is
    generic authorization-code OIDC with PKCE, Google first, canonical-origin
    redirects, and server-side provider validation.
 2. A browser receives only an opaque, hashed, revocable session cookie. Browser

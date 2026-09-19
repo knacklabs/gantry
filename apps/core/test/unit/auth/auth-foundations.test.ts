@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 
 import {
   ACCESS_REFERENCE_TTL_MS,
+  LOCAL_AUTHORIZATION_TTL_MS,
   canDisableOrDemote,
   createOpaqueToken,
   expiresAt,
@@ -20,6 +21,7 @@ it('auth foundations > auth persistence policy stores only hashes and enforces e
   expect(matchesAuthToken(token, hash)).toBe(true);
   expect(matchesAuthToken(`${token}x`, hash)).toBe(false);
   expect(isExpired(expiresAt(now, ACCESS_REFERENCE_TTL_MS), now)).toBe(false);
+  expect(LOCAL_AUTHORIZATION_TTL_MS).toBe(30 * 60 * 1000);
   expect(isExpired(now, now)).toBe(true);
   expect(isRecentlyReauthenticated(now, new Date(now.getTime() + 1))).toBe(
     true,

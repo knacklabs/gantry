@@ -20,7 +20,7 @@ in-repository WEB-AUTH-1 source of truth.
 
 ## Behaviour
 
-- Local deployments issue a ten-minute, single-use browser authorization URL
+- Local deployments issue a thirty-minute, single-use browser authorization URL
   from the trusted CLI. The token stays in the URL fragment, is stored only as
   a hash, and creates a 30-day idle / 90-day absolute server session.
 - Hosted deployments use generic OIDC authorization-code flow with PKCE. Google
@@ -41,7 +41,7 @@ in-repository WEB-AUTH-1 source of truth.
 
 ## Acceptance criteria
 
-- Local authorization rejects non-loopback use, expires after ten minutes, is
+- Local authorization rejects non-loopback use, expires after thirty minutes, is
   atomic and single-use, and never exposes the raw bootstrap token after use.
 - Hosted sign-in validates discovery, allowlisted issuer, state, nonce, PKCE,
   signature, audience, and expiry; no-access identities do not gain access.
