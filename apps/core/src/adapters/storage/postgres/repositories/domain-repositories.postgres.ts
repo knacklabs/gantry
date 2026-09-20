@@ -148,6 +148,7 @@ import type { PermissionDecisionMemoryRepository } from '../../../../domain/port
 import type { GroupJoinOnboardingRepository } from '../../../../domain/ports/group-join-onboarding.js';
 import type { MessageAttachmentRepository } from '../../../../domain/ports/message-attachment-repository.js';
 import type { ConversationHistoryCoverageRepository } from '../../../../domain/ports/conversation-history-coverage.js';
+import type { ConversationIngressCursorRepository } from '../../../../domain/ports/conversation-ingress-cursor.js';
 import type { CapabilityTemplateAmendmentRepository } from '../../../../domain/ports/capability-template-amendments.js';
 import type { CapabilityTemplateApprovalIntentRepository } from '../../../../shared/capability-template-amendment.js';
 import { PostgresPermissionPromotionRepository } from './permission-promotion-repository.postgres.js';
@@ -155,6 +156,7 @@ import { PostgresPermissionDecisionMemoryRepository } from './permission-decisio
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
+import { PostgresConversationIngressCursorRepository } from './conversation-ingress-cursor-repository.postgres.js';
 import { PostgresCapabilityTemplateAmendmentRepository } from './capability-template-amendment-repository.postgres.js';
 import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
 import {
@@ -170,6 +172,7 @@ export interface PostgresDomainRepositoryBundle {
   conversations: ConversationRepository;
   messages: MessageRepository;
   conversationHistoryCoverage: ConversationHistoryCoverageRepository;
+  conversationIngressCursors: ConversationIngressCursorRepository;
   messageAttachments: MessageAttachmentRepository;
   agentSessions: AgentSessionRepository;
   agentSessionDigests: AgentSessionDigestRepository;
@@ -2034,6 +2037,9 @@ export function createPostgresDomainRepositories(
     ),
     conversationHistoryCoverage:
       new PostgresConversationHistoryCoverageRepository(db),
+    conversationIngressCursors: new PostgresConversationIngressCursorRepository(
+      db,
+    ),
     messageAttachments: new PostgresMessageAttachmentRepository(
       db,
       options.cleanupProviderAttachment,

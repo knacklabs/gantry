@@ -16,6 +16,7 @@ export type AgentDirectoryItem = {
   rolePrompt: string | null;
   configVersion: number | null;
   modelAlias: string | null;
+  modelDisplayName?: string | null;
   conversationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -60,7 +61,13 @@ export type AgentWorkflowRelationship =
       name: string;
       sourceStatus: string;
     }
-  | { id: string; kind: 'approver'; displayName: string; conversation: string };
+  | {
+      id: string;
+      kind: 'approver';
+      displayName: string;
+      conversationId: string;
+      conversation: string;
+    };
 
 export type AgentWorkflowMap = { relationships: AgentWorkflowRelationship[] };
 

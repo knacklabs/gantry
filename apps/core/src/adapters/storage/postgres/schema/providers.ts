@@ -121,5 +121,13 @@ export const conversationInstallsPostgres = pgTable(
     accountIdx: index('idx_conversation_installs_account').on(
       table.providerAccountId,
     ),
+    controlScopeUnique: uniqueIndex('uniq_conversation_installs_control_scope')
+      .on(
+        table.appId,
+        table.agentId,
+        table.conversationId,
+        sql`COALESCE(${table.threadId}, '')`,
+      )
+      .where(sql`${table.id} NOT LIKE 'conversation-route:%'`),
   }),
 );

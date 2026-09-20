@@ -51,6 +51,24 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
     type: 'object',
     required: ['candidate'],
   },
+  listBrowserOnboardingCandidateModels: {
+    type: 'object',
+    required: ['models'],
+    properties: {
+      models: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['alias', 'displayName', 'providerId'],
+          properties: {
+            alias: { type: 'string' },
+            displayName: { type: 'string' },
+            providerId: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
   verifyBrowserOnboardingModelCandidate: {
     type: 'object',
     required: ['candidate'],

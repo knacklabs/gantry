@@ -57,6 +57,30 @@ export const onboardingStatusQuery = queryOptions({
   retryDelay: (attempt) => [500, 1_000, 2_000][attempt] ?? 2_000,
 });
 
+export function onboardingCandidateModelsQuery(candidateId: string | null) {
+  return queryOptions({
+    queryKey: ['onboarding', 'model-candidates', candidateId, 'models'],
+    enabled: Boolean(candidateId),
+    queryFn: async (): Promise<{
+      models: Array<{ alias: string; displayName: string; providerId: string }>;
+    }> => {
+      const response = await browserFetch(
+        `/ui/api/onboarding/model-candidates/${encodeURIComponent(candidateId!)}/models`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('Gantry could not load models for these credentials.');
+      return response.json() as Promise<{
+        models: Array<{
+          alias: string;
+          displayName: string;
+          providerId: string;
+        }>;
+      }>;
+    },
+  });
+}
+
 async function completeOnboarding(expectedVersion: number) {
   const response = await browserFetch('/ui/api/onboarding/complete', {
     method: 'POST',

@@ -41,6 +41,8 @@ import {
   validateModelAlias,
 } from './browser-agents-helpers.js';
 import { handleBrowserAgentObservabilityRoutes } from './browser-agent-observability.js';
+import { isBrowserAgentsPath } from './browser-agent-route-matcher.js';
+export { isBrowserAgentsPath } from './browser-agent-route-matcher.js';
 
 type BrowserAgentsSettings = {
   authentication: { mode: 'local' | 'hosted'; canonicalOrigin: string };
@@ -53,14 +55,6 @@ const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 const AGENT_MODELS_PATH = '/ui/api/agent-models';
-
-export function isBrowserAgentsPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/ui/api/agents') ||
-    pathname.startsWith('/ui/api/roles') ||
-    pathname === AGENT_MODELS_PATH
-  );
-}
 
 export async function handleBrowserAgentRoutes(
   req: IncomingMessage,

@@ -472,15 +472,70 @@ it('binds the selected model immediately before live verification', async () => 
   expect(res.statusCode).toBe(200);
   expect(bindModelSelectionForVerification).toHaveBeenCalledWith(
     expect.objectContaining({
-      modelAlias: 'Sonnet 4.6',
+      modelAlias: 'sonnet',
       routeId: 'anthropic',
     }),
   );
   expect(verifyOnboardingModelCredential).toHaveBeenCalledWith(
-    expect.objectContaining({ modelAlias: 'Sonnet 4.6' }),
+    expect.objectContaining({ modelAlias: 'sonnet' }),
   );
   expect(JSON.stringify(JSON.parse(res.body))).not.toContain('secret');
 });
+
+it('lists canonical model aliases for the authenticated candidate provider', async () => {
+  activeSession.mockResolvedValue({ ...session, role: 'administrator' });
+  getModelCredentialCandidate.mockResolvedValue(modelCandidate());
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('GET'),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/models',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(200);
+  expect(JSON.parse(res.body).models).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        alias: 'sonnet',
+        displayName: 'Sonnet 4.6',
+        providerId: 'anthropic',
+      }),
+    ]),
+  );
+});
+
+it.each([
+  ['anthropic', 'sonnet'],
+  ['bedrock', 'bedrock-oss'],
+  ['openai', 'gpt'],
+  ['openrouter', 'kimi'],
+  ['vertex', 'vertex'],
+] as const)(
+  'returns canonical %s catalog values',
+  async (providerId, alias) => {
+    activeSession.mockResolvedValue({ ...session, role: 'administrator' });
+    getModelCredentialCandidate.mockResolvedValue({
+      ...modelCandidate(),
+      providerId,
+    });
+    const res = response();
+
+    await handleBrowserOnboardingRoutes(
+      request('GET'),
+      res,
+      ctx,
+      '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/models',
+      settings,
+    );
+
+    expect(JSON.parse(res.body).models).toEqual(
+      expect.arrayContaining([expect.objectContaining({ alias, providerId })]),
+    );
+  },
+);
 
 it('projects the revision committed by employee activation', async () => {
   requireBrowserMutationSession.mockResolvedValue({

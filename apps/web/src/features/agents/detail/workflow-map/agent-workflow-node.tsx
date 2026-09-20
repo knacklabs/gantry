@@ -19,17 +19,17 @@ export function AgentWorkflowNode({ data }: NodeProps<WorkflowNode>) {
       ) : null}
       <button
         aria-label={`${data.eyebrow}: ${data.title}. Open ${data.targetTab}.`}
-        className="nodrag nopan grid w-[150px] gap-0.5 rounded-lg border border-border bg-surface px-[11px] py-[9px] text-left shadow-panel transition-colors hover:border-border-strong hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+        className="nodrag nopan grid w-[150px] min-w-0 gap-0.5 rounded-lg border border-border bg-surface px-[11px] py-[9px] text-left shadow-panel transition-colors hover:border-border-strong hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
         data-workflow-tab={data.targetTab}
         type="button"
       >
         <span className="font-mono text-micro font-medium tracking-[0.1em] text-text-muted uppercase">
           {data.eyebrow}
         </span>
-        <strong className="truncate text-meta font-medium text-text">
+        <strong className="line-clamp-2 min-w-0 break-words text-meta font-medium text-text">
           {data.title}
         </strong>
-        <span className="truncate text-caption text-text-secondary">
+        <span className="min-w-0 truncate text-caption text-text-secondary">
           {data.detail}
         </span>
       </button>
@@ -61,7 +61,7 @@ export function AgentWorkflowEmployeeNode({ data }: NodeProps<WorkflowNode>) {
       ))}
       <button
         aria-label={`${data.title}. Open Overview.`}
-        className="workflow-employee-node nodrag nopan grid w-44 gap-2 rounded-[11px] border-2 border-primary bg-surface p-3 text-left transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
+        className="workflow-employee-node nodrag nopan grid w-44 min-w-0 gap-2 rounded-[11px] border-2 border-primary bg-surface p-3 text-left transition-colors hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring"
         data-workflow-tab={data.targetTab}
         type="button"
       >
@@ -69,16 +69,16 @@ export function AgentWorkflowEmployeeNode({ data }: NodeProps<WorkflowNode>) {
           <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-strong text-text">
             <GantryMark className="size-4" />
           </span>
-          <span className="min-w-0">
+          <span className="min-w-0 flex-1 overflow-hidden">
             <strong className="block truncate text-entity font-semibold">
               {data.title}
             </strong>
-            <span className="block truncate text-caption text-text-secondary">
+            <span className="line-clamp-2 break-words text-caption text-text-secondary">
               {data.detail}
             </span>
           </span>
         </span>
-        <span className="text-meta leading-relaxed text-text-secondary">
+        <span className="line-clamp-3 min-w-0 break-words text-meta leading-relaxed text-text-secondary">
           {data.description}
         </span>
       </button>

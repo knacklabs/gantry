@@ -3,7 +3,6 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalRequest,
   ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
@@ -78,6 +77,7 @@ import * as routeProviderAccount from './channel-wiring-route-provider-account.j
 import { syncChannelGroups } from './channel-wiring-group-sync.js';
 import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
 import { createChannelAttachmentDeletionHandler } from './channel-wiring-attachment-deletion.js';
+import { createConversationIngressRecovery } from './channel-wiring-ingress-recovery.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
@@ -124,6 +124,11 @@ export function createChannelWiring(
       return undefined;
     }
   };
+  const conversationIngressRecovery = createConversationIngressRecovery({
+    appId: resolved.appId,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
+    repositories: () => getRuntimeStorage().repositories,
+  });
   let currentRuntimeSettings: RuntimeSettings;
   function findBoundChannel(
     jid: string,
@@ -234,6 +239,7 @@ export function createChannelWiring(
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     distrustHistoryCoverage: historyDistrust.distrust,
     setHistoryCoverageInboundActive: historyDistrust.setInboundActive,
+    conversationIngressRecovery,
     onMessageAttachmentsDeleted: createChannelAttachmentDeletionHandler(
       resolved.appId,
       () =>

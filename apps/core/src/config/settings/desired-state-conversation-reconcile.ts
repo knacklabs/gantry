@@ -225,9 +225,18 @@ async function rebindConfiguredConversationBindings(input: {
           now: input.now,
         })
       : undefined;
-    const installId = `agent-conversation-binding:${encodeURIComponent(
-      binding.agent,
-    )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id'];
+    const existingInstall = await providerAccounts.getConversationInstall({
+      appId: input.appId,
+      agentId,
+      conversationId: installConversation.id,
+      ...(threadId ? { threadId } : {}),
+      exactThreadId: true,
+    });
+    const installId =
+      existingInstall?.id ??
+      (`agent-conversation-binding:${encodeURIComponent(
+        binding.agent,
+      )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id']);
     desiredInstallIds.add(installId);
     installConversationIds.add(installConversation.id);
     await providerAccounts.saveConversationInstall({
@@ -257,8 +266,8 @@ async function rebindConfiguredConversationBindings(input: {
           agentConfig: configuredAgentConfig(binding),
         },
       },
-      permissionPolicyIds: [],
-      createdAt: binding.addedAt || input.now,
+      permissionPolicyIds: existingInstall?.permissionPolicyIds ?? [],
+      createdAt: existingInstall?.createdAt ?? binding.addedAt ?? input.now,
       updatedAt: input.now,
     } satisfies ConversationInstall);
   }

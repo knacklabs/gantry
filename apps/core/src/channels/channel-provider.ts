@@ -35,6 +35,7 @@ import type {
   IdentityResolveInput,
   IdentityResolveResult,
 } from '../application/identity/person-identity-service.js';
+import type { ConversationIngressRecovery } from '../domain/ports/conversation-ingress-cursor.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -123,6 +124,7 @@ export interface ChannelOpts {
     providerAccountIds: readonly string[],
     active: boolean,
   ) => void;
+  conversationIngressRecovery?: ConversationIngressRecovery;
   isControlApproverAllowed?: (input: {
     providerId: string;
     providerAccountId?: string;

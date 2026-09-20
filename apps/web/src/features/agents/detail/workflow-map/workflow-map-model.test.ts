@@ -51,6 +51,7 @@ describe('workflowCards', () => {
           id: 'a',
           kind: 'approver',
           displayName: 'Priya',
+          conversationId: 'conversation:general',
           conversation: '#general',
         },
       ],

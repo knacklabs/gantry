@@ -5,7 +5,6 @@ import { deliveryNotSent } from '../permission-approval-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -40,7 +39,6 @@ import {
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { renderSlackAgentTodo } from './agent-todo-delivery.js';
-import { connectSlackApp } from './channel-connect.js';
 import {
   requestSlackPermissionApproval,
   slackPermissionApproverIds,
@@ -48,18 +46,22 @@ import {
 import { renderSlackRichInteraction } from './rich-interaction.js';
 import { addSlackReaction, removeSlackReaction } from './reactions.js';
 import { requestSlackUserAnswer } from './user-question-delivery.js';
-import { historyCoverageInboundCallbacks } from '../conversation-history-coverage-lifecycle.js';
 import { singleMessageDeliveryResult } from '../job-permission-card-settlement.js';
 import { slackMessageActionBlocks } from './message-action-affordances.js';
 import { sendSlackSnippetFallback } from './extracted-helpers.js';
 import type { SlackSnippetFallbackInput } from './file-delivery.js';
 import { retireSlackCard } from './job-permission-card-delivery.js';
+import { createSlackIngressReplayScheduler } from './reconnect-replay.js';
+import { connectSlackDelivery } from './channel-delivery-connect.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   readonly reportsHistoryCoverageInboundLiveness = true;
   protected interactionCallbacksEnabled = true;
   private deactivateHistoryCoverageInbound: (() => void) | null = null;
+  private ingressReplay: ReturnType<
+    typeof createSlackIngressReplayScheduler
+  > | null = null;
   private readonly reactionKeys = new Set<string>();
   protected sendSnippetFallback(input: SlackSnippetFallbackInput) {
     return sendSlackSnippetFallback({ app: this.app, ...input });
@@ -67,29 +69,23 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   async connect(
     options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
   ): Promise<void> {
-    const inboundEnabled = options.inbound !== false;
-    const interactionCallbacksEnabled =
-      options.interactionCallbacks ?? inboundEnabled;
-    this.interactionCallbacksEnabled = interactionCallbacksEnabled;
-    const connected = await connectSlackApp({
+    const result = await connectSlackDelivery({
       botToken: this.botToken,
       appToken: this.appToken,
-      inboundEnabled,
-      interactionCallbacksEnabled,
-      onReconnect: () =>
-        this.opts.distrustHistoryCoverage?.(
-          this.opts.inboundProviderAccountIds ??
-            (this.opts.providerAccountId ? [this.opts.providerAccountId] : []),
-        ),
-      ...historyCoverageInboundCallbacks(this.opts),
-      registerBoltHandlers: (app) => {
+      opts: this.opts,
+      options,
+      app: () => this.app,
+      ingest: (message) => this.ingestSlackMessage(message),
+      registerBoltHandlers: (app, inbound) => {
         this.app = app;
-        this.registerBoltHandlers({ inbound: inboundEnabled });
+        this.registerBoltHandlers({ inbound });
       },
     });
-    this.app = connected.app;
-    this.botUserId = connected.botUserId;
-    this.deactivateHistoryCoverageInbound = connected.deactivateInbound;
+    this.app = result.connected.app;
+    this.botUserId = result.connected.botUserId;
+    this.deactivateHistoryCoverageInbound = result.connected.deactivateInbound;
+    this.interactionCallbacksEnabled = result.interactionCallbacksEnabled;
+    this.ingressReplay = result.replay;
   }
   supportsInteractionCallbacks(): boolean {
     return this.interactionCallbacksEnabled;
@@ -694,6 +690,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     return jid.startsWith('sl:');
   }
   async disconnect(): Promise<void> {
+    this.ingressReplay?.stop();
+    this.ingressReplay = null;
     this.deactivateHistoryCoverageInbound?.();
     this.deactivateHistoryCoverageInbound = null;
     this.streamResetEpochs.clear();

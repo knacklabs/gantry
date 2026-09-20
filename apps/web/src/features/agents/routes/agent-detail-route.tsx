@@ -241,7 +241,7 @@ function Content({
     );
   if (tab === 'access') return <Access agent={agent} />;
   if (tab === 'audit') return <Audit agent={agent} />;
-  if (tab === 'approvals') return <Approvals agent={agent} />;
+  if (tab === 'approvals') return <Approvals agent={agent} map={map} />;
   if (tab === 'usage') return <Usage agent={agent} />;
   return (
     <>
@@ -312,9 +312,23 @@ function Audit({ agent }: { agent: AgentDirectoryItem }) {
   );
 }
 
-function Approvals({ agent }: { agent: AgentDirectoryItem }) {
+function Approvals({
+  agent,
+  map,
+}: {
+  agent: AgentDirectoryItem;
+  map?: AgentWorkflowMap;
+}) {
   const installs = useQuery(agentConversationInstallsQuery(agent.id));
   const conversations = useQuery(channelConversationsQuery());
+  const approverNameByConversation = new Map(
+    (map?.relationships ?? [])
+      .filter((relationship) => relationship.kind === 'approver')
+      .map((relationship) => [
+        relationship.conversationId,
+        relationship.displayName,
+      ]),
+  );
   const conversationById = new Map(
     (conversations.data?.conversations ?? []).map((conversation) => [
       conversation.id,
@@ -327,7 +341,23 @@ function Approvals({ agent }: { agent: AgentDirectoryItem }) {
         title="Conversation approvers"
         description="Approval authority is scoped to each conversation. Directory recognition does not grant a person approval authority."
       >
-        {installs.isLoading ? (
+        {installs.isError || conversations.isError ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 text-sm text-danger">
+              Approver data couldn’t be loaded.
+            </p>
+            <Button
+              size="sm"
+              type="button"
+              onClick={() =>
+                void Promise.all([installs.refetch(), conversations.refetch()])
+              }
+            >
+              <RefreshCw size={14} />
+              Retry
+            </Button>
+          </div>
+        ) : installs.isLoading || conversations.isLoading ? (
           <p className="m-0 text-sm text-text-secondary">
             Loading conversations…
           </p>
@@ -335,6 +365,9 @@ function Approvals({ agent }: { agent: AgentDirectoryItem }) {
           <ul className="m-0 grid list-none divide-y divide-border p-0">
             {installs.data.installs.map((install) => (
               <ApproverRow
+                approverName={approverNameByConversation.get(
+                  install.conversationId,
+                )}
                 conversationId={install.conversationId}
                 key={install.id}
                 name={
@@ -356,9 +389,11 @@ function Approvals({ agent }: { agent: AgentDirectoryItem }) {
 }
 
 function ApproverRow({
+  approverName,
   conversationId,
   name,
 }: {
+  approverName?: string;
   conversationId: string;
   name: string;
 }) {
@@ -366,13 +401,25 @@ function ApproverRow({
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
       <strong className="text-sm">{name}</strong>
-      <span className="text-xs text-text-secondary">
-        {approvers.isLoading
-          ? 'Loading approvers…'
-          : approvers.isError
-            ? 'Approvers unavailable'
-            : `${approvers.data?.approvers.length ?? 0} assigned`}
-      </span>
+      {approvers.isError ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-danger">
+            Approver data couldn’t be loaded.
+          </span>
+          <Button size="sm" type="button" onClick={() => void approvers.refetch()}>
+            <RefreshCw size={14} />
+            Retry
+          </Button>
+        </div>
+      ) : (
+        <span className="text-xs text-text-secondary">
+          {approvers.isLoading
+            ? 'Loading approvers…'
+            : approvers.data?.approvers.length
+              ? approverName ?? approvers.data.approvers.join(', ')
+              : 'No approver assigned'}
+        </span>
+      )}
     </li>
   );
 }
@@ -490,7 +537,31 @@ function Conversations({
         title="Conversations"
         description="Each installation assigns this AI employee to one provider conversation with its own memory scope and approvers."
       >
-        {installs.isLoading ? (
+        {installs.isError ||
+        accounts.isError ||
+        conversations.isError ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="m-0 text-sm text-danger">
+              Conversation data couldn’t be loaded.
+            </p>
+            <Button
+              size="sm"
+              type="button"
+              onClick={() =>
+                void Promise.all([
+                  installs.refetch(),
+                  accounts.refetch(),
+                  conversations.refetch(),
+                ])
+              }
+            >
+              <RefreshCw size={14} />
+              Retry
+            </Button>
+          </div>
+        ) : installs.isLoading ||
+          accounts.isLoading ||
+          conversations.isLoading ? (
           <p className="m-0 text-sm text-text-secondary">
             Loading conversation installs…
           </p>
@@ -588,9 +659,32 @@ function Overview({
     ]),
   );
   const installed = installs.data?.installs ?? [];
+  const conversationDataFailed =
+    installs.isError || accounts.isError || conversations.isError;
   return (
     <div className="grid gap-4 p-5">
-      {!installed.length ? (
+      {conversationDataFailed ? (
+        <section className="flex flex-col justify-between gap-4 rounded-lg border border-danger/40 bg-danger/10 p-4 sm:flex-row sm:items-center">
+          <p className="m-0 text-sm text-danger">
+            Conversation data couldn’t be loaded.
+          </p>
+          <Button
+            className="shrink-0"
+            size="sm"
+            type="button"
+            onClick={() =>
+              void Promise.all([
+                installs.refetch(),
+                accounts.refetch(),
+                conversations.refetch(),
+              ])
+            }
+          >
+            <RefreshCw size={14} />
+            Retry
+          </Button>
+        </section>
+      ) : !installed.length ? (
         <section className="flex flex-col justify-between gap-4 rounded-lg border border-border-strong bg-status-attention-soft p-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="m-0 text-sm font-semibold">
@@ -614,8 +708,12 @@ function Overview({
       <section className="grid overflow-hidden rounded-lg border border-border bg-surface sm:grid-cols-3">
         <Metric
           label="Conversations"
-          value={String(installed.length)}
-          detail={`${agent.conversationCount} configured`}
+          value={conversationDataFailed ? '—' : String(installed.length)}
+          detail={
+            conversationDataFailed
+              ? 'Unavailable'
+              : `${agent.conversationCount} configured`
+          }
         />
         <Metric
           label="Channel accounts"
@@ -685,7 +783,7 @@ function Overview({
             <Fact label="Role" value={agent.roleName ?? 'No role selected'} />
             <Fact
               label="Model"
-              value={agent.modelAlias ?? 'Deployment default'}
+              value={agent.modelDisplayName ?? 'Deployment default'}
             />
             <Fact
               label="Sources"

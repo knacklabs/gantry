@@ -41,6 +41,7 @@ type WorkflowRelationship =
       id: string;
       kind: 'approver';
       displayName: string;
+      conversationId: string;
       conversation: string;
     };
 
@@ -151,6 +152,7 @@ export async function buildAgentWorkflowMap(
         kind: 'approver' as const,
         displayName:
           person?.displayName ?? alias?.displayName ?? approver.externalUserId,
+        conversationId: approver.conversationId,
         conversation:
           conversationById.get(approver.conversationId)?.title ??
           String(approver.conversationId),

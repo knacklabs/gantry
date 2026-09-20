@@ -11,8 +11,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '../../../ui/primitives/toast';
 import { modelProviderQuery } from '../../operations/operations-queries';
 import { onboardingMutation } from '../onboarding-http-client';
-import { onboardingStatusQuery, type OnboardingStatus } from '../first-run';
-import { modelOptions, type OnboardingDraft } from '../onboarding-state';
+import {
+  onboardingCandidateModelsQuery,
+  onboardingStatusQuery,
+  type OnboardingStatus,
+} from '../first-run';
+import {
+  defaultModelAliases,
+  type OnboardingDraft,
+} from '../onboarding-state';
 
 const providers = [
   ['anthropic', 'Anthropic', siAnthropic],
@@ -62,6 +69,9 @@ export function CreateEmployeeStep({
   const [verificationExpiresAt, setVerificationExpiresAt] = useState<
     string | null
   >(resumableCandidate?.verificationExpiresAt ?? null);
+  const candidateModels = useQuery(
+    onboardingCandidateModelsQuery(candidateId),
+  );
   const setup = registryProviders.find(
     (provider) => provider.providerId === draft.provider,
   );
@@ -120,7 +130,7 @@ export function CreateEmployeeStep({
     setModeIndex(0);
     setValues({});
     setFieldError(null);
-    onChange({ model: modelOptions[provider][0], provider });
+    onChange({ model: defaultModelAliases[provider], provider });
   }
 
   function changeMode(index: number) {
@@ -381,12 +391,19 @@ export function CreateEmployeeStep({
                   <span>Which one should it use?</span>
                   <span className="onboarding-select-wrap">
                     <select
-                      disabled={!credentialsChecked || pending}
+                      disabled={
+                        !credentialsChecked ||
+                        pending ||
+                        candidateModels.isPending ||
+                        candidateModels.isError
+                      }
                       onChange={(event) => changeModel(event.target.value)}
                       value={draft.model}
                     >
-                      {modelOptions[draft.provider].map((model) => (
-                        <option key={model}>{model}</option>
+                      {(candidateModels.data?.models ?? []).map((model) => (
+                        <option key={model.alias} value={model.alias}>
+                          {model.displayName}
+                        </option>
                       ))}
                     </select>
                     <ChevronDown aria-hidden="true" />
@@ -394,7 +411,13 @@ export function CreateEmployeeStep({
                 </label>
                 <button
                   className={`onboarding-test-model ${modelVerified ? 'is-success' : ''}`}
-                  disabled={!credentialsChecked || pending || modelVerified}
+                  disabled={
+                    !credentialsChecked ||
+                    pending ||
+                    modelVerified ||
+                    candidateModels.isPending ||
+                    candidateModels.isError
+                  }
                   onClick={() => void testModel()}
                   type="button"
                 >
@@ -415,8 +438,11 @@ export function CreateEmployeeStep({
                 </button>
               </div>
               <small className="onboarding-model-guidance">
-                Add credentials and check the configuration, then select a model
-                and test it.
+                {candidateModels.isError
+                  ? 'Models could not be loaded. Check the credentials again to retry.'
+                  : candidateModels.isPending && credentialsChecked
+                    ? 'Loading available models…'
+                    : 'Add credentials and check the configuration, then select a model and test it.'}
               </small>
             </div>
           </div>

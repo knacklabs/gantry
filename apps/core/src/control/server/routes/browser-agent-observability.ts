@@ -10,6 +10,14 @@ import {
 const AGENT_AUDIT_PATH = /^\/ui\/api\/agents\/([^/]+)\/audit$/;
 const AGENT_USAGE_PATH = /^\/ui\/api\/agents\/([^/]+)\/usage$/;
 
+export function isBrowserAgentObservabilityPath(pathname: string): boolean {
+  return (
+    AGENT_WORKFLOW_MAP_PATH.test(pathname) ||
+    AGENT_AUDIT_PATH.test(pathname) ||
+    AGENT_USAGE_PATH.test(pathname)
+  );
+}
+
 type RuntimeStorage = ReturnType<typeof getRuntimeStorage>;
 
 export async function handleBrowserAgentObservabilityRoutes(input: {

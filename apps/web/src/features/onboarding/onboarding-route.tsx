@@ -11,8 +11,8 @@ import {
 import { OnboardingShell } from './components/onboarding-shell';
 import { OnboardingSplash } from './components/onboarding-splash';
 import {
+  defaultModelAliases,
   initialOnboardingDraft,
-  modelOptions,
   type OnboardingDraft,
   type OnboardingStep,
 } from './onboarding-state';
@@ -44,7 +44,7 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
     model:
       modelCandidate?.modelAlias ??
       (modelCandidate
-        ? (modelOptions[candidateProvider][0] ?? '')
+        ? defaultModelAliases[candidateProvider]
         : initialOnboardingDraft.model),
   });
   const [paused, setPaused] = useState(false);
@@ -165,5 +165,5 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
 function isDraftProvider(
   providerId: string | null | undefined,
 ): providerId is OnboardingDraft['provider'] {
-  return Boolean(providerId && providerId in modelOptions);
+  return Boolean(providerId && providerId in defaultModelAliases);
 }

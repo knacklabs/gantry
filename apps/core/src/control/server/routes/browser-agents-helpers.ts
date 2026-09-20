@@ -48,6 +48,9 @@ export async function agentView(
       agent.appId,
       agent.id,
     );
+  const configuredModel = config?.modelAliasSnapshot
+    ? resolveModelSelectionForWorkload(config.modelAliasSnapshot, 'chat')
+    : null;
   return {
     id: agent.id,
     name: agent.name,
@@ -56,7 +59,12 @@ export async function agentView(
     roleName: config?.roleSnapshot?.displayName ?? null,
     rolePrompt: config?.roleSnapshot?.prompt ?? null,
     configVersion: config?.version ?? null,
-    modelAlias: config?.modelAliasSnapshot ?? null,
+    modelAlias: configuredModel?.ok
+      ? configuredModel.entry.recommendedAlias
+      : (config?.modelAliasSnapshot ?? null),
+    modelDisplayName: configuredModel?.ok
+      ? configuredModel.entry.displayName
+      : (config?.modelAliasSnapshot ?? null),
     conversationCount: installs.filter((install) => install.status === 'active')
       .length,
     createdAt: agent.createdAt,

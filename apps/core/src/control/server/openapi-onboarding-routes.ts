@@ -28,6 +28,16 @@ export const onboardingOpenApiRouteDocs: RouteDoc[] = [
     body: 'json',
     status: '201',
   },
+  {
+    method: 'get',
+    path: '/ui/api/onboarding/model-candidates/{candidateId}/models',
+    operationId: 'listBrowserOnboardingCandidateModels',
+    tag: 'Onboarding',
+    summary: 'List chat models for a staged credential candidate',
+    description:
+      'Returns canonical catalog aliases and display names for the candidate provider.',
+    parameters: [candidateId],
+  },
   ...['check', 'verify', 'activate', 'cancel'].map(
     (action): RouteDoc => ({
       method: 'post',

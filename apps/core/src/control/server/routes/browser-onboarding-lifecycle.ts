@@ -29,7 +29,10 @@ import { gantryRuntimeSecretRef } from '../../../domain/ports/runtime-secret-pro
 import { runtimeSecretNameForProviderAccount } from '../../../domain/provider/provider-runtime-secret-keys.js';
 import { randomUUID } from 'node:crypto';
 import type { ModelCredential } from '../../../domain/model-credentials/model-credentials.js';
-import { resolveModelSelectionForWorkload } from '../../../shared/model-catalog.js';
+import {
+  listModelCatalogEntries,
+  resolveModelSelectionForWorkload,
+} from '../../../shared/model-catalog.js';
 import { stableSha256Json } from '../../../shared/stable-hash.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import { isCanonicalBrowserOrigin } from '../browser-auth-boundary.js';
@@ -103,15 +106,63 @@ export async function handleBrowserOnboardingRoutes(
       return true;
     }
     const completedAt = await authentication.onboardingCompletedAt(session);
-    sendJson(
-      res,
-      200,
-      await onboarding.status({
-        appId: session.appId,
-        userId: session.userId,
-        completedAt,
-      }),
-    );
+    const status = await onboarding.status({
+      appId: session.appId,
+      userId: session.userId,
+      completedAt,
+    });
+    const candidate = status.deployment?.modelCandidate;
+    const selection = candidate?.modelAlias
+      ? resolveModelSelectionForWorkload(candidate.modelAlias, 'chat')
+      : null;
+    sendJson(res, 200, {
+      ...status,
+      deployment: status.deployment
+        ? {
+            ...status.deployment,
+            modelCandidate: candidate
+              ? {
+                  ...candidate,
+                  modelAlias: selection?.ok
+                    ? selection.entry.recommendedAlias
+                    : candidate.modelAlias,
+                }
+              : null,
+          }
+        : null,
+    });
+    return true;
+  }
+
+  const candidateModelsMatch = pathname.match(
+    /^\/ui\/api\/onboarding\/model-candidates\/([^/]+)\/models$/,
+  );
+  if (candidateModelsMatch) {
+    if (req.method !== 'GET') return wrongMethod(res, 'GET');
+    const session = await requireAdministratorRead(req, res, mode);
+    if (!session) return true;
+    const candidate = await onboarding.getModelCredentialCandidate({
+      appId: session.appId,
+      userId: session.userId,
+      id: decodeURIComponent(candidateModelsMatch[1]!),
+    });
+    if (!candidate || Date.parse(candidate.expiresAt) <= Date.now()) {
+      sendError(res, 404, 'NOT_FOUND', 'Model credential candidate not found.');
+      return true;
+    }
+    sendJson(res, 200, {
+      models: listModelCatalogEntries()
+        .filter(
+          (entry) =>
+            entry.modelRoute.id === candidate.providerId &&
+            entry.supportedWorkloads.includes('chat'),
+        )
+        .map((entry) => ({
+          alias: entry.recommendedAlias,
+          displayName: entry.displayName,
+          providerId: entry.modelRoute.id,
+        })),
+    });
     return true;
   }
 
@@ -451,7 +502,7 @@ export async function handleBrowserOnboardingRoutes(
           appId: session.appId,
           userId: session.userId,
           id: candidateId,
-          modelAlias: body.modelAlias as string,
+          modelAlias: selection.entry.recommendedAlias,
           routeId: selection.entry.modelRoute.id,
         });
         if (!bound) {
@@ -467,7 +518,7 @@ export async function handleBrowserOnboardingRoutes(
           const probe = await verifyOnboardingModelCredential({
             appId: session.appId as AppId,
             credential: candidateCredential(candidate),
-            modelAlias: body.modelAlias as string,
+            modelAlias: selection.entry.recommendedAlias,
           });
           const verifiedAt = nowIso();
           const verificationExpiresAt = new Date(

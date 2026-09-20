@@ -1051,6 +1051,20 @@
       "when": 1789744994107,
       "tag": "20260918152314_functional_onboarding_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1789885686344,
+      "tag": "20260920062806_canonical_conversation_install_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1789886095128,
+      "tag": "20260920063455_conversation_ingress_cursors",
+      "breakpoints": true
     }
   ]
 }

@@ -61,7 +61,9 @@ describe('first-run onboarding gate', () => {
     expect(step).toContain('Test model');
     expect(step).toContain('Testing model…');
     expect(step).toContain('Model verified');
-    expect(step).toContain('disabled={!credentialsChecked || pending}');
+    expect(step).toContain('!credentialsChecked ||');
+    expect(step).toContain('candidateModels.isPending');
+    expect(step).toContain('candidateModels.isError');
     expect(step).not.toContain('onboarding-validation-checks');
     expect(step).not.toContain('browserFetch');
     expect(step).not.toContain('fetch(');

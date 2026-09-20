@@ -36,6 +36,13 @@ const agentRouteSource = `${source}\n${helpers}\n${observability}\n${workflowMap
 
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
+  expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone')).toBe(true);
+  expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone/workflow-map')).toBe(
+    true,
+  );
+  expect(
+    isBrowserAgentsPath('/ui/api/agents/agent%3Aone/conversation-installs'),
+  ).toBe(false);
   expect(isBrowserAgentsPath('/ui/api/roles/custom-role:one')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/agent-models')).toBe(true);
   expect(agentRouteSource).toContain('function page<T>');

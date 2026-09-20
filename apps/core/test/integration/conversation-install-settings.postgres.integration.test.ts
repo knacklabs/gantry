@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
 import { applyConversationInstallToSettings } from '@core/config/settings/conversation-install-settings.js';
@@ -79,11 +80,12 @@ maybeDescribe(
       const settings = parseRuntimeSettings(
         renderRuntimeSettingsYaml(authoredSettings),
       );
-      const result = await new SettingsDesiredStateService({
+      const service = new SettingsDesiredStateService({
         ops: runtime.ops,
         repositories: runtime.repositories,
         clock: { now: () => NOW },
-      }).reconcile(settings);
+      });
+      const result = await service.reconcile(settings);
 
       expect(result.invalidReferences).toEqual([]);
       await expect(
@@ -136,6 +138,105 @@ maybeDescribe(
           }),
         ]),
       );
+
+      await service.reconcile(settings);
+      await expect(
+        runtime.repositories.providerAccounts.listConversationInstalls(
+          APP_ID,
+          `agent:${AGENT_FOLDER}` as never,
+        ),
+      ).resolves.toHaveLength(1);
+
+      const install = (
+        await runtime.repositories.providerAccounts.listConversationInstalls(
+          APP_ID,
+          `agent:${AGENT_FOLDER}` as never,
+        )
+      )[0]!;
+      await runtime.service.pool.query(
+        'DROP INDEX "uniq_conversation_installs_control_scope"',
+      );
+      await runtime.service.pool.query(
+        `INSERT INTO conversation_installs (
+          id, app_id, agent_id, provider_account_id, conversation_id, thread_id,
+          display_name, status, sender_policy, control_policy, memory_scope,
+          memory_subject_json, workspace_snapshot_id, permission_policy_ids_json,
+          created_at, updated_at
+        )
+        SELECT $1, app_id, agent_id, provider_account_id, conversation_id, thread_id,
+          'Legacy duplicate', status, sender_policy, control_policy, memory_scope,
+          '{"kind":"conversation"}', workspace_snapshot_id, '["permission:test"]',
+          created_at, updated_at + interval '1 second'
+        FROM conversation_installs WHERE id = $2`,
+        ['conversation-install:legacy-duplicate', install.id],
+      );
+      const migration = readFileSync(
+        new URL(
+          '../../src/adapters/storage/postgres/schema/migrations/20260920062806_canonical_conversation_install_scope.sql',
+          import.meta.url,
+        ),
+        'utf8',
+      );
+      for (const statement of migration.split('--> statement-breakpoint')) {
+        if (statement.trim()) await runtime.service.pool.query(statement);
+      }
+      const canonicalRows = await runtime.service.pool.query<{
+        id: string;
+        display_name: string;
+        memory_subject_json: string;
+        permission_policy_ids_json: string;
+      }>(
+        `SELECT id, display_name, memory_subject_json, permission_policy_ids_json
+         FROM conversation_installs
+         WHERE app_id = $1 AND agent_id = $2 AND conversation_id = $3
+           AND id NOT LIKE 'conversation-route:%'`,
+        [APP_ID, `agent:${AGENT_FOLDER}`, conversation!.id],
+      );
+      expect(canonicalRows.rows).toHaveLength(1);
+      expect(canonicalRows.rows[0]!.display_name).toBe('Legacy duplicate');
+      expect(
+        JSON.parse(canonicalRows.rows[0]!.memory_subject_json),
+      ).toHaveProperty('route');
+      expect(
+        JSON.parse(canonicalRows.rows[0]!.permission_policy_ids_json),
+      ).toContain('permission:test');
+
+      await runtime.repositories.providerAccounts.saveProviderAccount({
+        ...(await runtime.repositories.providerAccounts.getProviderAccount(
+          PROVIDER_ACCOUNT_ID as never,
+        ))!,
+        id: `${PROVIDER_ACCOUNT_ID}_conflict` as never,
+        externalIdentityRef: {
+          kind: 'provider_account',
+          value: 'T-conflict',
+        },
+      });
+      await runtime.service.pool.query(
+        'DROP INDEX "uniq_conversation_installs_control_scope"',
+      );
+      await runtime.service.pool.query(
+        `INSERT INTO conversation_installs (
+           id, app_id, agent_id, provider_account_id, conversation_id, thread_id,
+           display_name, status, sender_policy, control_policy, memory_scope,
+           memory_subject_json, workspace_snapshot_id, permission_policy_ids_json,
+           created_at, updated_at
+         )
+         SELECT $1, app_id, agent_id, $2, conversation_id, thread_id,
+           display_name, status, sender_policy, control_policy, memory_scope,
+           memory_subject_json, workspace_snapshot_id, permission_policy_ids_json,
+           created_at, updated_at
+         FROM conversation_installs WHERE id = $3`,
+        [
+          'conversation-install:provider-conflict',
+          `${PROVIDER_ACCOUNT_ID}_conflict`,
+          canonicalRows.rows[0]!.id,
+        ],
+      );
+      await expect(
+        runtime.service.pool.query(
+          migration.split('--> statement-breakpoint')[0]!,
+        ),
+      ).rejects.toThrow('Conflicting conversation installs');
     });
   },
 );
