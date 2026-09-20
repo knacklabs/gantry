@@ -428,6 +428,7 @@ describe('source-local development', () => {
         await import('@core/cli/local.js');
       const home = fs.realpathSync(makeRuntimeHome());
       const env = localEnvironment(home);
+      if (reset === undefined) env.GANTRY_DEV_AUTHORIZATION_LINK = '1';
       fs.mkdirSync(path.join(home, 'artifacts'));
       fs.writeFileSync(path.join(home, 'artifacts', 'marker'), 'preserve');
       fs.writeFileSync(path.join(home, 'unknown'), 'preserve');
@@ -455,6 +456,8 @@ describe('source-local development', () => {
           GANTRY_PROCESS_ROLE: 'all',
         }),
       });
+      if (reset === undefined)
+        expect(spawn.mock.calls[3][2]).toMatchObject({ stdio: 'inherit' });
       expect(health).toHaveBeenCalledWith(
         expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/healthz$/),
         expect.anything(),

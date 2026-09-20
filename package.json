@@ -59,7 +59,7 @@
     "db:migrations:custom": "drizzle-kit generate --config drizzle.postgres.config.ts --custom",
     "db:migrations:check": "drizzle-kit check --config drizzle.postgres.config.ts",
     "start": "npm run db:migrate && node dist/index.js",
-    "dev": "npm run build:contracts && npm run cli:dev -- local start",
+    "dev": "npm run build:contracts && GANTRY_DEV_AUTHORIZATION_LINK=1 npm run cli:dev -- local start",
     "dev:core": "tsx apps/core/src/index.ts",
     "dev:stop": "npm run build:contracts && npm run cli:dev -- local stop",
     "dev:doctor": "npm run build:contracts && npm run cli:dev -- local doctor",

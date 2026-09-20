@@ -263,6 +263,10 @@ whether each recorded PID is still alive and still Gantry's process, and
 terminates a leftover one before proceeding; the file is removed once both
 children are confirmed stopped.
 
+If the local supervisor is still running, the next `local start` requests its
+clean shutdown before binding the same socket and launching replacement
+children.
+
 ### Approved automatic local authorization addition
 
 On every successful source-local start, including ordinary restarts and both
@@ -289,13 +293,16 @@ origin (decision 0132); refuse with remediation before startup if not,
 rather than starting a healthy stack and then failing authorization on every
 retry.
 
-The raw authorization URL is a thirty-minute administrator credential. Print it
-in full only when stdout is an interactive terminal (a TTY); when stdout is
-not a TTY (redirected to a file, captured by an IDE task runner, or CI),
-keep the healthy development stack running and print only the stable UI URL
+The raw authorization URL is a thirty-minute administrator credential. Direct
+CLI use prints it in full only when stdout is an interactive terminal (a TTY).
+The source-checkout `npm run dev` command explicitly prints its newly issued URL
+even when its output is captured so the local development entrypoint remains
+self-contained. Other non-TTY use keeps the healthy development stack running
+and prints only the stable UI URL
 plus the resolved manual retry command (`gantry ui authorize
 --runtime-home <home>`) — never the raw token — so non-interactive capture
-can never persist the credential. Keep the stable UI URL available for
+outside `npm run dev` cannot persist the credential. Keep the stable UI URL
+available for
 browsers with valid sessions regardless; issuing a new link must not revoke
 those sessions. Do not persist plaintext authorization URLs in runtime
 files. If link issuance fails for a reason other than an unsupported mode,

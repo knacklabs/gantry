@@ -636,17 +636,19 @@ export async function superviseLocal(
     }
     if (!ready && !stopping) throw new Error('Core readiness timed out.');
     if (ready) {
+      const printAuthorizationLink =
+        process.stdout.isTTY || env.GANTRY_DEV_AUTHORIZATION_LINK === '1';
       console.log('\nFresh one-time browser authorization link:');
       const authorization = await launch(
         ['--import', 'tsx', 'apps/core/src/cli/index.ts', 'ui', 'authorize'],
         env,
-        process.stdout.isTTY ? 'inherit' : 'ignore',
+        printAuthorizationLink ? 'inherit' : 'ignore',
       );
       if (authorization !== 0)
         console.error(
           'Local runtime is healthy, but the browser authorization link could not be created. Run `gantry ui authorize` to retry.',
         );
-      else if (!process.stdout.isTTY)
+      else if (!printAuthorizationLink)
         console.log(
           `Run \`gantry ui authorize --runtime-home ${home}\` to get a one-time browser link.`,
         );
@@ -718,7 +720,10 @@ export async function runLocalCommand(home: string, args: string[]) {
         throw new Error('Local reset requires the managed default database.');
       await stopLocalDevelopment(home);
       stopRecordedChildren(home);
-    } else if (command === 'start') stopRecordedChildren(home);
+    } else if (command === 'start') {
+      await stopLocalDevelopment(home);
+      stopRecordedChildren(home);
+    }
     const reset =
       command === 'start' ? undefined : (command as 'reset' | 'reset-db');
     return await superviseLocal(repo, home, env, reset, !noStart);
