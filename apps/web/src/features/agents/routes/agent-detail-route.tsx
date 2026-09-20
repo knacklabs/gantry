@@ -5,7 +5,15 @@ import {
   useParams,
   useSearch,
 } from '@tanstack/react-router';
-import { ArrowRight, Check, Power, RefreshCw, X } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Power,
+  RefreshCw,
+  X,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import {
@@ -240,7 +248,7 @@ function Content({
       />
     );
   if (tab === 'access') return <Access agent={agent} />;
-  if (tab === 'audit') return <Audit agent={agent} />;
+  if (tab === 'audit') return <Audit key={agent.id} agent={agent} />;
   if (tab === 'approvals') return <Approvals agent={agent} map={map} />;
   if (tab === 'usage') return <Usage agent={agent} />;
   return (
@@ -255,7 +263,8 @@ function Content({
 }
 
 function Audit({ agent }: { agent: AgentDirectoryItem }) {
-  const audit = useQuery(agentAuditQuery(agent.id));
+  const [page, setPage] = useState(1);
+  const audit = useQuery(agentAuditQuery(agent.id, page));
   return (
     <div className="p-5">
       <InfoCard
@@ -269,9 +278,9 @@ function Audit({ agent }: { agent: AgentDirectoryItem }) {
         ) : audit.isError ? (
           <p className="m-0 text-sm text-danger">{audit.error.message}</p>
         ) : audit.data?.events.length ? (
-          <div className="overflow-x-auto">
+          <div className="max-h-[480px] overflow-auto rounded-md border border-border">
             <table className="w-full min-w-[620px] text-left text-sm">
-              <thead className="border-y border-border bg-surface-muted font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
+              <thead className="sticky top-0 z-10 border-y border-border bg-surface-muted font-mono text-[10px] font-semibold tracking-[0.08em] text-text-muted uppercase">
                 <tr>
                   <th className="px-3 py-2">Time</th>
                   <th className="px-3 py-2">Action</th>
@@ -282,7 +291,7 @@ function Audit({ agent }: { agent: AgentDirectoryItem }) {
               <tbody>
                 {audit.data.events.map((event) => (
                   <tr
-                    className="border-b border-border last:border-b-0"
+                    className="border-b border-border bg-surface last:border-b-0"
                     key={event.eventId}
                   >
                     <td className="px-3 py-2 text-text-secondary">
@@ -307,6 +316,39 @@ function Audit({ agent }: { agent: AgentDirectoryItem }) {
             No runtime events have been recorded for this AI employee.
           </p>
         )}
+        {!audit.isLoading && !audit.isError ? (
+          <div className="mt-3 flex min-h-10 items-center justify-between border-t border-border pt-3 text-xs text-text-secondary">
+            <span>
+              Page {page} · {audit.data?.pageSize ?? 50} records per page
+            </span>
+            <div className="flex gap-1">
+              <Button
+                aria-label="Previous audit page"
+                className="size-8"
+                disabled={page <= 1}
+                size="icon"
+                title="Previous audit page"
+                type="button"
+                variant="outline"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                <ChevronLeft aria-hidden="true" size={16} />
+              </Button>
+              <Button
+                aria-label="Next audit page"
+                className="size-8"
+                disabled={!audit.data?.hasNext}
+                size="icon"
+                title="Next audit page"
+                type="button"
+                variant="outline"
+                onClick={() => setPage((current) => current + 1)}
+              >
+                <ChevronRight aria-hidden="true" size={16} />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </InfoCard>
     </div>
   );
@@ -406,7 +448,11 @@ function ApproverRow({
           <span className="text-xs text-danger">
             Approver data couldn’t be loaded.
           </span>
-          <Button size="sm" type="button" onClick={() => void approvers.refetch()}>
+          <Button
+            size="sm"
+            type="button"
+            onClick={() => void approvers.refetch()}
+          >
             <RefreshCw size={14} />
             Retry
           </Button>
@@ -416,7 +462,7 @@ function ApproverRow({
           {approvers.isLoading
             ? 'Loading approvers…'
             : approvers.data?.approvers.length
-              ? approverName ?? approvers.data.approvers.join(', ')
+              ? (approverName ?? approvers.data.approvers.join(', '))
               : 'No approver assigned'}
         </span>
       )}
@@ -537,9 +583,7 @@ function Conversations({
         title="Conversations"
         description="Each installation assigns this AI employee to one provider conversation with its own memory scope and approvers."
       >
-        {installs.isError ||
-        accounts.isError ||
-        conversations.isError ? (
+        {installs.isError || accounts.isError || conversations.isError ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="m-0 text-sm text-danger">
               Conversation data couldn’t be loaded.

@@ -94,7 +94,10 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(agentRouteSource).toContain(
     'Offboarded AI employees cannot be changed.',
   );
-  expect(agentRouteSource).toMatch(/agentId,\s+limit: 100,/);
+  expect(agentRouteSource).toContain('const AGENT_AUDIT_PAGE_SIZE = 50');
+  expect(agentRouteSource).toContain('limit: AGENT_AUDIT_PAGE_SIZE + 1');
+  expect(agentRouteSource).toContain("sortDirection: 'desc'");
+  expect(agentRouteSource).toContain('hasNext: events.length >');
   expect(agentRouteSource).toContain("groupBy: 'day'");
   expect(agentRouteSource).not.toContain('payload: event.payload');
   expect(agentRouteSource).toContain('replaceSources({');

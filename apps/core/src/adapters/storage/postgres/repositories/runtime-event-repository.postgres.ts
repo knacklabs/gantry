@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   gte,
@@ -379,7 +380,12 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       .select()
       .from(pgSchema.runtimeEventsPostgres)
       .where(and(...conditions))
-      .orderBy(asc(pgSchema.runtimeEventsPostgres.eventId))
+      .orderBy(
+        filter.sortDirection === 'desc'
+          ? desc(pgSchema.runtimeEventsPostgres.eventId)
+          : asc(pgSchema.runtimeEventsPostgres.eventId),
+      )
+      .offset(filter.offset ?? 0)
       .limit(filter.limit ?? 100);
     return rows.map((row) => this.eventFromRow(row));
   }

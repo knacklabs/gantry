@@ -67,6 +67,7 @@ import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
   getRuntimeStorage,
+  resolveRuntimeConversationApproverNames,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
@@ -231,6 +232,7 @@ async function spawnAgentWithContext(
         agentId,
         getRuntimeStorage().repositories,
       ),
+    resolveConversationApproverNames: resolveRuntimeConversationApproverNames,
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
     publishRuntimeEvent: options?.publishRuntimeEvent,
     measureAsync: (name, fn) => hostStartup.measureAsync(name, fn),

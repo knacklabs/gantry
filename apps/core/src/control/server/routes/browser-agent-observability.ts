@@ -9,6 +9,7 @@ import {
 
 const AGENT_AUDIT_PATH = /^\/ui\/api\/agents\/([^/]+)\/audit$/;
 const AGENT_USAGE_PATH = /^\/ui\/api\/agents\/([^/]+)\/usage$/;
+const AGENT_AUDIT_PAGE_SIZE = 50;
 
 export function isBrowserAgentObservabilityPath(pathname: string): boolean {
   return (
@@ -43,6 +44,16 @@ export async function handleBrowserAgentObservabilityRoutes(input: {
   }
   const auditMatch = input.pathname.match(AGENT_AUDIT_PATH);
   if (auditMatch) {
+    const page = Number(input.url.searchParams.get('page') ?? '1');
+    if (!Number.isSafeInteger(page) || page < 1) {
+      sendError(
+        input.res,
+        400,
+        'BAD_REQUEST',
+        'Page must be a positive integer.',
+      );
+      return true;
+    }
     const agentId = decodeURIComponent(auditMatch[1]!) as AgentId;
     const agent = await input.storage.repositories.agents.getAgent(agentId);
     if (!agent || agent.appId !== input.appId)
@@ -51,16 +62,22 @@ export async function handleBrowserAgentObservabilityRoutes(input: {
       await input.storage.repositories.runtimeEvents.listRuntimeEvents({
         appId: input.appId,
         agentId,
-        limit: 100,
+        limit: AGENT_AUDIT_PAGE_SIZE + 1,
+        offset: (page - 1) * AGENT_AUDIT_PAGE_SIZE,
+        sortDirection: 'desc',
       });
+    const pageEvents = events.slice(0, AGENT_AUDIT_PAGE_SIZE);
     sendJson(input.res, 200, {
-      events: events.map((event) => ({
+      events: pageEvents.map((event) => ({
         eventId: event.eventId,
         eventType: event.eventType,
         actor: event.actor,
         conversationId: event.conversationId ?? null,
         createdAt: event.createdAt,
       })),
+      page,
+      pageSize: AGENT_AUDIT_PAGE_SIZE,
+      hasNext: events.length > AGENT_AUDIT_PAGE_SIZE,
     });
     return true;
   }

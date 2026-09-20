@@ -57,6 +57,7 @@ import {
   getRuntimeEventExchange,
   getRuntimeFileArtifactStore,
   getRuntimeStorage,
+  resolveRuntimeConversationApproverNames,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { inlineCoreToolsMountMcpInventory } from './core-tools/registry.js';
 
@@ -206,6 +207,8 @@ export async function prepareInlineAgentHostContext(
             agentId,
             getRuntimeStorage().repositories,
           ),
+        resolveConversationApproverNames:
+          resolveRuntimeConversationApproverNames,
         fileArtifactStore: () => getRuntimeFileArtifactStore(),
         publishRuntimeEvent: (event) =>
           getRuntimeEventExchange().publish(event),

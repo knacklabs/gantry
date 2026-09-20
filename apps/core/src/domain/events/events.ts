@@ -171,6 +171,8 @@ export async function publishProviderSessionRuntimeEvent(
 export interface RuntimeEventFilter {
   appId: AppId;
   afterEventId?: RuntimeEventId;
+  offset?: number;
+  sortDirection?: 'asc' | 'desc';
   agentId?: AgentId;
   sessionId?: AgentSessionId;
   runId?: AgentRunId;

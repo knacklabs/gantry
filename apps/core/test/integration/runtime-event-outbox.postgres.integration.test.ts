@@ -183,6 +183,37 @@ maybeDescribe('Postgres runtime event outbox', () => {
     ]);
   });
 
+  it('pages newest runtime events with a stable offset', async () => {
+    const appId = DEFAULT_APP_ID as AppId;
+    const jobId = 'job:test:runtime-event-pagination' as JobId;
+    const created = [];
+    for (const step of ['first', 'second', 'third']) {
+      created.push(
+        await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+          appId,
+          jobId,
+          eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
+          actor: systemPrincipal('scheduler'),
+          responseMode: 'none',
+          payload: { jobId, step },
+        }),
+      );
+    }
+
+    await expect(
+      runtime.repositories.runtimeEvents.listRuntimeEvents({
+        appId,
+        jobId,
+        limit: 2,
+        offset: 1,
+        sortDirection: 'desc',
+      }),
+    ).resolves.toMatchObject([
+      { eventId: created[1]!.eventId, payload: { step: 'second' } },
+      { eventId: created[0]!.eventId, payload: { step: 'first' } },
+    ]);
+  });
+
   it('fans out filtered lifecycle webhooks, emits pending interactions, settles outbox rows, and preserves dead letters', async () => {
     _setRuntimeStorageForTest(runtime.storageRuntime);
     process.env.GANTRY_CONTROL_ALLOW_INSECURE_WEBHOOKS = 'true';

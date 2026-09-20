@@ -58,6 +58,11 @@ export async function compileSpawnSystemPrompt(input: {
   resolveRoleSnapshot?: (
     agentId: string,
   ) => Promise<AgentRoleSnapshot | undefined>;
+  resolveConversationApproverNames?: (
+    appId: string,
+    providerAccountId: string,
+    chatJid: string,
+  ) => Promise<string[]>;
   fileArtifactStore: PromptProfileServiceOptions['fileArtifactStore'];
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
@@ -88,6 +93,24 @@ export async function compileSpawnSystemPrompt(input: {
     const roleSnapshot = input.resolveRoleSnapshot
       ? await input.resolveRoleSnapshot(agentId)
       : undefined;
+    let conversationApprovers: string[] = [];
+    if (
+      input.group.providerAccountId &&
+      input.resolveConversationApproverNames
+    ) {
+      try {
+        conversationApprovers = await input.resolveConversationApproverNames(
+          input.appId,
+          input.group.providerAccountId,
+          input.agentInput.chatJid,
+        );
+      } catch (err) {
+        logger.warn(
+          { err, conversationId: input.group.conversationId },
+          'Conversation approver prompt projection failed',
+        );
+      }
+    }
     compiledSystemPrompt = await input.measureAsync('promptCompileMs', () =>
       promptProfileService.compileSystemPrompt({
         agentFolder: input.group.folder,
@@ -105,6 +128,7 @@ export async function compileSpawnSystemPrompt(input: {
             input.agentInput.chatJid,
             input.group.conversationKind,
           ),
+          ...(conversationApprovers.length ? { conversationApprovers } : {}),
           ...(() => {
             try {
               return {

@@ -5,38 +5,52 @@ import { AuthCard } from './auth-card';
 import { GoogleSignInButton } from './google-sign-in-button';
 import { requestLocalAuthorizationUrl } from '../../lib/auth/browser-auth';
 
+const LOCAL_AUTHORIZATION_EXPIRED =
+  'This authorization link has expired. Run `gantry ui authorize` to create a new one.';
+let localAuthorizationRequest: Promise<string> | undefined;
+
 export function LocalAuthorizationPage() {
   const [message, setMessage] = useState<string>();
   useEffect(() => {
-    const token = new URLSearchParams(window.location.hash.slice(1)).get(
-      'token',
-    );
-    if (!token) {
-      setMessage(
-        'This authorization link has expired. Run `gantry ui authorize` to create a new one.',
+    if (!localAuthorizationRequest) {
+      const token = new URLSearchParams(window.location.hash.slice(1)).get(
+        'token',
       );
-      return;
-    }
-    history.replaceState(null, '', window.location.pathname);
-    void fetch('/auth/local/authorize', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-      .then((response) => {
-        if (response.ok) {
-          setMessage('This browser is authorized.');
-          window.setTimeout(() => window.location.replace('/ui'), 600);
-          return;
-        }
-        return response.json().then((body) => setMessage(body.error?.message));
+      if (!token) {
+        setMessage(LOCAL_AUTHORIZATION_EXPIRED);
+        return;
+      }
+      history.replaceState(null, '', window.location.pathname);
+      const request = fetch('/auth/local/authorize', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token }),
       })
-      .catch(() =>
-        setMessage(
-          'This authorization link has expired. Run `gantry ui authorize` to create a new one.',
-        ),
-      );
+        .then(async (response) => {
+          if (response.ok) return 'This browser is authorized.';
+          const body = await response.json();
+          return body.error?.message ?? LOCAL_AUTHORIZATION_EXPIRED;
+        })
+        .catch(() => LOCAL_AUTHORIZATION_EXPIRED);
+      localAuthorizationRequest = request;
+      void request.finally(() => {
+        if (localAuthorizationRequest === request) {
+          localAuthorizationRequest = undefined;
+        }
+      });
+    }
+    let active = true;
+    void localAuthorizationRequest.then((result) => {
+      if (!active) return;
+      setMessage(result);
+      if (result === 'This browser is authorized.') {
+        window.setTimeout(() => window.location.replace('/ui'), 600);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, []);
   return (
     <AuthCard

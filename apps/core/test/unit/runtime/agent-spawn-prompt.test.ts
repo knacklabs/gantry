@@ -54,6 +54,11 @@ function compile(overrides: {
     displayName: string;
     prompt: string;
   }>;
+  resolveConversationApproverNames?: (
+    appId: string,
+    providerAccountId: string,
+    chatJid: string,
+  ) => Promise<string[]>;
 }): Promise<string> {
   return compileSpawnSystemPrompt({
     group: { ...group, ...(overrides.group ?? {}) },
@@ -69,6 +74,12 @@ function compile(overrides: {
     },
     ...(overrides.resolveRoleSnapshot
       ? { resolveRoleSnapshot: overrides.resolveRoleSnapshot }
+      : {}),
+    ...(overrides.resolveConversationApproverNames
+      ? {
+          resolveConversationApproverNames:
+            overrides.resolveConversationApproverNames,
+        }
       : {}),
     fileArtifactStore: () => undefined,
     measureAsync: (_name, fn) => fn(),
@@ -130,6 +141,26 @@ describe('compileSpawnSystemPrompt', () => {
       '- This run executes scheduled job "Daily digest" (job-9).',
     );
     expect(prompt).not.toContain('New user messages may arrive mid-run');
+  });
+
+  it('projects canonical conversation approvers into the runtime prompt', async () => {
+    const resolveConversationApproverNames = vi.fn(async () => ['Vishwa Anuj']);
+    const prompt = await compile({
+      group: {
+        conversationId: 'conversation:account:sl:C1',
+        providerAccountId: 'account',
+      },
+      agentInput: { chatJid: 'sl:C1' },
+      resolveConversationApproverNames,
+    });
+
+    expect(resolveConversationApproverNames).toHaveBeenCalledWith(
+      'default',
+      'account',
+      'sl:C1',
+    );
+    expect(prompt).toContain('- Conversation approver: Vishwa Anuj.');
+    expect(prompt).toContain('do not claim that no approver is configured');
   });
 
   it('the resolved engine from the worker path selects the Anthropic tool name', async () => {

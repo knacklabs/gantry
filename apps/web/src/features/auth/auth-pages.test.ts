@@ -27,6 +27,10 @@ it('keeps the approved public copy and removes fragment credentials', () => {
   expect(source).toContain(
     'This authorization link has expired. Run `gantry ui authorize` to create a new one.',
   );
+  expect(source).toContain('let localAuthorizationRequest: Promise<string>');
+  expect(source).toContain('if (!localAuthorizationRequest)');
+  expect(source).toContain('localAuthorizationRequest === request');
+  expect(source).toContain('localAuthorizationRequest = undefined');
   expect(server).toContain('This authorization link has already been used.');
   expect(source).toContain('Sign in with Google');
   expect(source).toContain('You do not have access to this Gantry console.');

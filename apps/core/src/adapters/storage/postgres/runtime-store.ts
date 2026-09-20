@@ -38,6 +38,13 @@ import {
 } from '../../../application/identity/person-identity-service.js';
 import { PostgresPersonIdentityRepository } from './repositories/person-identity-repository.postgres.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import type { AppId } from '../../../domain/app/app.js';
+import type {
+  ConversationId,
+  ExternalConversationId,
+} from '../../../domain/conversation/conversation.js';
+import type { ProviderAccountId } from '../../../domain/provider/provider.js';
+import { stripProviderPrefix } from '../../../config/settings/desired-state-provider-conversations.js';
 
 let runtime: StorageRuntime | null = null;
 let runtimeScopeKey: string | undefined;
@@ -351,6 +358,58 @@ export async function resolveRuntimePersonIdentity(
   return new PersonIdentityService(
     new PostgresPersonIdentityRepository(getRuntimeStorage().service.db),
   ).resolve(input, auditEventFactory);
+}
+
+export async function resolveRuntimeConversationApproverNames(
+  appId: string,
+  providerAccountId: string,
+  chatJid: string,
+): Promise<string[]> {
+  const storage = getRuntimeStorage();
+  const providerAccount =
+    await storage.repositories.providerAccounts.getProviderAccount(
+      providerAccountId as ProviderAccountId,
+    );
+  if (!providerAccount || providerAccount.appId !== appId) return [];
+  const conversation =
+    await storage.repositories.conversations.getConversationByExternalRef({
+      appId: appId as AppId,
+      providerId: providerAccount.providerId,
+      providerAccountId: providerAccount.id,
+      externalConversationId: stripProviderPrefix(
+        chatJid,
+      ) as ExternalConversationId,
+    });
+  if (!conversation) return [];
+  const approvers =
+    await storage.repositories.conversations.listConversationApprovers(
+      conversation.id as ConversationId,
+    );
+  const identities = new PostgresPersonIdentityRepository(storage.service.db);
+  const people = new Map(
+    await Promise.all(
+      [
+        ...new Set(approvers.flatMap((approver) => approver.personId ?? [])),
+      ].map(
+        async (personId) =>
+          [
+            personId,
+            await identities.getPerson(appId as AppId, personId),
+          ] as const,
+      ),
+    ),
+  );
+  return approvers.map((approver) => {
+    const person = approver.personId ? people.get(approver.personId) : null;
+    const alias = person?.aliases?.find(
+      (entry) => entry.id === approver.aliasId,
+    );
+    return (
+      person?.displayName?.trim() ||
+      alias?.displayName?.trim() ||
+      approver.externalUserId
+    );
+  });
 }
 
 export async function tryAcquireRuntimeAdvisoryLease(

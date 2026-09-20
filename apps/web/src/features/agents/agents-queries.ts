@@ -206,9 +206,9 @@ export function agentCapabilitiesQuery(agentId: string) {
   });
 }
 
-export function agentAuditQuery(agentId: string) {
+export function agentAuditQuery(agentId: string, page: number) {
   return queryOptions({
-    queryKey: [...agentQueryKeys.all, 'audit', agentId] as const,
+    queryKey: [...agentQueryKeys.all, 'audit', agentId, page] as const,
     enabled: Boolean(agentId),
     queryFn: async (): Promise<{
       events: Array<{
@@ -221,9 +221,12 @@ export function agentAuditQuery(agentId: string) {
         conversationId: string | null;
         createdAt: string;
       }>;
+      page: number;
+      pageSize: number;
+      hasNext: boolean;
     }> => {
       const response = await browserFetch(
-        `/ui/api/agents/${encodeURIComponent(agentId)}/audit`,
+        `/ui/api/agents/${encodeURIComponent(agentId)}/audit?page=${page}`,
         { credentials: 'same-origin' },
       );
       if (!response.ok)
@@ -239,6 +242,9 @@ export function agentAuditQuery(agentId: string) {
           conversationId: string | null;
           createdAt: string;
         }>;
+        page: number;
+        pageSize: number;
+        hasNext: boolean;
       }>;
     },
   });

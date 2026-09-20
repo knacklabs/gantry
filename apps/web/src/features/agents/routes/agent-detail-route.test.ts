@@ -1,0 +1,16 @@
+import { readFileSync } from 'node:fs';
+import { expect, it } from 'vitest';
+
+it('paginates the bounded audit table fifty records at a time', () => {
+  const route = readFileSync(
+    'src/features/agents/routes/agent-detail-route.tsx',
+    'utf8',
+  );
+  const queries = readFileSync('src/features/agents/agents-queries.ts', 'utf8');
+
+  expect(route).toContain('max-h-[480px] overflow-auto');
+  expect(route).toContain('Previous audit page');
+  expect(route).toContain('Next audit page');
+  expect(route).toContain('audit.data?.pageSize ?? 50');
+  expect(queries).toContain('/audit?page=${page}');
+});
