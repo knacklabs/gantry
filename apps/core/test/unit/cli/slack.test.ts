@@ -135,6 +135,7 @@ describe('Slack install scopes', () => {
       'files:write',
       'canvases:read',
       'canvases:write',
+      'reactions:write',
     ]);
     expect(SLACK_REQUIRED_BOT_SCOPES).toContain('users:read');
     expect(SLACK_REQUIRED_BOT_SCOPES).toContain('channels:join');

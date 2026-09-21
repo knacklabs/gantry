@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0229-f393",
+  "profile": "degraded",
+  "reason": "Fix step4 flakiness follow-up: clearer dist/runner-missing error message, add reactions:write as an advisory Slack feature scope (matches existing canvas/files precedent, no hard-fail regression for existing installs)",
+  "started_at": "2026-09-21T20:45:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

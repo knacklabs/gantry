@@ -3,9 +3,9 @@
 Gantry's Slack bot installation requests these bot scopes:
 
 `chat:write`, `files:read`, `files:write`, `canvases:read`,
-`canvases:write`, `app_mentions:read`, `channels:read`, `channels:history`,
-`groups:read`, `groups:history`, `im:read`, `im:history`, `mpim:read`, and
-`mpim:history`.
+`canvases:write`, `reactions:write`, `app_mentions:read`, `channels:read`,
+`channels:history`, `groups:read`, `groups:history`, `im:read`,
+`im:history`, `mpim:read`, and `mpim:history`.
 
 The canonical machine-readable list is `SLACK_APP_MANIFEST` in
 `apps/core/src/cli/slack-install-scopes.ts`; both setup flows render that same

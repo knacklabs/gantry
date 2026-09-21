@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0229-f393",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Fix step4 flakiness follow-up: clearer dist/runner-missing error message, add reactions:write as an advisory Slack feature scope (matches existing canvas/files precedent, no hard-fail regression for existing installs)",
+  "started_at": "2026-09-21T20:45:40+00:00",
+  "completed_at": "2026-09-21T20:47:51+00:00",
+  "files": [
+    "apps/core/src/cli/slack-install-scopes.ts",
+    "apps/core/test/unit/cli/slack.test.ts",
+    "apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts"
+  ]
+}

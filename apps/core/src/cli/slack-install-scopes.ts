@@ -1,11 +1,14 @@
 // Feature scopes are advisory: the runtime degrades honestly without them
-// (canvas/file calls name the missing scope). Hard-failing token validation
-// on them would break every pre-canvas Slack installation.
+// (canvas/file calls name the missing scope; live-UX reaction calls log a
+// warning and skip the reaction rather than failing the turn). Hard-failing
+// token validation on them would break every pre-canvas/pre-reaction Slack
+// installation.
 export const SLACK_FEATURE_BOT_SCOPES = [
   'files:read',
   'files:write',
   'canvases:read',
   'canvases:write',
+  'reactions:write',
 ] as const;
 
 export const SLACK_REQUIRED_BOT_SCOPES = [
@@ -152,7 +155,7 @@ export function slackBotScopeWarning(
   if (grantedScopes.length === 0) return undefined;
   const { feature } = missingSlackBotScopes(grantedScopes);
   if (feature.length === 0) return undefined;
-  return `Slack file/canvas features need scopes this token lacks: ${feature.join(', ')}. Add them and reinstall the app to this workspace when you want those features; messaging works without them. See docs/operations/slack-app-install.md.`;
+  return `Slack file/canvas/reaction features need scopes this token lacks: ${feature.join(', ')}. Add them and reinstall the app to this workspace when you want those features; messaging works without them. See docs/operations/slack-app-install.md.`;
 }
 
 export function validateSlackBotScopeHeader(

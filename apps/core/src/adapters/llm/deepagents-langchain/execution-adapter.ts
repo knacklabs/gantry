@@ -86,7 +86,9 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
     );
     if (!fs.existsSync(runnerPath)) {
       throw new Error(
-        'Host runtime is missing required DeepAgents execution adapter runner files. Reinstall Gantry from npm and restart.',
+        `Host runtime is missing required DeepAgents execution adapter runner files (expected ${runnerPath}). ` +
+          'If Gantry was installed from npm, reinstall it and restart. ' +
+          'If you are running from a source checkout, the dist/ build is missing or stale — run `npm run build` (or `npm run build:core`), then restart.',
       );
     }
 
