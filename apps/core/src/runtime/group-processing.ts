@@ -819,7 +819,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         sendDone: sendTrackedDoneProgress,
       });
       if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
-      options?.onRunResult?.(output);
+      options?.onRunResult?.(
+        output,
+        output === 'error' ? lastAgentError : undefined,
+      );
       return resultOk;
     } finally {
       await liveness.terminal();

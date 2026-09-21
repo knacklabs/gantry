@@ -133,9 +133,22 @@ export async function buildRunnerModel(input: {
     // which routes to the real upstream (groq/deepseek/xai/...) by pathSegment.
     // initChatModel only knows the LangChain class, and ChatOpenAI is the right
     // class for every OpenAI-chat-completions-compatible upstream.
+    //
+    // The OpenAI SDK underlying ChatOpenAI posts to `${baseURL}/chat/completions`
+    // verbatim — it does NOT default-insert `/v1` the way it does for its own
+    // default `https://api.openai.com` base. Every OTHER provider here already
+    // has `/v1` (or an equivalent) baked into its OWN upstreamPathPrefix on the
+    // registry side (groq `/openai/v1`, bedrock's prefix, etc.), so the gateway
+    // combines it correctly. Native `openai` alone has an empty upstreamPathPrefix
+    // — shared with hand-built `/v1/batches`+`/v1/files` GET calls elsewhere,
+    // which already include `/v1` themselves, so that prefix can't just become
+    // `/v1` without double-prefixing those. Append `/v1` here instead, exactly
+    // like the openrouter branch above does for the same reason.
+    const chatCompletionsBaseUrl =
+      provider === 'openai' ? `${trimTrailingSlash(baseURL)}/v1` : baseURL;
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
-      configuration: { baseURL },
+      configuration: { baseURL: chatCompletionsBaseUrl },
       ...(input.promptCacheKey
         ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
         : {}),

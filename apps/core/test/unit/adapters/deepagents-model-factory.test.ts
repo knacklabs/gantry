@@ -40,7 +40,10 @@ describe('deepagents model factory', () => {
     expect(underlying.constructor.name).toBe('ChatOpenAI');
     expect(underlying.model).toBe('gpt-5.5');
     expect(underlying.streamUsage).toBe(true);
-    expect(underlying.clientConfig?.baseURL).toBe(loopbackBaseUrl);
+    // The OpenAI SDK posts to `${baseURL}/chat/completions` verbatim (no
+    // default `/v1` insertion for a custom baseURL), so the native openai
+    // provider gets `/v1` appended here — see the comment at the call site.
+    expect(underlying.clientConfig?.baseURL).toBe(`${loopbackBaseUrl}/v1`);
     expect(
       (underlying as { modelKwargs?: Record<string, unknown> }).modelKwargs,
     ).not.toHaveProperty('prompt_cache_key');
@@ -422,7 +425,7 @@ describe('deepagents model factory', () => {
         }>;
       }
     )._getModelInstance();
-    expect(underlying.clientConfig?.baseURL).toBe(sandboxGatewayBaseUrl);
+    expect(underlying.clientConfig?.baseURL).toBe(`${sandboxGatewayBaseUrl}/v1`);
   });
 
   it('rejects a non-gateway token', async () => {

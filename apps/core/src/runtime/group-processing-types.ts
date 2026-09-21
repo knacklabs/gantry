@@ -78,7 +78,7 @@ export type GroupProcessOptions = {
   finalRetry?: boolean;
   retryCount?: number;
   maxRetries?: number;
-  onRunResult?: (result: GroupAgentRunResult) => void;
+  onRunResult?: (result: GroupAgentRunResult, errorMessage?: string) => void;
   onFirstProgress?: (input: {
     jid: string;
     messageRef: string;

@@ -23,6 +23,7 @@ import {
   makeThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { redactProviderSessionHandlesInText } from '../../shared/provider-session-redaction.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnLeaseDeps } from '../../application/live-turns/live-turn-lease-service.js';
@@ -112,6 +113,15 @@ interface AdmissionApp {
   getOrRecoverCursor: (queueJid: string) => Promise<string>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
+}
+
+const LIVE_TURN_ERROR_SUMMARY_MAX_LENGTH = 500;
+
+function summarizeLiveTurnError(message: string): string {
+  return redactProviderSessionHandlesInText(message).slice(
+    0,
+    LIVE_TURN_ERROR_SUMMARY_MAX_LENGTH,
+  );
 }
 
 export function buildLiveAdmissionProcessor(input: {
@@ -314,6 +324,7 @@ export function buildLiveAdmissionProcessor(input: {
     }
     try {
       let liveRunResult: 'success' | 'error' | 'stopped' | null = null;
+      let liveRunErrorMessage: string | undefined;
       const success = await app.processGroupMessages(queueJid, {
         queued: true,
         ...projectLiveRetryContext(context),
@@ -325,8 +336,9 @@ export function buildLiveAdmissionProcessor(input: {
               existingRunLeaseFencingVersion: liveRunFence.fencingVersion,
             }
           : {}),
-        onRunResult: (result) => {
+        onRunResult: (result, errorMessage) => {
           liveRunResult = result;
+          liveRunErrorMessage = errorMessage;
         },
         onFirstProgress: reactionLifecycle.onFirstProgress,
         onFirstVisibleOutput: reactionLifecycle.onFirstVisibleOutput,
@@ -365,7 +377,9 @@ export function buildLiveAdmissionProcessor(input: {
             : liveRunResult === 'stopped'
               ? { errorSummary: 'Live turn stopped by request.' }
               : {
-                  errorSummary: 'Live turn failed.',
+                  errorSummary: summarizeLiveTurnError(
+                    liveRunErrorMessage ?? 'Live turn failed.',
+                  ),
                 }),
         },
       );
@@ -392,7 +406,9 @@ export function buildLiveAdmissionProcessor(input: {
       const finalized = await liveTurnAuthority
         .finalize(queueJid, 'failed', {
           status: 'failed',
-          errorSummary: 'Live turn failed during message processing.',
+          errorSummary: summarizeLiveTurnError(
+            err instanceof Error ? err.message : String(err),
+          ),
         })
         .catch((finalizeErr) => {
           warn(
