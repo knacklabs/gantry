@@ -73,7 +73,9 @@ describe('source-local development', () => {
     expect(pkg.scripts.dev).toBe(
       'npm run build:contracts && node scripts/dev-local.mjs',
     );
-    expect(wrapper).toContain("process.platform === 'win32' ? 'npm.cmd' : 'npm'");
+    expect(wrapper).toContain(
+      "process.platform === 'win32' ? 'npm.cmd' : 'npm'",
+    );
     expect(wrapper).toContain("GANTRY_DEV_AUTHORIZATION_LINK: '1'");
     expect(pkg.scripts.dev).not.toContain('GANTRY_DEV_AUTHORIZATION_LINK=1');
   });

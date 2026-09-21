@@ -3,6 +3,7 @@ import * as p from '@clack/prompts';
 import { acquireRuntimeStorageForRuntimeHome } from '../adapters/storage/postgres/runtime-store.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { createLocalAuthorizationUrl } from '../control/server/routes/browser-auth.js';
+import { localStyle } from './local-doctor.js';
 
 function usage(): string {
   return ['Usage:', '  gantry ui', '  gantry ui authorize'].join('\n');
@@ -62,7 +63,7 @@ export async function runUiCommand(
     const url = await createLocalAuthorizationUrl({
       canonicalOrigin: settings.authentication.canonicalOrigin,
     });
-    console.log(url);
+    console.log(localStyle('bold', localStyle('cyan', url)));
     return 0;
   } catch {
     p.log.error(

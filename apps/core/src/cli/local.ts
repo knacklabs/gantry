@@ -439,10 +439,7 @@ export async function resetLocalDatabase(url: string): Promise<void> {
 export async function stopLocalDevelopment(home: string): Promise<boolean> {
   const socketPath = localSupervisorEndpoint(home);
   if (process.platform !== 'win32' && !fs.existsSync(socketPath)) return false;
-  if (
-    process.platform !== 'win32' &&
-    !fs.lstatSync(socketPath).isSocket()
-  )
+  if (process.platform !== 'win32' && !fs.lstatSync(socketPath).isSocket())
     throw new Error(`Refusing non-socket supervisor path: ${socketPath}`);
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);

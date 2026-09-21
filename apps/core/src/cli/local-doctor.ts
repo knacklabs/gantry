@@ -4,7 +4,10 @@ import { styleText } from 'node:util';
 
 type DockerError = Error & { code?: string };
 
-function localStyle(format: 'bold' | 'cyan' | 'dim', value: string): string {
+export function localStyle(
+  format: 'bold' | 'cyan' | 'dim',
+  value: string,
+): string {
   return process.stdout.isTTY ? styleText(format, value) : value;
 }
 
@@ -65,7 +68,7 @@ export function formatLocalCommand(
 }
 
 export function formatLocalReady(command: string, origin: string): string {
-  return `\n${localStyle('bold', `Gantry local ${command} ready`)}\n\n${localStyle('bold', localStyle('cyan', `Gantry Web UI: ${origin}/ui/`))}\n\n${localStyle('dim', 'Ctrl-C stops core and Vite; Postgres stays running.')}`;
+  return `\n${localStyle('bold', `Gantry local ${command} ready`)}\n\nGantry Web UI: ${origin}/ui/\n\n${localStyle('dim', 'Ctrl-C stops core and Vite; Postgres stays running.')}`;
 }
 
 export async function freeLocalPort(): Promise<number> {
