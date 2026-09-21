@@ -65,6 +65,54 @@ describe('source-local development', () => {
     expect(() => localSourceRoot(os.tmpdir())).toThrow('source checkout');
   });
 
+  it('runs npm dev through a cross-platform Node wrapper', () => {
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const wrapper = fs.readFileSync('scripts/dev-local.mjs', 'utf8');
+    expect(pkg.scripts.dev).toBe(
+      'npm run build:contracts && node scripts/dev-local.mjs',
+    );
+    expect(wrapper).toContain("process.platform === 'win32' ? 'npm.cmd' : 'npm'");
+    expect(wrapper).toContain("GANTRY_DEV_AUTHORIZATION_LINK: '1'");
+    expect(pkg.scripts.dev).not.toContain('GANTRY_DEV_AUTHORIZATION_LINK=1');
+  });
+
+  it('uses a Windows pipe and taskkill instead of POSIX process groups', async () => {
+    const execFileSync = vi.fn(() => '');
+    vi.doMock('node:child_process', () => ({ execFileSync, spawn: vi.fn() }));
+    const { localSupervisorEndpoint, localSpawnDetached, terminateLocalPid } =
+      await import('@core/cli/local.js');
+
+    expect(localSupervisorEndpoint('C:\\gantry', 'win32')).toMatch(
+      /^\\\\\.\\pipe\\gantry-local-[a-f0-9]{40}$/,
+    );
+    expect(localSupervisorEndpoint('/tmp/gantry', 'darwin')).toBe(
+      path.join('/tmp/gantry', '.local-dev.sock'),
+    );
+    expect(localSpawnDetached('win32')).toBe(false);
+    expect(localSpawnDetached('linux')).toBe(true);
+    terminateLocalPid(1234, 'SIGTERM', 'win32');
+    expect(execFileSync).toHaveBeenCalledWith(
+      'taskkill',
+      ['/pid', '1234', '/t', '/f'],
+      { stdio: 'ignore' },
+    );
+  });
+
+  it('keeps POSIX process-group termination on Unix', async () => {
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(() => ''),
+      spawn: vi.fn(),
+    }));
+    const { terminateLocalPid } = await import('@core/cli/local.js');
+
+    terminateLocalPid(1234, 'SIGTERM', 'darwin');
+
+    expect(kill).toHaveBeenCalledWith(-1234, 'SIGTERM');
+  });
+
   it('creates secure environment defaults and preserves existing values', async () => {
     vi.stubEnv('SECRET_ENCRYPTION_KEY', undefined);
     const { localEnvironment } = await import('@core/cli/local.js');

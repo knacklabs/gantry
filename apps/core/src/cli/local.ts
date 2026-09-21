@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
@@ -39,6 +39,34 @@ const OWNERSHIP_MARKER = '.gantry-owned';
 const RESET_MARKER = '.gantry-reset-in-progress';
 const PID_FILE = '.gantry-local-pids';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+export function localSupervisorEndpoint(
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === 'win32') {
+    const digest = createHash('sha1').update(path.resolve(home)).digest('hex');
+    return `\\\\.\\pipe\\gantry-local-${digest}`;
+  }
+  return path.join(home, '.local-dev.sock');
+}
+export function localSpawnDetached(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform !== 'win32';
+}
+export function terminateLocalPid(
+  pid: number,
+  signal: NodeJS.Signals = 'SIGTERM',
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform === 'win32') {
+    execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], {
+      stdio: 'ignore',
+    });
+    return;
+  }
+  process.kill(-pid, signal);
+}
 export function validateLocalNode(version = process.versions.node): void {
   if (version.split('.')[0] !== '24')
     throw new Error(
@@ -207,6 +235,31 @@ function recordChildPid(home: string, pid: number): void {
     mode: 0o600,
   });
 }
+function recordedChildCommandLine(pid: number): string {
+  if (process.platform === 'win32') {
+    try {
+      return execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+        ],
+        { encoding: 'utf8' },
+      );
+    } catch {
+      return '';
+    }
+  }
+  try {
+    return execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
+      encoding: 'utf8',
+    });
+  } catch {
+    return '';
+  }
+}
 function stopRecordedChildren(home: string): void {
   const file = recordedPidsPath(home);
   if (!fs.existsSync(file)) return;
@@ -214,22 +267,16 @@ function stopRecordedChildren(home: string): void {
   if (!Array.isArray(pids)) throw new Error(`Invalid local PID file: ${file}`);
   for (const pid of pids) {
     if (!Number.isSafeInteger(pid) || pid <= 1) continue;
-    let command = '';
-    try {
-      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
-        encoding: 'utf8',
-      });
-    } catch {
-      continue;
-    }
+    const command = recordedChildCommandLine(pid);
     if (
+      !command ||
       !/apps\/core\/src\/index\.ts|node_modules\/vite\/bin\/vite\.js/.test(
         command,
       )
     )
       continue;
     try {
-      process.kill(-pid, 'SIGTERM');
+      terminateLocalPid(pid);
     } catch {
       // The child may have exited between inspection and signalling.
     }
@@ -390,9 +437,12 @@ export async function resetLocalDatabase(url: string): Promise<void> {
   }
 }
 export async function stopLocalDevelopment(home: string): Promise<boolean> {
-  const socketPath = path.join(home, '.local-dev.sock');
-  if (!fs.existsSync(socketPath)) return false;
-  if (!fs.lstatSync(socketPath).isSocket())
+  const socketPath = localSupervisorEndpoint(home);
+  if (process.platform !== 'win32' && !fs.existsSync(socketPath)) return false;
+  if (
+    process.platform !== 'win32' &&
+    !fs.lstatSync(socketPath).isSocket()
+  )
     throw new Error(`Refusing non-socket supervisor path: ${socketPath}`);
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
@@ -416,8 +466,9 @@ export async function stopLocalDevelopment(home: string): Promise<boolean> {
           ),
     );
     socket.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ECONNREFUSED') {
-        fs.unlinkSync(socketPath);
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOENT') {
+        if (process.platform !== 'win32')
+          fs.rmSync(socketPath, { force: true });
         resolve(false);
       } else reject(error);
     });
@@ -437,7 +488,7 @@ export async function superviseLocal(
     finish = resolve;
   });
   const control = net.createServer();
-  const socketPath = path.join(home, '.local-dev.sock');
+  const socketPath = localSupervisorEndpoint(home);
   const shutdown = async (code: number) => {
     if (stopping) return;
     stopping = true;
@@ -448,14 +499,14 @@ export async function superviseLocal(
           child.once('exit', () => resolve()),
         );
         try {
-          process.kill(-child.pid!, 'SIGTERM');
+          terminateLocalPid(child.pid!);
         } catch {
           // The child may have exited between inspection and signalling.
         }
         await Promise.race([exited, delay(5000, undefined, { ref: false })]);
         if (child.exitCode === null && child.signalCode === null) {
           try {
-            process.kill(-child.pid!, 'SIGKILL');
+            terminateLocalPid(child.pid!, 'SIGKILL');
           } catch {
             // The child may have exited between inspection and signalling.
           }
@@ -485,7 +536,7 @@ export async function superviseLocal(
     control.once('error', reject);
     control.listen(socketPath, resolve);
   });
-  fs.chmodSync(socketPath, 0o600);
+  if (process.platform !== 'win32') fs.chmodSync(socketPath, 0o600);
   const onSignal = () => void shutdown(0);
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -499,7 +550,7 @@ export async function superviseLocal(
       cwd: repo,
       env: childEnv,
       stdio,
-      detached: true,
+      detached: localSpawnDetached(),
     });
     children.add(child);
     const recordsPid =
