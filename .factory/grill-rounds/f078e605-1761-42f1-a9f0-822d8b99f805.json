@@ -1,0 +1,23 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Should the step-3 allowlist actually block/ignore messages from non-allowlisted channel members at runtime (new message-ingestion enforcement), or is it scoped to just gating the step-3 approver dropdown + relaxing step-4's challenge match to any allowlist member?",
+      "options": [
+        "UI + step-4 matching only (Recommended)",
+        "Full runtime enforcement"
+      ],
+      "chosen": "Full runtime enforcement"
+    },
+    {
+      "question": "Should the new allowlist live in a new onboarding-scoped table, or be built on the existing conversation_approvers table?",
+      "options": [
+        "New dedicated table (Recommended)",
+        "Reuse conversation_approvers"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-21T10:40:34.207921+00:00",
+  "session_id": "22373fd4-a9a9-4a7e-9ef2-131f8fc48801"
+}

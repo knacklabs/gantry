@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0222-1ff3",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Step3 reload: use isFetching (not isPending) so the button hides / dropdown disables during a manual refetch, not just the initial load",
+  "started_at": "2026-09-21T10:38:18+00:00",
+  "completed_at": "2026-09-21T10:38:41+00:00",
+  "files": [
+    "apps/web/src/features/onboarding/steps/assign-work-step.tsx"
+  ]
+}

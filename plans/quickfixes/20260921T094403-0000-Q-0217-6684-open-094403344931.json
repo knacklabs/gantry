@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0217-6684",
+  "profile": "degraded",
+  "reason": "Fix onboarding model probe 400: runDeepProbe forces tool_choice which OpenAI reasoning models reject; switch to auto",
+  "started_at": "2026-09-21T09:44:03+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

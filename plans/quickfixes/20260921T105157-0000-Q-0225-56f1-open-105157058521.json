@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0225-56f1",
+  "profile": "degraded",
+  "reason": "Add runtime enforcement for the new agent_conversation_allowlist: gate message ingestion so only allowlisted senders reach the agent, default-allow when unconfigured",
+  "started_at": "2026-09-21T10:51:57+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

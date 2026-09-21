@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0228-bfed",
+  "profile": "degraded",
+  "reason": "Fix allowlist assignment 400: allowlist members other than the approver never had ensureParticipant called, so their identity can't resolve",
+  "started_at": "2026-09-21T11:04:29+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

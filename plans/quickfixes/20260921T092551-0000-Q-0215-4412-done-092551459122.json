@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0215-4412",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "continuing Pulk/Bedrock onboarding fix: adding test coverage for the llmProfileId fix",
+  "started_at": "2026-09-21T09:24:52+00:00",
+  "completed_at": "2026-09-21T09:25:51+00:00",
+  "files": [
+    "apps/core/test/unit/adapters/storage/postgres/canonical-ops-run-completion-redaction.test.ts"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0215-4412",
+  "profile": "degraded",
+  "reason": "continuing Pulk/Bedrock onboarding fix: adding test coverage for the llmProfileId fix",
+  "started_at": "2026-09-21T09:24:52+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

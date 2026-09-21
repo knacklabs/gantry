@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0218-a08f",
+  "profile": "degraded",
+  "reason": "Surface the real upstream error body on onboarding model-probe 400s instead of just the status code, to diagnose a new 400 on gpt-5.6-luna",
+  "started_at": "2026-09-21T09:48:33+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

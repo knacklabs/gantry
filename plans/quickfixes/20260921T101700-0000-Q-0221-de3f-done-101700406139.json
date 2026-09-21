@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0221-de3f",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Onboarding step3: retain selected conversation/approver across back-navigation from step4, add a reload button that refetches conversations and clears selection",
+  "started_at": "2026-09-21T10:15:29+00:00",
+  "completed_at": "2026-09-21T10:17:00+00:00",
+  "files": [
+    "apps/web/src/features/onboarding/onboarding-state.ts",
+    "apps/web/src/features/onboarding/onboarding-route.tsx",
+    "apps/web/src/features/onboarding/steps/assign-work-step.tsx"
+  ]
+}

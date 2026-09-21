@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0214-ad53",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "User explicitly chose to bypass the forge story/decomposition flow for the Pulk/Bedrock onboarding fix (codex unavailable); implementing fix 1 of 3 (preserve real error in live-turn errorSummary) per approved plan so-whats-the-fix-proud-donut.md",
+  "started_at": "2026-09-21T09:21:30+00:00",
+  "completed_at": "2026-09-21T09:24:52+00:00",
+  "files": [
+    "apps/core/src/runtime/group-processing-types.ts",
+    "apps/core/src/runtime/group-processing.ts",
+    "apps/core/src/app/bootstrap/live-execution.ts",
+    "apps/core/test/unit/bootstrap/runtime-services.test.ts",
+    "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts"
+  ]
+}

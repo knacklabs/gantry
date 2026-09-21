@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0223-a8ac",
+  "profile": "degraded",
+  "reason": "Fix shadcn-CLI-added popover.tsx to use project's own cn import convention (not the stray 'cn' npm package it tried to add), then hand-add a matching command.tsx primitive for a multi-select",
+  "started_at": "2026-09-21T10:45:36+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

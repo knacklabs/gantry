@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0226-2086",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Wire allowlist through /assignment: bindWorkAssignment persists it, route validates approver is in the allowlist",
+  "started_at": "2026-09-21T10:54:47+00:00",
+  "completed_at": "2026-09-21T10:56:57+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/repositories/onboarding/onboarding-assignment-repository.postgres.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-lifecycle.ts",
+    "apps/core/test/unit/auth/browser-onboarding-routes.test.ts"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0225-56f1",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Add runtime enforcement for the new agent_conversation_allowlist: gate message ingestion so only allowlisted senders reach the agent, default-allow when unconfigured",
+  "started_at": "2026-09-21T10:51:57+00:00",
+  "completed_at": "2026-09-21T10:54:26+00:00",
+  "files": [
+    "apps/core/src/app/bootstrap/channel-wiring-types.ts",
+    "apps/core/src/app/index.ts",
+    "apps/core/src/app/bootstrap/channel-persistence-handlers.ts"
+  ]
+}

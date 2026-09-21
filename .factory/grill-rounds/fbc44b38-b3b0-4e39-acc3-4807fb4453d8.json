@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "How do you want to route implementation of this fix given the forge harness is active and codex isn't installed?",
+      "options": [
+        "Record as a new forge story",
+        "Set up codex first",
+        "Implement directly, bypass harness"
+      ],
+      "chosen": null
+    }
+  ],
+  "at": "2026-09-21T09:21:05.854103+00:00",
+  "session_id": "22373fd4-a9a9-4a7e-9ef2-131f8fc48801"
+}

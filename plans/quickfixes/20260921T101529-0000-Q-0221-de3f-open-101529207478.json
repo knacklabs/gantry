@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0221-de3f",
+  "profile": "degraded",
+  "reason": "Onboarding step3: retain selected conversation/approver across back-navigation from step4, add a reload button that refetches conversations and clears selection",
+  "started_at": "2026-09-21T10:15:29+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

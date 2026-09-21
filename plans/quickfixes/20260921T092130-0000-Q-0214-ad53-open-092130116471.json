@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0214-ad53",
+  "profile": "degraded",
+  "reason": "User explicitly chose to bypass the forge story/decomposition flow for the Pulk/Bedrock onboarding fix (codex unavailable); implementing fix 1 of 3 (preserve real error in live-turn errorSummary) per approved plan so-whats-the-fix-proud-donut.md",
+  "started_at": "2026-09-21T09:21:30+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

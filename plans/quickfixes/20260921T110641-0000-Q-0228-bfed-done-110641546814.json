@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0228-bfed",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Fix allowlist assignment 400: allowlist members other than the approver never had ensureParticipant called, so their identity can't resolve",
+  "started_at": "2026-09-21T11:04:29+00:00",
+  "completed_at": "2026-09-21T11:06:41+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/repositories/onboarding/onboarding-assignment-repository.postgres.ts",
+    "apps/core/src/control/server/routes/browser-onboarding-lifecycle.ts",
+    "apps/core/test/unit/auth/browser-onboarding-routes.test.ts"
+  ]
+}

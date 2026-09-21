@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0227-480b",
+  "profile": "degraded",
+  "reason": "Add shadcn-style MultiSelect primitive and wire it into onboarding step3 as the allowlist selector with pills, gating the approver select",
+  "started_at": "2026-09-21T10:57:08+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0220-5f04",
+  "profile": "degraded",
+  "reason": "Pre-existing gateway bug: native openai provider allowlist requires /v1/chat/completions but its own production caller (model-factory.ts) sends bare /chat/completions, and upstreamPathPrefix is missing /v1 too - breaks all real openai-provider turns, not just onboarding",
+  "started_at": "2026-09-21T10:02:30+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

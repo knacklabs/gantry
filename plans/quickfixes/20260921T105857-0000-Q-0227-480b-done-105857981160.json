@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0227-480b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Add shadcn-style MultiSelect primitive and wire it into onboarding step3 as the allowlist selector with pills, gating the approver select",
+  "started_at": "2026-09-21T10:57:08+00:00",
+  "completed_at": "2026-09-21T10:58:57+00:00",
+  "files": [
+    "apps/web/src/ui/primitives/multi-select.tsx",
+    "apps/web/src/features/onboarding/onboarding-state.ts",
+    "apps/web/src/features/onboarding/steps/assign-work-step.tsx"
+  ]
+}

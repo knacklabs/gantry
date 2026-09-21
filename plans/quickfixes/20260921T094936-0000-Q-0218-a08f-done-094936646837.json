@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0218-a08f",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Surface the real upstream error body on onboarding model-probe 400s instead of just the status code, to diagnose a new 400 on gpt-5.6-luna",
+  "started_at": "2026-09-21T09:48:33+00:00",
+  "completed_at": "2026-09-21T09:49:36+00:00",
+  "files": [
+    "apps/core/src/application/onboarding/model-credential-verification.ts",
+    "apps/core/test/unit/application/onboarding/model-credential-verification.test.ts"
+  ]
+}

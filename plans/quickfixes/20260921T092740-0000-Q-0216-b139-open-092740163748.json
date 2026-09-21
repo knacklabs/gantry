@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0216-b139",
+  "profile": "degraded",
+  "reason": "Pulk/Bedrock onboarding fix 3/3: add streaming+tool-call assertion to the onboarding model probe, capability-gated and soft-fail by default",
+  "started_at": "2026-09-21T09:27:40+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

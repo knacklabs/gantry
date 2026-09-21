@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0224-dc66",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Add agent_conversation_allowlist table (schema + migration) for the step3 conversation allowlist feature",
+  "started_at": "2026-09-21T10:46:59+00:00",
+  "completed_at": "2026-09-21T10:51:38+00:00",
+  "files": [
+    "apps/core/src/adapters/storage/postgres/schema/conversations.ts",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260921104747_abnormal_power_pack.sql",
+    "apps/core/src/adapters/storage/postgres/schema/migrations/20260921104747_abnormal_power_pack.sql.bak",
+    "apps/core/src/adapters/storage/postgres/repositories/agent-conversation-allowlist.postgres.ts",
+    "apps/core/src/adapters/storage/postgres/repositories/onboarding/onboarding-verification-repository.postgres.ts"
+  ]
+}

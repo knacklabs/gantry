@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0219-b541",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "upstreamErrorMessage only handled OpenAI's nested error shape; Gantry's own gateway errors use a flat {error, message} shape and were still swallowed",
+  "started_at": "2026-09-21T09:53:10+00:00",
+  "completed_at": "2026-09-21T09:54:19+00:00",
+  "files": [
+    "apps/core/src/application/onboarding/model-credential-verification.ts",
+    "apps/core/test/unit/application/onboarding/model-credential-verification.test.ts"
+  ]
+}
