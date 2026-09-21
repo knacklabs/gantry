@@ -425,7 +425,9 @@ describe('deepagents model factory', () => {
         }>;
       }
     )._getModelInstance();
-    expect(underlying.clientConfig?.baseURL).toBe(`${sandboxGatewayBaseUrl}/v1`);
+    expect(underlying.clientConfig?.baseURL).toBe(
+      `${sandboxGatewayBaseUrl}/v1`,
+    );
   });
 
   it('rejects a non-gateway token', async () => {

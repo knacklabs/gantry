@@ -9,6 +9,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  or,
   sql,
 } from 'drizzle-orm';
 
@@ -173,12 +174,26 @@ export class OnboardingVerificationRepository {
         aliases,
         and(
           eq(aliases.appId, d.appId),
-          eq(aliases.userId, d.approverPersonId),
           eq(aliases.provider, 'slack'),
           eq(aliases.providerAccountId, d.providerAccountId),
           eq(aliases.externalUserId, input.senderExternalUserId),
           eq(aliases.verificationStatus, 'verified'),
           sql`${aliases.retiredAt} IS NULL`,
+          // The approver can always answer; anyone else needs to be in the
+          // conversation's allowlist (agent_conversation_allowlist). A
+          // deployment with no allowlist configured falls back to
+          // approver-only, so this never loosens behaviour for a deployment
+          // that never set one up.
+          or(
+            eq(aliases.userId, d.approverPersonId),
+            sql`EXISTS (
+              SELECT 1 FROM ${schema.agentConversationAllowlistPostgres} al
+              WHERE al.app_id = ${d.appId}
+                AND al.agent_id = ${d.agentId}
+                AND al.conversation_id = ${d.conversationId}
+                AND al.external_user_id = ${aliases.externalUserId}
+            )`,
+          ),
         ),
       )
       .where(

@@ -153,6 +153,7 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
       ) : null}
       {step === 3 ? (
         <AssignWorkStep
+          draft={draft}
           onChange={updateDraft}
           onContinueActionChange={registerContinueAction}
         />

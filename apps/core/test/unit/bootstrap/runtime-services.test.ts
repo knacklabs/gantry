@@ -1224,7 +1224,10 @@ describe('startRuntimeServices', () => {
     liveTurns.coordination = coordination;
     app.processGroupMessages = vi.fn(
       async (_queueJid: string, options: any) => {
-        options.onRunResult?.('error', 'Bedrock request failed: 400 invalid_request');
+        options.onRunResult?.(
+          'error',
+          'Bedrock request failed: 400 invalid_request',
+        );
         return true;
       },
     );

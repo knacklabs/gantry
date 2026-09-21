@@ -1,8 +1,10 @@
 export type OnboardingStep = 1 | 2 | 3 | 4;
 
 export type OnboardingDraft = {
+  allowlist: string[];
   approver: string;
   channel: 'slack' | 'teams' | 'discord' | 'telegram';
+  conversationId: string;
   model: string;
   name: string;
   provider: 'anthropic' | 'openai' | 'openrouter' | 'bedrock' | 'vertex';
@@ -25,8 +27,10 @@ export const onboardingSteps = [
 ] as const;
 
 export const initialOnboardingDraft: OnboardingDraft = {
+  allowlist: [],
   approver: 'You',
   channel: 'slack',
+  conversationId: '',
   model: 'sonnet',
   name: 'Atlas',
   provider: 'anthropic',
@@ -36,10 +40,11 @@ export const initialOnboardingDraft: OnboardingDraft = {
   workspace: '#team-operations',
 };
 
-export const defaultModelAliases: Record<OnboardingDraft['provider'], string> = {
-  anthropic: 'sonnet',
-  bedrock: 'bedrock-oss',
-  openai: 'gpt',
-  openrouter: 'kimi',
-  vertex: 'vertex',
-};
+export const defaultModelAliases: Record<OnboardingDraft['provider'], string> =
+  {
+    anthropic: 'sonnet',
+    bedrock: 'bedrock-oss',
+    openai: 'gpt',
+    openrouter: 'kimi',
+    vertex: 'vertex',
+  };

@@ -179,6 +179,17 @@ export interface ChannelWiringDeps {
       providerAccountId: string;
     }): Promise<boolean>;
   };
+  // Who may converse with the agent at all — distinct from onboardingVerification
+  // above (which only gates the onboarding challenge reply). Default-allow: a
+  // conversation with no allowlist configured is unrestricted.
+  conversationAllowlist?: {
+    isSenderAllowed(input: {
+      appId: string;
+      agentId: string;
+      conversationId: string;
+      externalUserId: string;
+    }): Promise<boolean>;
+  };
 }
 
 export interface ChannelWiring {

@@ -884,13 +884,16 @@ export async function handleBrowserOnboardingRoutes(
     if (!body) return true;
     if (
       typeof body.conversationId !== 'string' ||
-      typeof body.approverExternalUserId !== 'string'
+      typeof body.approverExternalUserId !== 'string' ||
+      !Array.isArray(body.allowlistExternalUserIds) ||
+      body.allowlistExternalUserIds.length === 0 ||
+      !body.allowlistExternalUserIds.every((id) => typeof id === 'string')
     ) {
       sendError(
         res,
         400,
         'INVALID_REQUEST',
-        'One conversation and one approver are required.',
+        'One conversation, at least one allowlisted member, and one approver are required.',
       );
       return true;
     }
@@ -916,6 +919,9 @@ export async function handleBrowserOnboardingRoutes(
         }
         const conversationId = body.conversationId as ConversationId;
         const approverId = body.approverExternalUserId as string;
+        const allowlistIds = [
+          ...new Set(body.allowlistExternalUserIds as string[]),
+        ];
         const admin = createBrowserConversationAdministrationService(
           session.appId as AppId,
         );
@@ -923,6 +929,19 @@ export async function handleBrowserOnboardingRoutes(
           appId: session.appId as AppId,
           conversationId,
         });
+        const memberIds = new Set(members.map((member) => member.id));
+        const ineligibleAllowlistIds = allowlistIds.filter(
+          (id) => !memberIds.has(id),
+        );
+        if (ineligibleAllowlistIds.length) {
+          return {
+            statusCode: 422,
+            response: errorBody(
+              'ALLOWLIST_NOT_ELIGIBLE',
+              'Every allowlisted member must be an internal human member of the conversation.',
+            ),
+          };
+        }
         const approver = members.find((member) => member.id === approverId);
         if (!approver) {
           return {
@@ -930,6 +949,15 @@ export async function handleBrowserOnboardingRoutes(
             response: errorBody(
               'APPROVER_NOT_ELIGIBLE',
               'The approver must be an internal human member of the conversation.',
+            ),
+          };
+        }
+        if (!allowlistIds.includes(approver.id)) {
+          return {
+            statusCode: 422,
+            response: errorBody(
+              'APPROVER_NOT_ELIGIBLE',
+              'The approver must be a member of the allowlist.',
             ),
           };
         }
@@ -941,6 +969,13 @@ export async function handleBrowserOnboardingRoutes(
           conversationId,
           approverExternalUserId: approver.id,
           approverDisplayName: approver.displayName,
+          allowlist: allowlistIds.map((id) => {
+            const member = members.find((candidate) => candidate.id === id);
+            return {
+              externalUserId: id,
+              displayName: member?.displayName ?? id,
+            };
+          }),
         });
         await ctx.syncSettingsFromProjection(session.appId as AppId);
         const latest =

@@ -7,6 +7,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
+import { agentsPostgres } from './agents.js';
 import { appsPostgres, userAliasesPostgres, usersPostgres } from './apps.js';
 
 export const conversationsPostgres = pgTable(
@@ -143,6 +144,56 @@ export const conversationApproversPostgres = pgTable(
     }),
     appScopedAlias: foreignKey({
       name: 'conversation_approvers_alias_fk',
+      columns: [table.aliasId],
+      foreignColumns: [userAliasesPostgres.id],
+    }),
+  }),
+);
+
+// Who may converse with the agent in this conversation at all — distinct from
+// conversation_approvers (who may approve risky ACTIONS). Enforcement default:
+// a conversation with zero rows here is unrestricted (everyone may message the
+// agent, today's behaviour); enforcement only activates once rows exist.
+export const agentConversationAllowlistPostgres = pgTable(
+  'agent_conversation_allowlist',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
+    personId: text('person_id'),
+    aliasId: text('alias_id'),
+    externalUserId: text('external_user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    conversationIdx: index('idx_agent_conversation_allowlist_conversation').on(
+      table.conversationId,
+    ),
+    userIdx: uniqueIndex('uniq_agent_conversation_allowlist_user').on(
+      table.appId,
+      table.agentId,
+      table.conversationId,
+      table.externalUserId,
+    ),
+    appScopedPerson: foreignKey({
+      name: 'agent_conversation_allowlist_app_user_fk',
+      columns: [table.appId, table.personId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
+    appScopedAlias: foreignKey({
+      name: 'agent_conversation_allowlist_alias_fk',
       columns: [table.aliasId],
       foreignColumns: [userAliasesPostgres.id],
     }),

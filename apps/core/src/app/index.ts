@@ -67,6 +67,9 @@ import type { HostnameLookup } from '../domain/network/public-address-policy.js'
 import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup.js';
 import { createRepositoryRuntimeSecretProvider } from '../adapters/credentials/repository-runtime-secret-provider.js';
 import { PostgresOnboardingLifecycleRepository } from '../adapters/storage/postgres/repositories/onboarding-lifecycle-repository.postgres.js';
+import { isAgentConversationSenderAllowed } from '../adapters/storage/postgres/repositories/agent-conversation-allowlist.postgres.js';
+import type { AgentId } from '../domain/agent/agent.js';
+import type { ConversationId } from '../domain/conversation/conversation.js';
 import {
   createResolveObserverStatus,
   type EffectiveControlRuntimeSettings,
@@ -134,6 +137,15 @@ export async function startGantryRuntime(
         new PostgresOnboardingLifecycleRepository(
           getRuntimeStorage().service.db,
         ).consumeInboundChallenge(input),
+    },
+    conversationAllowlist: {
+      isSenderAllowed: (input) =>
+        isAgentConversationSenderAllowed(getRuntimeStorage().service.db, {
+          appId: input.appId as AppId,
+          agentId: input.agentId as AgentId,
+          conversationId: input.conversationId as ConversationId,
+          externalUserId: input.externalUserId,
+        }),
     },
   });
   const controlServerRef: {

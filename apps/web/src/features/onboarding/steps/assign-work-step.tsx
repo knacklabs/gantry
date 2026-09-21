@@ -1,7 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, RefreshCw, XIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { Badge } from '../../../ui/primitives/badge';
+import { Button } from '../../../ui/primitives/button';
+import { MultiSelect } from '../../../ui/primitives/multi-select';
 import { toast } from '../../../ui/primitives/toast';
 import type { OnboardingDraft } from '../onboarding-state';
 import { onboardingGet, onboardingMutation } from '../onboarding-http-client';
@@ -27,9 +30,11 @@ type ConversationMember = {
 };
 
 export function AssignWorkStep({
+  draft,
   onChange,
   onContinueActionChange,
 }: {
+  draft: OnboardingDraft;
   onChange: (update: Partial<OnboardingDraft>) => void;
   onContinueActionChange: (
     action: (() => Promise<void>) | null,
@@ -37,8 +42,13 @@ export function AssignWorkStep({
   ) => void;
 }) {
   const queryClient = useQueryClient();
-  const [conversationId, setConversationId] = useState('');
-  const [approverId, setApproverId] = useState('');
+  // Seeded from the draft (not '') so a user who advances to step 4 and comes
+  // back finds their conversation/approver still selected — this component
+  // unmounts whenever step !== 3, so plain useState('') would reset on every
+  // return trip.
+  const [conversationId, setConversationId] = useState(draft.conversationId);
+  const [approverId, setApproverId] = useState(draft.approver);
+  const [allowlist, setAllowlist] = useState<string[]>(draft.allowlist);
   const [joining, setJoining] = useState(false);
   const conversationQueryKey = ['onboarding', 'conversations'] as const;
   const conversations = useQuery({
@@ -107,23 +117,37 @@ export function AssignWorkStep({
   }
 
   const bind = useCallback(async () => {
-    if (!conversationId || !approverId) return;
+    if (!conversationId || !approverId || allowlist.length === 0) return;
     await onboardingMutation('/assignment', {
       conversationId,
       approverExternalUserId: approverId,
+      allowlistExternalUserIds: allowlist,
     });
     await queryClient.invalidateQueries({
       queryKey: onboardingStatusQuery.queryKey,
     });
-  }, [approverId, conversationId, queryClient]);
+  }, [allowlist, approverId, conversationId, queryClient]);
 
+  const canContinue = Boolean(
+    conversationId && approverId && allowlist.length > 0,
+  );
   useEffect(() => {
-    onContinueActionChange(
-      conversationId && approverId ? bind : null,
-      !conversationId || !approverId,
-    );
+    onContinueActionChange(canContinue ? bind : null, !canContinue);
     return () => onContinueActionChange(null, false);
-  }, [approverId, bind, conversationId, onContinueActionChange]);
+  }, [bind, canContinue, onContinueActionChange]);
+
+  function reload() {
+    setConversationId('');
+    setApproverId('');
+    setAllowlist([]);
+    onChange({
+      allowlist: [],
+      approver: '',
+      conversationId: '',
+      workspace: '',
+    });
+    void conversations.refetch();
+  }
 
   return (
     <>
@@ -135,7 +159,7 @@ export function AssignWorkStep({
         <label className="onboarding-field">
           <span className="flex items-center justify-between gap-3">
             <span>Give it one place to start</span>
-            {conversations.isPending ? (
+            {conversations.isFetching ? (
               <span
                 aria-live="polite"
                 className="flex items-center gap-1.5 text-[11px] font-normal text-text-secondary"
@@ -148,10 +172,20 @@ export function AssignWorkStep({
                 />
                 Loading conversations…
               </span>
-            ) : null}
+            ) : (
+              <Button
+                aria-label="Reload conversations"
+                onClick={reload}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <RefreshCw aria-hidden="true" size={15} />
+              </Button>
+            )}
           </span>
           <select
-            disabled={conversations.isPending || conversations.isError}
+            disabled={conversations.isFetching || conversations.isError}
             onChange={(event) => {
               const id = event.target.value;
               const selected = conversations.data?.conversations.find(
@@ -159,7 +193,13 @@ export function AssignWorkStep({
               );
               setConversationId(id);
               setApproverId('');
-              onChange({ workspace: selected?.title ?? id });
+              setAllowlist([]);
+              onChange({
+                allowlist: [],
+                approver: '',
+                conversationId: id,
+                workspace: selected?.title ?? id,
+              });
             }}
             value={conversationId}
           >
@@ -195,7 +235,7 @@ export function AssignWorkStep({
         ) : null}
         <label className="onboarding-field">
           <span className="flex items-center justify-between gap-3">
-            <span>Who approves its riskier actions?</span>
+            <span>Who can talk to it?</span>
             {members.isFetching ? (
               <span
                 aria-live="polite"
@@ -211,10 +251,66 @@ export function AssignWorkStep({
               </span>
             ) : null}
           </span>
-          <select
+          <MultiSelect
             disabled={
               !conversationId || !joined || members.isPending || members.isError
             }
+            emptyText="No matching members."
+            onChange={(next) => {
+              setAllowlist(next);
+              const nextApprover = next.includes(approverId) ? approverId : '';
+              setApproverId(nextApprover);
+              onChange({ allowlist: next, approver: nextApprover });
+            }}
+            options={(members.data?.members ?? []).map((member) => ({
+              label: member.displayName,
+              value: member.id,
+            }))}
+            placeholder={
+              selectedConversation?.membership === 'joinable'
+                ? 'Join the channel first'
+                : members.isPending && conversationId
+                  ? 'Refreshing Slack members…'
+                  : 'Choose who can converse with it'
+            }
+            searchPlaceholder="Search members…"
+            selected={allowlist}
+          />
+          {allowlist.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {allowlist.map((id) => {
+                const member = members.data?.members.find(
+                  (candidate) => candidate.id === id,
+                );
+                return (
+                  <Badge key={id} variant="secondary">
+                    {member?.displayName ?? id}
+                    <button
+                      aria-label={`Remove ${member?.displayName ?? id}`}
+                      className="ml-0.5 -mr-0.5 rounded-full p-0.5 hover:bg-foreground/10"
+                      onClick={() => {
+                        const next = allowlist.filter((item) => item !== id);
+                        setAllowlist(next);
+                        const nextApprover = next.includes(approverId)
+                          ? approverId
+                          : '';
+                        setApproverId(nextApprover);
+                        onChange({ allowlist: next, approver: nextApprover });
+                      }}
+                      type="button"
+                    >
+                      <XIcon aria-hidden="true" size={11} />
+                    </button>
+                  </Badge>
+                );
+              })}
+            </div>
+          ) : null}
+        </label>
+        <label className="onboarding-field">
+          <span>Who approves its riskier actions?</span>
+          <select
+            disabled={allowlist.length === 0}
             onChange={(event) => {
               setApproverId(event.target.value);
               onChange({ approver: event.target.value });
@@ -222,17 +318,17 @@ export function AssignWorkStep({
             value={approverId}
           >
             <option value="">
-              {selectedConversation?.membership === 'joinable'
-                ? 'Join the channel first'
-                : members.isPending && conversationId
-                  ? 'Refreshing Slack members…'
-                  : 'Choose one verified member'}
+              {allowlist.length === 0
+                ? 'Choose who can talk to it first'
+                : 'Choose one allowlisted member'}
             </option>
-            {(members.data?.members ?? []).map((member) => (
-              <option key={member.id} value={member.id}>
-                {member.displayName}
-              </option>
-            ))}
+            {(members.data?.members ?? [])
+              .filter((member) => allowlist.includes(member.id))
+              .map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.displayName}
+                </option>
+              ))}
           </select>
         </label>
         <small className="onboarding-help">

@@ -215,12 +215,27 @@ export function createChannelPersistenceHandlers({
             msg.providerAccountId ?? route.providerAccountId;
           const agentId = route.agentId ?? agentIdForFolder(route.folder);
           if (
-            !resolved.onboardingVerification ||
             !providerAccountId ||
             !route.conversationId ||
             msg.is_from_me ||
             msg.is_bot_message
           ) {
+            return { route, providerAccountId, agentId, attemptId: null };
+          }
+          // Independent of onboarding verification below: who may converse
+          // with the agent at all. Default-allow when unconfigured, so this
+          // never restricts a conversation that hasn't set an allowlist.
+          if (resolved.conversationAllowlist) {
+            const allowed =
+              await resolved.conversationAllowlist.isSenderAllowed({
+                appId: resolved.appId,
+                agentId,
+                conversationId: route.conversationId,
+                externalUserId: msg.sender,
+              });
+            if (!allowed) return null;
+          }
+          if (!resolved.onboardingVerification) {
             return { route, providerAccountId, agentId, attemptId: null };
           }
           const classification = await resolved.onboardingVerification.match({

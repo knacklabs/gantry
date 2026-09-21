@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { AgentId } from '../../../../../domain/agent/agent.js';
 import type { AppId } from '../../../../../domain/app/app.js';
@@ -7,6 +7,7 @@ import type { ProviderAccountId } from '../../../../../domain/provider/provider.
 import type { CanonicalDb } from '../canonical-graph-repository.postgres.js';
 import { PostgresCanonicalGraphRepository } from '../canonical-graph-repository.postgres.js';
 import { replaceConversationApproverIdentities } from '../conversation-approver-identities.postgres.js';
+import { replaceAgentConversationAllowlist } from '../agent-conversation-allowlist.postgres.js';
 import { stableId } from '../person-identity-mappers.postgres.js';
 import * as schema from '../../schema/schema.js';
 
@@ -21,6 +22,7 @@ export class OnboardingAssignmentRepository {
     conversationId: ConversationId;
     approverExternalUserId: string;
     approverDisplayName: string;
+    allowlist: Array<{ externalUserId: string; displayName: string }>;
   }): Promise<{ approverPersonId: string; version: number }> {
     const now = new Date().toISOString();
     return this.db.transaction(async (tx) => {
@@ -82,20 +84,39 @@ export class OnboardingAssignmentRepository {
         );
       }
 
-      const approverPersonId = await new PostgresCanonicalGraphRepository(
-        this.db,
-      ).ensureParticipant(
-        {
-          appId: input.appId,
-          conversationId: input.conversationId,
-          providerId: providerAccount.providerId,
-          providerAccountId: input.providerAccountId,
-          externalUserId: input.approverExternalUserId,
-          displayName: input.approverDisplayName,
-          timestamp: now,
-        },
-        tx,
+      // Every allowlist member (the approver included, since the approver is
+      // always required to be a member of the allowlist) needs a resolvable
+      // identity — ensureParticipant materializes a participant + person/alias
+      // binding for whoever doesn't already have one. Previously only the
+      // approver got this, so any other allowlist member who had only ever
+      // been passively observed as a message sender (never onboarded as a
+      // participant themselves) failed identity resolution downstream.
+      const graph = new PostgresCanonicalGraphRepository(this.db);
+      const allowlistByExternalUserId = new Map(
+        input.allowlist.map((member) => [member.externalUserId, member]),
       );
+      allowlistByExternalUserId.set(input.approverExternalUserId, {
+        externalUserId: input.approverExternalUserId,
+        displayName: input.approverDisplayName,
+      });
+      let approverPersonId: string | null = null;
+      for (const member of allowlistByExternalUserId.values()) {
+        const personId = await graph.ensureParticipant(
+          {
+            appId: input.appId,
+            conversationId: input.conversationId,
+            providerId: providerAccount.providerId,
+            providerAccountId: input.providerAccountId,
+            externalUserId: member.externalUserId,
+            displayName: member.displayName,
+            timestamp: now,
+          },
+          tx,
+        );
+        if (member.externalUserId === input.approverExternalUserId) {
+          approverPersonId = personId;
+        }
+      }
       if (!approverPersonId) {
         throw new Error(
           'The selected provider identity could not be recorded.',
@@ -118,10 +139,9 @@ export class OnboardingAssignmentRepository {
               schema.userAliasesPostgres.providerAccountId,
               input.providerAccountId,
             ),
-            eq(
-              schema.userAliasesPostgres.externalUserId,
-              input.approverExternalUserId,
-            ),
+            inArray(schema.userAliasesPostgres.externalUserId, [
+              ...allowlistByExternalUserId.keys(),
+            ]),
             isNull(schema.userAliasesPostgres.retiredAt),
           ),
         );
@@ -131,6 +151,17 @@ export class OnboardingAssignmentRepository {
           appId: input.appId,
           conversationId: input.conversationId,
           externalUserIds: [input.approverExternalUserId],
+          updatedAt: now,
+        },
+        tx,
+      );
+      await replaceAgentConversationAllowlist(
+        this.db,
+        {
+          appId: input.appId,
+          agentId: input.agentId,
+          conversationId: input.conversationId,
+          externalUserIds: [...allowlistByExternalUserId.keys()],
           updatedAt: now,
         },
         tx,

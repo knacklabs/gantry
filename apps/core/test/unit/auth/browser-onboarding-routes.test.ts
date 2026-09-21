@@ -374,6 +374,7 @@ it('binds a newly discovered Slack human without requiring prior message history
     request('POST', {
       conversationId: 'conversation:slack-account:C123',
       approverExternalUserId: 'U123',
+      allowlistExternalUserIds: ['U123'],
     }),
     res,
     ctx,
@@ -393,8 +394,73 @@ it('binds a newly discovered Slack human without requiring prior message history
       providerAccountId: 'slack-account',
       approverExternalUserId: 'U123',
       approverDisplayName: 'Ada Lovelace',
+      allowlist: [{ externalUserId: 'U123', displayName: 'Ada Lovelace' }],
     }),
   );
+});
+
+it('rejects an assignment whose approver is not in the allowlist', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  onboardingStatus.mockResolvedValue({
+    completed: false,
+    deployment: {
+      agentId: 'agent:atlas',
+      providerAccountId: 'slack-account',
+    },
+  });
+  listConversationMembers.mockResolvedValue([
+    { id: 'U123', displayName: 'Ada Lovelace' },
+    { id: 'U456', displayName: 'Grace Hopper' },
+  ]);
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {
+      conversationId: 'conversation:slack-account:C123',
+      approverExternalUserId: 'U123',
+      allowlistExternalUserIds: ['U456'],
+    }),
+    res,
+    ctx,
+    '/ui/api/onboarding/assignment',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(422);
+  expect(bindWorkAssignment).not.toHaveBeenCalled();
+});
+
+it('rejects an assignment with no allowlist selected', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  onboardingStatus.mockResolvedValue({
+    completed: false,
+    deployment: {
+      agentId: 'agent:atlas',
+      providerAccountId: 'slack-account',
+    },
+  });
+  const res = response();
+
+  await handleBrowserOnboardingRoutes(
+    request('POST', {
+      conversationId: 'conversation:slack-account:C123',
+      approverExternalUserId: 'U123',
+      allowlistExternalUserIds: [],
+    }),
+    res,
+    ctx,
+    '/ui/api/onboarding/assignment',
+    settings,
+  );
+
+  expect(res.statusCode).toBe(400);
+  expect(bindWorkAssignment).not.toHaveBeenCalled();
 });
 
 it('stages and checks credentials before a model is selected', async () => {

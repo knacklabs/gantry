@@ -1065,6 +1065,13 @@
       "when": 1789886095128,
       "tag": "20260920063455_conversation_ingress_cursors",
       "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1789987667467,
+      "tag": "20260921104747_abnormal_power_pack",
+      "breakpoints": true
     }
   ]
 }

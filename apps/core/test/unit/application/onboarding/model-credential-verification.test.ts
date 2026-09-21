@@ -97,11 +97,14 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
 
     await invokeProbe({
       ...baseInput,
-      entry: toolCapableEntry({}, {
-        id: 'openai',
-        label: 'OpenAI',
-        providerModelId: 'gpt-5.6-luna',
-      }),
+      entry: toolCapableEntry(
+        {},
+        {
+          id: 'openai',
+          label: 'OpenAI',
+          providerModelId: 'gpt-5.6-luna',
+        },
+      ),
     });
 
     const [requestUrl] = fetchSpy.mock.calls[0] as [string, RequestInit];
@@ -124,7 +127,9 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
       invokeProbe({ ...baseInput, entry: toolCapableEntry() }),
     ).resolves.toBeUndefined();
     expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain('never called the requested tool');
+    expect(warnSpy.mock.calls[0]?.[0]).toContain(
+      'never called the requested tool',
+    );
   });
 
   it('hard-fails when the tool is never called and strict mode is on', async () => {
@@ -159,7 +164,10 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
-          error: { message: 'Unsupported parameter: tool_choice', type: 'invalid_request_error' },
+          error: {
+            message: 'Unsupported parameter: tool_choice',
+            type: 'invalid_request_error',
+          },
         }),
         { status: 400 },
       ),
