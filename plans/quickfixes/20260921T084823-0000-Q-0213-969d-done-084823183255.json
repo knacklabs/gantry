@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0213-969d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "codex CLI not installed on this host; applying a small (3-file) Windows dev-command fix and a console color swap directly",
+  "started_at": "2026-09-21T08:46:46+00:00",
+  "completed_at": "2026-09-21T08:48:23+00:00",
+  "files": [
+    "scripts/husky-install.mjs",
+    "package.json",
+    "apps/core/src/cli/local.ts",
+    "apps/core/src/cli/local-doctor.ts",
+    "apps/core/src/cli/auth.ts"
+  ]
+}
