@@ -275,7 +275,27 @@ function wrapWithDeclarativeToolRules(
   successLedger?: RunScopedToolSuccessLedger,
   onDenial?: ConnectGantryMcpInput['onToolRuleDenial'],
 ): StructuredToolInterface[] {
-  if (!rules?.length) return entries.map(({ tool }) => tool);
+  if (!rules?.length) {
+    // No declarative rules to enforce: patch invoke in place (rather than
+    // rebuilding via tool(), or cloning, which risks losing prototype
+    // behavior real LangChain tool instances rely on) so custom return
+    // shapes — e.g. callable-agent delegation tools using responseFormat
+    // "content_and_artifact" — keep working exactly as the unwrapped tool
+    // did, while still gaining exception safety (see invokeUnderlyingTool
+    // below).
+    return entries.map(({ tool: underlying, canonicalName }) => {
+      const boundInvoke = underlying.invoke.bind(underlying);
+      underlying.invoke = (async (input: unknown, config: unknown) => {
+        const toolName = canonicalName(input);
+        const result = await invokeUnderlyingTool(boundInvoke, input, config);
+        if (!toolResultIsError(result)) {
+          successLedger?.recordSuccess(toolName);
+        }
+        return result;
+      }) as StructuredToolInterface['invoke'];
+      return underlying;
+    });
+  }
   return entries.map(
     ({ tool: underlying, canonicalName }) =>
       tool(
@@ -298,7 +318,12 @@ function wrapWithDeclarativeToolRules(
           }
           const innerConfig = { ...config };
           delete innerConfig.toolCall;
-          const result = await underlying.invoke(input as never, innerConfig);
+          const boundInvoke = underlying.invoke.bind(underlying);
+          const result = await invokeUnderlyingTool(
+            boundInvoke,
+            input,
+            innerConfig,
+          );
           if (!toolResultIsError(result)) {
             successLedger?.recordSuccess(toolName);
           }
@@ -311,6 +336,34 @@ function wrapWithDeclarativeToolRules(
         },
       ) as unknown as StructuredToolInterface,
   );
+}
+
+// @langchain/mcp-adapters throws a ToolException (not a normal error-flagged
+// tool result) whenever the underlying MCP server returns isError:true — e.g.
+// a tool-input validation failure. Left uncaught, that exception propagates
+// out of the whole agent graph and ends the run instead of letting the model
+// see the error and retry. Convert it back into a normal error tool result.
+async function invokeUnderlyingTool(
+  boundInvoke: StructuredToolInterface['invoke'],
+  input: unknown,
+  config: unknown,
+): Promise<unknown> {
+  try {
+    return await boundInvoke(input as never, config as never);
+    // Any tool-call failure (ToolException or otherwise) must become a
+    // normal tool result, never an uncaught exception that ends the run.
+    // eslint-disable-next-line no-catch-all/no-catch-all
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: err instanceof Error ? err.message : String(err),
+        },
+      ],
+      isError: true,
+    };
+  }
 }
 
 function toolResultIsError(result: unknown): boolean {

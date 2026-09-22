@@ -35,7 +35,10 @@ function service(): McpServerService {
   return new McpServerService(
     storage.repositories.mcpServers,
     storage.repositories.agents,
-    { lookupHostname: defaultHostnameLookup, tools: storage.repositories.tools },
+    {
+      lookupHostname: defaultHostnameLookup,
+      tools: storage.repositories.tools,
+    },
   );
 }
 

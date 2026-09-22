@@ -26,8 +26,13 @@ function capabilityIdForMcpServer(serverName: string): string {
 // binding schema requires at least one, and there is nothing safe to grant
 // automatically until an admin names at least one tool.
 export function synthesizeMcpServerCapability(
-  server: Pick<McpServerDefinition, 'allowedToolPatterns' | 'displayName' | 'name' | 'riskClass'>,
-): { capabilityId: string; definition: SemanticCapabilityDefinition } | undefined {
+  server: Pick<
+    McpServerDefinition,
+    'allowedToolPatterns' | 'displayName' | 'name' | 'riskClass'
+  >,
+):
+  | { capabilityId: string; definition: SemanticCapabilityDefinition }
+  | undefined {
   const patterns = [...new Set(server.allowedToolPatterns ?? [])];
   if (patterns.length === 0) return undefined;
   const capabilityId = capabilityIdForMcpServer(server.name);
