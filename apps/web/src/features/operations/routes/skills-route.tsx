@@ -324,7 +324,7 @@ function SkillCard({
   skill: BrowserSkill;
 }) {
   return (
-    <Card className="h-full gap-3">
+    <Card className="h-full gap-3 bg-[linear-gradient(180deg,rgb(127_127_127_/_10%),rgb(127_127_127_/_4%))] shadow-[inset_-1px_0_0_rgb(255_255_255_/_4%)] ring-white/20 backdrop-blur-[22px] backdrop-saturate-150">
       <CardHeader>
         <CardTitle className="truncate text-sm">
           {titleCaseLabel(skill.name)}
@@ -764,62 +764,52 @@ function AgentsTab({
 }) {
   const manageButton =
     canManage && skill.status === 'installed' ? (
-      <Button
-        onClick={(event) => onManageAttachments(event.currentTarget)}
-        size="sm"
-        variant="secondary"
-      >
+      <Button onClick={(event) => onManageAttachments(event.currentTarget)}>
         Manage attachments
       </Button>
     ) : null;
 
-  if (!skill.attachedAgents.length) {
-    return (
-      <div className="grid gap-4">
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="m-0 min-w-0 flex-1 text-sm leading-6 text-text-secondary">
+          Attachment makes the skill available to an AI employee. AI employee
+          Access remains the only place to review authorization.
+        </p>
+        {manageButton ? <div className="shrink-0">{manageButton}</div> : null}
+      </div>
+      {!skill.attachedAgents.length ? (
         <PageState
           description="This skill is not attached to an AI employee."
           icon={<PackageCheck aria-hidden="true" />}
           kind="empty"
           title="No attached AI employees"
         />
-        {manageButton ? (
-          <div className="flex justify-center">{manageButton}</div>
-        ) : null}
-      </div>
-    );
-  }
-  return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="m-0 text-sm leading-6 text-text-secondary">
-          Attachment makes the skill available to an AI employee. AI employee
-          Access remains the only place to review authorization.
-        </p>
-        {manageButton}
-      </div>
-      <ul className="m-0 grid list-none divide-y divide-border overflow-hidden rounded-lg border border-border p-0">
-        {skill.attachedAgents.map((agent) => (
-          <li
-            className="flex flex-wrap items-center justify-between gap-3 bg-surface-muted px-4 py-3"
-            key={agent.id}
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-semibold text-text">
-                {agent.name}
-              </span>
-              <StatusBadge status={agent.status} />
-            </div>
-            <Link
-              className="text-xs font-semibold text-text underline-offset-4 hover:underline"
-              params={{ agentId: agent.id }}
-              search={{ tab: 'access' }}
-              to="/agents/$agentId"
+      ) : (
+        <ul className="m-0 grid list-none divide-y divide-border overflow-hidden rounded-lg border border-border p-0">
+          {skill.attachedAgents.map((agent) => (
+            <li
+              className="flex flex-wrap items-center justify-between gap-3 bg-surface-muted px-4 py-3"
+              key={agent.id}
             >
-              Open AI employee access
-            </Link>
-          </li>
-        ))}
-      </ul>
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-sm font-semibold text-text">
+                  {agent.name}
+                </span>
+                <StatusBadge status={agent.status} />
+              </div>
+              <Link
+                className="text-xs font-semibold text-text underline-offset-4 hover:underline"
+                params={{ agentId: agent.id }}
+                search={{ tab: 'access' }}
+                to="/agents/$agentId"
+              >
+                Open AI employee access
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
