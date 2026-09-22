@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0230-b458",
+  "profile": "degraded",
+  "reason": "Redesign skill install as a two-step dropzone+attach flow, matching Roster/Skills existing UI system (Panel/Button/Checkbox/Dialog), not onboarding's separate CSS",
+  "started_at": "2026-09-22T07:03:59+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

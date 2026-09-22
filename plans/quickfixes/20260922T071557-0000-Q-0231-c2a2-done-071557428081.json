@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0231-c2a2",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Polish skill install dialog: plain-text note instead of bordered box, auto-advance to attach step (no Next button), move install-success message to a toast",
+  "started_at": "2026-09-22T07:12:32+00:00",
+  "completed_at": "2026-09-22T07:15:57+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-admin-dialogs.tsx",
+    "apps/web/src/features/operations/routes/skills-route.test.ts"
+  ]
+}

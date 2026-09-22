@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0233-ff4e",
+  "profile": "degraded",
+  "reason": "Skills UI tweaks: green Installed badge beside name, move Manage attachments into the Agents tab, move card Manage button to bottom-right",
+  "started_at": "2026-09-22T07:28:32+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

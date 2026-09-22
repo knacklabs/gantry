@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0235-84c2",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Skills card UI: match description text size to page description, reduce title size",
+  "started_at": "2026-09-22T07:38:03+00:00",
+  "completed_at": "2026-09-22T07:38:24+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx"
+  ]
+}

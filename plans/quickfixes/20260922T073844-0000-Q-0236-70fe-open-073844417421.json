@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0236-70fe",
+  "profile": "degraded",
+  "reason": "Apply titleCaseLabel to skill detail modal title",
+  "started_at": "2026-09-22T07:38:44+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0237-4244",
+  "profile": "degraded",
+  "reason": "Match skill detail modal description color to card description color",
+  "started_at": "2026-09-22T07:39:42+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

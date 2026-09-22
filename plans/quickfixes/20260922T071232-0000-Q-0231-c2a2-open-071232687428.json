@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0231-c2a2",
+  "profile": "degraded",
+  "reason": "Polish skill install dialog: plain-text note instead of bordered box, auto-advance to attach step (no Next button), move install-success message to a toast",
+  "started_at": "2026-09-22T07:12:32+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

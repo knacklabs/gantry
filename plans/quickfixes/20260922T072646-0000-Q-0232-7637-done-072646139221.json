@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0232-7637",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Redesign Skills page: grid of cards + Manage button opening details in a modal, client-side lazy reveal on scroll, fluid auto-fill grid",
+  "started_at": "2026-09-22T07:24:13+00:00",
+  "completed_at": "2026-09-22T07:26:46+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx",
+    "apps/web/src/features/operations/routes/skills-route.test.ts"
+  ]
+}

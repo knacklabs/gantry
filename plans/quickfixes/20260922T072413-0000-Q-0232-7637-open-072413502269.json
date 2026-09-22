@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0232-7637",
+  "profile": "degraded",
+  "reason": "Redesign Skills page: grid of cards + Manage button opening details in a modal, client-side lazy reveal on scroll, fluid auto-fill grid",
+  "started_at": "2026-09-22T07:24:13+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

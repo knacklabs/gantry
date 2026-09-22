@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0235-84c2",
+  "profile": "degraded",
+  "reason": "Skills card UI: match description text size to page description, reduce title size",
+  "started_at": "2026-09-22T07:38:03+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

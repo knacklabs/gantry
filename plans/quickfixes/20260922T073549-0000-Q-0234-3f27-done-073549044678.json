@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0234-3f27",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Skills card UI: pin bottom source/manage row to card bottom regardless of description length",
+  "started_at": "2026-09-22T07:35:15+00:00",
+  "completed_at": "2026-09-22T07:35:49+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0237-4244",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Match skill detail modal description color to card description color",
+  "started_at": "2026-09-22T07:39:42+00:00",
+  "completed_at": "2026-09-22T07:40:02+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx"
+  ]
+}
