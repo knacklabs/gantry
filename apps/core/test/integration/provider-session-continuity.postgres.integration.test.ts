@@ -24,7 +24,7 @@ maybeDescribe('provider-session continuity', () => {
 
   it('selects no process-local row or lifecycle side effect while preserving a durable row', async () => {
     const workspaceFolder = 'continuity-agent';
-    const chatJid = 'app:test:continuity';
+    const chatJid = 'app:default:continuity';
     const durableSessionId = 'deepagents:durable';
     const processLocalSessionId = 'claude:stale';
 

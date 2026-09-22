@@ -201,7 +201,8 @@ export class CanonicalSessionOpsService {
       appId: input.appId,
       workspaceFolder: input.workspaceFolder,
       executionProviderId: input.executionProviderId,
-      providerSessionContinuity: input.providerSessionContinuity,
+      includeProviderSession:
+        input.providerSessionContinuity !== 'process_local',
       chatJid: input.chatJid,
       providerAccountId: input.providerAccountId,
       threadId: input.threadId,

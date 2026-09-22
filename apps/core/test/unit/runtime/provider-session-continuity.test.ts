@@ -68,6 +68,7 @@ function turnContext(provider: string | undefined) {
 function fixture(input?: {
   firstOutput?: AgentOutput;
   secondOutput?: AgentOutput;
+  updateAgentRunProviderMetadata?: ReturnType<typeof vi.fn>;
 }) {
   const contexts: Array<Record<string, unknown>> = [];
   const getAgentTurnContext = vi.fn(async (selection) => {
@@ -77,7 +78,8 @@ function fixture(input?: {
       : turnContext(undefined);
   });
   const createSessionAgentRun = vi.fn(async () => 'run:one');
-  const updateAgentRunProviderMetadata = vi.fn(async () => true);
+  const updateAgentRunProviderMetadata =
+    input?.updateAgentRunProviderMetadata ?? vi.fn(async () => true);
   const setSession = vi.fn(async () => true);
   const retireProviderSession = vi.fn(async () => undefined);
   const raiseProviderSessionContextHighWaterMark = vi.fn(async () => true);
@@ -254,6 +256,73 @@ describe('provider-session continuity', () => {
     expect(test.setSession).not.toHaveBeenCalled();
     expect(test.updateAgentRunProviderMetadata).toHaveBeenLastCalledWith({
       runId: 'run:one',
+      providerRunId: null,
+      providerSessionId: null,
+    });
+  });
+
+  it('stops process-local failover when provider run linkage cannot be cleared', async () => {
+    failover.initialProvider = DEEPAGENTS;
+    failover.targetProvider = CLAUDE;
+    const updateAgentRunProviderMetadata = vi.fn(async (input) => {
+      if (input.providerRunId === null) throw new Error('clear failed');
+      return true;
+    });
+    const test = fixture({
+      firstOutput: {
+        status: 'error',
+        result: null,
+        error: 'API Error: 401 invalid key',
+      },
+      updateAgentRunProviderMetadata,
+    });
+
+    await expect(test.invoke()).resolves.toBe('error');
+
+    expect(test.runAgent).toHaveBeenCalledOnce();
+    expect(updateAgentRunProviderMetadata).toHaveBeenCalledWith({
+      runId: 'run:one',
+      providerRunId: null,
+      providerSessionId: null,
+    });
+  });
+
+  it('clears failover linkage after the previous provider run link settles', async () => {
+    failover.initialProvider = DEEPAGENTS;
+    failover.targetProvider = CLAUDE;
+    let releaseProviderRunLink: (() => void) | undefined;
+    const updateAgentRunProviderMetadata = vi.fn(async (input) => {
+      if (typeof input.providerRunId === 'string') {
+        await new Promise<void>((resolve) => {
+          releaseProviderRunLink = resolve;
+        });
+      }
+      return true;
+    });
+    const test = fixture({
+      firstOutput: {
+        status: 'error',
+        result: null,
+        error: 'API Error: 401 invalid key',
+      },
+      updateAgentRunProviderMetadata,
+    });
+
+    const result = test.invoke();
+    await vi.waitFor(() =>
+      expect(releaseProviderRunLink).toBeTypeOf('function'),
+    );
+    expect(
+      updateAgentRunProviderMetadata.mock.calls.some(
+        ([input]) => input.providerRunId === null,
+      ),
+    ).toBe(false);
+    releaseProviderRunLink?.();
+
+    await expect(result).resolves.toBe('success');
+    expect(updateAgentRunProviderMetadata).toHaveBeenLastCalledWith({
+      runId: 'run:one',
+      providerRunId: null,
       providerSessionId: null,
     });
   });

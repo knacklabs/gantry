@@ -54,12 +54,12 @@ import { hasAsyncTaskRepository } from './group-agent-runner-async-task-reposito
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import {
+  createRunProviderMetadataUpdater,
   persistDurableProviderSessionFromOutput,
   prepareProviderSessionFailoverAttempt,
   prepareProviderSessionContext,
   raiseProviderSessionMarkFromOutput,
   retireMissingProviderSession,
-  updateRunProviderSessionMetadata,
 } from './group-agent-runner-context-ceiling.js';
 import { resolveGroupAgentAccessContext } from './group-agent-access-context.js';
 import type { RetiredProviderSessionReference } from '../domain/sessions/provider-session-measurement.js';
@@ -212,13 +212,9 @@ export function createGroupAgentRunner(input: {
     let currentProviderSessionId = resumeProviderSessionId;
     let providerSessionPersistenceAllowed =
       providerSessionContinuity === 'durable_resume';
-    const updateRunProviderMetadata = async (input: {
-      providerRunId?: string | null;
-      providerSessionId?: string | null;
-    }): Promise<void> => {
-      // prettier-ignore
-      await updateRunProviderSessionMetadata({ repository: ops(), runId: runState.runId, metadata: input, ...(options?.existingRunLeaseToken ? { lease: { leaseToken: options.existingRunLeaseToken, workerInstanceId: options.existingRunLeaseWorkerInstanceId, fencingVersion: options.existingRunLeaseFencingVersion } } : {}), groupName: group.name });
-    };
+    // prettier-ignore
+    const runProviderMetadata = createRunProviderMetadataUpdater({ repository: ops, runId: () => runState.runId, ...(options?.existingRunLeaseToken ? { lease: { leaseToken: options.existingRunLeaseToken, workerInstanceId: options.existingRunLeaseWorkerInstanceId, fencingVersion: options.existingRunLeaseFencingVersion } } : {}), groupName: group.name });
+    const updateRunProviderMetadata = runProviderMetadata.update;
     const persistProviderSessionFromOutput = async (output: AgentOutput) => {
       // prettier-ignore
       const nextSessionId = await persistDurableProviderSessionFromOutput({ output, persistenceAllowed: providerSessionPersistenceAllowed, latestProviderSessionId, turnContext, maintenanceProviderSession: Boolean(options?.maintenanceProviderSession), repository: ops(), agentFolder: group.folder, threadId: sessionThreadId, appId: runtimeAppId, executionProviderId, conversationJid: chatJid, providerAccountId: group.providerAccountId, conversationKind: group.conversationKind, memoryUserId: options?.memoryContext?.userId, accessFingerprint: currentAccessFingerprint, updateRunProviderMetadata: (providerSessionId) => updateRunProviderMetadata({ providerSessionId }) });
@@ -539,7 +535,7 @@ export function createGroupAgentRunner(input: {
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {
             if (providerSessionContinuity === 'durable_resume') {
-              void updateRunProviderMetadata({ providerRunId: runHandle });
+              runProviderMetadata.trackProviderRun(runHandle);
             }
             const registerOptions =
               memoryReviewerIsControlApprover && memoryReviewerUserId

@@ -391,9 +391,13 @@ export async function prepareProviderSessionFailoverAttempt(input: {
   groupName: string;
   patternsContextBlock: string;
   approvedSkillContextBlock: string;
-  updateRunProviderMetadata(input: {
-    providerSessionId: string | null;
-  }): Promise<void>;
+  updateRunProviderMetadata(
+    input: {
+      providerRunId?: string | null;
+      providerSessionId: string | null;
+    },
+    required?: boolean,
+  ): Promise<void>;
   onRetired(reference: RetiredProviderSessionReference): void;
 }): Promise<{
   turnContext: AgentTurnContext | undefined;
@@ -465,7 +469,10 @@ export async function prepareProviderSessionFailoverAttempt(input: {
     currentProviderSessionId = undefined;
     resumeProviderSessionId = undefined;
     resumeExternalSessionId = undefined;
-    await input.updateRunProviderMetadata({ providerSessionId: null });
+    await input.updateRunProviderMetadata(
+      { providerRunId: null, providerSessionId: null },
+      true,
+    );
   }
   return {
     turnContext,
@@ -485,33 +492,70 @@ export async function prepareProviderSessionFailoverAttempt(input: {
   };
 }
 
-export async function updateRunProviderSessionMetadata(input: {
-  repository: GroupProcessingRepository;
-  runId: string | undefined;
-  metadata: {
-    providerRunId?: string | null;
-    providerSessionId?: string | null;
-  };
+export function createRunProviderMetadataUpdater(input: {
+  repository(): GroupProcessingRepository;
+  runId(): string | undefined;
   lease?: {
     leaseToken: string;
     workerInstanceId?: string;
     fencingVersion?: number;
   };
   groupName: string;
-}): Promise<void> {
-  if (!input.runId || !input.repository.updateAgentRunProviderMetadata) return;
-  await input.repository
-    .updateAgentRunProviderMetadata({
-      runId: input.runId,
-      ...input.metadata,
+}): {
+  update(
+    metadata: {
+      providerRunId?: string | null;
+      providerSessionId?: string | null;
+    },
+    required?: boolean,
+  ): Promise<void>;
+  trackProviderRun(providerRunId: string): void;
+} {
+  let pendingProviderRunLink: Promise<void> | undefined;
+  const update = async (
+    metadata: {
+      providerRunId?: string | null;
+      providerSessionId?: string | null;
+    },
+    required = false,
+  ): Promise<void> => {
+    if (required) await pendingProviderRunLink;
+    const runId = input.runId();
+    if (!runId) return;
+    const repository = input.repository();
+    if (!repository.updateAgentRunProviderMetadata) {
+      if (required) {
+        throw new Error('Run provider metadata repository is unavailable');
+      }
+      return;
+    }
+    const write = repository.updateAgentRunProviderMetadata({
+      runId,
+      ...metadata,
       ...input.lease,
-    })
-    .catch((err) => {
-      logger.warn(
-        { err, group: input.groupName, runId: input.runId },
-        'Failed to update runtime run provider metadata',
-      );
     });
+    if (required) {
+      await write;
+    } else {
+      await write.catch((err) => {
+        logger.warn(
+          { err, group: input.groupName, runId },
+          'Failed to update runtime run provider metadata',
+        );
+      });
+    }
+  };
+  return {
+    update,
+    trackProviderRun(providerRunId) {
+      const write = update({ providerRunId });
+      pendingProviderRunLink = write;
+      void write.then(() => {
+        if (pendingProviderRunLink === write)
+          pendingProviderRunLink = undefined;
+      });
+    },
+  };
 }
 
 export async function persistDurableProviderSessionFromOutput(input: {
