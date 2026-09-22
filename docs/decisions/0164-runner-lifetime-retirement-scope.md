@@ -1,6 +1,6 @@
 ---
-status: proposed
-confirmed_by: ""
+status: accepted
+confirmed_by: "Client (chat approval)"
 date: 2026-09-22
 stories: [cache-bug]
 ---
@@ -16,8 +16,8 @@ manual pre-deploy reset. The requirements review identified that the exception
 and reversal were not explicit. It also found that superseding 0158 left the
 precise surviving cross-process ceiling rules outside the active corpus.
 
-This record is proposed, not accepted. Implementation remains gated on human
-acceptance of this clarification.
+Implementation remains subject to the separate plan, task, verification, and
+review gates; accepting this decision does not mark those gates complete.
 
 ## Decision
 

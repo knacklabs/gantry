@@ -131,13 +131,13 @@ and settings DTO work remain separately owned by T3/T4, outside this fix.
     retirement, with canonical session correlation and a hashed handle, no
     raw handle, no runId, and no cap/high-water fields.
 
-## Decision clarification awaiting acceptance
+## Decision clarification
 
-Proposed `docs/decisions/0164-runner-lifetime-retirement-scope.md` resolves the
+Accepted `docs/decisions/0164-runner-lifetime-retirement-scope.md` resolves the
 requirements review's conflict between lazy Claude retirement and the general
 manual-reset rule. It also restates the unchanged cross-process ceiling rules
-in the active decision corpus once accepted. This proposal is not yet authority
-to implement; the requirements gate remains blocked until human acceptance.
+in the active decision corpus. Plan, task, verification, and review gates
+remain required before implementation and shipment.
 
 ## Non-goals
 
