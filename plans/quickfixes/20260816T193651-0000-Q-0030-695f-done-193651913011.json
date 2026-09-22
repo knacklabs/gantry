@@ -1,0 +1,71 @@
+{
+  "event": "done",
+  "id": "Q-0030-695f",
+  "profile": "lite",
+  "by": "user",
+  "reason": "Ship the verified OpenAI GPT-5.6 Responses API compatibility fix",
+  "base_sha": "f95f9451879d543b020ceff843d0642526a0a21b",
+  "started_at": "2026-08-16T19:27:20+00:00",
+  "completed_at": "2026-08-16T19:36:51+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/deepagents-langchain/AGENTS.md",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/model-factory.ts",
+    "apps/core/test/agent-e2e/scenarios/gpt56-openai-turn.agent-e2e.test.ts",
+    "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+    "apps/core/test/unit/adapters/deepagents-model-factory.test.ts"
+  ],
+  "reviews": {
+    "quality": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The required single autoreview pass found no accepted or actionable correctness findings in the OpenAI GPT-5.6 Responses API patch.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [
+        "The committed OpenAI live E2E scenario is credential-gated; the equivalent Telegram runtime path was exercised successfully outside the source-tree E2E harness."
+      ],
+      "recommendation": "approve",
+      "reviewed_scope": [
+        "OpenAI model factory routing",
+        "gateway path behavior",
+        "unit, Postgres integration, and agent E2E coverage"
+      ],
+      "aspect": "quality",
+      "recorded_at": "2026-08-16T19:36:51+00:00",
+      "commit": "6b47281473539b8750ac3f2c91d4481e9ffda416"
+    },
+    "performance": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The required single autoreview pass found no blocking performance or scalability issue in the bounded provider-routing change.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [],
+      "recommendation": "approve",
+      "reviewed_scope": [
+        "model construction path",
+        "streaming Responses API configuration"
+      ],
+      "aspect": "performance",
+      "recorded_at": "2026-08-16T19:36:51+00:00",
+      "commit": "6b47281473539b8750ac3f2c91d4481e9ffda416"
+    },
+    "security": {
+      "generated_by": "autoreview",
+      "score": 9,
+      "summary": "The required single autoreview pass and secret scan found no blocking security issue; provider credentials remain brokered through the Gantry gateway and are redacted from E2E evidence.",
+      "blocking_findings": [],
+      "non_blocking_findings": [],
+      "residual_risks": [],
+      "recommendation": "approve",
+      "reviewed_scope": [
+        "gateway credential boundary",
+        "E2E secret handling and redaction",
+        "staged-diff secret scan"
+      ],
+      "aspect": "security",
+      "recorded_at": "2026-08-16T19:36:51+00:00",
+      "commit": "6b47281473539b8750ac3f2c91d4481e9ffda416"
+    }
+  }
+}

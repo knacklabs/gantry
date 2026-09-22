@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0029-b774",
+  "profile": "quickfix",
+  "reason": "Fix DeepAgents OpenAI gateway path mismatch found by live Telegram smoke test",
+  "started_at": "2026-08-16T18:59:03+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}
