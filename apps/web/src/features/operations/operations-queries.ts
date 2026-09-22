@@ -7,6 +7,14 @@ export const operationsQueryKeys = {
   all: ['operations'] as const,
   providers: () => [...operationsQueryKeys.all, 'providers'] as const,
   mcpServers: () => [...operationsQueryKeys.all, 'mcp-servers'] as const,
+  mcpEligibleAgents: (serverId: string, page: number, q: string) =>
+    [
+      ...operationsQueryKeys.mcpServers(),
+      serverId,
+      'eligible-agents',
+      page,
+      q,
+    ] as const,
   skills: () => [...operationsQueryKeys.all, 'skills'] as const,
   skillFiles: (skillId: string) =>
     [...operationsQueryKeys.skills(), skillId, 'files'] as const,
@@ -104,6 +112,46 @@ export const mcpServerQuery = queryOptions({
     return (await response.json()) as McpInventory;
   },
 });
+
+export type McpEligibleAgent = {
+  id: string;
+  name: string;
+  status: 'active' | 'disabled';
+  attachment: 'attached' | 'eligible';
+};
+
+export type McpEligibleAgentsPage = {
+  agents: McpEligibleAgent[];
+  page: number;
+  pageSize: number;
+  total: number;
+};
+
+export function mcpEligibleAgentsQuery(
+  serverId: string | undefined,
+  page: number,
+  q: string,
+  enabled: boolean,
+) {
+  return queryOptions({
+    queryKey: operationsQueryKeys.mcpEligibleAgents(serverId ?? '', page, q),
+    enabled: enabled && Boolean(serverId),
+    queryFn: async (): Promise<McpEligibleAgentsPage> => {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: '25',
+        ...(q.trim() ? { q: q.trim() } : {}),
+      });
+      const response = await browserFetch(
+        `/ui/api/mcp-servers/${encodeURIComponent(serverId ?? '')}/eligible-agents?${params}`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok)
+        throw new Error('Eligible AI employees could not be loaded.');
+      return (await response.json()) as McpEligibleAgentsPage;
+    },
+  });
+}
 
 export const conversationPreviewQuery = queryOptions({
   queryKey: operationsQueryKeys.conversations(),

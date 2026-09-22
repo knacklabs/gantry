@@ -12,6 +12,16 @@ export const skillsSearchSchema = z.object({
   tab: z.enum(skillTabs).catch('overview'),
 });
 
+export const mcpTabs = ['overview', 'agents'] as const;
+export type McpTab = (typeof mcpTabs)[number];
+
+export const mcpServersSearchSchema = z.object({
+  server: z.string().optional().catch(undefined),
+  q: z.string().catch(''),
+  status: z.enum(['all', 'active', 'disabled']).catch('all'),
+  tab: z.enum(mcpTabs).catch('overview'),
+});
+
 export const providerSearchSchema = z.object({
   q: z.string().catch(''),
   status: z.enum(['all', 'ready', 'attention', 'disabled']).catch('all'),

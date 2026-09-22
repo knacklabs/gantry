@@ -18,7 +18,12 @@ import {
 import type {
   AgentRepository,
   McpServerRepository,
+  ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import {
+  grantMcpServerCapability,
+  revokeMcpServerCapability,
+} from './mcp-server-capability-grant.js';
 import type { PermissionPolicyId } from '../../domain/permissions/permissions.js';
 import { ApplicationError } from '../common/application-error.js';
 import {
@@ -58,6 +63,7 @@ export class McpServerService {
       dnsValidationCache?: RemoteMcpDnsValidationCache;
       dnsLookupTimeoutMs?: number;
       auditMaterialization?: boolean;
+      tools?: ToolCatalogRepository;
     } = {},
   ) {}
 
@@ -397,6 +403,15 @@ export class McpServerService {
       updatedAt: now,
     };
     await this.mcpServers.saveAgentBinding(binding);
+    if (this.options.tools) {
+      await grantMcpServerCapability({
+        tools: this.options.tools,
+        appId: input.appId,
+        agentId: input.agentId,
+        server: latestServer,
+        now,
+      });
+    }
     await this.audit({
       appId: input.appId,
       agentId: input.agentId,
@@ -417,13 +432,30 @@ export class McpServerService {
     agentIds: AgentId[];
     serverId: McpServerId;
   }): Promise<AgentMcpServerBinding[]> {
-    return bindAgentsToMcpServer({
+    const bindings = await bindAgentsToMcpServer({
       ...input,
       agents: this.agents,
       audit: (event) => this.audit(event),
       mcpServers: this.mcpServers,
       requireServer: (appId, serverId) => this.requireServer(appId, serverId),
     });
+    const tools = this.options.tools;
+    if (tools && bindings.length > 0) {
+      const server = await this.requireServer(input.appId, input.serverId);
+      const now = nowIso();
+      await Promise.all(
+        bindings.map((binding) =>
+          grantMcpServerCapability({
+            tools,
+            appId: input.appId,
+            agentId: binding.agentId,
+            server,
+            now,
+          }),
+        ),
+      );
+    }
+    return bindings;
   }
 
   async unbindFromAgent(input: {
@@ -432,11 +464,25 @@ export class McpServerService {
     serverId: McpServerId;
   }): Promise<AgentMcpServerBinding | null> {
     await this.assertAgentInApp(input.appId, input.agentId);
+    const now = nowIso();
     const binding = await this.mcpServers.disableAgentBinding({
       ...input,
-      updatedAt: nowIso(),
+      updatedAt: now,
     });
     if (binding) {
+      const tools = this.options.tools;
+      if (tools) {
+        const server = await this.mcpServers.getServer(input.serverId);
+        if (server) {
+          await revokeMcpServerCapability({
+            tools,
+            appId: input.appId,
+            agentId: input.agentId,
+            server,
+            now,
+          });
+        }
+      }
       await this.audit({
         appId: input.appId,
         agentId: input.agentId,

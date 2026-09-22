@@ -4,6 +4,7 @@ import {
   conversationSearchSchema,
   diagnosticSearchSchema,
   interactionSearchSchema,
+  mcpServersSearchSchema,
   providerSearchSchema,
   skillsSearchSchema,
 } from '../../features/operations/operations-search';
@@ -41,6 +42,7 @@ const providersRoute = createRoute({
 const mcpServersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'mcp-servers',
+  validateSearch: mcpServersSearchSchema,
   component: lazyRouteComponent(
     () => import('../../features/operations/routes/mcp-servers-route'),
     'McpServersRoute',

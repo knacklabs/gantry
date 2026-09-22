@@ -1,12 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { PackageCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 
+import { titleCaseLabel } from '../../../lib/utils';
 import {
   browserCsrfHeader,
   browserFetch,
 } from '../../../lib/auth/browser-auth';
-import { Panel } from '../../../ui/compositions/panel';
+import { agentQueryKeys } from '../../agents/agents-queries';
+import { PageState } from '../../../ui/compositions/page-state';
+import { RouteTabs } from '../../../ui/compositions/route-tabs';
+import { StatusBadge } from '../../../ui/compositions/status-badge';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -16,13 +21,115 @@ import {
   AlertDialogTitle,
 } from '../../../ui/primitives/alert-dialog';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../ui/primitives/dialog';
+import type { McpTab } from '../operations-search';
 import { mcpServerQuery, type McpServer } from '../operations-queries';
 import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { McpAgentAttachmentsDialog } from './mcp-agent-attachments-dialog';
 
 type BrowserResponse = { error?: { message?: string }; message?: string };
 
-export function McpServerDetail({
+export function McpServerDetailDialog({
+  canManage,
+  onOpenChange,
+  onReplace,
+  onStatusChanged,
+  onTabChange,
+  open,
+  server,
+  tab,
+}: {
+  canManage: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReplace: () => void;
+  onStatusChanged: (server: McpServer, message: string) => void;
+  onTabChange: (tab: McpTab) => void;
+  open: boolean;
+  server: McpServer | undefined;
+  tab: McpTab;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="grid max-h-[calc(100dvh-32px)] w-[min(760px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-none">
+        {server ? (
+          <McpServerDetailBody
+            canManage={canManage}
+            onReplace={onReplace}
+            onStatusChanged={onStatusChanged}
+            onTabChange={onTabChange}
+            server={server}
+            tab={tab}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function McpServerDetailBody({
+  canManage,
+  onReplace,
+  onStatusChanged,
+  onTabChange,
+  server,
+  tab,
+}: {
+  canManage: boolean;
+  onReplace: () => void;
+  onStatusChanged: (server: McpServer, message: string) => void;
+  onTabChange: (tab: McpTab) => void;
+  server: McpServer;
+  tab: McpTab;
+}) {
+  return (
+    <>
+      <div className="grid gap-1 border-b border-border px-5 py-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <DialogTitle className="truncate text-sm font-semibold">
+            {titleCaseLabel(server.displayName ?? server.name)}
+          </DialogTitle>
+          <StatusBadge status={server.status} />
+        </div>
+        <DialogDescription className="line-clamp-2 text-ui text-text-secondary">
+          {server.description || 'No description provided.'}
+        </DialogDescription>
+      </div>
+      <RouteTabs
+        label="MCP server details"
+        onValueChange={onTabChange}
+        tabs={[
+          { label: 'Overview', value: 'overview' },
+          {
+            label: 'AI employees',
+            value: 'agents',
+            count: server.bindings.length,
+          },
+        ]}
+        value={tab}
+      />
+      <div className="min-h-0 overflow-y-auto p-5">
+        {tab === 'overview' ? (
+          <OverviewTab
+            canManage={canManage}
+            onReplace={onReplace}
+            onStatusChanged={onStatusChanged}
+            server={server}
+          />
+        ) : null}
+        {tab === 'agents' ? (
+          <AgentsTab canManage={canManage} server={server} />
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function OverviewTab({
   canManage,
   onReplace,
   onStatusChanged,
@@ -34,11 +141,6 @@ export function McpServerDetail({
   server: McpServer;
 }) {
   const client = useQueryClient();
-  const [attachOpen, setAttachOpen] = useState(false);
-  const [detachTarget, setDetachTarget] = useState<{
-    id: string;
-    name: string;
-  }>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [disableOpen, setDisableOpen] = useState(false);
@@ -49,11 +151,7 @@ export function McpServerDetail({
   const disableCancelRef = useRef<HTMLButtonElement>(null);
   const reconnectTriggerRef = useRef<HTMLButtonElement>(null);
   const reconnectCancelRef = useRef<HTMLButtonElement>(null);
-  const refresh = () =>
-    Promise.all([
-      client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
-      client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
-    ]);
+
   async function request(
     path: string,
     method: string,
@@ -83,7 +181,13 @@ export function McpServerDetail({
         );
         return false;
       }
-      if (refreshAfter) await refresh();
+      if (refreshAfter)
+        await Promise.all([
+          client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+          client.invalidateQueries({
+            queryKey: navigationSummaryQuery.queryKey,
+          }),
+        ]);
       return data?.message;
     } catch (error) {
       if (!(error instanceof Error)) throw error;
@@ -138,112 +242,78 @@ export function McpServerDetail({
       setReconnecting(false);
     }
   }
-  async function detach(id: string) {
-    const result = await request(
-      `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/agents/${encodeURIComponent(id)}`,
-      'DELETE',
-    );
-    if (result !== false) {
-      setDetachTarget(undefined);
-      setNotice('MCP source detached.');
-    }
-  }
   return (
-    <div className="grid gap-4">
-      <Panel
-        title={server.displayName ?? server.name}
-        action={
-          <span
-            className={
-              server.status === 'active'
-                ? 'text-status-success'
-                : 'text-text-secondary'
-            }
-          >
-            {server.status === 'active' ? 'Active' : 'Disabled'}
-          </span>
+    <div className="grid gap-4 text-sm">
+      <dl className="grid gap-3 sm:grid-cols-2">
+        <Detail label="Transport" value={transportLabel(server)} />
+        <Detail label="Risk" value={server.riskClass} />
+        <Detail
+          label="Endpoint"
+          value={server.endpoint ?? server.args?.join(' ') ?? 'Not exposed'}
+        />
+        <Detail
+          label="Network destinations"
+          value={server.networkHosts.join(', ') || 'None declared'}
+        />
+      </dl>
+      <Definition
+        label="Allowed tool names"
+        value={
+          server.allowedToolPatterns.join(', ') ||
+          'None declared. AI employees can see this source but cannot call any of its tools until at least one tool name is declared here.'
         }
-      >
-        <div className="grid gap-4 p-4 text-sm">
-          <p className="m-0 text-text-secondary">
-            {server.description || 'No description provided.'}
-          </p>
-          <dl className="grid gap-3 sm:grid-cols-2">
-            <Detail label="Transport" value={transportLabel(server)} />
-            <Detail label="Risk" value={server.riskClass} />
-            <Detail
-              label="Endpoint"
-              value={server.endpoint ?? server.args?.join(' ') ?? 'Not exposed'}
-            />
-            <Detail
-              label="Network destinations"
-              value={server.networkHosts.join(', ') || 'None declared'}
-            />
-          </dl>
-          <Definition
-            label="Allowed tool names"
-            value={
-              server.allowedToolPatterns.join(', ') ||
-              'All discovered tools are visible. This does not grant execution authority.'
-            }
-          />
-          {server.credentialRefs.length ? (
-            <Definition
-              label="Credential mappings"
-              value={server.credentialRefs
-                .map((ref) => `${ref.name} → ${ref.target}:${ref.key}`)
-                .join(', ')}
-            />
-          ) : null}
-          {notice ? (
-            <p aria-live="polite" className="m-0 text-sm text-status-success">
-              {notice}
-            </p>
-          ) : null}
-          {error ? (
-            <p aria-live="polite" className="m-0 text-sm text-danger">
-              {error}
-            </p>
-          ) : null}
-          {canManage && server.status === 'active' ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => void diagnose()}
-                size="sm"
-                variant="secondary"
-              >
-                Validate configuration
-              </Button>
-              <Button onClick={onReplace} size="sm" variant="secondary">
-                Replace configuration
-              </Button>
-              <Button
-                onClick={() => setDisableOpen(true)}
-                ref={disableTriggerRef}
-                size="sm"
-                variant="secondary"
-              >
-                Disable server
-              </Button>
-            </div>
-          ) : null}
-          {canManage && server.status === 'disabled' ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => setReconnectOpen(true)}
-                ref={reconnectTriggerRef}
-                size="sm"
-                variant="secondary"
-              >
-                Revalidate & reconnect
-              </Button>
-              <Button onClick={onReplace} size="sm" variant="secondary">
-                Replace configuration
-              </Button>
-            </div>
-          ) : null}
+      />
+      {server.credentialRefs.length ? (
+        <Definition
+          label="Credential mappings"
+          value={server.credentialRefs
+            .map((ref) => `${ref.name} → ${ref.target}:${ref.key}`)
+            .join(', ')}
+        />
+      ) : null}
+      {notice ? (
+        <p aria-live="polite" className="m-0 text-sm text-status-success">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p aria-live="polite" className="m-0 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      {canManage && server.status === 'active' ? (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void diagnose()} size="sm" variant="secondary">
+            Validate configuration
+          </Button>
+          <Button onClick={onReplace} size="sm" variant="secondary">
+            Replace configuration
+          </Button>
+          <Button
+            onClick={() => setDisableOpen(true)}
+            ref={disableTriggerRef}
+            size="sm"
+            variant="secondary"
+          >
+            Disable server
+          </Button>
         </div>
-      </Panel>
+      ) : null}
+      {canManage && server.status === 'disabled' ? (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => setReconnectOpen(true)}
+            ref={reconnectTriggerRef}
+            size="sm"
+            variant="secondary"
+          >
+            Revalidate & reconnect
+          </Button>
+          <Button onClick={onReplace} size="sm" variant="secondary">
+            Replace configuration
+          </Button>
+        </div>
+      ) : null}
       <AlertDialog onOpenChange={setDisableOpen} open={disableOpen}>
         <AlertDialogContent
           onCloseAutoFocus={(event) => {
@@ -319,72 +389,140 @@ export function McpServerDetail({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <Panel
-        title="Attached AI employees"
-        description="Connected sources make MCP tools visible. They do not grant authority to act."
-        action={
-          canManage && server.status === 'active' ? (
-            <Button onClick={() => setAttachOpen(true)} size="sm">
-              Attach AI employees
-            </Button>
-          ) : null
-        }
-      >
-        <div className="grid">
-          <ul className="m-0 grid max-h-64 list-none divide-y divide-border overflow-y-auto p-0">
-            {server.bindings.map(({ agentId: id, name }) => (
-              <li
-                className="flex items-center justify-between gap-3 p-4"
-                key={id}
-              >
-                <div>
-                  <p className="m-0 font-medium">{name}</p>
-                  <p className="m-0 text-xs text-text-secondary">
-                    Source attached
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link
-                    className="text-xs font-medium text-text underline-offset-4 hover:underline"
-                    params={{ agentId: id }}
-                    search={{ tab: 'access' }}
-                    to="/agents/$agentId"
+    </div>
+  );
+}
+
+function AgentsTab({
+  canManage,
+  server,
+}: {
+  canManage: boolean;
+  server: McpServer;
+}) {
+  const client = useQueryClient();
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [detachTarget, setDetachTarget] = useState<{
+    id: string;
+    name: string;
+  }>();
+  const [notice, setNotice] = useState<string>();
+  const [error, setError] = useState<string>();
+  const refresh = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: mcpServerQuery.queryKey }),
+      client.invalidateQueries({ queryKey: navigationSummaryQuery.queryKey }),
+    ]);
+  async function detach(id: string) {
+    setError(undefined);
+    try {
+      const response = await browserFetch(
+        `/ui/api/mcp-servers/${encodeURIComponent(server.id)}/agents/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { ...browserCsrfHeader() },
+        },
+      );
+      if (!response.ok) {
+        const data = (await response
+          .json()
+          .catch(() => null)) as BrowserResponse | null;
+        setError(
+          data?.message ?? data?.error?.message ?? 'Detach could not be saved.',
+        );
+        return;
+      }
+      await Promise.all([
+        refresh(),
+        client.invalidateQueries({
+          queryKey: [...agentQueryKeys.all, 'sources', id],
+        }),
+      ]);
+      setDetachTarget(undefined);
+      setNotice('MCP source detached.');
+    } catch {
+      setError(
+        'Detach could not be saved. Check the Gantry service and try again.',
+      );
+    }
+  }
+  const manageButton =
+    canManage && server.status === 'active' ? (
+      <Button onClick={() => setAttachOpen(true)}>Attach AI employees</Button>
+    ) : null;
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="m-0 min-w-0 flex-1 text-sm leading-6 text-text-secondary">
+          Connected sources make MCP tools visible. They do not grant authority
+          to act.
+        </p>
+        {manageButton ? <div className="shrink-0">{manageButton}</div> : null}
+      </div>
+      {notice ? (
+        <p aria-live="polite" className="m-0 text-sm text-status-success">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p aria-live="polite" className="m-0 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      {!server.bindings.length ? (
+        <PageState
+          description="This MCP server is not attached to an AI employee."
+          icon={<PackageCheck aria-hidden="true" />}
+          kind="empty"
+          title="No attached AI employees"
+        />
+      ) : (
+        <ul className="m-0 grid list-none divide-y divide-border overflow-hidden rounded-lg border border-border p-0">
+          {server.bindings.map(({ agentId: id, name }) => (
+            <li
+              className="flex flex-wrap items-center justify-between gap-3 bg-surface-muted px-4 py-3"
+              key={id}
+            >
+              <span className="truncate text-sm font-semibold text-text">
+                {name}
+              </span>
+              <div className="flex items-center gap-3">
+                <Link
+                  className="text-xs font-semibold text-text underline-offset-4 hover:underline"
+                  params={{ agentId: id }}
+                  search={{ tab: 'access' }}
+                  to="/agents/$agentId"
+                >
+                  Open AI employee access
+                </Link>
+                {canManage ? (
+                  <Button
+                    onClick={() => setDetachTarget({ id, name })}
+                    size="sm"
+                    variant="ghost"
                   >
-                    Open AI employee
-                  </Link>
-                  {canManage ? (
-                    <Button
-                      onClick={() => setDetachTarget({ id, name })}
-                      size="sm"
-                      variant="ghost"
-                    >
-                      Detach
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-            {server.bindings.length === 0 ? (
-              <li className="p-4 text-sm text-text-secondary">
-                No AI employees are attached to this MCP server.
-              </li>
-            ) : null}
-          </ul>
-        </div>
-      </Panel>
+                    Detach
+                  </Button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       <McpAgentAttachmentsDialog
-        open={attachOpen}
-        onOpenChange={setAttachOpen}
-        serverId={server.id}
         onAttached={async (count) => {
           await refresh();
           setNotice(
             `MCP source attached to ${count} AI employee${count === 1 ? '' : 's'}. It becomes available on each AI employee’s next run.`,
           );
         }}
+        onOpenChange={setAttachOpen}
+        open={attachOpen}
+        serverId={server.id}
       />
       <AlertDialog
-        onOpenChange={(open) => !open && setDetachTarget(undefined)}
+        onOpenChange={(nextOpen) => !nextOpen && setDetachTarget(undefined)}
         open={Boolean(detachTarget)}
       >
         <AlertDialogContent>
@@ -434,7 +572,7 @@ function Definition({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function transportLabel(server: McpServer) {
+export function transportLabel(server: McpServer) {
   return server.transport === 'stdio_template'
     ? `Local process${server.templateId ? ` · ${server.templateId}` : ''}`
     : server.transport.toUpperCase();

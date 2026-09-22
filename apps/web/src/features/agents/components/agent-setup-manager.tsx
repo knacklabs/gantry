@@ -13,6 +13,8 @@ import {
   type AgentSource,
   type CapabilityCatalog,
 } from '../agents-queries';
+import { mcpServerQuery } from '../../operations/operations-queries';
+import { skillInventoryQuery } from '../../operations/skills-queries';
 import { AgentSetupCatalog } from './agent-setup-catalog';
 
 type SetupKind = 'sources' | 'capabilities';
@@ -116,6 +118,16 @@ export function AgentSetupManager({
           queryKey: agentQueryKeys.all,
           refetchType: 'active',
         }),
+        ...(kind === 'sources'
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: mcpServerQuery.queryKey,
+              }),
+              queryClient.invalidateQueries({
+                queryKey: skillInventoryQuery.queryKey,
+              }),
+            ]
+          : []),
       ]);
       onSaved();
     },
