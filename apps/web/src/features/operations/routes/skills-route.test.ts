@@ -105,7 +105,9 @@ it('restores Skills URL state and responsive page states', () => {
     }),
   ).toEqual({ q: 'incident', skill: 'skill:one', tab: 'actions' });
   expect(skillsSearchSchema.parse({ tab: 'unknown' }).tab).toBe('overview');
-  expect(resolveSkillSelection([skill], 'missing')?.id).toBe('skill:one');
+  expect(resolveSkillSelection([skill], 'skill:one')?.id).toBe('skill:one');
+  expect(resolveSkillSelection([skill], 'missing')).toBeUndefined();
+  expect(resolveSkillSelection([skill], undefined)).toBeUndefined();
   expect(filterSkills([skill], 'admin uploaded')).toEqual([skill]);
   expect(filterSkills([skill], 'SKILL:ONE')).toEqual([skill]);
   expect(filterSkills([skill], 'INSTALLED')).toEqual([skill]);
@@ -120,8 +122,6 @@ it('restores Skills URL state and responsive page states', () => {
   );
   expect(route).not.toMatch(/search:\s*\{\s*\.\.\.search/);
   expect(route).toContain('replace: true');
-  expect(route).toContain('selectedSkillId === search.skill');
-  expect(route).toContain('skills.some((skill) => skill.id === search.skill)');
   expect(route).toContain('Loading skills');
   expect(route).toContain('Skills could not be loaded');
   expect(route).toContain('inventoryQuery.refetch()');
@@ -129,10 +129,8 @@ it('restores Skills URL state and responsive page states', () => {
   expect(route).toContain('fileQuery.refetch()');
   expect(route).toContain('No skills installed');
   expect(route).toContain('No skills match this search');
-  expect(route).toContain('data-layout="responsive-split"');
-  expect(route).toContain(
-    'lg:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.6fr)]',
-  );
+  expect(route).toContain('data-layout="skill-card-grid"');
+  expect(route).toContain('grid-cols-[repeat(auto-fill,minmax(260px,1fr))]');
 });
 
 it('keeps Skills inspection read only and lazy with AI employee Access links', () => {
@@ -193,16 +191,16 @@ it('supports administrator ZIP installation without automatic attachment', async
 
   const dialogs = source('./skills-admin-dialogs.tsx').replace(/\s+/g, ' ');
   expect(dialogs).toContain(
-    'Add a ZIP package to Gantry’s skill inventory. AI employee attachment is managed separately after installation.',
+    'Add a ZIP package to Gantry’s skill inventory, then choose which AI employees receive it.',
   );
   expect(dialogs).toContain('Choose a skill ZIP');
+  expect(dialogs).toContain('Drag and drop your file here');
   expect(dialogs).toContain('ZIP only · Maximum 5 MB');
   expect(dialogs).toContain(
     'Installing a package with the same skill name updates it in place. Attached AI employees receive the updated instructions on their next run.',
   );
-  expect(dialogs).toContain('Skill installed.');
-  expect(dialogs).toContain('View skill');
-  expect(dialogs).toContain('Attach AI employees');
+  expect(dialogs).toContain('toast.success(`${skill.name} installed.`)');
+  expect(dialogs).toContain('Skip');
   expect(dialogs).toContain('...skill.attachedAgents.map((agent) =>');
   expect(dialogs).toContain("agentQueryKeys.all, 'sources', agent.id");
   expect(dialogs).toContain('queryKey: agentQueryKeys.all');
@@ -320,11 +318,11 @@ it('preserves mutation failures and invalidates affected queries', async () => {
   expect(dialogs).toContain('setSelected(new Set(confirmed))');
   expect(dialogs).toContain('setHydratedSkillId(refreshed.data.skillId)');
   expect(dialogs).toMatch(/query\.isError\s*\|\|\s*reconciliationRequired/);
-  expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(4);
-  expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(4);
+  expect(dialogs.match(/skillInventoryQuery\.queryKey/g)).toHaveLength(5);
+  expect(dialogs.match(/navigationSummaryQuery\.queryKey/g)).toHaveLength(5);
   expect(
     dialogs.match(/agentQueryKeys\.all, 'sources', agentId/g),
-  ).toHaveLength(2);
+  ).toHaveLength(3);
   expect(dialogs).toContain("'Attachments could not be saved.'");
   expect(source('./skills-route.tsx')).toContain(
     'Attachments saved. Changes apply on each AI employee’s next run.',
@@ -339,13 +337,12 @@ it('keeps Skills dialogs accessible and constrained', () => {
     'aria-describedby="skill-zip-hint skill-update-warning"',
   );
   expect(dialogs).toContain('aria-live="polite"');
-  expect(dialogs).toContain('aria-atomic="true"');
   expect(dialogs).toContain('aria-live="assertive"');
   expect(dialogs).toContain('onOpenAutoFocus');
   expect(dialogs).toContain('onCloseAutoFocus');
   expect(dialogs).toContain('onEscapeKeyDown');
   expect(dialogs).toContain('onInteractOutside');
-  expect(dialogs).toContain('successActionRef.current?.focus()');
+  expect(dialogs).toContain('skipRef.current?.focus()');
   expect(dialogs).toContain('doneRef.current?.focus()');
   expect(dialogs).toContain('max-h-[calc(100dvh-32px)]');
   expect(dialogs).toContain('w-[min(680px,calc(100vw-32px))]');

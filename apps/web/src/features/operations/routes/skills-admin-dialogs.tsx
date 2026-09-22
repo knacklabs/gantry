@@ -1,7 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { UploadCloud } from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type RefObject,
+} from 'react';
 
+import { cn } from '../../../lib/utils';
 import { agentQueryKeys } from '../../agents/agents-queries';
 import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
 import { Button } from '../../../ui/primitives/button';
@@ -12,7 +19,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '../../../ui/primitives/dialog';
-import { Input } from '../../../ui/primitives/input';
+import { toast } from '../../../ui/primitives/toast';
 import {
   installSkillZip,
   replaceSkillAttachments,
@@ -54,40 +61,199 @@ export function toggleAgentSelection(
   return next;
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(0)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function normalizedSkillFileName(fileName: string): string {
+  return fileName
+    .replace(/\.zip$/i, '')
+    .trim()
+    .toLowerCase();
+}
+
+function findMatchingSkill(
+  file: File | undefined,
+  skills: readonly BrowserSkill[] | undefined,
+): BrowserSkill | undefined {
+  if (!file || !skills) return undefined;
+  const candidate = normalizedSkillFileName(file.name);
+  return skills.find(
+    (skill) =>
+      skill.name.trim().toLowerCase() === candidate ||
+      skill.id.trim().toLowerCase() === candidate,
+  );
+}
+
+function SkillDropzone({
+  containerRef,
+  disabled,
+  file,
+  inputRef,
+  onFileSelected,
+}: {
+  containerRef?: RefObject<HTMLDivElement | null>;
+  disabled: boolean;
+  file: File | undefined;
+  inputRef: RefObject<HTMLInputElement | null>;
+  onFileSelected: (file: File | undefined) => void;
+}) {
+  const [dragActive, setDragActive] = useState(false);
+
+  function open() {
+    if (!disabled) inputRef.current?.click();
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    if (disabled) return;
+    onFileSelected(event.dataTransfer.files[0]);
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <label className="text-xs font-semibold text-text" htmlFor="skill-zip">
+        Choose a skill ZIP
+      </label>
+      <div
+        aria-disabled={disabled}
+        className={cn(
+          'grid cursor-pointer gap-3 rounded-xl border-2 border-dashed p-6 text-center transition-colors',
+          dragActive
+            ? 'border-ring bg-ring/5'
+            : 'border-border-strong bg-surface-muted',
+          disabled && 'pointer-events-none opacity-60',
+        )}
+        onClick={open}
+        ref={containerRef}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!disabled) setDragActive(true);
+        }}
+        onDrop={handleDrop}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open();
+          }
+        }}
+        role="button"
+        tabIndex={disabled ? -1 : 0}
+      >
+        <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-surface text-text-secondary">
+          <UploadCloud aria-hidden="true" size={20} />
+        </div>
+        <div className="grid gap-1">
+          <p className="m-0 text-sm font-semibold text-text">
+            {file ? file.name : 'Drag and drop your file here'}
+          </p>
+          <p className="m-0 text-xs text-text-secondary" id="skill-zip-hint">
+            {file ? formatFileSize(file.size) : 'ZIP only · Maximum 5 MB'}
+          </p>
+        </div>
+        <div>
+          <Button
+            disabled={disabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              open();
+            }}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            {file ? 'Choose a different file' : 'Browse files'}
+          </Button>
+        </div>
+        <input
+          accept=".zip,application/zip"
+          aria-describedby="skill-zip-hint skill-update-warning"
+          className="sr-only"
+          disabled={disabled}
+          id="skill-zip"
+          onChange={(event) => onFileSelected(event.target.files?.[0])}
+          ref={inputRef}
+          type="file"
+        />
+      </div>
+    </div>
+  );
+}
+
 export function SkillInstallDialog({
-  onAttachAgents,
   onOpenChange,
-  onViewSkill,
   open,
   returnFocusRef,
 }: {
-  onAttachAgents: (skill: BrowserSkill) => void;
   onOpenChange: (open: boolean) => void;
-  onViewSkill: (skill: BrowserSkill) => void;
   open: boolean;
   returnFocusRef: RefObject<HTMLElement | null>;
 }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const successActionRef = useRef<HTMLButtonElement>(null);
+  const dropzoneRef = useRef<HTMLDivElement>(null);
+  const skipRef = useRef<HTMLButtonElement>(null);
+  const [step, setStep] = useState<'upload' | 'attach'>('upload');
   const [file, setFile] = useState<File>();
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string>();
   const [installed, setInstalled] = useState<BrowserSkill>();
+  const inventoryQuery = useQuery(skillInventoryQuery);
+  const matchingSkill = findMatchingSkill(file, inventoryQuery.data?.skills);
+
+  const attachQuery = useQuery(
+    skillAttachmentsQuery(installed?.id, step === 'attach'),
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [hydratedSkillId, setHydratedSkillId] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [attachError, setAttachError] = useState<string>();
 
   useEffect(() => {
     if (open) return;
+    setStep('upload');
     setFile(undefined);
     setError(undefined);
     setInstalled(undefined);
+    setSelected(new Set());
+    setHydratedSkillId(undefined);
+    setSaving(false);
+    setAttachError(undefined);
   }, [open]);
 
   useEffect(() => {
-    if (installed) successActionRef.current?.focus();
-  }, [installed]);
+    if (step === 'attach') skipRef.current?.focus();
+  }, [step]);
+
+  useEffect(() => {
+    if (
+      step !== 'attach' ||
+      !attachQuery.data ||
+      attachQuery.isFetching ||
+      attachQuery.isError ||
+      hydratedSkillId === attachQuery.data.skillId
+    )
+      return;
+    setSelected(attachedIds(attachQuery.data));
+    setHydratedSkillId(attachQuery.data.skillId);
+  }, [
+    step,
+    attachQuery.data,
+    attachQuery.isFetching,
+    attachQuery.isError,
+    hydratedSkillId,
+  ]);
 
   function changeOpen(next: boolean) {
-    if (!next && installing) return;
+    if (!next && (installing || saving)) return;
     onOpenChange(next);
   }
 
@@ -111,6 +277,8 @@ export function SkillInstallDialog({
         ),
       ]);
       setInstalled(skill);
+      setStep('attach');
+      toast.success(`${skill.name} installed.`);
     } catch (caught) {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -129,6 +297,46 @@ export function SkillInstallDialog({
     }
   }
 
+  function toggle(agentId: string) {
+    setSelected((current) => toggleAgentSelection(current, agentId));
+  }
+
+  async function saveAttachmentsAndClose() {
+    if (!installed || !attachQuery.data || hydratedSkillId !== installed.id) {
+      changeOpen(false);
+      return;
+    }
+    setSaving(true);
+    setAttachError(undefined);
+    const desiredIds = [...selected];
+    try {
+      const result = await replaceSkillAttachments(installed.id, desiredIds);
+      queryClient.setQueryData(
+        skillAttachmentsQuery(installed.id, true).queryKey,
+        result,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: skillInventoryQuery.queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: navigationSummaryQuery.queryKey,
+        }),
+        ...desiredIds.map((agentId) =>
+          queryClient.invalidateQueries({
+            queryKey: [...agentQueryKeys.all, 'sources', agentId],
+          }),
+        ),
+      ]);
+      setSaving(false);
+      toast.success('Attachments saved.');
+      changeOpen(false);
+    } catch (caught) {
+      setAttachError(messageFor(caught, 'Attachments could not be saved.'));
+      setSaving(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogContent
@@ -138,134 +346,182 @@ export function SkillInstallDialog({
           returnFocus(returnFocusRef);
         }}
         onEscapeKeyDown={(event) => {
-          if (installing) event.preventDefault();
+          if (installing || saving) event.preventDefault();
         }}
         onInteractOutside={(event) => {
-          if (installing) event.preventDefault();
+          if (installing || saving) event.preventDefault();
         }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          fileInputRef.current?.focus();
+          dropzoneRef.current?.focus();
         }}
-        showCloseButton={!installing}
+        showCloseButton={!installing && !saving}
       >
-        <div className="grid gap-1">
-          <DialogTitle className="text-lg font-semibold">
-            Install skill
-          </DialogTitle>
-          <DialogDescription>
-            Add a ZIP package to Gantry’s skill inventory. AI employee
-            attachment is managed separately after installation.
-          </DialogDescription>
-        </div>
-
-        <p
-          aria-atomic="true"
-          aria-live="polite"
-          className={
-            installed
-              ? 'm-0 rounded-lg border border-status-success/40 bg-status-success-soft p-3 text-sm text-status-success'
-              : 'sr-only'
-          }
-        >
-          {installed ? 'Skill installed.' : ''}
-        </p>
-
-        {installed ? (
-          <div className="grid gap-4">
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                onClick={() => {
-                  onViewSkill(installed);
-                  changeOpen(false);
-                }}
-                ref={successActionRef}
-                variant="secondary"
-              >
-                View skill
-              </Button>
-              <Button
-                onClick={() => {
-                  onAttachAgents(installed);
-                  changeOpen(false);
-                }}
-              >
-                Attach AI employees
-              </Button>
+        {step === 'upload' ? (
+          <>
+            <div className="grid gap-1">
+              <DialogTitle className="text-lg font-semibold">
+                Install skill
+              </DialogTitle>
+              <DialogDescription>
+                Add a ZIP package to Gantry’s skill inventory, then choose which
+                AI employees receive it.
+              </DialogDescription>
             </div>
-          </div>
-        ) : (
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void install();
-            }}
-          >
-            <div className="grid gap-1.5">
-              <label
-                className="text-xs font-semibold text-text"
-                htmlFor="skill-zip"
-              >
-                Choose a skill ZIP
-              </label>
-              <Input
-                accept=".zip,application/zip"
-                aria-describedby="skill-zip-hint skill-update-warning"
+
+            <div className="grid gap-4">
+              <SkillDropzone
+                containerRef={dropzoneRef}
                 disabled={installing}
-                id="skill-zip"
-                onChange={(event) => {
-                  setFile(event.target.files?.[0]);
+                file={file}
+                inputRef={fileInputRef}
+                onFileSelected={(next) => {
+                  setFile(next);
                   setError(undefined);
                 }}
-                ref={fileInputRef}
-                required
-                type="file"
               />
-              <p
-                className="m-0 text-xs text-text-secondary"
-                id="skill-zip-hint"
-              >
-                ZIP only · Maximum 5 MB
-              </p>
+              {matchingSkill ? (
+                <p
+                  className="m-0 text-xs leading-5 text-status-attention"
+                  id="skill-update-warning"
+                >
+                  This will replace the existing skill “{matchingSkill.name}”
+                  since the name matches. Click Install to replace it.
+                </p>
+              ) : (
+                <p
+                  className="m-0 text-xs leading-5 text-text-secondary"
+                  id="skill-update-warning"
+                >
+                  Installing a package with the same skill name updates it in
+                  place. Attached AI employees receive the updated instructions
+                  on their next run.
+                </p>
+              )}
+              {error ? (
+                <p
+                  aria-live="assertive"
+                  className="m-0 text-sm text-danger"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  disabled={installing}
+                  onClick={() => changeOpen(false)}
+                  type="button"
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!file || installing}
+                  onClick={() => void install()}
+                  type="button"
+                >
+                  {installing ? 'Installing…' : 'Install skill'}
+                </Button>
+              </div>
             </div>
-            <p
-              className="m-0 flex gap-2 rounded-lg border border-status-attention/40 bg-status-attention-soft p-3 text-xs leading-5 text-status-attention"
-              id="skill-update-warning"
-            >
-              <AlertTriangle
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0"
-              />
-              <span>
-                Installing a package with the same skill name updates it in
-                place. Attached AI employees receive the updated instructions on
-                their next run.
-              </span>
-            </p>
-            {error ? (
-              <p
-                aria-live="assertive"
-                className="m-0 text-sm text-danger"
-                role="alert"
-              >
-                {error}
-              </p>
-            ) : null}
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button
-                disabled={installing}
-                onClick={() => changeOpen(false)}
-                type="button"
-                variant="secondary"
-              >
-                Cancel
-              </Button>
-              <Button disabled={!file || installing} type="submit">
-                {installing ? 'Installing…' : 'Install skill'}
-              </Button>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-1">
+              <DialogTitle className="text-lg font-semibold">
+                Attach AI employees
+              </DialogTitle>
+              <DialogDescription>
+                Choose which AI employees receive this skill’s instructions on
+                their next run. You can skip this and attach it later.
+              </DialogDescription>
             </div>
-          </form>
+
+            <div className="grid gap-4">
+              {attachQuery.isPending ? (
+                <p
+                  aria-live="polite"
+                  className="m-0 text-sm text-text-secondary"
+                >
+                  Loading AI employees…
+                </p>
+              ) : null}
+              {attachQuery.isError ? (
+                <p className="m-0 text-sm text-danger" role="alert">
+                  AI employees could not be loaded.
+                </p>
+              ) : null}
+              {attachQuery.data && !attachQuery.isError ? (
+                <fieldset
+                  className="m-0 grid gap-2 border-0 p-0"
+                  disabled={saving}
+                >
+                  <legend className="mb-2 text-xs font-semibold text-text">
+                    AI employees
+                  </legend>
+                  {attachQuery.data.agents.map((agent) => (
+                    <label
+                      className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface-muted p-3 has-focus-visible:border-ring has-focus-visible:ring-3 has-focus-visible:ring-ring/50"
+                      key={agent.id}
+                    >
+                      <Checkbox
+                        aria-label={`Attach ${installed?.name ?? 'skill'} to ${agent.name}`}
+                        checked={selected.has(agent.id)}
+                        disabled={
+                          !selected.has(agent.id) &&
+                          selected.size >= MAX_SELECTED_AGENTS
+                        }
+                        onCheckedChange={() => toggle(agent.id)}
+                      />
+                      <span className="grid gap-0.5">
+                        <span className="text-sm font-semibold text-text">
+                          {agent.name}
+                        </span>
+                        <span className="text-xs text-text-secondary">
+                          {agent.status === 'disabled'
+                            ? 'Disabled · available when the AI employee is enabled.'
+                            : 'Active'}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                  {!attachQuery.data.agents.length ? (
+                    <p className="m-0 text-sm text-text-secondary">
+                      No AI employees are available in this app.
+                    </p>
+                  ) : null}
+                </fieldset>
+              ) : null}
+              {attachError ? (
+                <p
+                  aria-live="assertive"
+                  className="m-0 text-sm text-danger"
+                  role="alert"
+                >
+                  {attachError}
+                </p>
+              ) : null}
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  disabled={saving}
+                  onClick={() => changeOpen(false)}
+                  ref={skipRef}
+                  type="button"
+                  variant="secondary"
+                >
+                  Skip
+                </Button>
+                <Button
+                  disabled={saving}
+                  onClick={() => void saveAttachmentsAndClose()}
+                  type="button"
+                >
+                  {saving ? 'Saving…' : 'Done'}
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </DialogContent>
     </Dialog>

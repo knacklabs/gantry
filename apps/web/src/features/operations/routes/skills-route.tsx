@@ -2,21 +2,34 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import {
   AlertTriangle,
+  ArrowRight,
   FileBox,
   PackageCheck,
   PackageOpen,
   SearchX,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 
+import { titleCaseLabel } from '../../../lib/utils';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
-import { Panel } from '../../../ui/compositions/panel';
 import { RouteTabs } from '../../../ui/compositions/route-tabs';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { TextField } from '../../../ui/compositions/text-field';
 import { Badge } from '../../../ui/primitives/badge';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '../../../ui/primitives/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../ui/primitives/dialog';
 import type { SkillTab } from '../operations-search';
 import {
   skillFileQuery,
@@ -41,6 +54,11 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
+// How many cards are revealed at once. Skill inventory metadata is cheap to
+// fetch in full (no file contents), but rendering hundreds of cards at once
+// is still wasted DOM work — this windows the RENDER, not the network fetch.
+const CARD_PAGE_SIZE = 24;
+
 export function filterSkills(
   skills: readonly BrowserSkill[],
   query: string,
@@ -54,13 +72,15 @@ export function filterSkills(
   );
 }
 
+// Unlike the old split-panel layout, there is no default "first skill"
+// selection: the detail modal only opens for a skill explicitly requested by
+// id (via clicking a card's Manage button, or a deep link).
 export function resolveSkillSelection(
   visibleSkills: readonly BrowserSkill[],
   requestedId: string | undefined,
 ): BrowserSkill | undefined {
-  return (
-    visibleSkills.find((skill) => skill.id === requestedId) ?? visibleSkills[0]
-  );
+  if (!requestedId) return undefined;
+  return visibleSkills.find((skill) => skill.id === requestedId);
 }
 
 export function SkillsRoute() {
@@ -74,31 +94,40 @@ export function SkillsRoute() {
     [search.q, skills],
   );
   const selectedSkill = resolveSkillSelection(visibleSkills, search.skill);
+
+  const [visibleCount, setVisibleCount] = useState(CARD_PAGE_SIZE);
   useEffect(() => {
-    if (!inventoryQuery.isSuccess || !search.skill) {
-      return;
-    }
-    const selectedSkillId = selectedSkill?.id;
-    if (
-      selectedSkillId === search.skill ||
-      (!selectedSkillId && skills.some((skill) => skill.id === search.skill))
-    ) {
-      return;
-    }
-    void navigate({
-      replace: true,
-      search: (previous) => ({ ...previous, skill: selectedSkillId }),
-    });
-  }, [inventoryQuery.isSuccess, navigate, search.skill, selectedSkill, skills]);
-  const [requestedFilePath, setRequestedFilePath] = useState<string>();
+    setVisibleCount(CARD_PAGE_SIZE);
+  }, [search.q]);
+  const cards = visibleSkills.slice(0, visibleCount);
+  const hasMoreCards = visibleCount < visibleSkills.length;
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!hasMoreCards) return;
+    const sentinel = loadMoreRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((current) => current + CARD_PAGE_SIZE);
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreCards]);
+
   const installTriggerRef = useRef<HTMLButtonElement>(null);
   const attachmentReturnFocusRef = useRef<HTMLElement | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [attachmentSkill, setAttachmentSkill] = useState<BrowserSkill>();
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [receipt, setReceipt] = useState<string>();
+  const [requestedFilePath, setRequestedFilePath] = useState<string>();
+  const detailOpen = Boolean(selectedSkill);
   const filesQuery = useQuery(
-    skillFilesQuery(selectedSkill?.id, search.tab === 'files'),
+    skillFilesQuery(selectedSkill?.id, detailOpen && search.tab === 'files'),
   );
   const selectedFile =
     filesQuery.data?.files.find((file) => file.path === requestedFilePath) ??
@@ -107,9 +136,16 @@ export function SkillsRoute() {
     skillFileQuery(
       selectedSkill?.id,
       selectedFile?.path,
-      search.tab === 'files',
+      detailOpen && search.tab === 'files',
     ),
   );
+
+  function closeDetail() {
+    setRequestedFilePath(undefined);
+    void navigate({
+      search: (previous) => ({ ...previous, skill: undefined }),
+    });
+  }
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-6">
@@ -202,68 +238,64 @@ export function SkillsRoute() {
         />
       ) : null}
 
-      {selectedSkill ? (
+      {cards.length ? (
         <div
-          className="grid items-start gap-4 lg:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.6fr)]"
-          data-layout="responsive-split"
+          className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4"
+          data-layout="skill-card-grid"
         >
-          <SkillInventory
-            selectedId={selectedSkill.id}
-            skills={visibleSkills}
-            total={skills.length}
-            onSelect={(skillId) =>
-              void navigate({
-                search: (previous) => ({ ...previous, skill: skillId }),
-              })
-            }
-          />
-          <SkillDetail
-            canManage={canManage}
-            file={fileQuery.data?.file}
-            fileError={fileQuery.isError}
-            fileLoading={fileQuery.isPending}
-            files={filesQuery.data?.files}
-            filesError={filesQuery.isError}
-            filesLoading={filesQuery.isPending}
-            onFileRetry={() => void fileQuery.refetch()}
-            onFilesRetry={() => void filesQuery.refetch()}
-            selectedFilePath={selectedFile?.path}
-            skill={selectedSkill}
-            tab={search.tab}
-            onManageAttachments={(trigger) => {
-              attachmentReturnFocusRef.current = trigger;
-              setAttachmentSkill(selectedSkill);
-              setAttachmentOpen(true);
-            }}
-            onFileSelect={setRequestedFilePath}
-            onTabChange={(tab) =>
-              void navigate({
-                search: (previous) => ({ ...previous, tab }),
-              })
-            }
-          />
+          {cards.map((skill) => (
+            <SkillCard
+              key={skill.id}
+              onManage={() =>
+                void navigate({
+                  search: (previous) => ({
+                    ...previous,
+                    skill: skill.id,
+                    tab: 'overview',
+                  }),
+                })
+              }
+              skill={skill}
+            />
+          ))}
         </div>
       ) : null}
+      {hasMoreCards ? <div aria-hidden="true" ref={loadMoreRef} /> : null}
+
+      <SkillDetailDialog
+        canManage={canManage}
+        file={fileQuery.data?.file}
+        fileError={fileQuery.isError}
+        fileLoading={fileQuery.isPending}
+        files={filesQuery.data?.files}
+        filesError={filesQuery.isError}
+        filesLoading={filesQuery.isPending}
+        onFileRetry={() => void fileQuery.refetch()}
+        onFilesRetry={() => void filesQuery.refetch()}
+        onManageAttachments={(trigger) => {
+          attachmentReturnFocusRef.current = trigger;
+          setAttachmentSkill(selectedSkill);
+          setAttachmentOpen(true);
+        }}
+        onOpenChange={(open) => {
+          if (!open) closeDetail();
+        }}
+        onFileSelect={setRequestedFilePath}
+        onTabChange={(tab) =>
+          void navigate({
+            search: (previous) => ({ ...previous, tab }),
+          })
+        }
+        open={detailOpen}
+        selectedFilePath={selectedFile?.path}
+        skill={selectedSkill}
+        tab={search.tab}
+      />
 
       {canManage ? (
         <>
           <SkillInstallDialog
-            onAttachAgents={(skill) => {
-              attachmentReturnFocusRef.current = installTriggerRef.current;
-              setAttachmentSkill(skill);
-              setAttachmentOpen(true);
-            }}
             onOpenChange={setInstallOpen}
-            onViewSkill={(skill) =>
-              void navigate({
-                search: (previous) => ({
-                  ...previous,
-                  q: '',
-                  skill: skill.id,
-                  tab: 'overview',
-                }),
-              })
-            }
             open={installOpen}
             returnFocusRef={installTriggerRef}
           />
@@ -284,58 +316,44 @@ export function SkillsRoute() {
   );
 }
 
-function SkillInventory({
-  onSelect,
-  selectedId,
-  skills,
-  total,
+function SkillCard({
+  onManage,
+  skill,
 }: {
-  onSelect: (skillId: string) => void;
-  selectedId: string;
-  skills: readonly BrowserSkill[];
-  total: number;
+  onManage: (event: MouseEvent<HTMLButtonElement>) => void;
+  skill: BrowserSkill;
 }) {
   return (
-    <Panel
-      description={`${skills.length} of ${total} shown`}
-      title="Installed inventory"
-    >
-      <ul className="m-0 grid max-h-[38rem] list-none divide-y divide-border overflow-y-auto p-0">
-        {skills.map((skill) => (
-          <li key={skill.id}>
-            <button
-              aria-current={selectedId === skill.id ? 'true' : undefined}
-              className={`grid w-full gap-2 border-l-2 px-4 py-3.5 text-left focus-visible:relative ${
-                selectedId === skill.id
-                  ? 'border-l-status-success bg-surface-muted'
-                  : 'border-l-transparent hover:bg-surface-muted'
-              }`}
-              onClick={() => onSelect(skill.id)}
-              type="button"
-            >
-              <span className="flex min-w-0 items-center justify-between gap-3">
-                <span className="truncate text-sm font-semibold text-text">
-                  {skill.name}
-                </span>
-                <StatusBadge status={skill.status} />
-              </span>
-              <span className="line-clamp-2 text-xs leading-5 text-text-secondary">
-                {skill.description ?? 'No description provided.'}
-              </span>
-              <span className="font-mono text-[10px] tracking-wide text-text-muted uppercase">
-                {SOURCE_LABELS[skill.source]} · {skill.attachedAgents.length} AI
-                employee
-                {skill.attachedAgents.length === 1 ? '' : 's'}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </Panel>
+    <Card className="h-full gap-3">
+      <CardHeader>
+        <CardTitle className="truncate text-sm">
+          {titleCaseLabel(skill.name)}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-3">
+        <p className="m-0 line-clamp-3 min-h-[3.9rem] text-ui text-text-secondary">
+          {skill.description ?? 'No description provided.'}
+        </p>
+        <div className="mt-auto flex items-center justify-between gap-3">
+          <span className="text-xs text-text-secondary">
+            {SOURCE_LABELS[skill.source]}
+          </span>
+          <Button
+            className="h-auto w-fit gap-1 p-0 text-status-success hover:text-status-success"
+            onClick={onManage}
+            type="button"
+            variant="link"
+          >
+            Manage
+            <ArrowRight aria-hidden="true" size={14} />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
-function SkillDetail({
+function SkillDetailDialog({
   canManage,
   file,
   fileError,
@@ -347,7 +365,9 @@ function SkillDetail({
   onFileSelect,
   onFileRetry,
   onFilesRetry,
+  onOpenChange,
   onTabChange,
+  open,
   selectedFilePath,
   skill,
   tab,
@@ -363,70 +383,77 @@ function SkillDetail({
   onFileSelect: (path: string) => void;
   onFileRetry: () => void;
   onFilesRetry: () => void;
+  onOpenChange: (open: boolean) => void;
   onTabChange: (tab: SkillTab) => void;
+  open: boolean;
   selectedFilePath?: string;
-  skill: BrowserSkill;
+  skill: BrowserSkill | undefined;
   tab: SkillTab;
 }) {
   return (
-    <Panel
-      action={
-        <div className="flex items-center gap-2">
-          {canManage && skill.status === 'installed' ? (
-            <Button
-              onClick={(event) => onManageAttachments(event.currentTarget)}
-              size="sm"
-              variant="secondary"
-            >
-              Manage attachments
-            </Button>
-          ) : null}
-          <StatusBadge status={skill.status} />
-        </div>
-      }
-      className="min-h-[32rem]"
-      title={skill.name}
-    >
-      <div className="border-b border-border px-4 py-3" id="skill-details">
-        <p className="m-0 max-w-3xl text-sm leading-6 text-text-secondary">
-          {skill.description ?? 'No description provided.'}
-        </p>
-      </div>
-      <RouteTabs
-        label="Skill details"
-        value={tab}
-        onValueChange={onTabChange}
-        tabs={[
-          { label: 'Overview', value: 'overview' },
-          { label: 'Files', value: 'files', count: files?.length },
-          { label: 'Actions', value: 'actions', count: skill.actions.length },
-          {
-            label: 'AI employees',
-            value: 'agents',
-            count: skill.attachedAgents.length,
-          },
-        ]}
-      />
-      <div className="p-4">
-        {tab === 'overview' ? <OverviewTab skill={skill} /> : null}
-        {tab === 'files' ? (
-          <FilesTab
-            file={file}
-            fileError={fileError}
-            fileLoading={fileLoading}
-            files={files}
-            filesError={filesError}
-            filesLoading={filesLoading}
-            onFileRetry={onFileRetry}
-            onFilesRetry={onFilesRetry}
-            selectedFilePath={selectedFilePath}
-            onFileSelect={onFileSelect}
-          />
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="grid max-h-[calc(100dvh-32px)] w-[min(760px,calc(100vw-32px))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden p-0 sm:max-w-none">
+        {skill ? (
+          <>
+            <div className="grid gap-1 border-b border-border px-5 py-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <DialogTitle className="truncate text-sm font-semibold">
+                  {titleCaseLabel(skill.name)}
+                </DialogTitle>
+                <StatusBadge status={skill.status} />
+              </div>
+              <DialogDescription className="line-clamp-2 text-ui text-text-secondary">
+                {skill.description ?? 'No description provided.'}
+              </DialogDescription>
+            </div>
+            <RouteTabs
+              label="Skill details"
+              value={tab}
+              onValueChange={onTabChange}
+              tabs={[
+                { label: 'Overview', value: 'overview' },
+                { label: 'Files', value: 'files', count: files?.length },
+                {
+                  label: 'Actions',
+                  value: 'actions',
+                  count: skill.actions.length,
+                },
+                {
+                  label: 'AI employees',
+                  value: 'agents',
+                  count: skill.attachedAgents.length,
+                },
+              ]}
+            />
+            <div className="min-h-0 overflow-y-auto p-5">
+              {tab === 'overview' ? <OverviewTab skill={skill} /> : null}
+              {tab === 'files' ? (
+                <FilesTab
+                  file={file}
+                  fileError={fileError}
+                  fileLoading={fileLoading}
+                  files={files}
+                  filesError={filesError}
+                  filesLoading={filesLoading}
+                  onFileRetry={onFileRetry}
+                  onFilesRetry={onFilesRetry}
+                  selectedFilePath={selectedFilePath}
+                  onFileSelect={onFileSelect}
+                />
+              ) : null}
+              {tab === 'actions' ? <ActionsTab skill={skill} /> : null}
+              {tab === 'agents' ? (
+                <AgentsTab
+                  canManage={canManage}
+                  onManageAttachments={onManageAttachments}
+                  skill={skill}
+                />
+              ) : null}
+            </div>
+          </>
         ) : null}
-        {tab === 'actions' ? <ActionsTab skill={skill} /> : null}
-        {tab === 'agents' ? <AgentsTab skill={skill} /> : null}
-      </div>
-    </Panel>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -726,23 +753,50 @@ function MetadataList({
   );
 }
 
-function AgentsTab({ skill }: { skill: BrowserSkill }) {
+function AgentsTab({
+  canManage,
+  onManageAttachments,
+  skill,
+}: {
+  canManage: boolean;
+  onManageAttachments: (trigger: HTMLButtonElement) => void;
+  skill: BrowserSkill;
+}) {
+  const manageButton =
+    canManage && skill.status === 'installed' ? (
+      <Button
+        onClick={(event) => onManageAttachments(event.currentTarget)}
+        size="sm"
+        variant="secondary"
+      >
+        Manage attachments
+      </Button>
+    ) : null;
+
   if (!skill.attachedAgents.length) {
     return (
-      <PageState
-        description="This skill is not attached to an AI employee."
-        icon={<PackageCheck aria-hidden="true" />}
-        kind="empty"
-        title="No attached AI employees"
-      />
+      <div className="grid gap-4">
+        <PageState
+          description="This skill is not attached to an AI employee."
+          icon={<PackageCheck aria-hidden="true" />}
+          kind="empty"
+          title="No attached AI employees"
+        />
+        {manageButton ? (
+          <div className="flex justify-center">{manageButton}</div>
+        ) : null}
+      </div>
     );
   }
   return (
     <div className="grid gap-3">
-      <p className="m-0 text-sm leading-6 text-text-secondary">
-        Attachment makes the skill available to an AI employee. AI employee
-        Access remains the only place to review authorization.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="m-0 text-sm leading-6 text-text-secondary">
+          Attachment makes the skill available to an AI employee. AI employee
+          Access remains the only place to review authorization.
+        </p>
+        {manageButton}
+      </div>
       <ul className="m-0 grid list-none divide-y divide-border overflow-hidden rounded-lg border border-border p-0">
         {skill.attachedAgents.map((agent) => (
           <li

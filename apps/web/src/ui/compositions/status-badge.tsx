@@ -11,6 +11,7 @@ const toneByStatus: Record<string, BadgeVariant> = {
   failed: 'danger',
   failing: 'danger',
   healthy: 'success',
+  installed: 'success',
   offline: 'danger',
   offboarded: 'danger',
   passing: 'success',
