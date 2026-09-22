@@ -334,6 +334,24 @@ describe('DeepAgents raw authority denial', () => {
     expect(text).toContain("paths: ['/skills', '/skills/**']");
   });
 
+  // DeepAgents itself evicts oversized tool output (from any tool, including
+  // MCP calls) to /large_tool_results/<id> and tells the model to read_file it
+  // back. That path must stay readable regardless of skill projection, or
+  // every large tool result becomes permanently unrecoverable — while
+  // everything outside /skills/** and /large_tool_results/** stays denied.
+  it('always allows reading the /large_tool_results eviction path, independent of skill projection', () => {
+    const runnerFile = path.join(
+      DEEPAGENTS_DIR,
+      'runner',
+      'deep-agent-runner.ts',
+    );
+    const text = fs.readFileSync(runnerFile, 'utf-8');
+    expect(text).toContain(
+      "paths: ['/large_tool_results', '/large_tool_results/**']",
+    );
+    expect(text).toMatch(/exposeSkillReadTools:\s*true/);
+  });
+
   it('reads no .mcp.json anywhere in the DeepAgents adapter directory', () => {
     // rg-style guard: the lane fully controls `tools`; it must never read a raw
     // DeepAgents/MCP `.mcp.json` authority file. (See the adapter AGENTS.md note.)
