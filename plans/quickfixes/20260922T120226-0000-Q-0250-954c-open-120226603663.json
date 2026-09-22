@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0250-954c",
+  "profile": "degraded",
+  "reason": "Fix: allow reading DeepAgents' own /large_tool_results eviction path, unconditionally, not just when skills are projected",
+  "started_at": "2026-09-22T12:02:26+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
