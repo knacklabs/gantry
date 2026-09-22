@@ -1,8 +1,9 @@
 ---
-status: accepted
+status: superseded
 confirmed_by: "Ravi"
 date: 2026-09-09
 stories: [cache-bug]
+superseded_by: 0163-claude-runner-lifetime-continuity
 ---
 
 # Retire a persistent provider session after its observed context crosses a global cap
