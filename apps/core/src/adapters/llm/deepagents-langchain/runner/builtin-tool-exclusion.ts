@@ -21,10 +21,14 @@ import type { AgentMiddleware } from 'langchain';
 //   - `write_todos` mutates DeepAgents in-state todos, which are non-durable
 //     scratch state Gantry does not own; hiding it keeps the surface minimal.
 //   - the filesystem write tools (write_file/edit_file) are always hidden.
-//     Read-only filesystem tools (ls/read_file/glob/grep) are hidden unless the
-//     host projected reviewed selected skills into the DeepAgents StateBackend
-//     under virtual `/skills/**`; in that case deep-agent-runner.ts switches to
-//     read-only skill permissions so progressive disclosure can read SKILL.md.
+//     Read-only filesystem tools (ls/read_file/glob/grep) are always exposed
+//     (deep-agent-runner.ts passes exposeSkillReadTools: true unconditionally)
+//     so read_file can always recover DeepAgents' own /large_tool_results/**
+//     eviction path, regardless of whether this agent has skills attached.
+//     The filesystem permission set in deep-agent-runner.ts stays
+//     deny-by-default for everything else: /skills/** only opens up when the
+//     host projected reviewed selected skills into the DeepAgents
+//     StateBackend, so progressive disclosure can read SKILL.md.
 // This only removes the tools from the model-visible tool list; it does not
 // remove the baked-in middleware, so no DeepAgents internal invariant breaks.
 

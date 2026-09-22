@@ -56,18 +56,34 @@ import { terminalToolActivityPayload } from '../../../../domain/events/tool-acti
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
-// host projected reviewed selected skills into virtual `/skills/**` state. Never
-// pass LocalShellBackend/FilesystemBackend or any sandbox backend. All reachable
-// non-skill tools come ONLY from Gantry-owned MCP authority (facade tools plus
-// selected first-party projections such as Browser). The `task` subagent tool
-// and `write_todos` are excluded from the model-visible surface (see
-// builtin-tool-exclusion.ts). External third-party MCP config is rejected in this
-// lane until Gantry owns a DNS-pinned dispatcher/proxy path.
+// host projected reviewed selected skills into virtual `/skills/**` state, or
+// the path is DeepAgents' own `/large_tool_results/**` scratch buffer (see
+// below). Never pass LocalShellBackend/FilesystemBackend or any sandbox
+// backend. All reachable non-skill tools come ONLY from Gantry-owned MCP
+// authority (facade tools plus selected first-party projections such as
+// Browser). The `task` subagent tool and `write_todos` are excluded from the
+// model-visible surface (see builtin-tool-exclusion.ts). External third-party
+// MCP config is rejected in this lane until Gantry owns a DNS-pinned
+// dispatcher/proxy path.
+//
+// `/large_tool_results/**` is DeepAgents' own eviction path (see
+// wrapToolCall in node_modules/deepagents): any tool result over the
+// configured token limit — from any tool, including MCP calls — gets written
+// there and the model is told to `read_file` it back. That's same-run,
+// Gantry/DeepAgents-owned scratch content, not user-controlled or
+// cross-run data, so it's safe to always allow reading it — unlike
+// `/skills/**`, this isn't gated on skill projection.
+const LARGE_TOOL_RESULTS_READ: FilesystemPermission = {
+  operations: ['read'],
+  paths: ['/large_tool_results', '/large_tool_results/**'],
+};
 const DENY_ALL_FILESYSTEM: FilesystemPermission[] = [
+  LARGE_TOOL_RESULTS_READ,
   { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
 ];
 const READONLY_SKILLS_FILESYSTEM: FilesystemPermission[] = [
   { operations: ['read'], paths: ['/skills', '/skills/**'] },
+  LARGE_TOOL_RESULTS_READ,
   { operations: ['read', 'write'], paths: ['/**'], mode: 'deny' },
 ];
 
@@ -329,7 +345,12 @@ export async function runDeepAgentTurn(input: {
           tools: connected.tools as StructuredToolInterface[] as never,
           middleware: [
             createBuiltinToolExclusionMiddleware({
-              exposeSkillReadTools: hasProjectedSkills,
+              // Always on: large-tool-result recovery (read_file against
+              // /large_tool_results/**) must work regardless of whether this
+              // agent has skills attached. The filesystem permission set
+              // above stays deny-by-default for everything else, including
+              // /skills/** when no skills are projected.
+              exposeSkillReadTools: true,
             }),
           ] as never,
           ...(hasProjectedSkills ? { skills: skillProjection?.sources } : {}),
