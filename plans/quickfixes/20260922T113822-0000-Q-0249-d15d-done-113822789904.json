@@ -1,0 +1,13 @@
+{
+  "event": "done",
+  "id": "Q-0249-d15d",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Fix: catch @langchain/mcp-adapters ToolException on MCP tool errors so the agent loop can retry instead of crashing the whole run",
+  "started_at": "2026-09-22T11:31:45+00:00",
+  "completed_at": "2026-09-22T11:38:22+00:00",
+  "files": [
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts",
+    "apps/core/test/unit/adapters/deepagents-mcp-tools.test.ts"
+  ]
+}

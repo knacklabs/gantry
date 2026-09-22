@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0247-c37b",
+  "profile": "degraded",
+  "reason": "Robust fix: auto-grant a reviewed MCP capability on attach so any connected MCP server (local or remote) is actually executable, not just visible",
+  "started_at": "2026-09-22T10:28:02+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

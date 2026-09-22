@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0248-a304",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Update MCP overview copy: Allowed tool names now gates AI employee execution access",
+  "started_at": "2026-09-22T10:31:21+00:00",
+  "completed_at": "2026-09-22T10:31:44+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/mcp-server-detail.tsx"
+  ]
+}

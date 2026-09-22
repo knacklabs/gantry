@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0247-c37b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Robust fix: auto-grant a reviewed MCP capability on attach so any connected MCP server (local or remote) is actually executable, not just visible",
+  "started_at": "2026-09-22T10:28:02+00:00",
+  "completed_at": "2026-09-22T10:31:21+00:00",
+  "files": [
+    "apps/core/src/application/mcp/mcp-server-capability-grant.ts",
+    "apps/core/src/application/mcp/mcp-server-service.ts",
+    "apps/core/src/control/server/routes/browser-mcp-servers.ts",
+    "apps/core/src/control/server/routes/mcp-servers.ts",
+    "apps/web/src/features/operations/routes/mcp-connect-server-dialog.tsx"
+  ]
+}

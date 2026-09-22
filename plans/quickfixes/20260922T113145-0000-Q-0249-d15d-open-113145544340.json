@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0249-d15d",
+  "profile": "degraded",
+  "reason": "Fix: catch @langchain/mcp-adapters ToolException on MCP tool errors so the agent loop can retry instead of crashing the whole run",
+  "started_at": "2026-09-22T11:31:45+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0248-a304",
+  "profile": "degraded",
+  "reason": "Update MCP overview copy: Allowed tool names now gates AI employee execution access",
+  "started_at": "2026-09-22T10:31:21+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

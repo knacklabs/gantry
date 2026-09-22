@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0245-ac64",
+  "profile": "degraded",
+  "reason": "Fix bidirectional cache staleness between MCP Tools page and AI employee Access page after attach/detach",
+  "started_at": "2026-09-22T09:50:05+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

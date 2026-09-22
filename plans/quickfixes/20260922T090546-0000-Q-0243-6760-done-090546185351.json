@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0243-6760",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Redesign MCP servers (Tools) page as card grid + details modal, and 2-step connect dialog with skippable attach step, mirroring the Skills page redesign",
+  "started_at": "2026-09-22T09:03:29+00:00",
+  "completed_at": "2026-09-22T09:05:46+00:00",
+  "files": [
+    "apps/web/src/features/operations/operations-search.ts",
+    "apps/web/src/app/routes/operations-routes.ts",
+    "apps/web/src/features/operations/operations-queries.ts",
+    "apps/web/src/features/operations/routes/mcp-eligible-agents-picker.tsx",
+    "apps/web/src/features/operations/routes/mcp-agent-attachments-dialog.tsx"
+  ]
+}

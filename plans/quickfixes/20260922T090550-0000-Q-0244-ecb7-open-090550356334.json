@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0244-ecb7",
+  "profile": "degraded",
+  "reason": "Redesign MCP servers page part 2: connect dialog attach step, server detail modal, route grid",
+  "started_at": "2026-09-22T09:05:50+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
