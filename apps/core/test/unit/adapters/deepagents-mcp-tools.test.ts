@@ -163,10 +163,11 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
         return { content, artifact, tool_call_id: input.id };
       },
     };
+    const memorySearchInvoke = vi.fn(async () => 'results');
     const memorySearch = structuredTool(
       'memory_search',
       'Search memory.',
-      vi.fn(async () => 'results'),
+      memorySearchInvoke,
     );
     mcpState.serverTools = {
       gantry: [callable, memorySearch],
@@ -212,7 +213,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       { objective: 'Review this' },
       expect.objectContaining({ timeout: 80_000 }),
     );
-    expect(memorySearch.invoke).not.toHaveBeenCalled();
+    expect(memorySearchInvoke).not.toHaveBeenCalled();
     await connected.close();
   });
 
@@ -552,6 +553,81 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       content: [{ type: 'text', text: 'results' }],
     });
     expect(memorySearch).toHaveBeenCalledOnce();
+    await connected.close();
+  });
+
+  it('converts a thrown MCP ToolException into a normal error tool result instead of crashing the run (no declarative rules)', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    class FakeToolException extends Error {}
+    const sendMessage = structuredTool(
+      'send_message',
+      'Send a message.',
+      vi.fn(async () => {
+        throw new FakeToolException(
+          "MCP tool 'mcp_call_tool' on server 'gantry' returned an error: validation failed",
+        );
+      }),
+    );
+    mcpState.serverTools = { gantry: [sendMessage] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        capabilityRequestToolsHidden: true,
+      } as never,
+    });
+    const projected = connected.tools.find(
+      ({ name }) => name === 'send_message',
+    );
+    await expect(projected?.invoke({} as never)).resolves.toMatchObject({
+      isError: true,
+      content: [
+        { type: 'text', text: expect.stringContaining('validation failed') },
+      ],
+    });
+    await connected.close();
+  });
+
+  it('converts a thrown MCP ToolException into a normal error tool result instead of crashing the run (with declarative rules)', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    class FakeToolException extends Error {}
+    const sendMessage = structuredTool(
+      'send_message',
+      'Send a message.',
+      vi.fn(async () => {
+        throw new FakeToolException(
+          "MCP tool 'mcp_call_tool' on server 'gantry' returned an error: validation failed",
+        );
+      }),
+    );
+    mcpState.serverTools = { gantry: [sendMessage] };
+
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      toolRules: [{ tool: 'Bash', action: 'block', reason: 'blocked' }],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        capabilityRequestToolsHidden: true,
+      } as never,
+    });
+    const projected = connected.tools.find(
+      ({ name }) => name === 'send_message',
+    );
+    await expect(projected?.invoke({} as never)).resolves.toMatchObject({
+      isError: true,
+      content: [
+        { type: 'text', text: expect.stringContaining('validation failed') },
+      ],
+    });
     await connected.close();
   });
 });
