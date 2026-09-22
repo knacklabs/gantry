@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0240-0b9b",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Move Manage attachments button to left-indented, match Install skill button styling",
+  "started_at": "2026-09-22T07:47:35+00:00",
+  "completed_at": "2026-09-22T07:48:02+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0242-66ff",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Fix Manage attachments button to stay right-aligned instead of wrapping to the left",
+  "started_at": "2026-09-22T07:51:24+00:00",
+  "completed_at": "2026-09-22T07:51:44+00:00",
+  "files": [
+    "apps/web/src/features/operations/routes/skills-route.tsx"
+  ]
+}

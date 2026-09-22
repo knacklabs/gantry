@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0242-66ff",
+  "profile": "degraded",
+  "reason": "Fix Manage attachments button to stay right-aligned instead of wrapping to the left",
+  "started_at": "2026-09-22T07:51:24+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}

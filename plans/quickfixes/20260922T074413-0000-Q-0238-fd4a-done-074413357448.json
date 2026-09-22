@@ -1,0 +1,12 @@
+{
+  "event": "done",
+  "id": "Q-0238-fd4a",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Add PageHeader title/description to Roster page matching Skills page styling",
+  "started_at": "2026-09-22T07:42:32+00:00",
+  "completed_at": "2026-09-22T07:44:13+00:00",
+  "files": [
+    "apps/web/src/features/agents/routes/agents-route.tsx"
+  ]
+}

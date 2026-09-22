@@ -1,0 +1,11 @@
+{
+  "event": "open",
+  "id": "Q-0238-fd4a",
+  "profile": "degraded",
+  "reason": "Add PageHeader title/description to Roster page matching Skills page styling",
+  "started_at": "2026-09-22T07:42:32+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false,
+  "kind": "degraded"
+}
