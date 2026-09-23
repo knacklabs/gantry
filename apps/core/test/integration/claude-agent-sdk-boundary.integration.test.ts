@@ -482,7 +482,6 @@ describe('Claude Agent SDK boundary integration', () => {
 
     expect(outputs[0]).toMatchObject({
       result: null,
-      newSessionId: 'claude-session-boundary',
       runtimeEvents: [
         expect.objectContaining({
           eventType: 'run.startup_diagnostic',
@@ -494,6 +493,7 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ],
     });
+    expect(outputs[0].newSessionId).toBeUndefined();
     expect(outputs[0].sessionInit).toBeUndefined();
     const firstVisibleIdx = outputs.findIndex(
       (output) => typeof output.result === 'string' && output.result.length > 0,
