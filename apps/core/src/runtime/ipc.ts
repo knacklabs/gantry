@@ -1,6 +1,10 @@
 import path from 'path';
 
 import { sendCoreMessage } from '../application/core-tools/send-message.js';
+import {
+  notificationDestinations,
+  sendNotification,
+} from '../application/core-tools/send-notification.js';
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { DurableInteractionPersistenceError } from '../application/interactions/pending-interaction-persistence-error.js';
@@ -41,6 +45,7 @@ import { acquireIpcRootLockForWatcher } from './ipc-root-lock-acquisition.js';
 import { buildIpcFolderTargets } from './ipc-folder-targets.js';
 import { processPermissionCancellationDirectory } from './ipc-permission-cancellation-directory.js';
 import { processQuestionCancellationDirectory } from './ipc-question-cancellation-directory.js';
+import { writeNotificationIpcResponse } from './ipc-notification-response.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -211,6 +216,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
             );
             for (const file of messageFiles) {
               let claimedPath = path.join(messagesDir, file);
+              let notificationResponse:
+                | {
+                    requestId: string;
+                    threadId?: string;
+                    responseKeyId?: string;
+                  }
+                | undefined;
               try {
                 if (!canProcessIpcFile(sourceAgentFolder, 'messages')) {
                   throw new Error('IPC message rate limit exceeded');
@@ -223,6 +235,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 claimedPath = claimed.claimedPath;
                 const rawData = claimed.raw;
                 const data = parseIpcMessage(rawData, sourceAgentFolder);
+                if (data.type === 'notification' && data.requestId) {
+                  notificationResponse = {
+                    requestId: data.requestId,
+                    threadId: data.threadId,
+                    responseKeyId: data.responseKeyId,
+                  };
+                }
                 const route = resolveRunnerIpcRoute({
                   routes: groupRegistry,
                   sourceAgentFolder,
@@ -230,6 +249,34 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   threadId: data.threadId,
                   providerAccountId: data.providerAccountId,
                 });
+                if (data.type === 'notification') {
+                  if (!data.destination)
+                    throw new Error('Notification destination is required');
+                  await sendNotification({
+                    destination: data.destination,
+                    text: data.text,
+                    destinations: notificationDestinations({
+                      routes: groupRegistry,
+                      sourceAgentFolder,
+                      ...(data.chatJid.startsWith('sl:') &&
+                      route.providerAccountId
+                        ? { providerAccountId: route.providerAccountId }
+                        : {}),
+                    }),
+                    sendMessage: deps.sendMessage,
+                  });
+                  writeNotificationIpcResponse({
+                    sourceAgentFolder,
+                    ...notificationResponse!,
+                    ok: true,
+                  });
+                  logger.info(
+                    { destination: data.destination, sourceAgentFolder },
+                    'IPC notification sent',
+                  );
+                  runnerControlPort.removeClaimedRequest(claimedPath);
+                  continue;
+                }
                 await sendCoreMessage({
                   deps: {
                     ...deps,
@@ -254,6 +301,24 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 );
                 runnerControlPort.removeClaimedRequest(claimedPath);
               } catch (err) {
+                if (notificationResponse) {
+                  try {
+                    writeNotificationIpcResponse({
+                      sourceAgentFolder,
+                      ...notificationResponse,
+                      ok: false,
+                      error:
+                        err instanceof Error
+                          ? err.message
+                          : 'Notification delivery failed',
+                    });
+                  } catch (responseError) {
+                    logger.error(
+                      { responseError, sourceAgentFolder },
+                      'Failed to report notification delivery',
+                    );
+                  }
+                }
                 incrementOperationalError('ipc', 'message_dispatch');
                 logger.error(
                   { file, sourceAgentFolder, err },

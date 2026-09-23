@@ -108,6 +108,7 @@ export interface AgentConfig {
 
 export interface ConversationRoute {
   name: string;
+  conversationDisplayName?: string;
   folder: string;
   conversationId?: string;
   trigger: string;

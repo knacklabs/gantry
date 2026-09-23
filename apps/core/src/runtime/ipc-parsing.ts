@@ -43,11 +43,14 @@ export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
   toolInputTruncatedPaths?: string[];
 };
 export interface ParsedIpcMessage {
-  type: 'message';
+  type: 'message' | 'notification';
+  requestId?: string;
+  responseKeyId?: string;
   appId?: string;
   providerAccountId?: string;
   chatJid: string;
   text: string;
+  destination?: string;
   sender?: string;
   threadId?: string;
   files?: ReturnType<typeof parseIpcMessageFiles>;
@@ -230,28 +233,54 @@ export function parseIpcMessage(
   sourceAgentFolder: string,
 ): ParsedIpcMessage {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC message payload');
-  const { appId, authThreadId: threadId } = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'IPC message',
-  );
+  const {
+    appId,
+    authThreadId: threadId,
+    responseKeyId,
+  } = validateIpcAuthRequest(raw, sourceAgentFolder, 'IPC message');
   const context = isPlainObject(raw.context) ? raw.context : undefined;
   const providerAccountId =
     toTrimmedString(raw.providerAccountId, { maxLen: 255 }) ??
     toTrimmedString(context?.providerAccountId, { maxLen: 255 });
   const type = toTrimmedString(raw.type, { maxLen: 64 });
-  if (type !== 'message') throw new Error('Invalid IPC message type');
+  if (type !== 'message' && type !== 'notification')
+    throw new Error('Invalid IPC message type');
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
-  const text = toTrimmedString(raw.text, { maxLen: 20000 });
+  const text = toTrimmedString(raw.text, {
+    maxLen: type === 'notification' ? 4000 : 20000,
+  });
   if (!chatJid || !text) throw new Error('Invalid IPC message fields');
-  const sender = toTrimmedString(raw.sender, { maxLen: 255 });
-  const files = parseIpcMessageFiles(raw.files);
+  const destination =
+    type === 'notification'
+      ? toTrimmedString(raw.destination, { maxLen: 160 })
+      : undefined;
+  if (type === 'notification' && !destination)
+    throw new Error('Invalid IPC notification destination');
+  const requestId =
+    type === 'notification'
+      ? toTrimmedString(raw.requestId, { maxLen: 128 })
+      : undefined;
+  if (
+    type === 'notification' &&
+    (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId))
+  )
+    throw new Error('Invalid IPC notification requestId');
+  if (type === 'notification' && !responseKeyId)
+    throw new Error('IPC notification responseKeyId is required');
+  const sender =
+    type === 'message'
+      ? toTrimmedString(raw.sender, { maxLen: 255 })
+      : undefined;
+  const files = type === 'message' ? parseIpcMessageFiles(raw.files) : [];
   return {
-    type: 'message',
+    type,
+    ...(requestId ? { requestId } : {}),
+    ...(responseKeyId ? { responseKeyId } : {}),
     ...(appId ? { appId } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
     chatJid,
     text,
+    ...(destination ? { destination } : {}),
     ...(sender ? { sender } : {}),
     ...(threadId ? { threadId } : {}),
     ...(files.length > 0 ? { files } : {}),

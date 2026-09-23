@@ -89,6 +89,19 @@ describe('MCP server registry handler parity', () => {
   });
   const callableAgentTool = callableAgentToolName(callableAgentManifest[0]!);
 
+  it('boots with the selected built-in notification tool', async () => {
+    setIpcDir();
+    process.env.GANTRY_MCP_TOOL_NAMES_JSON = JSON.stringify([
+      'send_notification',
+    ]);
+    const { createGantryMcpServer } =
+      await import('@core/runner/mcp/server.js');
+    const server = createGantryMcpServer() as unknown as {
+      _registeredTools: Record<string, unknown>;
+    };
+    expect(Object.keys(server._registeredTools)).toContain('send_notification');
+  });
+
   it('registers callable-agent tools in the stdio MCP lane', async () => {
     setIpcDir();
     process.env.GANTRY_CALLABLE_AGENT_MANIFEST_JSON = JSON.stringify(

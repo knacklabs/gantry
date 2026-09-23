@@ -14,6 +14,7 @@ function usage() {
 Options:
   --runtime-home <path>       Runtime home. Default: ~/gantry
   --conversation-id <id>      App conversation id. Default: codex-test
+  --agent-id <id>             Target agent id. Default: app default
   --thread-id <id>            Optional thread id
   --sender-id <id>            Sender id. Default: codex-test
   --sender-name <name>        Sender name. Default: Codex Test
@@ -30,6 +31,7 @@ function parseArgs(argv) {
   const args = {
     runtimeHome: path.join(process.env.HOME || '', 'gantry'),
     conversationId: 'codex-test',
+    agentId: undefined,
     threadId: undefined,
     senderId: 'codex-test',
     senderName: 'Codex Test',
@@ -51,6 +53,7 @@ function parseArgs(argv) {
       process.exit(0);
     } else if (arg === '--runtime-home') args.runtimeHome = next();
     else if (arg === '--conversation-id') args.conversationId = next();
+    else if (arg === '--agent-id') args.agentId = next();
     else if (arg === '--thread-id') args.threadId = next();
     else if (arg === '--sender-id') args.senderId = next();
     else if (arg === '--sender-name') args.senderName = next();
@@ -231,6 +234,7 @@ async function main() {
   };
   const ensured = await requestJson(client, 'POST', '/v1/sessions/ensure', {
     conversationId: args.conversationId,
+    agentId: args.agentId,
     title: 'Codex Agent Chat Test',
     responseMode: 'sse',
   });

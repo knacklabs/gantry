@@ -162,8 +162,7 @@ function slackRichPayloadBlocks(
             .slice(0, 10)
             .map((field) => {
               const label = scalarText(field.label || field.id) || 'Field';
-              const type = scalarText(field.type) || 'text';
-              return `• *${richSlackEscape(label)}* (${richSlackEscape(type)})`;
+              return `• *${richSlackEscape(label)}*`;
             })
             .join('\n'),
         ),
@@ -409,8 +408,15 @@ export async function renderSlackRichInteraction(input: {
 export function registerSlackRichFormHandlers(input: {
   app: any;
   pendingRichForms: Map<string, RichInteractionRequest>;
+  onSubmit: (input: {
+    request: RichInteractionRequest;
+    channelId: string;
+    threadTs: string;
+    userId: string;
+    text: string;
+  }) => Promise<void>;
 }): void {
-  const { app, pendingRichForms } = input;
+  const { app, pendingRichForms, onSubmit } = input;
   app.action('gantry_rich_form_open', async (args: any) => {
     await args.ack();
     const action = args.action as { value?: string };
@@ -482,15 +488,51 @@ export function registerSlackRichFormHandlers(input: {
     const body = args.body as {
       user?: { id?: string; name?: string; username?: string };
     };
-    const view = args.view as { private_metadata?: string };
+    const view = args.view as {
+      private_metadata?: string;
+      state?: { values?: Record<string, { value?: { value?: string } }> };
+    };
     let meta: { channelId?: string; interactionId?: string; threadTs?: string };
     try {
       meta = JSON.parse(view.private_metadata || '{}');
     } catch {
       return;
     }
-    if (!meta.channelId) return;
-    if (meta.interactionId) pendingRichForms.delete(meta.interactionId);
+    if (!meta.channelId || !meta.interactionId || !body.user?.id) return;
+    const request = pendingRichForms.get(meta.interactionId);
+    if (!request) return;
+    pendingRichForms.delete(meta.interactionId);
+    const fields = richArrayItems(request.descriptor.rich?.payload.fields);
+    const answers = fields
+      .map((field, index) => {
+        const value =
+          view.state?.values?.[
+            `gantry_rich_form_${index}`
+          ]?.value?.value?.trim();
+        return value ? `${String(field.label || field.id)}: ${value}` : null;
+      })
+      .filter((answer): answer is string => Boolean(answer));
+    if (!answers.length) return;
+    try {
+      await onSubmit({
+        request,
+        channelId: meta.channelId,
+        threadTs: meta.threadTs || '',
+        userId: body.user.id,
+        text: `Form submitted for ${request.descriptor.title}:\n${answers.join('\n')}`,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, interactionId: meta.interactionId },
+        'Slack form submission could not be routed',
+      );
+      await app.client.chat.postMessage({
+        channel: meta.channelId,
+        text: 'I could not process that form. Please reply with the details in this thread.',
+        ...(meta.threadTs ? { thread_ts: meta.threadTs } : {}),
+      });
+      return;
+    }
     const displayName =
       body.user?.name || body.user?.username || body.user?.id || 'unknown';
     await app.client.chat.postMessage({

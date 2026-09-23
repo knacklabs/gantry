@@ -26,6 +26,7 @@ export interface CanonicalBindingRecord {
   status: string;
   conversationExternalRefJson: string | null;
   conversationKind: string;
+  conversationTitle?: string | null;
   memorySubjectJson: string;
   displayName: string;
   createdAt: string;
@@ -222,6 +223,7 @@ export class PostgresCanonicalBindingRepository {
         status: b.status,
         conversationExternalRefJson: c.externalRefJson,
         conversationKind: c.kind,
+        conversationTitle: c.title,
         memorySubjectJson: b.memorySubjectJson,
         displayName: b.displayName,
         createdAt: b.createdAt,
@@ -318,6 +320,9 @@ export function bindingRowToGroup(
     jid,
     group: {
       name: row.displayName,
+      ...(row.conversationTitle?.trim()
+        ? { conversationDisplayName: row.conversationTitle.trim() }
+        : {}),
       folder,
       conversationId: row.conversationId,
       trigger: routeSubject.route?.trigger?.trim() || `@${folder || 'agent'}`,

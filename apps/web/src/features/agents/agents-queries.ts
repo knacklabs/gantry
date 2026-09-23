@@ -38,18 +38,29 @@ export type AgentPersona = {
   isDefault: boolean;
 };
 
-export function agentPersonaQuery(agentId: string) {
+export type AgentProfileSection = 'persona' | 'instructions';
+
+export function agentProfileQuery(
+  agentId: string,
+  section: AgentProfileSection,
+) {
   return queryOptions({
-    queryKey: [...agentQueryKeys.all, 'persona', agentId] as const,
-    queryFn: async (): Promise<{ persona: AgentPersona }> => {
+    queryKey: [...agentQueryKeys.all, section, agentId] as const,
+    queryFn: async (): Promise<Record<AgentProfileSection, AgentPersona>> => {
       const response = await browserFetch(
-        `/ui/api/agents/${encodeURIComponent(agentId)}/persona`,
+        `/ui/api/agents/${encodeURIComponent(agentId)}/${section}`,
         { credentials: 'same-origin' },
       );
-      if (!response.ok) throw new Error('Persona could not be loaded.');
-      return response.json() as Promise<{ persona: AgentPersona }>;
+      if (!response.ok) throw new Error('Profile could not be loaded.');
+      return response.json() as Promise<
+        Record<AgentProfileSection, AgentPersona>
+      >;
     },
   });
+}
+
+export function agentPersonaQuery(agentId: string) {
+  return agentProfileQuery(agentId, 'persona');
 }
 
 export type AgentWorkflowRelationship =
@@ -169,6 +180,7 @@ export type CapabilityCatalog = {
     label: string;
     description?: string;
     risk: 'low' | 'medium' | 'high';
+    category?: string;
   }>;
   skills?: Array<{
     id: string;

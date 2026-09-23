@@ -12,6 +12,7 @@ import {
   GANTRY_FACADE_INPUT_SCHEMAS,
   type GantryFacadeExactToolName,
 } from '../../../shared/agent-tool-references.js';
+import { semanticCapabilityInputSchema } from '../../../shared/semantic-capabilities.js';
 
 export const DEFAULT_APP_ID = 'default';
 export const DEFAULT_AGENT_ID = 'agent:main_agent';
@@ -177,6 +178,32 @@ export const DEFAULT_TOOL_CATALOG = [
     category: 'web',
     risk: 'medium',
     inputSchema: undefined,
+  },
+  {
+    id: 'tool:capability:notifications.send',
+    name: 'capability:notifications.send',
+    kind: 'host',
+    provider: 'gantry',
+    providerToolName: undefined,
+    displayName: 'Send notification',
+    description:
+      'Send a message to a channel where this AI employee is installed.',
+    category: 'channel',
+    risk: 'high',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'notifications.send',
+      version: '1',
+      displayName: 'Send notification',
+      category: 'Notifications',
+      risk: 'write',
+      can: 'Send a message to an installed channel.',
+      cannot:
+        'Send to a channel where this AI employee is not installed, or to a direct message.',
+      credentialSource: 'configured_access',
+      implementationBindings: [
+        { kind: 'tool_rule', rule: 'mcp__gantry__send_notification' },
+      ],
+    }),
   },
   ...GANTRY_FACADE_EXACT_TOOL_NAMES.map((name) =>
     gantryFacadeTool(

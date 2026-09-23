@@ -15,7 +15,7 @@ it('paginates the bounded audit table fifty records at a time', () => {
   expect(queries).toContain('/audit?page=${page}');
 });
 
-it('shows an agent-specific, version-guarded persona editor', () => {
+it('shows agent-specific, version-guarded SOUL.md and AGENTS.md editors', () => {
   const route = readFileSync(
     'src/features/agents/routes/agent-detail-route.tsx',
     'utf8',
@@ -24,12 +24,15 @@ it('shows an agent-specific, version-guarded persona editor', () => {
     'src/features/agents/components/agent-persona-editor.tsx',
     'utf8',
   );
-  expect(route).toContain('<AgentPersonaEditor');
+  expect(route).toContain('<AgentProfileEditor');
   expect(route).toContain('agentId={agent.id}');
-  expect(editor).toContain('expectedVersion: persona.data!.persona.version');
+  expect(route).toContain('section="persona"');
+  expect(route).toContain('section="instructions"');
+  expect(editor).toContain('expectedVersion: profile.data![section].version');
   expect(editor).toContain('Edit persona');
-  expect(editor).toContain('Save persona');
+  expect(editor).toContain('Edit AGENTS.md');
+  expect(editor).toContain('Save AGENTS.md');
   expect(editor).toContain(
-    'This persona changed elsewhere. Refresh it before saving.',
+    'This profile changed elsewhere. Refresh it before saving.',
   );
 });

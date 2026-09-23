@@ -29,6 +29,10 @@ export type CoreToolInputByName = {
     files?: CoreMessageFile[];
     sender?: string;
   };
+  send_notification: {
+    destination: string;
+    text: string;
+  };
   ask_user_question: {
     questions: Array<{
       question: string;
@@ -96,6 +100,10 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
         .max(5)
         .optional(),
       sender: z.string().optional(),
+    }),
+    send_notification: z.object({
+      destination: z.string().trim().min(1).max(160),
+      text: z.string().trim().min(1).max(4000),
     }),
     ask_user_question: z.object({
       questions: z

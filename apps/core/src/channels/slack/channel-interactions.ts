@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import {
@@ -41,6 +43,8 @@ import {
 } from './channel-message-ingest.js';
 import { registerSlackUserQuestionHandlers } from './user-question-interactions.js';
 import { bootstrapGroupInstall } from '../group-install-bootstrap.js';
+import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
+import { triggerForRoute } from '../../shared/trigger-pattern.js';
 
 export interface SlackMemberJoinedChannelEvent {
   user?: string;
@@ -636,6 +640,28 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     registerSlackRichFormHandlers({
       app: this.app,
       pendingRichForms: this.pendingRichForms,
+      onSubmit: async ({ request, channelId, threadTs, userId, text }) => {
+        const routes = findConversationRoutesForChat(
+          this.opts.conversationRoutes(),
+          `sl:${channelId}`,
+          threadTs || undefined,
+          request.providerAccountId ?? this.opts.providerAccountId,
+        );
+        const route = routes.find(
+          ([, candidate]) => candidate.folder === request.sourceAgentFolder,
+        )?.[1];
+        if (!route)
+          throw new Error(
+            'Form agent is no longer installed in this conversation',
+          );
+        await this.ingestSlackMessage({
+          channel: channelId,
+          thread_ts: threadTs || undefined,
+          ts: `${Math.floor(Date.now() / 1000)}.${randomInt(0, 1_000_000).toString().padStart(6, '0')}`,
+          user: userId,
+          text: `${triggerForRoute(route)} ${text}`,
+        });
+      },
     });
     registerSlackMessageActionHandler(this.app, this.opts);
   }

@@ -25,6 +25,10 @@ import {
   type CoreSendMessageDeps,
 } from '../../application/core-tools/send-message.js';
 import {
+  sendNotification,
+  type NotificationDestination,
+} from '../../application/core-tools/send-notification.js';
+import {
   type CoreTaskLifecycleBackend,
   type CoreTaskLifecycleName,
   type CoreTaskLifecycleResult,
@@ -80,6 +84,7 @@ interface CoreToolSuccessLedger {
 
 export const CORE_TOOL_NAMES = [
   'send_message',
+  'send_notification',
   'ask_user_question',
   'memory_search',
   'memory_save',
@@ -130,6 +135,7 @@ export interface CoreToolRunContext {
 
 export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   context: CoreToolRunContext;
+  notificationDestinations?: readonly NotificationDestination[];
   requestUserAnswer: (request: UserQuestionRequest) => Promise<{
     requestId: string;
     answers: Record<string, string | string[]>;
@@ -237,6 +243,28 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
         return textResult(result.message);
       },
     ),
+    ...(deps.context.allowedToolRules?.includes(
+      'mcp__gantry__send_notification',
+    )
+      ? [
+          define(
+            'send_notification',
+            `Send one notification to an installed channel. Available destinations: ${(deps.notificationDestinations ?? []).map((destination) => destination.name).join(', ') || 'none'}.`,
+            deps.schemas.send_notification,
+            async (args) => {
+              const result = await sendNotification({
+                destination: args.destination,
+                text: args.text,
+                destinations: deps.notificationDestinations ?? [],
+                sendMessage: deps.sendMessage,
+              });
+              return textResult(
+                `Notification sent to ${result.destination.name}.`,
+              );
+            },
+          ),
+        ]
+      : []),
     define(
       'ask_user_question',
       'Ask the user a structured multiple-choice question.',

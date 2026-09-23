@@ -91,8 +91,11 @@ function payloadLines(input: RichInteractionRequest): string[] {
       return [
         RICH_INTERACTION_REQUIRED_FIELDS_COPY,
         ...richArrayItems(payload.fields)
-          .map((field) => lineFromPair(field, 'label', 'type'))
-          .filter(Boolean),
+          .map((field) => field.label || field.id)
+          .filter(
+            (label): label is string =>
+              typeof label === 'string' && Boolean(label),
+          ),
       ];
     case 'media':
       return richArrayItems(payload.items)

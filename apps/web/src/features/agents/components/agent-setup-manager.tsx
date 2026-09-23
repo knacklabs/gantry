@@ -169,7 +169,7 @@ export function AgentSetupManager({
           id: `${item.id}:${item.version}`,
           label: item.label,
           description: item.description,
-          group: 'Capabilities',
+          group: item.category ?? 'Capabilities',
         }));
   const items = allItems ?? [];
 

@@ -8,7 +8,10 @@ import {
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import { ProfileVersionConflictError } from '../../../application/agents/agent-profile-service.js';
-import { defaultSoulPromptMarkdown } from '../../../application/agents/prompt-profile-defaults.js';
+import {
+  defaultAgentsPromptMarkdown,
+  defaultSoulPromptMarkdown,
+} from '../../../application/agents/prompt-profile-defaults.js';
 import { PromptProfileService } from '../../../application/agents/prompt-profile-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
@@ -68,6 +71,7 @@ const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
 const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
 const AGENT_PERSONA_PATH = /^\/ui\/api\/agents\/([^/]+)\/persona$/;
+const AGENT_INSTRUCTIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/instructions$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 const AGENT_MODELS_PATH = '/ui/api/agent-models';
 
@@ -218,20 +222,20 @@ export async function handleBrowserAgentRoutes(
       return true;
     }
     const personaMatch = pathname.match(AGENT_PERSONA_PATH);
-    if (personaMatch) {
-      const agentId = decodeURIComponent(personaMatch[1]) as AgentId;
+    const instructionsMatch = pathname.match(AGENT_INSTRUCTIONS_PATH);
+    if (personaMatch || instructionsMatch) {
+      const agentId = decodeURIComponent(
+        (personaMatch ?? instructionsMatch)![1],
+      ) as AgentId;
+      const responseKey = personaMatch ? 'persona' : 'instructions';
+      const kind = personaMatch ? 'soul' : 'agents';
       const agent = await storage.repositories.agents.getAgent(agentId);
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
       const folder = folderForAgentId(agentId);
       if (!folder || !isValidWorkspaceFolder(folder))
         return (
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'Agent has no persona profile.',
-          ),
+          sendError(res, 400, 'INVALID_REQUEST', 'Agent has no profile.'),
           true
         );
       try {
@@ -239,11 +243,11 @@ export async function handleBrowserAgentRoutes(
           agentId,
           appId,
           ctx.runtimeHome,
-        ).readProfileFile(folder, 'soul', {
+        ).readProfileFile(folder, kind, {
           actor: `browser:${session.userId}`,
         });
         sendJson(res, 200, {
-          persona: {
+          [responseKey]: {
             content: profile.content,
             version: profile.version,
             isDefault: false,
@@ -252,8 +256,10 @@ export async function handleBrowserAgentRoutes(
       } catch (error) {
         if (!(error instanceof FileArtifactNotFoundError)) throw error;
         sendJson(res, 200, {
-          persona: {
-            content: defaultSoulPromptMarkdown(agent.name),
+          [responseKey]: {
+            content: personaMatch
+              ? defaultSoulPromptMarkdown(agent.name)
+              : defaultAgentsPromptMarkdown(agent.name),
             version: 0,
             isDefault: true,
           },
@@ -335,6 +341,7 @@ export async function handleBrowserAgentRoutes(
                 label: tool.displayName,
                 description: tool.description,
                 risk: tool.risk,
+                category: capability.category,
               },
             ]
           : [];
@@ -624,8 +631,14 @@ export async function handleBrowserAgentRoutes(
       return true;
     }
     const personaMatch = pathname.match(AGENT_PERSONA_PATH);
-    if (personaMatch && req.method === 'PUT') {
-      const agentId = decodeURIComponent(personaMatch[1]) as AgentId;
+    const instructionsMatch = pathname.match(AGENT_INSTRUCTIONS_PATH);
+    if ((personaMatch || instructionsMatch) && req.method === 'PUT') {
+      const agentId = decodeURIComponent(
+        (personaMatch ?? instructionsMatch)![1],
+      ) as AgentId;
+      const responseKey = personaMatch ? 'persona' : 'instructions';
+      const kind = personaMatch ? 'soul' : 'agents';
+      const maxChars = personaMatch ? 3000 : 4500;
       const agent = await storage.repositories.agents.getAgent(agentId);
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
@@ -642,12 +655,7 @@ export async function handleBrowserAgentRoutes(
       const folder = folderForAgentId(agentId);
       if (!folder || !isValidWorkspaceFolder(folder))
         return (
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'Agent has no persona profile.',
-          ),
+          sendError(res, 400, 'INVALID_REQUEST', 'Agent has no profile.'),
           true
         );
       const body = await readJson(req);
@@ -655,7 +663,7 @@ export async function handleBrowserAgentRoutes(
         !object(body) ||
         typeof body.content !== 'string' ||
         !body.content.trim() ||
-        body.content.length > 3000 ||
+        body.content.length > maxChars ||
         typeof body.expectedVersion !== 'number' ||
         !Number.isSafeInteger(body.expectedVersion) ||
         body.expectedVersion < 0
@@ -665,7 +673,7 @@ export async function handleBrowserAgentRoutes(
             res,
             400,
             'INVALID_REQUEST',
-            'Enter a persona of 1–3,000 characters and refresh before saving.',
+            `Enter 1–${maxChars.toLocaleString()} characters and refresh before saving.`,
           ),
           true
         );
@@ -676,14 +684,14 @@ export async function handleBrowserAgentRoutes(
           ctx.runtimeHome,
         ).writeProfileFile({
           agentFolder: folder,
-          kind: 'soul',
+          kind,
           content: body.content,
           expectedVersion: body.expectedVersion,
           actor,
           approvalSource: 'browser_admin',
         });
         sendJson(res, 200, {
-          persona: {
+          [responseKey]: {
             content: body.content,
             version: saved.version,
             isDefault: false,
@@ -695,7 +703,7 @@ export async function handleBrowserAgentRoutes(
           res,
           409,
           'CONFLICT',
-          'This persona changed elsewhere. Refresh it before saving.',
+          'This profile changed elsewhere. Refresh it before saving.',
         );
       }
       return true;

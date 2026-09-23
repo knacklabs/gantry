@@ -2438,6 +2438,53 @@ describe('parseIpcMessage', () => {
     stopIpcWatcher();
   });
 
+  it('accepts a signed notification request with a bounded destination', () => {
+    const payload = {
+      type: 'notification',
+      requestId: 'notification-1',
+      chatJid: 'sl:C-CUSTOMER',
+      destination: '#gantry-demo-insurance-sales',
+      text: '[TEST] MIA notification tool is connected.',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      context: {
+        appId: 'app:test',
+        agentId: 'agent:test',
+        providerAccountId: 'slack-account',
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+      },
+    };
+    expect(parseIpcMessage(signedPayload(payload), 'team')).toMatchObject({
+      type: 'notification',
+      chatJid: 'sl:C-CUSTOMER',
+      providerAccountId: 'slack-account',
+      destination: '#gantry-demo-insurance-sales',
+      text: '[TEST] MIA notification tool is connected.',
+    });
+    expect(() =>
+      parseIpcMessage(
+        signedPayload({
+          ...payload,
+          requestId: 'notification-empty',
+          nonce: randomUUID(),
+          destination: '',
+        }),
+        'team',
+      ),
+    ).toThrow('Invalid IPC notification destination');
+    expect(() =>
+      parseIpcMessage(
+        signedPayload({
+          ...payload,
+          requestId: 'notification-no-response-key',
+          nonce: randomUUID(),
+          context: { ...payload.context, responseKeyId: undefined },
+        }),
+        'team',
+      ),
+    ).toThrow('IPC notification responseKeyId is required');
+  });
+
   it('keeps signed app scope and defaults source-less refs to FileArtifact', () => {
     const payload = {
       type: 'message',

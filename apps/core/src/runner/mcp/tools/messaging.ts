@@ -29,7 +29,8 @@ import {
   jobRunLeaseToken,
   jobRunLeaseFencingVersion,
 } from '../context.js';
-import { writeIpcFile } from '../ipc.js';
+import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
+import { waitForIpcResponseFile } from '../../ipc-response-wait.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
 import {
   ipcInteractionAuthEnvelopeOptions,
@@ -381,6 +382,85 @@ export function registerMessagingTools(
   server: McpServer,
   claimProbe?: IpcRequestClaimProbe,
 ): void {
+  server.tool(
+    'send_notification',
+    'Send one notification to a Slack channel where you are installed. Copy the exact channel name or ID from the user request into destination; never substitute a remembered or guessed channel. If the destination is rejected, read the available channels in the error and retry only when one exactly matches the user request. This posts a new channel message, not a reply in the current thread.',
+    {
+      destination: z.string().trim().min(1).max(160),
+      text: z.string().trim().min(1).max(4000),
+    },
+    async (args) => {
+      if (jobId) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Scheduled job notification suppressed. The scheduler owns completion delivery.',
+            },
+          ],
+        };
+      }
+      const requestId = makeIpcId('notification');
+      const responseDir = path.join(IPC_DIR, 'notification-responses');
+      ensurePrivateDirSync(responseDir);
+      writeIpcFile(MESSAGES_DIR, {
+        type: 'notification',
+        requestId,
+        chatJid,
+        destination: args.destination,
+        text: args.text,
+        providerAccountId,
+        workspaceFolder,
+        timestamp: nowIso(),
+      });
+      const responsePath = path.join(responseDir, `${requestId}.json`);
+      let outcome = 'Notification delivery could not be confirmed.';
+      let delivered = false;
+      if (
+        await waitForIpcResponseFile({
+          responsePath,
+          deadlineMs: nowMs() + 30_000,
+        })
+      ) {
+        try {
+          const raw = JSON.parse(
+            fs.readFileSync(responsePath, 'utf-8'),
+          ) as Record<string, unknown>;
+          const payload = {
+            requestId: raw.requestId,
+            ok: raw.ok,
+            ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+          };
+          if (
+            raw.requestId !== requestId ||
+            typeof raw.ok !== 'boolean' ||
+            !hasValidIpcResponseSignature(raw, payload)
+          ) {
+            throw new Error('Invalid delivery response');
+          }
+          delivered = raw.ok;
+          outcome = delivered
+            ? `Notification delivered to ${args.destination}.`
+            : typeof raw.error === 'string'
+              ? raw.error
+              : 'Notification delivery failed.';
+        } catch {
+          outcome = 'Notification delivery could not be confirmed.';
+        } finally {
+          fs.rmSync(responsePath, { force: true });
+        }
+      }
+      return {
+        isError: !delivered,
+        content: [
+          {
+            type: 'text' as const,
+            text: outcome,
+          },
+        ],
+      };
+    },
+  );
   server.tool(
     'send_message',
     "Send a message to the user or group immediately while you're still running. Use this for live progress updates or to send multiple messages. In scheduled jobs, the scheduler sends the completion notification, so do not use this for job results.",

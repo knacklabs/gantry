@@ -4,6 +4,48 @@ import { AgentCapabilityAdministrationService } from '@core/application/agents/a
 import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 describe('AgentCapabilityAdministrationService', () => {
+  it('lists one card when a capability has a canonical and old tool row', async () => {
+    const state = createState();
+    const inputSchema = semanticCapabilityInputSchema({
+      capabilityId: 'notifications.send',
+      version: '1',
+      displayName: 'Send notification',
+      category: 'Notifications',
+      risk: 'write',
+      can: 'Send to an installed channel.',
+      cannot: 'Send to an uninstalled channel.',
+      credentialSource: 'configured_access',
+      implementationBindings: [
+        { kind: 'tool_rule', rule: 'mcp__gantry__send_notification' },
+      ],
+    });
+    for (const id of [
+      'tool:capability:notifications.send',
+      'tool:mcp__gantry__send_notification',
+    ]) {
+      state.tools.set(id, {
+        id,
+        appId: 'app:one',
+        name: id.slice('tool:'.length),
+        kind: 'host',
+        provider: 'gantry',
+        displayName: 'Send notification',
+        category: 'channel',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: `builtin:${id}`,
+        inputSchema,
+      });
+    }
+    const catalog = await new AgentCapabilityAdministrationService(
+      state.repositories,
+    ).listCatalog('app:one' as never);
+    expect(
+      catalog.tools.filter((tool) => tool.displayName === 'Send notification'),
+    ).toHaveLength(1);
+  });
+
   it('replaces capabilities and sources through separate agent-owned views', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(

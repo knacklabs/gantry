@@ -49,6 +49,7 @@ import {
   resolveTurnToolPolicyFromSnapshot,
 } from '../../runtime/group-run-context.js';
 import { createCoreToolRegistry } from '../../runtime/core-tools/registry.js';
+import { notificationDestinations } from '../../application/core-tools/send-notification.js';
 import { createCoreToolSchemas } from '../../runtime/core-tools/schemas.js';
 import {
   permissionDecisionEventType,
@@ -185,6 +186,13 @@ export function createInlineCoreTools(
       fixedImageRestricted: run.hideAuthorityTools === true,
     },
     sendMessage: deps.sendMessage,
+    notificationDestinations: notificationDestinations({
+      routes: deps.getConversationRoutes(),
+      sourceAgentFolder: laneInput.group.folder,
+      ...(run.chatJid.startsWith('sl:') && laneInput.group.providerAccountId
+        ? { providerAccountId: laneInput.group.providerAccountId }
+        : {}),
+    }),
     ...(deps.getFileArtifactStore
       ? { getFileArtifactStore: deps.getFileArtifactStore }
       : {}),

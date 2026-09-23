@@ -39,6 +39,7 @@ import {
   type AgentToolAccessView,
 } from '../../shared/tool-access-view.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../shared/semantic-capabilities.js';
 import {
   buildSelectedCapabilities,
   canonicalToolReferenceForView,
@@ -118,8 +119,20 @@ export class AgentCapabilityAdministrationService {
         limit: 500,
       }),
     ]);
+    const seenCapabilities = new Set<string>();
     return {
-      tools: tools.filter((tool) => tool.selectable),
+      tools: tools.filter((tool) => {
+        if (!tool.selectable) return false;
+        const capability = semanticCapabilityFromToolCatalogItem({
+          name: tool.name,
+          inputSchema: tool.inputSchema,
+        });
+        if (!capability) return true;
+        const key = `${capability.capabilityId}:${capability.version}`;
+        if (seenCapabilities.has(key)) return false;
+        seenCapabilities.add(key);
+        return true;
+      }),
       skills: skills.filter(isSkillMaterializableLocally),
       mcpServers,
     };
