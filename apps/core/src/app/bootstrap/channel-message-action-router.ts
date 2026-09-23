@@ -62,6 +62,13 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
       (input.decision === 'approve' || input.decision === 'reject')
     );
   }
+  if (input.kind === 'claim_review_decision') {
+    return (
+      /^CLM-[A-Z0-9-]{4,32}$/.test(input.claimId) &&
+      input.outcomeJid.startsWith('sl:') &&
+      (input.decision === 'approve' || input.decision === 'decline')
+    );
+  }
   return isLiveStopActionTokenValid(input);
 }
 

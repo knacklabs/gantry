@@ -24,11 +24,13 @@ type SlackAppLike = {
     name: string | RegExp,
     handler: (args: any) => Promise<void>,
   ) => void;
+  view?: (name: string, handler: (args: any) => Promise<void>) => void;
   client: {
     chat: {
       postEphemeral: (input: any) => Promise<unknown>;
       update: (input: any) => Promise<unknown>;
     };
+    views?: { open: (input: any) => Promise<unknown> };
   };
 };
 
@@ -64,6 +66,7 @@ export function registerSlackMessageActionHandler(
       channel?: { id?: string };
       message?: { thread_ts?: string; ts?: string };
       user?: { id?: string };
+      trigger_id?: string;
     };
     const channelId = body.channel?.id;
     const userId = body.user?.id;
@@ -78,6 +81,8 @@ export function registerSlackMessageActionHandler(
           recordId?: unknown;
           agentRouteKey?: unknown;
           providerAccountId?: unknown;
+          claimId?: unknown;
+          outcomeJid?: unknown;
         }
       | undefined;
     try {
@@ -106,6 +111,71 @@ export function registerSlackMessageActionHandler(
       return;
     }
     await args.ack();
+    if (
+      payload?.kind === 'claim_review_decision' &&
+      typeof payload.claimId === 'string' &&
+      typeof payload.outcomeJid === 'string' &&
+      (payload.decision === 'approve' || payload.decision === 'decline') &&
+      channelId &&
+      userId
+    ) {
+      const callback = {
+        kind: 'claim_review_decision' as const,
+        conversationJid: `sl:${channelId}`,
+        ...providerAccountFromPayload(payload, opts?.providerAccountId),
+        userId,
+        claimId: payload.claimId,
+        outcomeJid: payload.outcomeJid,
+        decision: payload.decision as 'approve' | 'decline',
+      };
+      const outcome = await opts?.onMessageAction?.(callback);
+      if (outcome?.state === 'needs_input' && payload.decision === 'decline') {
+        if (!body.trigger_id || !app.client.views?.open) {
+          await app.client.chat.postEphemeral({
+            channel: channelId,
+            user: userId,
+            text: 'The decline form is unavailable. Please try again.',
+          });
+          return;
+        }
+        await app.client.views.open({
+          trigger_id: body.trigger_id,
+          view: {
+            type: 'modal',
+            callback_id: 'gantry_claim_decline_submit',
+            title: { type: 'plain_text', text: 'Decline claim' },
+            submit: { type: 'plain_text', text: 'Decline' },
+            close: { type: 'plain_text', text: 'Cancel' },
+            private_metadata: JSON.stringify({
+              channelId,
+              messageTs: body.message?.ts,
+              ...callback,
+            }),
+            blocks: [
+              {
+                type: 'input',
+                block_id: 'reason_block',
+                label: { type: 'plain_text', text: 'Reason for decline' },
+                element: {
+                  type: 'plain_text_input',
+                  action_id: 'reason',
+                  multiline: true,
+                },
+              },
+            ],
+          },
+        });
+        return;
+      }
+      await settleClaimReviewAction(
+        app,
+        channelId,
+        userId,
+        body.message?.ts,
+        outcome,
+      );
+      return;
+    }
     if (
       payload?.kind === 'memory_forget' &&
       typeof payload.recordId === 'string' &&
@@ -387,6 +457,75 @@ export function registerSlackMessageActionHandler(
       // ignore callback feedback failures
     }
   });
+  app.view?.('gantry_claim_decline_submit', async (args: any) => {
+    await args.ack();
+    let metadata: Record<string, unknown>;
+    try {
+      metadata = JSON.parse(args.body?.view?.private_metadata ?? '{}');
+    } catch {
+      return;
+    }
+    const channelId = metadata.channelId;
+    const userId = args.body?.user?.id;
+    const reason = args.body?.view?.state?.values?.reason_block?.reason?.value;
+    if (
+      typeof channelId !== 'string' ||
+      typeof userId !== 'string' ||
+      typeof reason !== 'string' ||
+      !reason.trim()
+    )
+      return;
+    if (
+      metadata.userId !== userId ||
+      metadata.conversationJid !== `sl:${channelId}` ||
+      typeof metadata.claimId !== 'string' ||
+      typeof metadata.outcomeJid !== 'string'
+    )
+      return;
+    const outcome = await opts?.onMessageAction?.({
+      kind: 'claim_review_decision',
+      conversationJid: `sl:${channelId}`,
+      ...providerAccountFromPayload(metadata, opts?.providerAccountId),
+      userId,
+      claimId: metadata.claimId,
+      outcomeJid: metadata.outcomeJid,
+      decision: 'decline',
+      reason: reason.trim(),
+    });
+    await settleClaimReviewAction(
+      app,
+      channelId,
+      userId,
+      typeof metadata.messageTs === 'string' ? metadata.messageTs : undefined,
+      outcome,
+    );
+  });
+}
+
+async function settleClaimReviewAction(
+  app: SlackAppLike,
+  channelId: string,
+  userId: string,
+  messageTs: string | undefined,
+  outcome: MessageActionOutcome | void,
+): Promise<void> {
+  if (!outcome) return;
+  if ((outcome.state === 'applied' || outcome.state === 'stale') && messageTs) {
+    await app.client.chat.update({
+      channel: channelId,
+      ts: messageTs,
+      text: outcome.receipt,
+      blocks: [
+        { type: 'section', text: { type: 'mrkdwn', text: outcome.receipt } },
+      ],
+    });
+  } else {
+    await app.client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      text: outcome.receipt,
+    });
+  }
 }
 
 function providerAccountFromPayload(

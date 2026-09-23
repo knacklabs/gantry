@@ -37,6 +37,7 @@ import {
   type IpcRequestClaimProbe,
 } from '../../../shared/ipc-interaction-lifetime.js';
 import { makeIpcId } from '../ipc-ids.js';
+import { CLAIM_REVIEW_DELIVERY_FAILURE } from '../../../application/core-tools/send-notification.js';
 import {
   sleepWithAbort,
   USER_QUESTION_POLL_INTERVAL_MS,
@@ -189,6 +190,7 @@ function richInteractionQueuedText(queued: boolean, form = false): string {
 }
 
 function registerRichInteractionTools(server: McpServer): void {
+  const queuedForms = new Set<string>();
   server.tool(
     'render_status',
     'Render a compact status view in the active conversation.',
@@ -297,13 +299,27 @@ function registerRichInteractionTools(server: McpServer): void {
 
   server.tool(
     'render_form',
-    'Render a form in the active conversation. Form submission is non-blocking in this runtime version.',
+    'Render a form in the active conversation once, then wait for the user to submit it in a later turn. Form submission is non-blocking in this runtime version.',
     {
       title: richTitleSchema,
       fields: z.array(richFormFieldSchema).min(1).max(10),
       fallback_text: fallbackTextSchema,
     },
     async (args) => {
+      const formKey = JSON.stringify({
+        title: args.title,
+        fields: args.fields,
+      });
+      if (queuedForms.has(formKey)) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Form already queued. Wait for the user to submit it; do not render it again in this turn.',
+            },
+          ],
+        };
+      }
       const queued = writeRichInteractionRequest(
         'form',
         args.title,
@@ -312,6 +328,7 @@ function registerRichInteractionTools(server: McpServer): void {
           fields: args.fields,
         },
       );
+      if (queued) queuedForms.add(formKey);
       return {
         content: [
           {
@@ -388,8 +405,33 @@ export function registerMessagingTools(
     {
       destination: z.string().trim().min(1).max(160),
       text: z.string().trim().min(1).max(4000),
+      review_claim_id: z
+        .string()
+        .trim()
+        .optional()
+        .describe(
+          'Claim ID for a two-button internal review card. Requires outcome_destination.',
+        ),
+      outcome_destination: z
+        .string()
+        .trim()
+        .optional()
+        .describe(
+          'Installed channel to notify after an approver decides the claim. Requires review_claim_id.',
+        ),
     },
     async (args) => {
+      if (Boolean(args.review_claim_id) !== Boolean(args.outcome_destination)) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: CLAIM_REVIEW_DELIVERY_FAILURE,
+            },
+          ],
+        };
+      }
       if (jobId) {
         return {
           content: [
@@ -409,6 +451,12 @@ export function registerMessagingTools(
         chatJid,
         destination: args.destination,
         text: args.text,
+        ...(args.review_claim_id
+          ? {
+              reviewClaimId: args.review_claim_id,
+              outcomeDestination: args.outcome_destination,
+            }
+          : {}),
         providerAccountId,
         workspaceFolder,
         timestamp: nowIso(),
@@ -441,14 +489,21 @@ export function registerMessagingTools(
           delivered = raw.ok;
           outcome = delivered
             ? `Notification delivered to ${args.destination}.`
-            : typeof raw.error === 'string'
-              ? raw.error
-              : 'Notification delivery failed.';
+            : args.review_claim_id
+              ? CLAIM_REVIEW_DELIVERY_FAILURE
+              : typeof raw.error === 'string'
+                ? raw.error
+                : 'Notification delivery failed.';
         } catch {
-          outcome = 'Notification delivery could not be confirmed.';
+          outcome = args.review_claim_id
+            ? CLAIM_REVIEW_DELIVERY_FAILURE
+            : 'Notification delivery could not be confirmed.';
         } finally {
           fs.rmSync(responsePath, { force: true });
         }
+      }
+      if (!delivered && args.review_claim_id) {
+        outcome = CLAIM_REVIEW_DELIVERY_FAILURE;
       }
       return {
         isError: !delivered,

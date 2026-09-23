@@ -5,7 +5,11 @@ import {
   notificationDestinations,
   sendNotification,
 } from '../application/core-tools/send-notification.js';
-import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
+import {
+  DATA_DIR,
+  IPC_POLL_INTERVAL,
+  motorClaimIntegrationConfig,
+} from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { DurableInteractionPersistenceError } from '../application/interactions/pending-interaction-persistence-error.js';
 // prettier-ignore
@@ -255,6 +259,15 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   await sendNotification({
                     destination: data.destination,
                     text: data.text,
+                    ...motorClaimIntegrationConfig(),
+                    ...(data.reviewClaimId && data.outcomeDestination
+                      ? {
+                          claimReview: {
+                            claimId: data.reviewClaimId,
+                            outcomeDestination: data.outcomeDestination,
+                          },
+                        }
+                      : {}),
                     destinations: notificationDestinations({
                       routes: groupRegistry,
                       sourceAgentFolder,

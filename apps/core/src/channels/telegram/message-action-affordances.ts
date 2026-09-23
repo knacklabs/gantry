@@ -38,6 +38,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   observer_feedback: '',
   // brain_dream_review_decision has its own renderer (telegramBrainReviewMessage).
   brain_dream_review_decision: '',
+  claim_review_decision: '',
 };
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 

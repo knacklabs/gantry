@@ -205,6 +205,32 @@ export const DEFAULT_TOOL_CATALOG = [
       ],
     }),
   },
+  {
+    id: 'tool:capability:claims.evidence.store',
+    name: 'capability:claims.evidence.store',
+    kind: 'host',
+    provider: 'gantry',
+    providerToolName: undefined,
+    displayName: 'Store claim evidence',
+    description:
+      'Copy an original customer attachment to a registered motor claim.',
+    category: 'claims',
+    risk: 'high',
+    inputSchema: semanticCapabilityInputSchema({
+      capabilityId: 'claims.evidence.store',
+      version: '1',
+      displayName: 'Store claim evidence',
+      category: 'Claims',
+      risk: 'write',
+      can: 'Copy a customer attachment from the originating conversation into an existing motor claim.',
+      cannot:
+        'Read attachments from other conversations or store evidence for another agent.',
+      credentialSource: 'configured_access',
+      implementationBindings: [
+        { kind: 'tool_rule', rule: 'mcp__gantry__claim_evidence_store' },
+      ],
+    }),
+  },
   ...GANTRY_FACADE_EXACT_TOOL_NAMES.map((name) =>
     gantryFacadeTool(
       name,

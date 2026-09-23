@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export interface AttachmentOpenProofInput {
-  type: 'attachment_open' | 'attachment_materialize';
+  type: 'attachment_open' | 'attachment_materialize' | 'claim_evidence_store';
   attachmentId: string;
   chatJid: string;
   taskId: string;

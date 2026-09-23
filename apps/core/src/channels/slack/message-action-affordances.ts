@@ -75,6 +75,18 @@ function slackActionValue(
   if (action.kind === 'observer_feedback') return undefined;
   // brain_dream_review_decision has its own renderer (brain-review-affordances).
   if (action.kind === 'brain_dream_review_decision') return undefined;
+  if (action.kind === 'claim_review_decision') {
+    const value = JSON.stringify({
+      kind: action.kind,
+      claimId: action.claimId,
+      outcomeJid: action.outcomeJid,
+      decision: action.decision,
+      ...(providerAccountId ? { providerAccountId } : {}),
+    });
+    return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+      ? value
+      : undefined;
+  }
   if (action.kind === 'memory_review_decision') {
     const value = JSON.stringify({
       kind: action.kind,
@@ -151,9 +163,14 @@ export function slackMessageActionBlocks(
           type: 'plain_text',
           text: truncateSlackButtonLabel(action.label),
         },
-        ...(action.kind === 'scheduler_pause_job'
+        ...(action.kind === 'scheduler_pause_job' ||
+        (action.kind === 'claim_review_decision' &&
+          action.decision === 'decline')
           ? { style: 'danger' as const }
-          : {}),
+          : action.kind === 'claim_review_decision' &&
+              action.decision === 'approve'
+            ? { style: 'primary' as const }
+            : {}),
         value,
       };
     })

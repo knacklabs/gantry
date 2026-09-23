@@ -20,6 +20,7 @@ import {
   attachmentOpenResponsePayload,
   attachmentOpenTimeoutPayload,
   attachmentOpenTaskRequest,
+  claimEvidenceStoreTaskRequest,
   DELIVERED_IMAGE_TEXT,
   openAttachmentBatch,
   type AttachmentOpenImagePayload,
@@ -36,6 +37,72 @@ export const ATTACHMENT_MATERIALIZE_TASK_TIMEOUT_MS = 120_000;
 const MAX_ATTACHMENT_BATCH_SIZE = 12;
 
 export function registerAttachmentTools(server: McpServer): void {
+  server.tool(
+    'claim_evidence_store',
+    'After reading a customer attachment, save its original bytes and your unverified extraction to the linked motor claim. The host verifies this conversation and copies the bytes directly; never put base64 in tool arguments. Only the configured motor-claim agent can use this.',
+    {
+      attachment_id: z.string().min(1),
+      claim_id: z.string().regex(/^CLM-[A-Z0-9-]{4,32}$/),
+      document_type: z.enum([
+        'damage_photo',
+        'repair_estimate',
+        'incident_report',
+        'policy_document',
+        'other',
+      ]),
+      mime_type: z.enum([
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'application/pdf',
+      ]),
+      extracted_text: z.string().max(12000).default(''),
+      extracted_fields: z
+        .record(
+          z.string(),
+          z.union([z.string(), z.number(), z.boolean(), z.null()]),
+        )
+        .default({}),
+    },
+    async (args) => {
+      const taskId = makeIpcId('claim-evidence');
+      writeIpcFile(
+        TASKS_DIR,
+        claimEvidenceStoreTaskRequest({
+          attachmentId: args.attachment_id,
+          chatJid,
+          threadId,
+          providerAccountId,
+          taskId,
+          authToken: ATTACHMENT_IPC_AUTH_TOKEN,
+          claimId: args.claim_id,
+          documentType: args.document_type,
+          mimeType: args.mime_type,
+          extractedText: args.extracted_text,
+          extractedFields: args.extracted_fields,
+        }),
+      );
+      const response = await waitForTaskResponse(
+        taskId,
+        ATTACHMENT_OPEN_TASK_TIMEOUT_MS,
+      );
+      const data =
+        response?.data && typeof response.data === 'object'
+          ? (response.data as Record<string, unknown>)
+          : {};
+      return {
+        isError: !response?.ok,
+        content: [
+          {
+            type: 'text' as const,
+            text: response?.ok
+              ? JSON.stringify(data)
+              : `Claim evidence was not stored: ${response?.error ?? 'request timed out'}.`,
+          },
+        ],
+      };
+    },
+  );
   server.tool(
     'attachment_open',
     'Read inbound conversation attachments using their opaque gantry_attachment ids. Always use this for attachment metadata; never use FileRead or FileSearch on gantry_ref paths. Pass attachment_ids to read multiple files concurrently in one call. The host verifies conversation scope and returns bounded extracted text for documents.',

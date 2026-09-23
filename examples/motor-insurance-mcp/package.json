@@ -1,0 +1,8 @@
+{
+  "name": "motor-insurance-demo-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node server.mjs", "test": "node smoke-test.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.0.0", "express": "^5.0.0", "zod": "^3.25.0" }
+}

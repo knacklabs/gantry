@@ -60,11 +60,30 @@ function registryDeps(
 }
 
 describe('core tool registry', () => {
-  it('registers only the exact Stage 2 core tool names', () => {
+  it('registers notification only when the agent has that capability', () => {
     const registry = createCoreToolRegistry(registryDeps());
+    const withoutNotification = CORE_TOOL_NAMES.filter(
+      (name) => name !== 'send_notification',
+    );
 
-    expect(registry.tools.map((tool) => tool.name)).toEqual(CORE_TOOL_NAMES);
-    expect(Object.keys(registry.byName)).toEqual(CORE_TOOL_NAMES);
+    expect(registry.tools.map((tool) => tool.name)).toEqual(
+      withoutNotification,
+    );
+    expect(Object.keys(registry.byName)).toEqual(withoutNotification);
+
+    const withNotification = createCoreToolRegistry(
+      registryDeps({
+        context: {
+          sourceAgentFolder: 'main_agent',
+          conversationId: 'conversation:test',
+          allowedToolRules: ['mcp__gantry__send_notification'],
+        },
+      }),
+    );
+    expect(withNotification.tools.map((tool) => tool.name)).toEqual(
+      CORE_TOOL_NAMES,
+    );
+    expect(Object.keys(withNotification.byName)).toEqual(CORE_TOOL_NAMES);
     expect(inlineCoreToolsMountMcpInventory()).toBe(false);
   });
 

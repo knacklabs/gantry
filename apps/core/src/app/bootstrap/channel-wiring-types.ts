@@ -1,6 +1,7 @@
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
+  OnMessageAction,
   OnMemoryForgetMessageAction,
   OnMemoryReviewMessageAction,
   OnObserverFeedbackMessageAction,
@@ -263,9 +264,7 @@ export interface ChannelWiring {
     factory: DurableOutboundAttemptFactory | undefined,
   ) => void;
   setRuntimeSecrets: (provider: RuntimeSecretProvider) => void;
-  setMessageActionHandler: (
-    handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
-  ) => void;
+  setMessageActionHandler: (handler: OnMessageAction | undefined) => void;
   setMemoryReviewMessageActionHandler: (
     handler: OnMemoryReviewMessageAction | undefined,
   ) => void;

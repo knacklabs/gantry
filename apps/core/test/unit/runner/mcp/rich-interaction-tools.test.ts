@@ -184,6 +184,42 @@ describe('rich interaction MCP tools', () => {
     );
   });
 
+  it('queues an equivalent form only once during a run', async () => {
+    const writeIpcFile = vi.fn();
+    vi.doMock('@core/runner/mcp/ipc.js', () => ({
+      writeIpcFile,
+      hasValidIpcResponseSignature: vi.fn(),
+    }));
+    const { registerMessagingTools } =
+      await import('@core/runner/mcp/tools/messaging.js');
+    const { server, tools } = makeServer();
+    registerMessagingTools(server as never);
+
+    const form = {
+      title: 'Claim Details',
+      fields: [
+        { id: 'date', label: 'Incident date', type: 'text', required: true },
+      ],
+      fallback_text: 'Please provide the incident date.',
+    };
+    const renderForm = tools.get('render_form')!.handler;
+    const first = await renderForm(form);
+    const repeated = await renderForm({
+      ...form,
+      fallback_text: 'Please provide the date in a reply.',
+    });
+
+    expect(first.content[0].text).toBe('Form queued.');
+    expect(repeated.content[0].text).toContain('already queued');
+    expect(writeIpcFile).toHaveBeenCalledTimes(1);
+
+    await renderForm({
+      ...form,
+      fields: [{ id: 'city', label: 'City', type: 'text', required: true }],
+    });
+    expect(writeIpcFile).toHaveBeenCalledTimes(2);
+  });
+
   it('writes the same rich envelope the host parser accepts', async () => {
     const writeIpcFile = vi.fn();
     vi.doMock('@core/runner/mcp/ipc.js', () => ({

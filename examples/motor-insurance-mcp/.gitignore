@@ -1,0 +1,6 @@
+node_modules/
+demo-state.json
+demo-state.json.tmp
+claim-evidence/
+.env
+*.zip

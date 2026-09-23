@@ -32,6 +32,8 @@ export type CoreToolInputByName = {
   send_notification: {
     destination: string;
     text: string;
+    review_claim_id?: string;
+    outcome_destination?: string;
   };
   ask_user_question: {
     questions: Array<{
@@ -104,6 +106,8 @@ export function createCoreToolSchemas(z: ZodFactory): CoreToolSchemas {
     send_notification: z.object({
       destination: z.string().trim().min(1).max(160),
       text: z.string().trim().min(1).max(4000),
+      review_claim_id: z.string().trim().optional(),
+      outcome_destination: z.string().trim().optional(),
     }),
     ask_user_question: z.object({
       questions: z

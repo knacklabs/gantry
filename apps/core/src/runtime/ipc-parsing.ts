@@ -51,6 +51,8 @@ export interface ParsedIpcMessage {
   chatJid: string;
   text: string;
   destination?: string;
+  reviewClaimId?: string;
+  outcomeDestination?: string;
   sender?: string;
   threadId?: string;
   files?: ReturnType<typeof parseIpcMessageFiles>;
@@ -256,6 +258,18 @@ export function parseIpcMessage(
       : undefined;
   if (type === 'notification' && !destination)
     throw new Error('Invalid IPC notification destination');
+  const reviewClaimId =
+    type === 'notification'
+      ? toTrimmedString(raw.reviewClaimId, { maxLen: 64 })
+      : undefined;
+  const outcomeDestination =
+    type === 'notification'
+      ? toTrimmedString(raw.outcomeDestination, { maxLen: 160 })
+      : undefined;
+  if (Boolean(reviewClaimId) !== Boolean(outcomeDestination))
+    throw new Error(
+      'Claim review notification requires a claim ID and outcome destination',
+    );
   const requestId =
     type === 'notification'
       ? toTrimmedString(raw.requestId, { maxLen: 128 })
@@ -281,6 +295,8 @@ export function parseIpcMessage(
     chatJid,
     text,
     ...(destination ? { destination } : {}),
+    ...(reviewClaimId ? { reviewClaimId } : {}),
+    ...(outcomeDestination ? { outcomeDestination } : {}),
     ...(sender ? { sender } : {}),
     ...(threadId ? { threadId } : {}),
     ...(files.length > 0 ? { files } : {}),

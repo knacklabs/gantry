@@ -182,6 +182,7 @@ export const OPTIONAL_GANTRY_MCP_TOOL_NAMES = [
 
 export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
   'send_notification',
+  'claim_evidence_store',
   'memory_patch',
   'memory_demote',
   'procedure_patch',

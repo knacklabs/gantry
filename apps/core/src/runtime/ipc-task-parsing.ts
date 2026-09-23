@@ -343,7 +343,11 @@ export function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
-  if (type === 'attachment_open' || type === 'attachment_materialize') {
+  if (
+    type === 'attachment_open' ||
+    type === 'attachment_materialize' ||
+    type === 'claim_evidence_store'
+  ) {
     validateAttachmentOpenConversationProof(
       raw,
       sourceAgentFolder,
@@ -534,7 +538,7 @@ function validateAttachmentOpenConversationProof(
   raw: Record<string, unknown>,
   sourceAgentFolder: string,
   binding: ReturnType<typeof validateIpcAuthRequest>,
-  type: 'attachment_open' | 'attachment_materialize',
+  type: 'attachment_open' | 'attachment_materialize' | 'claim_evidence_store',
 ): void {
   const payload = isPlainObject(raw.payload) ? raw.payload : {};
   const attachmentId = toTrimmedString(payload.attachmentId, { maxLen: 512 });

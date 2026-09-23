@@ -98,6 +98,45 @@ export function attachmentMaterializeTaskRequest(input: {
   };
 }
 
+export function claimEvidenceStoreTaskRequest(input: {
+  attachmentId: string;
+  chatJid: string;
+  threadId?: string;
+  providerAccountId?: string;
+  taskId: string;
+  authToken: string;
+  claimId: string;
+  documentType: string;
+  mimeType: string;
+  extractedText: string;
+  extractedFields: Record<string, string | number | boolean | null>;
+}) {
+  return {
+    type: 'claim_evidence_store',
+    taskId: input.taskId,
+    chatJid: input.chatJid,
+    targetJid: input.chatJid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
+    payload: {
+      attachmentId: input.attachmentId,
+      conversationProof: createAttachmentOpenProof(input.authToken, {
+        type: 'claim_evidence_store',
+        attachmentId: input.attachmentId,
+        chatJid: input.chatJid,
+        taskId: input.taskId,
+        ...(input.threadId ? { threadId: input.threadId } : {}),
+      }),
+      claimId: input.claimId,
+      documentType: input.documentType,
+      mimeType: input.mimeType,
+      extractedText: input.extractedText,
+      extractedFields: input.extractedFields,
+    },
+  };
+}
+
 export function attachmentMaterializeResponsePayload(
   response: AttachmentOpenTaskResponse | null,
 ): AttachmentMaterializePayload {

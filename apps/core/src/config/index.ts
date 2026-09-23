@@ -74,6 +74,19 @@ export function getControlEnvValue(key: ControlEnvKey): string {
 export function readRuntimeSecretEnv(key: string): string {
   return envValueDynamic(key);
 }
+export function motorClaimIntegrationConfig(): {
+  reviewChannelName: string;
+  outcomeChannelName: string;
+  reviewServiceUrl: string;
+  evidenceAgentFolder: string;
+} {
+  return {
+    reviewChannelName: envValueDynamic('MOTOR_CLAIM_REVIEW_CHANNEL'),
+    outcomeChannelName: envValueDynamic('MOTOR_CLAIM_OUTCOME_CHANNEL'),
+    reviewServiceUrl: envValueDynamic('MOTOR_INSURANCE_SERVICE_URL'),
+    evidenceAgentFolder: envValueDynamic('MOTOR_CLAIM_EVIDENCE_AGENT_FOLDER'),
+  };
+}
 const GANTRY_HOME_RAW =
   process.env.GANTRY_HOME?.trim() || envConfig.GANTRY_HOME?.trim() || '';
 export const GANTRY_HOME = getGantryHome(GANTRY_HOME_RAW);

@@ -26,6 +26,8 @@ import type {
   MessageSendOptions,
 } from '../../domain/types.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import { decideMotorClaimReview } from '../../application/claims/motor-claim-review.js';
+import { motorClaimIntegrationConfig } from '../../config/index.js';
 
 function getSourceAgentFolder(
   routes: Record<string, ConversationRoute>,
@@ -257,7 +259,42 @@ export function registerLiveStopMessageAction(input: {
       sourceAgentFolder,
       decisionPolicy: 'same_channel',
     });
-    if (!allowed) return;
+    if (!allowed) {
+      if (action.kind === 'claim_review_decision')
+        return {
+          state: 'denied',
+          receipt: 'Only a configured approver can decide this claim.',
+        };
+      return;
+    }
+    if (action.kind === 'claim_review_decision') {
+      const claimConfig = motorClaimIntegrationConfig();
+      return decideMotorClaimReview({
+        claimId: action.claimId,
+        decision: action.decision,
+        ...(action.reason ? { reason: action.reason } : {}),
+        userId: action.userId,
+        ...(action.providerAccountId
+          ? { providerAccountId: action.providerAccountId }
+          : {}),
+        sourceAgentFolder,
+        reviewJid: action.conversationJid,
+        outcomeJid: action.outcomeJid,
+        routes: input.conversationBindings?.() ?? {},
+        reviewChannelName: claimConfig.reviewChannelName,
+        outcomeChannelName: claimConfig.outcomeChannelName,
+        serviceUrl: claimConfig.reviewServiceUrl,
+        sendMessage: async (jid, text, providerAccountId) => {
+          await input.channelWiring.sendMessage(jid, text, {
+            durability: 'required',
+            throwOnMissing: true,
+            ...(providerAccountId
+              ? { messageOptions: { providerAccountId } }
+              : {}),
+          });
+        },
+      });
+    }
     if (
       action.kind === 'scheduler_run_now' ||
       action.kind === 'scheduler_pause_job' ||

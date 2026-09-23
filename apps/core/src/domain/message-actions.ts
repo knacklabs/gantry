@@ -18,7 +18,8 @@ export type MessageActionAffordanceKind =
   | 'memory_forget'
   | 'memory_review_decision'
   | 'observer_feedback'
-  | 'brain_dream_review_decision';
+  | 'brain_dream_review_decision'
+  | 'claim_review_decision';
 
 export type MemoryReviewActionDecision = 'approve' | 'reject' | 'edit';
 
@@ -77,6 +78,13 @@ export type MessageActionAffordance =
       label: string;
       reviewId: string;
       decision: BrainDreamReviewActionDecision;
+    }
+  | {
+      kind: 'claim_review_decision';
+      label: string;
+      claimId: string;
+      outcomeJid: string;
+      decision: 'approve' | 'decline';
     };
 
 export type MessageActionCallbackInput =
@@ -161,6 +169,17 @@ export type MessageActionCallbackInput =
       userId: string;
       reviewId: string;
       decision: BrainDreamReviewActionDecision;
+    }
+  | {
+      kind: 'claim_review_decision';
+      conversationJid: string;
+      providerAccountId?: string;
+      threadId?: string;
+      userId: string;
+      claimId: string;
+      outcomeJid: string;
+      decision: 'approve' | 'decline';
+      reason?: string;
     };
 
 export type MemoryReviewMessageActionInput = Extract<

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { motorClaimIntegrationConfig } from '../../config/index.js';
 
 import type {
   PermissionApprovalDecision,
@@ -25,6 +26,7 @@ import {
   type CoreSendMessageDeps,
 } from '../../application/core-tools/send-message.js';
 import {
+  CLAIM_REVIEW_DELIVERY_FAILURE,
   sendNotification,
   type NotificationDestination,
 } from '../../application/core-tools/send-notification.js';
@@ -252,12 +254,37 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
             `Send one notification to an installed channel. Available destinations: ${(deps.notificationDestinations ?? []).map((destination) => destination.name).join(', ') || 'none'}.`,
             deps.schemas.send_notification,
             async (args) => {
-              const result = await sendNotification({
-                destination: args.destination,
-                text: args.text,
-                destinations: deps.notificationDestinations ?? [],
-                sendMessage: deps.sendMessage,
-              });
+              if (
+                Boolean(args.review_claim_id) !==
+                Boolean(args.outcome_destination)
+              ) {
+                throw new Error(CLAIM_REVIEW_DELIVERY_FAILURE);
+              }
+              let result: Awaited<ReturnType<typeof sendNotification>>;
+              try {
+                result = await sendNotification({
+                  destination: args.destination,
+                  text: args.text,
+                  ...motorClaimIntegrationConfig(),
+                  ...(args.review_claim_id && args.outcome_destination
+                    ? {
+                        claimReview: {
+                          claimId: args.review_claim_id,
+                          outcomeDestination: args.outcome_destination,
+                        },
+                      }
+                    : {}),
+                  destinations: deps.notificationDestinations ?? [],
+                  sendMessage: deps.sendMessage,
+                });
+              } catch (error) {
+                if (args.review_claim_id) {
+                  throw new Error(CLAIM_REVIEW_DELIVERY_FAILURE, {
+                    cause: error,
+                  });
+                }
+                throw error;
+              }
               return textResult(
                 `Notification sent to ${result.destination.name}.`,
               );
