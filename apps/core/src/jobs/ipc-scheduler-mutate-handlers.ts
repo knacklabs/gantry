@@ -23,6 +23,7 @@ import {
   jobSetupBlockerFromUnknown,
   formatJobSetupAction,
 } from '../shared/job-setup-labels.js';
+import { createApproveJobNotificationRoutes } from './ipc-scheduler-notification-route-approval.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -36,6 +37,7 @@ function makeJobService(context: TaskContext): JobManagementService {
     capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
+    approveJobNotificationRoutes: createApproveJobNotificationRoutes(context),
   });
 }
 

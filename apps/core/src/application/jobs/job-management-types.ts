@@ -162,6 +162,28 @@ export interface JobManagementServiceDeps {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
+  // Same-channel human approval for a job's notification_routes entries that
+  // point outside the conversation that created/updated the job. Undefined
+  // means no approval surface is wired up, so any such request is rejected
+  // (see requireJobNotificationRouteApproval in job-management-helpers.ts).
+  approveJobNotificationRoutes?: (input: {
+    operation: 'create' | 'update';
+    jobId: string;
+    jobName: string;
+    authenticatedContext: {
+      conversationJid: string;
+      threadId: string | null;
+      workspaceKey: string;
+      providerAccountId?: string | null;
+    };
+    requestedRoutes: JobNotificationRouteInput[];
+    existingRoutes: JobNotificationRouteInput[];
+    routesBeyondContext: JobNotificationRouteInput[];
+  }) => Promise<{
+    approved: boolean;
+    reason?: string;
+    approvedConversationJid?: string;
+  }>;
 }
 
 export interface CreateManagedJobInput {

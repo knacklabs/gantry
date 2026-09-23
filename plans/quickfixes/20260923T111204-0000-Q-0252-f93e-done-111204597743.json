@@ -1,0 +1,16 @@
+{
+  "event": "done",
+  "id": "Q-0252-f93e",
+  "profile": "degraded",
+  "kind": "degraded",
+  "reason": "Implement approveJobNotificationRoutes hook: wire same-channel human approval for cross-conversation scheduler notification routes",
+  "started_at": "2026-09-23T11:05:42+00:00",
+  "completed_at": "2026-09-23T11:12:04+00:00",
+  "files": [
+    "apps/core/src/application/jobs/job-management-types.ts",
+    "apps/core/src/jobs/ipc-scheduler-notification-route-approval.ts",
+    "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
+    "apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts",
+    "apps/core/test/unit/jobs/ipc-scheduler-notification-route-approval.test.ts"
+  ]
+}

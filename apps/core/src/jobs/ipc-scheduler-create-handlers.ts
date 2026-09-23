@@ -24,6 +24,7 @@ import {
 import { rejectDisallowedSchedulerMutation } from './ipc-scheduler-mutation-authority.js';
 import { notifyCreatedJobSetupRequired } from './execution-readiness.js';
 import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
+import { createApproveJobNotificationRoutes } from './ipc-scheduler-notification-route-approval.js';
 
 type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 
@@ -39,6 +40,7 @@ function makeJobService(context: TaskContext): JobManagementService {
     capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
+    approveJobNotificationRoutes: createApproveJobNotificationRoutes(context),
     setupRequiredNotifications: {
       notify: (input) => {
         void notifyCreatedJobSetupRequired({
