@@ -1,25 +1,10 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { browserFetch } from '../../lib/auth/browser-auth';
-import { mergeHistory, people } from './people-preview';
-
 export const peopleQueryKeys = {
   all: ['people'] as const,
   list: () => [...peopleQueryKeys.all, 'list'] as const,
-  mergeHistory: () => [...peopleQueryKeys.all, 'merge-history'] as const,
 };
-
-export const peoplePreviewQuery = queryOptions({
-  queryKey: peopleQueryKeys.list(),
-  queryFn: () => people,
-  initialData: people,
-});
-
-export const mergeHistoryPreviewQuery = queryOptions({
-  queryKey: peopleQueryKeys.mergeHistory(),
-  queryFn: () => mergeHistory,
-  initialData: mergeHistory,
-});
 
 export type BrowserPersonDirectoryItem = {
   id: string;
@@ -36,13 +21,35 @@ export type BrowserPersonDirectoryItem = {
   updatedAt: string;
 };
 
-export const peopleDirectoryQuery = queryOptions({
-  queryKey: [...peopleQueryKeys.all, 'browser-list'] as const,
-  queryFn: async (): Promise<{ people: BrowserPersonDirectoryItem[] }> => {
-    const response = await browserFetch('/ui/api/people', {
+export async function fetchPeopleDirectory(
+  signal?: AbortSignal,
+): Promise<BrowserPersonDirectoryItem[]> {
+  const people: BrowserPersonDirectoryItem[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  do {
+    const path = cursor
+      ? `/ui/api/people?cursor=${encodeURIComponent(cursor)}`
+      : '/ui/api/people';
+    const response = await browserFetch(path, {
       credentials: 'same-origin',
+      signal,
     });
     if (!response.ok) throw new Error('People could not be loaded.');
-    return response.json() as Promise<{ people: BrowserPersonDirectoryItem[] }>;
-  },
+    const page = (await response.json()) as {
+      people: BrowserPersonDirectoryItem[];
+      nextCursor: string | null;
+    };
+    people.push(...page.people);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor))
+      throw new Error('People directory pagination did not advance.');
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return people;
+}
+
+export const peopleDirectoryQuery = queryOptions({
+  queryKey: peopleQueryKeys.list(),
+  queryFn: ({ signal }) => fetchPeopleDirectory(signal),
 });

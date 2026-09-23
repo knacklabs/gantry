@@ -47,7 +47,7 @@ type BrowserSettings = Parameters<typeof handleBrowserAgentRoutes>[5] &
   Parameters<typeof handleBrowserModelProviderRoutes>[3] &
   Parameters<typeof handleBrowserOnboardingRoutes>[4] &
   Parameters<typeof handleBrowserNavigationSummary>[4] &
-  Parameters<typeof handleBrowserPeopleRoutes>[3] &
+  Parameters<typeof handleBrowserPeopleRoutes>[4] &
   Parameters<typeof handleBrowserRuntimeStatus>[4] &
   Parameters<typeof handleBrowserSkillRoutes>[4];
 
@@ -151,6 +151,7 @@ export async function handleBrowserControlRoutes(input: {
       input.req,
       input.res,
       input.pathname,
+      input.url,
       settings,
     ))
   )

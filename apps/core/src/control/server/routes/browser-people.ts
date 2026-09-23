@@ -24,6 +24,7 @@ export async function handleBrowserPeopleRoutes(
   req: IncomingMessage,
   res: ServerResponse,
   pathname: string,
+  url: URL,
   settings: BrowserPeopleSettings,
 ): Promise<boolean> {
   if (!isBrowserPeoplePath(pathname)) return false;
@@ -43,13 +44,16 @@ export async function handleBrowserPeopleRoutes(
   }
 
   const storage = getRuntimeStorage();
-  const people = await new PersonIdentityService(
+  const page = await new PersonIdentityService(
     new PostgresPersonIdentityRepository(storage.service.db),
     (provider) =>
       normalizeProviderId(provider) || provider.trim().toLowerCase(),
-  ).listPeople(session.appId as AppId, { limit: 200 });
+  ).listPeople(session.appId as AppId, {
+    limit: 200,
+    cursor: url.searchParams.get('cursor') || undefined,
+  });
   sendJson(res, 200, {
-    people: people.people.map((person) => ({
+    people: page.people.map((person) => ({
       id: person.personId,
       kind: person.kind,
       displayName: person.displayName ?? 'Unnamed person',
@@ -63,6 +67,7 @@ export async function handleBrowserPeopleRoutes(
       aliasCounts: person.aliasCounts ?? {},
       updatedAt: person.updatedAt,
     })),
+    nextCursor: page.nextCursor,
   });
   return true;
 }

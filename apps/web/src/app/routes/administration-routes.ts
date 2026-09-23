@@ -4,10 +4,7 @@ import {
   agentDetailSearchSchema,
   agentListSearchSchema,
 } from '../../features/agents/agents-search';
-import {
-  peopleSearchSchema,
-  personDetailSearchSchema,
-} from '../../features/people/people-search';
+import { peopleSearchSchema } from '../../features/people/people-search';
 import { rootRoute } from '../root-route';
 
 const agentsRoute = createRoute({
@@ -62,7 +59,6 @@ const peopleRoute = createRoute({
 const personDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'people/$personId',
-  validateSearch: personDetailSearchSchema,
   component: lazyRouteComponent(
     () => import('../../features/people/routes/person-detail-route'),
     'PersonDetailRoute',

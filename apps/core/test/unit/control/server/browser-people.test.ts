@@ -19,6 +19,10 @@ it('exposes a session-bound, alias-safe People directory', () => {
   expect(source).toContain('activeSession(req, settings.authentication.mode)');
   expect(source).toContain("'people:read'");
   expect(source).toContain('new PersonIdentityService');
+  expect(source).toContain(
+    "cursor: url.searchParams.get('cursor') || undefined",
+  );
+  expect(source).toContain('nextCursor: page.nextCursor');
   expect(source).toContain('verificationStatus: alias.verificationStatus');
   expect(source).not.toContain('externalUserId: alias.externalUserId');
 });

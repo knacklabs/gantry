@@ -2,15 +2,9 @@ import { z } from 'zod';
 
 export const peopleSearchSchema = z.object({
   q: z.string().catch(''),
-  provider: z.enum(['all', 'Slack', 'Telegram', 'Teams']).catch('all'),
-  invitation: z
-    .enum(['all', 'accepted', 'pending', 'not_invited'])
-    .catch('all'),
+  provider: z.string().catch('all'),
+  status: z.enum(['all', 'active', 'disabled', 'archived']).catch('all'),
   page: z.coerce.number().int().min(1).catch(1),
-  sort: z.enum(['name', 'organization', 'invitation']).catch('name'),
+  sort: z.enum(['displayName', 'status', 'updatedAt']).catch('displayName'),
   desc: z.coerce.boolean().catch(false),
-});
-
-export const personDetailSearchSchema = z.object({
-  view: z.enum(['profile', 'invite', 'merge', 'history']).catch('profile'),
 });

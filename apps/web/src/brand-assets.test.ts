@@ -34,7 +34,7 @@ it('renders canonical Gantry brand assets', () => {
   expect(component).toContain('maskImage');
   expect(component).toContain('aria-hidden="true"');
   expect(navigation).toContain('<GantryMark className="size-4" />');
-  expect(navigation).toContain('>Gantry</span>');
+  expect(navigation).toMatch(/>\s*Gantry\s*<\/span>/);
   expect(authCard).toContain(
     '<GantryLogo className="h-6 w-[102px] text-status-attention" />',
   );
