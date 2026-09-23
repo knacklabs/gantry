@@ -2768,6 +2768,7 @@ maybeDescribe('Postgres domain repositories', () => {
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: sessionId,
         provider: TEST_EXECUTION_PROVIDER_ID,
+        durableExecutionProviderIds: [TEST_EXECUTION_PROVIDER_ID],
       }),
     ).resolves.toMatchObject({
       id: 'provider-session:test:newer',
@@ -3103,6 +3104,7 @@ maybeDescribe('Postgres domain repositories', () => {
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: firstSessionId,
         provider: TEST_EXECUTION_PROVIDER_ID,
+        durableExecutionProviderIds: [TEST_EXECUTION_PROVIDER_ID],
       }),
     ).resolves.toMatchObject({
       id: firstProviderSessionId,
@@ -3119,12 +3121,14 @@ maybeDescribe('Postgres domain repositories', () => {
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: firstSessionId,
         provider: TEST_EXECUTION_PROVIDER_ID,
+        durableExecutionProviderIds: [TEST_EXECUTION_PROVIDER_ID],
       }),
     ).resolves.toBeNull();
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: secondSessionId,
         provider: TEST_EXECUTION_PROVIDER_ID,
+        durableExecutionProviderIds: [TEST_EXECUTION_PROVIDER_ID],
       }),
     ).resolves.toMatchObject({
       id: 'provider-session:test:expire:second',

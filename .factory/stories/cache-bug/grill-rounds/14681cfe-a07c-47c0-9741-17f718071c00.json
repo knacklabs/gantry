@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The requirements review found eleven conflicts between the old universal-resume cache-bug spec and the confirmed process-local Claude amendment. The artifact has now been amended so: (1) the amendment and decision 0163 take precedence for Claude; (2) mark/ceiling/retirement apply only to durable_resume adapters; (3) retired references carry agentSessionId; (4) rollout deletes only Claude rows and both latest/run pointers while preserving DeepAgents; (5) Claude compaction, failover, stale-row filtering, and status behavior are capability-driven; (6) obsolete Claude resume tests are replaced; (7) the full new acceptance surface is explicit; (8) architecture docs become capability-aware; (9) OpenAI-compatible cache booleans are true/true; (10) the high-water SQL includes the lower-mark predicate; and (11) observability proves Claude has no resumable association while DeepAgents remains. Confirm these resolutions and close the requirements frontier?",
+      "options": [
+        "Confirm all eleven resolutions \u2014 frontier empty",
+        "Reopen \u2014 I have another concern"
+      ],
+      "chosen": "Confirm all eleven resolutions \u2014 frontier empty"
+    }
+  ],
+  "at": "2026-09-18T07:28:11.085343+00:00",
+  "session_id": "e4ec118e-4041-44dc-9eb5-d512aed4d0b2"
+}

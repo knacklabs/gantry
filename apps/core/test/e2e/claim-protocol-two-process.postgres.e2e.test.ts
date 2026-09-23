@@ -519,6 +519,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
 
     const executionAdapter: AgentExecutionAdapter = {
       id: 'anthropic:claude-agent-sdk',
+      providerSessionContinuity: 'process_local',
       async prepare(input) {
         return {
           providerId: 'anthropic:claude-agent-sdk',

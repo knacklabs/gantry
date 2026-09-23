@@ -333,6 +333,7 @@ export interface ProviderSessionRepository {
   getLatestProviderSession(input: {
     agentSessionId: AgentSessionId;
     provider?: ExecutionProviderId;
+    durableExecutionProviderIds: readonly ExecutionProviderId[];
   }): Promise<ProviderSession | null>;
   saveProviderSession(session: ProviderSession): Promise<void>;
   markProviderSessionStatus(

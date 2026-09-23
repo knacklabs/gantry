@@ -1,9 +1,46 @@
 {
-  "issue": "LOCAL-DEV-1",
+  "issue": "cache-bug",
   "stages": [
     {
-      "id": "LOCAL-DEV-1-T1",
-      "title": "Full local source-dev supervisor closeout",
+      "id": "cache-bug-T1",
+      "title": "Measurement, storage, and the quality gate",
+      "status": "done",
+      "task_sha256": "5b425e2e9af276d78266bcc61b819c3bc3838b982747787f7a27883837ee3bd2"
+    },
+    {
+      "id": "cache-bug-T2",
+      "title": "Ceiling policy, the cap setting, and event types",
+      "status": "done",
+      "task_sha256": "82725795892f403ca1087dd2113dfb273e278092c546f5384965809fe704177c"
+    },
+    {
+      "id": "cache-bug-T3A",
+      "title": "Capability-aware continuity and Claude execution",
+      "status": "pending"
+    },
+    {
+      "id": "cache-bug-T3B",
+      "title": "Fresh reconstruction and scoped SDK cleanup",
+      "status": "pending"
+    },
+    {
+      "id": "cache-bug-T3C",
+      "title": "Capability-aware compaction",
+      "status": "pending"
+    },
+    {
+      "id": "cache-bug-T3D",
+      "title": "Durable release and post-delivery /new cleanup",
+      "status": "pending"
+    },
+    {
+      "id": "cache-bug-T3E",
+      "title": "Drained rollout cleanup",
+      "status": "pending"
+    },
+    {
+      "id": "cache-bug-T4",
+      "title": "Typed desired-state API contract",
       "status": "pending"
     }
   ]

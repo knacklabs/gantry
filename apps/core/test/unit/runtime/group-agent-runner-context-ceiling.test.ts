@@ -5,7 +5,7 @@ import { createGroupAgentRunner } from '@core/runtime/group-agent-runner.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
 
-const EXECUTION_PROVIDER_ID = 'anthropic:claude-agent-sdk';
+const EXECUTION_PROVIDER_ID = 'deepagents:langchain';
 const CAP = 150_000;
 const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
   accessPreset: 'full',
@@ -20,6 +20,7 @@ const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({
 const GROUP = {
   name: 'Main',
   folder: 'main_agent',
+  agentConfig: { model: 'gpt-5.5' },
   added_at: new Date(0).toISOString(),
 };
 const USAGE = {
@@ -116,7 +117,10 @@ function fixture(
       runAgent: runAgent as never,
       publishRuntimeEvent,
       runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
-      executionAdapter: { id: EXECUTION_PROVIDER_ID } as never,
+      executionAdapter: {
+        id: EXECUTION_PROVIDER_ID,
+        providerSessionContinuity: 'durable_resume',
+      } as never,
       getSelectedAgentHarness: () => 'auto',
     },
     ops: () =>
@@ -609,7 +613,7 @@ describe('group agent runner provider-session context ceiling', () => {
     );
   });
 
-  it('keeps an under-cap or unmarked session resumable with its memory block', async () => {
+  it('preserves durable DeepAgents resume and context ceiling behavior', async () => {
     for (const contextHighWaterMark of [CAP, undefined]) {
       const test = fixture({
         getAgentTurnContext: vi.fn(async () =>

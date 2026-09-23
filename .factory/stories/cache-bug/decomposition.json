@@ -565,37 +565,241 @@
       }
     },
     {
-      "id": "cache-bug-T3",
-      "title": "Adapter release port and post-reply coordinator",
+      "id": "cache-bug-T3A",
+      "title": "Capability-aware continuity and Claude execution",
       "epic_id": "cache-bug",
       "user_facing": false,
-      "objective": "Reclaim DeepAgents checkpoint state for retired sessions: add releaseSession to the adapter contract, implement it in the DeepAgents adapter with deleteThread, and add the host coordinator that runs after the reply for ceiling, fingerprint, missing-session and both /new paths, sanitising errors and publishing cleanup_failed. Runs AFTER T2 \u2014 the graph is sequential (T1 -> T2 -> T3 -> T4) and T3 depends on the event types and the retired-reference sink T2 introduces. An earlier parallel-graph amendment was superseded by the sequential ruling; this objective still carried it.",
+      "objective": "Add adapter-owned provider-session continuity and enforce it before admission, run linkage, failover, lifecycle, persistence, status, or projection. Claude becomes process-local while the worker's live MessageStream and all DeepAgents durable behavior remain intact.",
       "dependencies": [
         "cache-bug-T2"
       ],
       "acceptance_criteria": [
-        "S8: for ceiling, missing-session, fingerprint and /new, the retired thread's rows leave checkpoints, checkpoint_blobs and checkpoint_writes; checkpoint_migrations and other threads' rows remain; a second call is a no-op; a simulated deletion failure leaves the session expired, the reply delivered and session.provider.cleanup_failed recorded; a lost retirement transition performs no cleanup.",
-        "R4 (wiring): both /new handlers (session-commands.ts idle path and runtime-services-active-new.ts active path) send their reply, then release each returned reference.",
-        "R5 (sanitiser): the cleanup_failed error contains no external session id, thread id or connection string.",
-        "Release never runs before the turn's final reply path has unblocked; the coordinator resolves the adapter by executionProviderId and the Claude adapter is a no-op.",
-        "S10/S11: scheduled-job tests untouched and green; verify.py green.",
-        "Parallel seam: T3's write scope is disjoint from T2's \u2014 adapter contract, DeepAgents adapter and checkpoint setup, the new provider-session-release.ts coordinator exporting releaseRetiredProviderSessions(refs), session-commands.ts and runtime-services-active-new.ts /new handlers, and tests; the cleanup_failed publication uses the event type T2 registers and integrates at merge."
+        "Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.",
+        "Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.",
+        "DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior."
+      ],
+      "plan_contracts": [
+        {
+          "id": "T3A-P1",
+          "statement": "Claude worker restarts and inline attempts receive no resume id, create no provider handle or run linkage, and expose no public resume signal; the live worker MessageStream still accepts same-process follow-ups.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
+        },
+        {
+          "id": "T3A-P2",
+          "statement": "Turn-context selection excludes process-local rows before live-execution creates a run, and ceiling, delta replay, promotion, retirement, persistence, failover, status, and public projection all consume the adapter capability rather than a provider id.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
+        },
+        {
+          "id": "T3A-P3",
+          "statement": "DeepAgents durable resume, ceiling, checkpoint persistence, and scheduled-job behavior remain green; governing docs and a hermetic restart agent-e2e ship with the behavior.",
+          "source": "plans/active/cache-bug-bound-provider-session-context-growth-across-runner-restarts.md#acceptance-criteria"
+        }
+      ],
+      "write_scope": [
+        "apps/core/src/application/agent-execution",
+        "apps/core/src/application/sessions",
+        "apps/core/src/domain/repositories/ops-repo.ts",
+        "apps/core/src/domain/ports/repositories.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent",
+        "apps/core/src/adapters/llm/deepagents-langchain/execution-adapter.ts",
+        "apps/core/src/adapters/storage/postgres/repositories",
+        "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
+        "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
+        "apps/core/src/app/bootstrap/live-execution.ts",
+        "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts",
+        "apps/core/src/app/bootstrap/runtime-services.ts",
+        "apps/core/src/control/server/index.ts",
+        "apps/core/src/runtime",
+        "apps/core/src/session/session-commands.ts",
+        "apps/core/test/unit",
+        "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts",
+        "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+        "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+        "apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts",
+        "apps/core/test/integration/runtime-host-child-process.integration.test.ts",
+        "apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts",
+        "docs/architecture/session-resume.md",
+        "docs/architecture/runtime-components.md",
+        "docs/architecture/canonical-domain-model.md",
+        "docs/SPEC.md",
+        "apps/core/src/runner/AGENTS.md"
+      ],
+      "required_tests": [
+        {
+          "id": "continues a live Claude worker without provider persistence",
+          "path": "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "starts a recovered Claude worker without a resume id or persisted handle",
+          "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "keeps recovered process-local turns detached from provider sessions",
+          "path": "apps/core/test/unit/bootstrap/live-recovery-coordinator.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "keeps inline process-local task turns detached from provider sessions",
+          "path": "apps/core/test/unit/bootstrap/inline-agent-loop-tools.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "starts every Claude inline attempt without resume or persistence",
+          "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "filters a stale process-local row before run creation and lifecycle",
+          "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "keeps provider-session state attempt-local across DeepAgents to Claude failover",
+          "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "reselects durable state without rehydrating memory across Claude to DeepAgents failover",
+          "path": "apps/core/test/unit/runtime/provider-session-continuity.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "selects no process-local row or lifecycle side effect while preserving a durable row",
+          "path": "apps/core/test/integration/provider-session-continuity.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "hides stale process-local rows from status and public resume projection",
+          "path": "apps/core/test/unit/application/sessions/session-interaction-module.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "excludes unknown provider rows from status and public resume projection",
+          "path": "apps/core/test/unit/application/sessions/session-interaction-module.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "hides process-local provider compaction state from status without changing compact",
+          "path": "apps/core/test/unit/session/session-commands.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "preserves durable DeepAgents resume and context ceiling behavior",
+          "path": "apps/core/test/unit/runtime/group-agent-runner-context-ceiling.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "streams runner frames from a gateway-backed OpenAI run and persists the session",
+          "path": "apps/core/test/integration/deepagents-langchain-boundary.postgres.integration.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.integration.postgres.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "does not resume or persist SDK sessions for scheduled job turns",
+          "path": "apps/core/test/unit/runner/agent-runner-ipc.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "runs scheduled jobs without opening a checkpoint session",
+          "path": "apps/core/test/unit/adapters/deepagents-inline-lane.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.unit.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        },
+        {
+          "id": "restarts Claude without duplicate provider history",
+          "path": "apps/core/test/agent-e2e/scenarios/claude-fresh-restart.agent-e2e.test.ts",
+          "command": "VITEST_JUNIT=1 npx vitest run -c vitest.agent-e2e.config.ts {path} -t {id} --reporter=junit --outputFile={report}"
+        }
+      ],
+      "verify_commands": [
+        "npm run typecheck",
+        "npm run lint:changed",
+        "npm run test:e2e:agent:hermetic",
+        "python3 factory/scripts/verify.py"
+      ],
+      "reviewer_focus": "Load-bearing canon: constitution/pnp-provider-pattern-for-integration.md requires provider behavior behind the adapter seam, and constitution/pnp-coding-standards-modular-monolith.md requires policy to remain out of storage adapters and dependencies to point inward. Reject any provider-id branch in core policy, any process-local row selected or lifecycle-mutated before live admission, live recovery, or inline-task execution creates a run, any Claude resume/persist option in either lane, either failover direction sharing resume/persistence state, any post-query filter that lets a newer stale or unknown-provider row mask an older durable row, any chat /status filter that changes /compact admission, or any producer/consumer/test adapter omitted from the continuity capability audit. If review again finds a partial contract update, stop and escalate under the plan's recurring contract-partial tripwire.",
+      "review_budget": {
+        "max_changed_files": 40,
+        "max_changed_lines": 3600,
+        "reason": "The task crosses live admission, recovery, inline task lifecycle, adapter setup, failover, repository lifecycle, public and chat status projection, exhaustive test adapters, docs, and focused proof because one capability must fence every provider-session side effect atomically. The task grill expanded the budget from 30/2600 after finding mandatory consumers and integration fixtures outside the first scope; reconstruction, SDK filesystem lifetime, compaction admission, release, rollout cleanup, and the settings API remain split into later tasks."
+      }
+    },
+    {
+      "id": "cache-bug-T3B",
+      "title": "Fresh reconstruction and scoped SDK cleanup",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Pin the fresh Claude reconstruction package and two-stage SDK materialization lifetime. A restarted attempt receives current bounded conversation state plus Gantry-owned continuity exactly once, while session artifacts disappear without violating decision 0010 final teardown.",
+      "dependencies": [
+        "cache-bug-T3A"
+      ],
+      "acceptance_criteria": [
+        "Fresh worker and inline attempts receive the bounded channel/thread snapshot, recent scoped digests, durable memory, and active jobs exactly once, including late/intervening in-window messages.",
+        "Provider transcript, canonical runs, and runtime events are not replayed into the prompt even though canonical evidence remains stored.",
+        "Inner cleanup removes only session-bearing SDK artifacts; final cleanup removes the whole temporary run directory; materialization docs, sentinels, and a hermetic reconstruction agent-e2e prove both boundaries."
+      ]
+    },
+    {
+      "id": "cache-bug-T3C",
+      "title": "Capability-aware compaction",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Resolve compaction strategy from adapter continuity before provider locking. Claude uses the durable fresh-checkpoint task without provider maintenance state, while DeepAgents keeps provider compaction and delta replay.",
+      "dependencies": [
+        "cache-bug-T3A"
+      ],
+      "acceptance_criteria": [
+        "Claude /compact selects fresh_checkpoint before provider locking, creates no maintenance provider session or delta replay, and retains durable admission/deduplication.",
+        "Concurrent already-running, ready, and degraded receipts remain stable and are proven through focused and hermetic command tests.",
+        "DeepAgents provider locking, compaction, and delta replay remain unchanged; governing docs ship with the behavior."
+      ]
+    },
+    {
+      "id": "cache-bug-T3D",
+      "title": "Durable release and post-delivery /new cleanup",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Complete the durable-provider release contract: widen retired references, delete only the retired DeepAgents thread, and make active and idle /new publish retirement evidence and release only after full delivery settles.",
+      "dependencies": [
+        "cache-bug-T2"
+      ],
+      "acceptance_criteria": [
+        "Every retired reference carries agentSessionId and each committed /new retirement publishes one session.provider.retired event without a second lookup.",
+        "Active and idle /new drain idempotent adapter release in finally only after the complete primary-plus-fallback delivery attempt settles; a lost transition performs no cleanup.",
+        "DeepAgents deletion preserves checkpoint_migrations and other threads; failures are sanitized, evented/logged, never suppress delivery, and are proven by Postgres plus hermetic /new tests and same-PR docs."
+      ]
+    },
+    {
+      "id": "cache-bug-T3E",
+      "title": "Drained rollout cleanup",
+      "epic_id": "cache-bug",
+      "user_facing": false,
+      "objective": "Provide a stopped, provider-scoped, idempotent rollout operation that clears stale Claude database associations and enumerated legacy session directories while preserving DeepAgents and canonical evidence.",
+      "dependencies": [
+        "cache-bug-T3A",
+        "cache-bug-T3B"
+      ],
+      "acceptance_criteria": [
+        "Document-extracted transactional SQL clears only Claude provider rows plus latest/run pointers and proves DeepAgents checkpoints, messages, runs, and checkpoint_migrations survive on first and repeated execution.",
+        "A dry-run-by-default Node helper requires explicit apply, accepts only enumerated legacy directories below a resolved runtime home, rejects root/symlink/path escapes, is idempotent, and preserves stable/unrelated sentinels.",
+        "The operations document includes stop, verify, rollback-to-fresh-Claude, and failure procedures; Postgres and fixture integration tests are the end-to-end proof."
       ]
     },
     {
       "id": "cache-bug-T4",
-      "title": "The desired-state settings contract",
+      "title": "Typed desired-state API contract",
       "epic_id": "cache-bug",
       "user_facing": false,
-      "objective": "Give /v1/settings/desired-state a typed request and response DTO and register it in the OpenAPI registry. The route accepts settings?: unknown and returns record-shaped JSON today, and the registry documents /v1/settings but not this path, so the payload that limits.provider_session_max_input_tokens changes is an untyped, undocumented public surface. Separated from T2 because it is a public HTTP contract with its own canon requirements.",
+      "objective": "Type and document the desired-state GET, PUT, and POST envelopes without duplicating the core runtime settings parser. Register route, operation, and component schemas and prove exact empty/configured/error behavior.",
       "dependencies": [
-        "cache-bug-T3"
+        "cache-bug-T2"
       ],
       "acceptance_criteria": [
-        "API-1: PUT /v1/settings/desired-state accepts a typed request DTO \u2014 no `unknown` at the boundary \u2014 and rejects a malformed body with a path-level error rather than accepting it and failing later in the parser.",
-        "API-2: GET /v1/settings/desired-state returns a typed response DTO whose shape includes limits.provider_session_max_input_tokens, so the field T2 added is part of the declared contract rather than incidental record-shaped JSON.",
-        "API-3: the path is registered in the OpenAPI registry with request and response schemas that match the implementation, satisfying the endpoint-documentation standard; a schema that drifts from the handler fails the check.",
-        "API-4: a PUT/GET round trip proves the new limits key survives the public surface unchanged, and the settings pipeline T2 built behaves identically \u2014 this task changes the contract's typing and documentation, not its behaviour."
+        "PUT and POST parse one shared envelope with required record-shaped settings, optional integer-or-null expectedRevision, and optional string-or-null note before invoking the authoritative runtime parser.",
+        "GET has exact empty and configured response unions, including limits.provider_session_max_input_tokens; existing standard 400/409 envelopes remain unchanged.",
+        "OpenAPI route, operation, and component schemas match the handlers; malformed-envelope, conflict, empty/configured, PUT/POST parity, and cap-round-trip integration tests pass."
       ]
     }
   ],
@@ -607,12 +811,18 @@
       "cache-bug-T2"
     ],
     [
-      "cache-bug-T3"
+      "cache-bug-T3A",
+      "cache-bug-T3D",
+      "cache-bug-T4"
     ],
     [
-      "cache-bug-T4"
+      "cache-bug-T3B",
+      "cache-bug-T3C"
+    ],
+    [
+      "cache-bug-T3E"
     ]
   ],
-  "plan_sha256": "f6e0cfeff437291974f8a56186bc8cb9cee3bb7f5bdb5b60ccd8e6407b533289",
-  "commit": "f1e7af51d0b652c62b931ff0868f44b228e85c46"
+  "commit": "46a25c069a371c40c20346562275dee5b7a71eb7",
+  "plan_sha256": "98a2f2193ce6f02db02b955bb8ebba83bc78591094f51183147415c95010abf5"
 }

@@ -89,6 +89,7 @@ import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
 import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
+import { durableExecutionProviderIds } from '../../application/agent-execution/agent-execution-adapter.js';
 import { adaptSessionControlPort } from './session-control-port.js';
 import {
   isControlClientDisconnectError,
@@ -366,6 +367,8 @@ export function startControlServer(input: {
     get getConfiguredAgentRuntime() {
       return getConfiguredAgentRuntime;
     },
+    durableExecutionProviderIds: () =>
+      durableExecutionProviderIds(input.app.executionAdapters),
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),

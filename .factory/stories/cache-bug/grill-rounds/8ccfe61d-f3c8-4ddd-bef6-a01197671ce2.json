@@ -1,0 +1,15 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The T3A task grill found five blockers. The task contract is now amended so: (1) the full turn-context chain\u2014domain ops port, canonical Postgres ops facade, canonical session ops service, and selecting repository\u2014is scoped, and process-local filtering happens before maintenance-lock release, ready-row promotion, ordering, or selection; (2) public status filtering has a capability-aware provider-session port plus production control-server resolver wiring, with filtering before order/limit so a stale Claude row cannot mask a valid DeepAgents row; (3) failover proof covers both DeepAgents-to-Claude and Claude-to-DeepAgents, with candidate-specific non-hydrating fenced re-reads and persistence state; (4) a real Postgres integration leaf proves no process-local lifecycle side effect while durable rows remain selectable; and (5) reviewer focus cites the provider-pattern and modular-monolith constitutions and retains the recurring partial-contract tripwire. Confirm these five resolutions and close the T3A task frontier?",
+      "options": [
+        "Confirm all five resolutions",
+        "Reopen \u2014 another concern"
+      ],
+      "chosen": "Confirm all five resolutions"
+    }
+  ],
+  "at": "2026-09-18T08:19:43.166937+00:00",
+  "session_id": "d22cd59c-6dba-4d18-aebb-feab225b5215"
+}

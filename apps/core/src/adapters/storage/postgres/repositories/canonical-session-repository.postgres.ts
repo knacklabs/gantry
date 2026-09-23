@@ -54,6 +54,7 @@ export class PostgresCanonicalSessionRepository {
     appId?: string;
     workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
+    includeProviderSession?: boolean;
     chatJid: string;
     providerAccountId?: string | null;
     threadId?: string | null;
@@ -69,6 +70,14 @@ export class PostgresCanonicalSessionRepository {
       chatJid: input.chatJid,
     });
     const ensured = await this.ensureAgentSession({ ...input, appId });
+    if (input.includeProviderSession === false) {
+      return {
+        appId,
+        agentId: ensured.agentId,
+        agentSessionId: ensured.agentSessionId,
+        agentSessionResetAt: ensured.agentSessionResetAt ?? null,
+      };
+    }
     const executionProviderId = input.executionProviderId;
     await releaseStaleProviderSessionMaintenanceLocks(this.db, {
       agentSessionId: ensured.agentSessionId,

@@ -7,7 +7,10 @@ import type {
   AgentSessionRepository,
   ConversationRepository,
 } from '../../../../domain/ports/repositories.js';
-import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
+import {
+  makeSessionScopeKey,
+  type ProviderSessionContinuity,
+} from '../../../../domain/repositories/ops-repo.js';
 import type {
   AgentSession,
   ExecutionProviderId,
@@ -162,6 +165,7 @@ export class CanonicalSessionOpsService {
     appId?: string;
     workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity?: ProviderSessionContinuity;
     chatJid: string;
     providerAccountId?: string | null;
     threadId?: string | null;
@@ -197,6 +201,8 @@ export class CanonicalSessionOpsService {
       appId: input.appId,
       workspaceFolder: input.workspaceFolder,
       executionProviderId: input.executionProviderId,
+      includeProviderSession:
+        input.providerSessionContinuity !== 'process_local',
       chatJid: input.chatJid,
       providerAccountId: input.providerAccountId,
       threadId: input.threadId,

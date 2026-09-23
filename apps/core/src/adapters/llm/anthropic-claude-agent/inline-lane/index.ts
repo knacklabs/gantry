@@ -93,8 +93,10 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
   );
   const abortController = new AbortController();
   let closeRequested = false;
-  let newSessionId = input.input.sessionId;
+  let newSessionId: string | undefined;
   let lastTerminal: RunnerOutputFrame | undefined;
+  const emitOutput = (output: RunnerOutputFrame) =>
+    input.emitOutput(withoutProviderSessionHandle(output));
   const onAbort = () => {
     abortController.abort(input.signal.reason);
     steeringGate.close();
@@ -126,7 +128,6 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         lookupHostname: input.mcpHostnameLookup,
       });
     }
-    const persistSdkSession = !input.input.isScheduledJob;
     const sdkQuery = query({
       prompt,
       options: {
@@ -138,10 +139,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         ...(responseSchema
           ? { outputFormat: { type: 'json_schema', schema: responseSchema } }
           : {}),
-        ...(persistSdkSession && input.input.sessionId
-          ? { resume: input.input.sessionId }
-          : {}),
-        persistSession: persistSdkSession,
+        persistSession: false,
         systemPrompt: inlineSystemPrompt(input),
         env: isolatedSdkEnv(
           input.modelCredentialEnv,
@@ -252,7 +250,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           const sessionId = stringValue(record.session_id);
           if (sessionId) {
             newSessionId = sessionId;
-            await input.emitOutput({
+            await emitOutput({
               status: 'success',
               result: null,
               newSessionId,
@@ -265,7 +263,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           record?.type === 'system' &&
           record.subtype === 'compact_boundary'
         ) {
-          await input.emitOutput({
+          await emitOutput({
             status: 'success',
             result: null,
             newSessionId,
@@ -281,7 +279,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         if (delta !== null) {
           if (responseSchema) continue;
           sawPartialText = true;
-          await input.emitOutput({
+          await emitOutput({
             status: 'success',
             result: delta,
             newSessionId,
@@ -312,7 +310,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
             ...inlineAgentMaxTurnsError(maxTurns, newSessionId),
             ...resultUsage,
           };
-          await input.emitOutput(lastTerminal);
+          await emitOutput(lastTerminal);
           break;
         }
 
@@ -328,7 +326,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
             ),
             ...resultUsage,
           };
-          await input.emitOutput(lastTerminal);
+          await emitOutput(lastTerminal);
           break;
         }
 
@@ -341,7 +339,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
             ...(newSessionId ? { newSessionId } : {}),
             ...resultUsage,
           };
-          await input.emitOutput(lastTerminal);
+          await emitOutput(lastTerminal);
           break;
         }
         const resultText = stringValue(record.result);
@@ -353,7 +351,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
             'Claude SDK returned success without validated structured output.',
             newSessionId,
           );
-          await input.emitOutput(lastTerminal);
+          await emitOutput(lastTerminal);
           break;
         }
         const contextUsage = await readContextUsage(sdkQuery);
@@ -368,7 +366,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
           ...resultUsage,
           ...(contextUsage ? { contextUsage } : {}),
         };
-        await input.emitOutput(lastTerminal);
+        await emitOutput(lastTerminal);
         steeringGate.markTurnBoundary();
         sawPartialText = false;
         assistantText = '';
@@ -377,13 +375,16 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
       if (!input.signal.aborted && !closeRequested) throw error;
     }
 
-    if (input.signal.aborted) return abortedOutput(newSessionId);
+    if (input.signal.aborted)
+      return withoutProviderSessionHandle(abortedOutput(newSessionId));
     if (!sawMessage && !closeRequested) {
       throw new Error(
         'Anthropic SDK query completed without messages or results',
       );
     }
-    return lastTerminal ?? { status: 'success', result: null, newSessionId };
+    return withoutProviderSessionHandle(
+      lastTerminal ?? { status: 'success', result: null, newSessionId },
+    );
   } finally {
     unsubscribe();
     input.signal.removeEventListener('abort', onAbort);
@@ -393,6 +394,13 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
     await remoteMcp?.close();
   }
 };
+
+function withoutProviderSessionHandle(
+  output: RunnerOutputFrame,
+): RunnerOutputFrame {
+  const { newSessionId: _providerSessionHandle, ...publicOutput } = output;
+  return publicOutput;
+}
 
 function createCoreSdkMcpServer(
   input: Parameters<ProviderInlineAgentLoopLane>[0],

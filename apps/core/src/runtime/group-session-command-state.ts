@@ -24,6 +24,7 @@ import { saveGroupProcedureMemory } from './group-memory-commands.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
+import { providerSessionContinuityForExecutionProvider } from '../application/agent-execution/agent-execution-adapter.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 
@@ -68,7 +69,10 @@ export function createArchiveCurrentSessionHandler(input: {
   defaultScope: 'user' | 'group';
   memoryUserId?: MemoryUserIdValue;
   collectMemory?: SessionMemoryCollector;
-  executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
+  executionAdapter?: Pick<
+    AgentExecutionAdapter,
+    'id' | 'providerSessionContinuity'
+  >;
   resolveExecutionProviderId?: () =>
     | ExecutionProviderId
     | Promise<ExecutionProviderId>;
@@ -156,15 +160,23 @@ export function createSessionCompactionHandlers(
     ) => Promise<unknown> | unknown;
   },
 ) {
-  const getContext = async () => {
+  const getContext = async (statusOnly = false) => {
     const ops = input.ops();
     const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
+    const providerSessionContinuity = statusOnly
+      ? providerSessionContinuityForExecutionProvider({
+          executionProviderId,
+          registry: input.executionAdapters,
+          fallback: input.executionAdapter,
+        })
+      : undefined;
     const context = await ops.getAgentTurnContext?.({
       appId: input.appId,
       agentFolder: input.group.folder,
       executionProviderId,
+      ...(providerSessionContinuity ? { providerSessionContinuity } : {}),
       conversationJid: input.chatJid,
       providerAccountId: input.group.providerAccountId,
       threadId: input.threadId,
@@ -354,7 +366,7 @@ export function createSessionCompactionHandlers(
       });
     },
     getSessionCompactionStatus: async () => {
-      const { context, repository } = await getContext();
+      const { context, repository } = await getContext(true);
       if (context?.latestProviderSessionLocked)
         return { state: 'running' as const };
       if (context?.latestProviderSessionReady)

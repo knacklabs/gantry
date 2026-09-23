@@ -31,9 +31,6 @@ function emitStartupTimingDiagnostic(context: QueryLoopContext): void {
     runtimeEvents: [
       runnerStartupTimingRuntimeEvent({
         agentInput: context.agentInput,
-        persistSdkSession: context.persistSdkSession,
-        resumedSession:
-          context.persistSdkSession && Boolean(context.agentInput.sessionId),
         sdkQueryPreparedMs: context.sdkQueryPreparedMs!,
         sdkQueryIteratorMs: context.sdkQueryIteratorMs!,
         firstSdkEventMs: context.firstSdkEventMs,

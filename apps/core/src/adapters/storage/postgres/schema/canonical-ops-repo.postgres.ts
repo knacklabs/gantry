@@ -9,6 +9,7 @@ import type {
   NewMessage,
   ConversationRoute,
 } from '../../../../domain/repositories/domain-types.js';
+import type { ProviderSessionContinuity } from '../../../../domain/repositories/ops-repo.js';
 import type {
   AgentSession,
   ExecutionProviderId,
@@ -520,6 +521,7 @@ export class PostgresRuntimeRepositoryBundle
     appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity?: ProviderSessionContinuity;
     conversationJid: string;
     providerAccountId?: string | null;
     threadId?: string | null;
@@ -555,6 +557,7 @@ export class PostgresRuntimeRepositoryBundle
       appId: input.appId,
       workspaceFolder: input.agentFolder,
       executionProviderId: input.executionProviderId,
+      providerSessionContinuity: input.providerSessionContinuity,
       chatJid: input.conversationJid,
       providerAccountId: input.providerAccountId,
       threadId: input.threadId,

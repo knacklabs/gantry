@@ -24,6 +24,7 @@ import type { AgentId } from '../../domain/agent/agent.js';
 import { folderForAgentId } from '../../domain/agent/agent-folder-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
+import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
@@ -95,6 +96,7 @@ export type SessionInteractionDeps = {
   };
   runtimeEvents: RuntimeEventExchange;
   getConfiguredAgentRuntime?: (agentFolder: string) => AgentRuntime | undefined;
+  durableExecutionProviderIds?: () => readonly ExecutionProviderId[];
   now: () => IsoTimestamp;
   createId: () => string;
   stableHash: (input: string) => string;
@@ -212,6 +214,8 @@ export class SessionInteractionModule {
     const providerSession =
       await this.deps.repositories.providerSessions.getLatestProviderSession({
         agentSessionId: session.id,
+        durableExecutionProviderIds:
+          this.deps.durableExecutionProviderIds?.() ?? [],
       });
     return {
       session,

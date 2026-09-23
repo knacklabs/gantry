@@ -1,0 +1,1 @@
+{"event": "signal-scope-change", "generated_by": "implementer", "at": "2026-09-18T09:29:19+00:00", "story": "cache-bug", "detail": "T3A requires editing apps/core/src/app/bootstrap/runtime-services.ts to pass the selected adapter registry into live admission, plus live-recovery-coordinator.ts and inline-agent-task-lifecycle.ts to "}

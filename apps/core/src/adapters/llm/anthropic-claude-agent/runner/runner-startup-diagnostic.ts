@@ -10,8 +10,6 @@ import type {
 
 export function runnerStartupTimingRuntimeEvent(input: {
   agentInput: AgentRunnerInput;
-  persistSdkSession: boolean;
-  resumedSession: boolean;
   sdkQueryPreparedMs: number;
   sdkQueryIteratorMs: number;
   firstSdkEventMs?: number;
@@ -46,8 +44,6 @@ export function runnerStartupTimingRuntimeEvent(input: {
       ...(input.agentInput.threadId
         ? { threadId: input.agentInput.threadId }
         : {}),
-      persistSdkSession: input.persistSdkSession,
-      resumedSession: input.resumedSession,
       sdkQueryPreparedMs: input.sdkQueryPreparedMs,
       sdkQueryIteratorMs: input.sdkQueryIteratorMs,
       ...(input.firstSdkEventMs !== undefined

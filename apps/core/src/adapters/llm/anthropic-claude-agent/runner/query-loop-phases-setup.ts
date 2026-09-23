@@ -51,7 +51,6 @@ type QueryLoopInput = Pick<
   | 'queryThinking'
   | 'queryEffort'
   | 'enableIpcFollowups'
-  | 'persistSdkSession'
 >;
 
 export interface QueryLoopContext {
@@ -63,7 +62,6 @@ export interface QueryLoopContext {
   queryThinking: ThinkingConfig | undefined;
   queryEffort: EffortLevel | undefined;
   enableIpcFollowups: boolean;
-  persistSdkSession: boolean;
   elapsedMs: () => number;
   stream: MessageStream;
   queryRunId: string;
@@ -430,10 +428,7 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories:
         additionalDirectories.length > 0 ? additionalDirectories : undefined,
-      persistSession: context.persistSdkSession,
-      ...(context.persistSdkSession && context.agentInput.sessionId
-        ? { resume: context.agentInput.sessionId }
-        : {}),
+      persistSession: false,
       systemPrompt,
       settings: {
         autoMemoryEnabled: false,
@@ -521,9 +516,7 @@ export function finishQueryLoop(context: QueryLoopContext) {
     !context.closedDuringQuery
   )
     throw new Error(
-      context.persistSdkSession && context.agentInput.sessionId
-        ? `No conversation found with session ID: ${context.agentInput.sessionId}`
-        : 'Anthropic SDK query completed without messages or results',
+      'Anthropic SDK query completed without messages or results',
     );
   log(
     `Query done. Messages: ${context.messageCount}, results: ${context.resultCount}, lastAssistantUuid: ${context.lastAssistantUuid || 'none'}, closedDuringQuery: ${context.closedDuringQuery}`,

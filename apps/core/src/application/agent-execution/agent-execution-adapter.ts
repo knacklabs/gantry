@@ -20,6 +20,8 @@ import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { PermissionMode } from '../../shared/permission-mode.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import type { AgentAccessSnapshot } from './agent-access-snapshot.js';
+import type { ProviderSessionContinuity } from '../../domain/repositories/ops-repo.js';
+import type { AgentExecutionAdapterRegistry } from './agent-execution-adapter-registry.js';
 
 export type AgentExecutionProviderId = ExecutionProviderId;
 
@@ -163,9 +165,37 @@ export interface PreparedAgentExecution {
 
 export interface AgentExecutionAdapter {
   readonly id: AgentExecutionProviderId;
+  readonly providerSessionContinuity: ProviderSessionContinuity;
   isMissingProviderSessionError?(error: string | undefined): boolean;
   sessionCompactionPrompt?(): string | undefined;
   prepare(
     input: AgentExecutionAdapterPrepareInput,
   ): Promise<PreparedAgentExecution>;
+}
+
+export function providerSessionContinuityForExecutionProvider(input: {
+  executionProviderId: string;
+  registry?: AgentExecutionAdapterRegistry;
+  fallback?: Pick<AgentExecutionAdapter, 'id' | 'providerSessionContinuity'>;
+}): ProviderSessionContinuity {
+  const adapter =
+    input.registry?.get(input.executionProviderId) ??
+    (input.fallback?.id === input.executionProviderId
+      ? input.fallback
+      : undefined);
+  if (!adapter) {
+    throw new Error(
+      `Unsupported model execution provider: ${input.executionProviderId}`,
+    );
+  }
+  return adapter.providerSessionContinuity;
+}
+
+export function durableExecutionProviderIds(
+  registry: AgentExecutionAdapterRegistry,
+): AgentExecutionProviderId[] {
+  return registry
+    .list()
+    .filter((adapter) => adapter.providerSessionContinuity === 'durable_resume')
+    .map((adapter) => adapter.id);
 }

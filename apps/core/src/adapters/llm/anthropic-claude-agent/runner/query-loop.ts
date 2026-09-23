@@ -24,7 +24,6 @@ export { recordSuccessfulToolUse } from './query-tool-success-ledger.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
-  persistSdkSession?: boolean;
 }
 
 export async function runQuery(
@@ -51,7 +50,6 @@ export async function runQuery(
     queryThinking,
     queryEffort,
     enableIpcFollowups: options.enableIpcFollowups ?? true,
-    persistSdkSession: options.persistSdkSession ?? true,
   });
   const sdkQuery = prepareSdkQuery(context);
   try {

@@ -9,18 +9,18 @@ saved: 2026-09-09T08:45:35+00:00
 
 ## Why
 
-Every persistent interactive runner start does two things at once: it resumes
-the persisted provider session (which already holds every earlier user,
-assistant and tool turn) AND it appends a freshly reconstructed briefing (up to
-12,000 characters of durable memory plus up to 16,000 bytes of recent channel /
-active thread context) as a new user turn. The per-turn briefing is a pinned
-guarantee (decision 0089: every provider turn sees the channel block plus the
-thread window; decision 0078: memory hydrates once per turn, with its
-session-fence rehydration fallback) and stays as is. What is NOT bounded is
-the transcript those briefings accumulate in: nothing expires a provider
-session by age, turn count or size — the idle timeout only closes the runner's
-stdin, and compaction fires only on explicit `/compact` or when the SDK
-reaches the model's context window.
+At intake, every persistent interactive runner resumed a provider session and
+appended a freshly reconstructed briefing. T1/T2 shipped a context mark and
+retire-after-crossing ceiling as immediate containment. The later confirmed
+`docs/specs/process-local-claude-continuity.md` and accepted decision 0163
+amend the final Claude contract: Claude continuity ends with the runner
+process, while DeepAgents remains a `durable_resume` adapter protected by the
+ceiling and release machinery defined here.
+
+Every turn still receives the bounded channel/thread snapshot and one hydrated
+Gantry continuity block (decisions 0089 and 0078). A restarted Claude runner
+uses those canonical inputs without reopening its previous SDK transcript. A
+live Claude runner continues through its existing in-memory message stream.
 
 Production evidence (Slack): a one-word turn ("yes") read roughly 270k cached
 input tokens on each of two model calls inside one execution (pre-tool and
@@ -30,8 +30,9 @@ duplicate briefings reaching the model, or protect against cache misses.
 
 Both execution adapters are affected, differently:
 
-- Claude Agent SDK: model-visible context grows linearly until SDK autocompact
-  at the context window (≈1M on the deployed model). Cost and latency grow.
+- Claude Agent SDK: the old cross-process resume accumulated overlapping
+  briefings. Decision 0163 replaces it with process-local continuation and
+  ephemeral session-bearing SDK state.
 - DeepAgents / LangChain: the library summarises at ~85% of a known window, so
   model-visible history is bounded, but the LangGraph Postgres checkpoint keeps
   the raw state, so checkpoint tables and checkpoint load latency grow instead.
@@ -46,10 +47,10 @@ Claude-adapter trace in `apps/core/src/runtime/group-agent-runner.ts`,
 `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts`
 and `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts`.
 
-Grill resolutions (spec gate, 2026-09-09; human decisions in rounds 1–5,
-final cold read amended once per the one-read rule):
-- Keep 0089 and 0078 unchanged; contain growth with a session-size ceiling
-  only (a delta snapshot on resume is parked).
+Original grill resolutions (spec gate, 2026-09-09), as amended by the
+confirmed process-local Claude spec and decision 0163 on 2026-09-18:
+- Keep 0089 and 0078 unchanged. The ceiling remains for `durable_resume`
+  adapters; Claude rebuilds from the bounded snapshot and Gantry continuity.
 - MINIMAL scope: the ceiling uses per-run usage the adapters already report,
   corrected for provider cache semantics (`totalBillableInputTokens` subtracts
   cache reads and would never catch the 270k case). No per-request seam, no
@@ -58,14 +59,17 @@ final cold read amended once per the one-read rule):
 - Threshold is one global revisioned runtime setting per decision 0025.
 - DeepAgents checkpoint rows are reclaimed through an adapter cleanup port on
   the named retirement paths only; orphans are an operator procedure.
-- Pre-existing sessions are retired by a manual pre-deploy reset run by the
-  deployment owner (decisions 0003 and 0112): no shipped command, no lazy
-  retirement, and a deployment stop condition.
+- Pre-existing Claude sessions are removed by the documented drained,
+  provider-scoped rollout. DeepAgents rows/checkpoints are preserved. Runtime
+  capability checks independently ignore stale Claude rows if cleanup is
+  incomplete; there is no lazy migration.
 - Roadmap card: the acceptance criteria captured on `cache-bug` at intake
   predate grill convergence and the harness does not edit an active card's
   criteria. Human decision (round 5): this confirmed spec is LINKED to the
-  card and is the story's authority; the intake criteria are superseded by
-  the acceptance criteria below.
+  card. This spec and `process-local-claude-continuity.md` jointly govern the
+  story; where they differ on Claude, the latter and decision 0163 take
+  precedence. The intake criteria are superseded by the acceptance criteria
+  below.
 
 ## Behaviour
 
@@ -81,7 +85,7 @@ final cold read amended once per the one-read rule):
      additive to `input_tokens`): both false →
      `inputTokens + cacheReadTokens + cacheWriteTokens`;
    - OpenAI-compatible (`prompt_tokens_details.cached_tokens` ⊆
-     `prompt_tokens`): reads true, writes n/a → `inputTokens`;
+     `prompt_tokens`): reads true, writes true → `inputTokens`;
    - no cache accounting → `inputTokens`.
    Mixed-provider or unresolved-provider usage uses the additive (largest)
    form; over-approximation only retires sooner. Each adapter must surface
@@ -108,7 +112,8 @@ final cold read amended once per the one-read rule):
    Clamping at the column limit removes that coupling and keeps every
    physically meaningful magnitude; the exact figure also remains in
    `model.usage`.
-2. **Typed per-session high-water mark, atomic and fenced.** A new nullable
+2. **Typed per-session high-water mark, atomic and fenced for
+   `durable_resume`.** A new nullable
    integer column `provider_sessions.context_high_water_mark` (decision 0017:
    resume-governing state is a typed column, never `metadata_json`). A new
    repository operation `raiseProviderSessionContextHighWaterMark({
@@ -116,22 +121,28 @@ final cold read amended once per the one-read rule):
    `UPDATE ... SET context_high_water_mark = GREATEST(COALESCE(existing, 0),
    value)` whose predicate fences on provider-session id, `agent_session_id`
    ownership, a resumable status, and `agent_sessions.reset_at` equal to the
-   caller's generation, and returns whether a row changed. "Changed" means
-   the mark actually ROSE: an observation equal to or lower than the stored
-   mark reports no change, because `GREATEST` leaves the row untouched. A
+   caller's generation, with an additional
+   `context_high_water_mark IS NULL OR context_high_water_mark < value`
+   predicate, and returns whether a row changed. "Changed" means the mark
+   actually ROSE: an observation equal to or lower than the stored mark
+   reports no change and performs no update. A
    caller must not read `false` as a lost fence — it means either a losing
    predicate or an observation that was not a new high. A non-integer or
    negative `value` is rejected before SQL. It is called after any run
    (including an errored run) whose output carries usage; runs without usage
    do not call it. The turn context projection returns
    `contextHighWaterMark` alongside the existing provider-session fields.
-3. **Retire on resume when over the cap.** Preflight order: promote a
+   Process-local adapters never call this operation.
+3. **Retire a durable-resume session when over the cap.** Preflight order:
+   after the selected adapter declares `durable_resume`, promote a
    `ready` row first (existing behaviour), then evaluate the mark on the
    selected row. If it exceeds the cap and the row is `active`, retire it via
    behaviour 5 and start a fresh session from the ordinary bounded briefing.
    A `maintenance_compact` row is never retired by the ceiling; it resumes
    or waits as today. Sessions at or under the cap, with no mark, or in
-   maintenance resume exactly as today. The preflight adds no hydration
+   maintenance resume exactly as today. A `process_local` adapter bypasses
+   row selection, promotion, ceiling retirement, and mark updates entirely.
+   The preflight adds no hydration
    beyond what 0078 specifies. Allowed overshoot: the one run that first
    exceeds the cap; the *next* resume retires it.
 4. **Cap setting.** Canonical desired-state path
@@ -151,7 +162,8 @@ final cold read amended once per the one-read rule):
    `retireProviderSession` is one atomic `active`→`expired` transition
    fenced on provider-session id, `agent_session_id` ownership, status
    `active`, and `agent_sessions.reset_at`; it returns the retired
-   `{ providerSessionId, externalSessionId, executionProviderId }` or nothing
+   `{ providerSessionId, externalSessionId, executionProviderId,
+   agentSessionId }` or nothing
    if no row transitioned. The existing `expireProviderSession` REMAINS for
    the compaction-delta degradation path, which operates on a `ready` row and
    is unchanged: no release, no retirement event (0159 §4). Three callers move
@@ -187,17 +199,20 @@ final cold read amended once per the one-read rule):
    Core runtime stays provider-neutral: it never names a checkpoint table.
 7. **Briefing, jobs, and operator procedures.** Every turn still receives
    the memory block and channel/thread snapshot exactly as 0089 and 0078
-   require. Scheduled jobs are untouched. `docs/memory/` records:
-   (a) the deployment owner's pre-deploy reset — drain live traffic, stop
-   workers, select the interactive provider sessions (rows whose agent
-   session has no `job_id` and a resumable status), delete the DeepAgents
-   rows for exactly those `external_session_id`s from `checkpoints`,
-   `checkpoint_blobs` and `checkpoint_writes` (never
-   `checkpoint_migrations`), delete those provider-session rows, verify zero
-   resumable interactive rows, then deploy; deploying with resumable
-   interactive rows present is a stop condition because those sessions carry
-   no mark and will resume normally; (b) the orphan reclamation procedure
-   driven by cleanup-failed events and the uncovered paths in behaviour 5.
+   require. Scheduled jobs are untouched. `docs/memory/` records two distinct
+   procedures:
+   (a) the decision-0163 rollout — drain inbound and scheduled work, stop
+   workers, clear Claude references from
+   `agent_sessions.latest_provider_session_id` and
+   `agent_runs.provider_session_id`, delete only Claude execution-provider
+   session rows in the same database transaction, remove only legacy Claude
+   transcript/session directories, verify no Claude resume state remains,
+   then deploy. DeepAgents provider-session rows, checkpoint tables, and
+   canonical run evidence survive. Rollback starts Claude fresh and never
+   recreates deleted transcripts;
+   (b) the DeepAgents orphan-reclamation procedure driven by cleanup-failed
+   events and the uncovered paths in behaviour 5. This is not a broad
+   pre-deploy deletion of DeepAgents continuity.
 8. **Observability events.** Two registered runtime event types.
    `session.provider.retired` carries a DISCRIMINATED payload on `reason` ∈
    {ceiling, fingerprint, missing, new}: `providerSessionHash` and
@@ -221,7 +236,27 @@ final cold read amended once per the one-read rule):
    per-run `model.usage` series via `agent_runs` LEFT JOIN `runtime_events`
    ordered by `agent_runs.started_at`, unioned with `session.provider.retired`
    events by hash and `agent_session_id`; plus DeepAgents checkpoint-table
-   row counts per hashed thread id in the derived checkpoint schema.
+   row counts per hashed thread id in the derived checkpoint schema. It also
+   proves the post-rollout invariant: Claude interactive runs have no
+   resumable provider-session association, while DeepAgents associations
+   remain visible and governed by their marks.
+10. **Adapter-owned continuity lifecycle.** Every execution adapter declares
+    `process_local` or `durable_resume`; core runtime never branches on a
+    Claude/Anthropic provider id. The capability is resolved for each active
+    failover attempt before provider-session row selection or locking.
+    Claude worker and inline queries use `persistSession: false` and no
+    `resume`; a live in-process message stream still accepts follow-ups. A
+    later runner receives the current bounded snapshot, recent scoped session
+    digests, active durable memory, and active jobs, with no prior provider
+    transcript replay or provider-session run linkage. Process-local rows are
+    excluded from promotion, compaction delta, fingerprint/ceiling handling,
+    persistence, `/status`, `hasProviderResume`, and public resume
+    projections. Claude `/compact` selects `fresh_checkpoint` before any
+    provider lock and uses the durable compaction task for admission and
+    deduplication. Claude session-bearing SDK artifacts are per-run and
+    removed during normal cleanup while stable config, skills, credentials,
+    and unrelated runtime files remain. DeepAgents declares
+    `durable_resume` and keeps behaviours 2–9.
 
 ## Settled requirements (R1-R7)
 
@@ -254,11 +289,11 @@ spec that governs the story.
 - **R6 — non-hydrating race recovery.** A lost-race re-read uses
   `hydrateMemory: false` and the existing generation-fenced carry from the
   compaction-delta path, so decision 0078's exactly-once hydration holds.
-- **R7 — architecture alignment.** `docs/architecture/runtime-components.md`
-  and `canonical-domain-model.md` are aligned with `session-resume.md` as a
-  canon edit inside the task. The pages currently say a cold run restores
-  Gantry memory only, which contradicts the persisted-handle resume this
-  story depends on.
+- **R7 — architecture alignment.** `docs/architecture/runtime-components.md`,
+  `canonical-domain-model.md`, and `session-resume.md` are capability-aware:
+  Claude cold starts restore bounded Gantry-owned continuity without a
+  provider handle; DeepAgents may restore a trusted durable provider
+  checkpoint. No page states universal cross-process Claude resume.
 
 ## Acceptance criteria
 
@@ -273,20 +308,21 @@ spec that governs the story.
    `reset_at` generation, ignores non-resumable rows, rejects invalid values
    before SQL, and reports whether a row changed; the migration adds the
    typed column.
-4. Unit tests (host): a usage-bearing errored run raises the mark; a run
-   with no usage does not call the operation.
-5. Unit tests: a session with a mark over the cap is not passed as the resume
+4. Unit tests (host, `durable_resume`): a usage-bearing errored run raises the
+   mark; a run with no usage does not call the operation. A process-local run
+   never raises a provider-session mark.
+5. Unit tests (`durable_resume`): a session with a mark over the cap is not
+   passed as the resume
    id; retirement returns the reference; the run proceeds without resume; the
    replacement handle is persisted; the reply is delivered. A session whose
    run crosses the cap is retired on the following resume, not mid-run. A
    `maintenance_compact` row over the cap is not retired. A `ready` row is
    promoted before evaluation. A lost transition persists no replacement.
-6. Unit test: a session at or under the cap, or with no mark, resumes and
-   still carries the memory block and snapshot. Existing tests pinning that
-   (`group-processing.test.ts` "passes hydrated memory context with provider
-   session resume id", `agent-runner-ipc.test.ts` live-turn persist/resume,
-   `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user
-   message, `deepagents-memory-context.test.ts`) stay green and untouched.
+6. Unit test: a durable-resume session at or under the cap, or with no mark,
+   resumes and still carries the memory block and snapshot. DeepAgents resume
+   expectations remain green. Historical Claude cross-process
+   persist/resume expectations are replaced by criteria 13–20; the live IPC
+   continuation and Claude memory+prompt assertions remain.
 7. Settings tests: `limits.provider_session_max_input_tokens` parses next to
    provider entries, defaults to 150,000 when absent, rejects values outside
    20,000–900,000 with a path-level error, round-trips through export, is
@@ -307,6 +343,34 @@ spec that governs the story.
 11. `verify.py` green.
 12. Both operator procedures and the observability recipe exist in
     `docs/memory/`, and the query runs against the current schema.
+13. Claude worker and inline restarts receive no `sessionId`, set
+    `persistSession: false`, supply no SDK `resume`, persist no provider
+    handle, and attach no provider-session id to an agent run. Scheduled jobs
+    remain unchanged.
+14. A follow-up delivered to an already-live Claude runner still enters the
+    same in-memory SDK message stream. A new runner includes late/intervening
+    messages inside the bounded channel/thread snapshot exactly once, plus
+    recent scoped digests, active durable memory, and active jobs, without
+    replaying the previous provider transcript.
+15. DeepAgents retains durable resume, mark/ceiling behavior, provider
+    compaction/delta replay, checkpoint persistence, and idempotent release.
+16. Claude `/compact` chooses `fresh_checkpoint` before provider locking,
+    uses durable task admission/deduplication, and creates no maintenance
+    provider session or compaction delta. Concurrent commands return the
+    existing already-running response.
+17. Each failover attempt resolves continuity from its own adapter. A
+    DeepAgents-to-Claude attempt carries and writes no Claude handle; a
+    successful DeepAgents attempt may persist its checkpoint.
+18. Stale Claude rows cannot be promoted, replayed, retired by the ceiling,
+    linked to runs, or exposed through `/status`, `hasProviderResume`, or
+    public resume projections, even when rollout cleanup was incomplete.
+19. Normal Claude runner cleanup removes session-bearing SDK artifacts while
+    stable config, skills, credentials, and unrelated runtime files survive.
+20. The documented drained operation executes against Postgres in a test,
+    clearing only Claude rows and both pointer classes while preserving
+    DeepAgents rows/checkpoints and canonical run evidence. Filesystem cleanup
+    is scoped to legacy Claude transcript/session directories, is idempotent,
+    and is never a lazy startup migration.
 
 ## Non-goals
 
@@ -316,9 +380,12 @@ spec that governs the story.
 - A per-model-request context measurement or a model-capacity-aware cap
   (parked; revisit if the per-run figure proves too coarse).
 - A hard mid-run bound; this rule retires after an observed crossing.
-- Replacing cross-process resume with briefing-only reconstruction.
-- Any shipped migration, cleanup, or lazy-retirement behaviour for
-  pre-existing state (0003, 0112).
+- Automatic digest extraction on every idle runner close. Fresh Claude starts
+  use the latest already-durable digests/memory plus the current bounded
+  snapshot; provider-only transcript state is deliberately not compacted.
+- A lazy startup migration, broad runtime filesystem sweeper, or restoration
+  of deleted Claude transcripts. The required cleanup is a drained,
+  provider-scoped deployment procedure with executable proof.
 - Cleanup on handle replacement, agent/workspace removal cascades, or
   compaction failure paths; and any durable cleanup retry system.
 - Fixing the DeepAgents usage normaliser's largest-not-summed billing

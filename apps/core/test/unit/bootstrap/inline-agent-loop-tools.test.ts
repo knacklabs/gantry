@@ -70,7 +70,10 @@ function wire(overrides: Record<string, unknown> = {}) {
   };
   wireInlineAgentLoopTools({
     app: {
-      executionAdapter: undefined,
+      executionAdapter: {
+        id: 'test:inline',
+        providerSessionContinuity: 'process_local',
+      },
       executionAdapters: undefined,
       runnerSandboxProvider: { enforcing: true },
       getCredentialBroker: vi.fn(async () => undefined),
@@ -604,7 +607,7 @@ describe('inline core tool bootstrap', () => {
     expect(tasks[0]?.authoritySnapshotJson.toolName).not.toBe('delegate_task');
   });
 
-  it('reuses one target access snapshot for inline delegated input and run options', async () => {
+  it('keeps inline process-local task turns detached from provider sessions', async () => {
     const tasks: AsyncTaskRecord[] = [];
     const repository = {
       createTask: vi.fn(async (taskInput: AsyncTaskCreateInput) => {
@@ -739,6 +742,10 @@ describe('inline core tool bootstrap', () => {
         },
       }),
       resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      executionAdapter: {
+        id: 'test:inline' as never,
+        providerSessionContinuity: 'process_local',
+      },
       resolveRunAccess: async (agentId) => {
         const accessSnapshot = await loadAgentAccessSnapshot(snapshotDeps, {
           appId: 'default',

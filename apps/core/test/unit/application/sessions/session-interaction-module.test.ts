@@ -13,6 +13,7 @@ function makeModule(overrides?: {
   getConfiguredAgentRuntime?: (
     agentFolder: string,
   ) => 'worker' | 'inline' | undefined;
+  durableExecutionProviderIds?: readonly string[];
 }) {
   const control = {
     ensureAppSession: vi.fn(async (input) => ({
@@ -82,6 +83,8 @@ function makeModule(overrides?: {
     runtimeEvents: runtimeEvents as never,
     getConfiguredAgentRuntime:
       overrides?.getConfiguredAgentRuntime ?? vi.fn(() => 'inline'),
+    durableExecutionProviderIds: () =>
+      overrides?.durableExecutionProviderIds ?? ['anthropic'],
     now: () => '2026-04-30T00:00:00.000Z' as never,
     createId: () => 'id-1',
     stableHash: () => '123456789abc',
@@ -253,6 +256,70 @@ describe('SessionInteractionModule', () => {
     expect(details.providerSession).not.toHaveProperty('externalSessionId');
     expect(details.providerSession).not.toHaveProperty('providerRef');
     expect(details.providerSession).not.toHaveProperty('metadata');
+  });
+
+  it('hides stale process-local rows from status and public resume projection', async () => {
+    const getLatestProviderSession = vi.fn(
+      async ({ durableExecutionProviderIds }) =>
+        durableExecutionProviderIds.includes('anthropic:claude-agent-sdk')
+          ? { provider: 'anthropic:claude-agent-sdk' }
+          : null,
+    );
+    const { module } = makeModule({
+      durableExecutionProviderIds: ['deepagents:langchain'],
+      repositories: {
+        agentSessions: {
+          getAgentSession: vi.fn(async () => ({
+            id: 'session-1',
+            appId: 'app-one',
+            agentId: 'agent-one',
+            conversationId: 'conv-1',
+            status: 'active',
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+        providerSessions: { getLatestProviderSession },
+      },
+    });
+
+    await expect(
+      module.getSessionDetails({ appId: 'app-one', sessionId: 'session-1' }),
+    ).resolves.toMatchObject({ providerSession: null });
+    expect(getLatestProviderSession).toHaveBeenCalledWith({
+      agentSessionId: 'session-1',
+      durableExecutionProviderIds: ['deepagents:langchain'],
+    });
+  });
+
+  it('excludes unknown provider rows from status and public resume projection', async () => {
+    const getLatestProviderSession = vi.fn(async () => null);
+    const { module } = makeModule({
+      durableExecutionProviderIds: ['deepagents:langchain'],
+      repositories: {
+        agentSessions: {
+          getAgentSession: vi.fn(async () => ({
+            id: 'session-1',
+            appId: 'app-one',
+            agentId: 'agent-one',
+            conversationId: 'conv-1',
+            status: 'active',
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+        providerSessions: { getLatestProviderSession },
+      },
+    });
+
+    await expect(
+      module.getSessionDetails({ appId: 'app-one', sessionId: 'session-1' }),
+    ).resolves.toMatchObject({ providerSession: null });
+    expect(getLatestProviderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        durableExecutionProviderIds: ['deepagents:langchain'],
+      }),
+    );
   });
 
   it('stores accepted SDK messages with durable live admission work', async () => {

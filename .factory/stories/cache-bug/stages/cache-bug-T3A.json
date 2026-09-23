@@ -1,0 +1,14 @@
+{
+  "id": "cache-bug-T3A",
+  "title": "Capability-aware continuity and Claude execution",
+  "status": "active",
+  "started_at": "2026-09-18T09:24:44+00:00",
+  "base_sha": "46a25c069a371c40c20346562275dee5b7a71eb7",
+  "dirty_at_start": {
+    ".factory/stories/cache-bug/grills/tasks/cache-bug-T3A.json": {
+      "digest": "86ea548e5d67b7d7d76c284b2b3e5d6318eec210e7d29365a0057b85e57ea359",
+      "git": "1 .M N... 100644 100644 100644 456f93599f46bc72645df84e25aeeb45dec384ff 456f93599f46bc72645df84e25aeeb45dec384ff .factory/stories/cache-bug/grills/tasks/cache-bug-T3A.json\u0000\u0000100644 456f93599f46bc72645df84e25aeeb45dec384ff 0\t.factory/stories/cache-bug/grills/tasks/cache-bug-T3A.json\u0000\u0000H .factory/stories/cache-bug/grills/tasks/cache-bug-T3A.json\u0000"
+    }
+  },
+  "task_sha256": "edb1a27782e7af7aba6987d942f358c45ff5d14786baf31754d427e4920d6c70"
+}

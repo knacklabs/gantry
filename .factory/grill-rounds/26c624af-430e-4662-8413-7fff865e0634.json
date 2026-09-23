@@ -1,0 +1,16 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "The amended spec resolves all nine Forge cold-read findings, and you've confirmed the two remaining design choices. Lock them in and close the spec grill: (1) Claude session-bearing SDK files are ephemeral per runner while stable config, skills, and credentials stay materialized; (2) drained rollout transactionally deletes only Claude provider-session rows and their pointers while DeepAgents rows survive. Any remaining gap before I record the spec-grill pass?",
+      "options": [
+        "Confirm both \u2014 ephemeral SDK sessions + Claude-only row deletion (Recommended)",
+        "Ephemeral SDK sessions only; revisit deletion scope",
+        "Reopen \u2014 I have another concern"
+      ],
+      "chosen": "Confirm both \u2014 ephemeral SDK sessions + Claude-only row deletion (Recommended)"
+    }
+  ],
+  "at": "2026-09-18T06:55:07.839297+00:00",
+  "session_id": "4782fd9d-7846-4adc-8898-f14cb287b303"
+}

@@ -41,6 +41,7 @@ function claudeCodeToolTempDirLeaf(): string {
 
 export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapter {
   readonly id = 'anthropic:claude-agent-sdk' as AgentExecutionProviderId;
+  readonly providerSessionContinuity = 'process_local' as const;
 
   isMissingProviderSessionError(error: string | undefined): boolean {
     return /\bNo conversation found with session ID\b/i.test(error ?? '');

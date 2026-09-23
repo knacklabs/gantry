@@ -1119,6 +1119,7 @@ maybeDescribe('inline session turns through the control API', () => {
     });
     const executionAdapter = {
       id: 'anthropic:claude-agent-sdk',
+      providerSessionContinuity: 'process_local' as const,
       prepare: vi.fn(),
     } as never;
     const app = createRuntimeApp({
@@ -1459,6 +1460,8 @@ maybeDescribe('inline session turns through the control API', () => {
   it('persists child runs for inline and worker delegation targets', async () => {
     const { createInlineAgentTaskLifecycle } =
       await import('@core/app/bootstrap/inline-agent-task-lifecycle.js');
+    const { createAgentExecutionAdapterRegistry } =
+      await import('@core/application/agent-execution/agent-execution-adapter-registry.js');
     const { makeAgentThreadQueueKey } =
       await import('@core/shared/thread-queue-key.js');
     const conversationJid = 'app:default:delegation';
@@ -1504,6 +1507,10 @@ maybeDescribe('inline session turns through the control API', () => {
       cause: 'manual',
     });
     expect(parentRunId).toEqual(expect.any(String));
+    const executionAdapter = {
+      id: 'integration:inline',
+      providerSessionContinuity: 'process_local' as const,
+    } as never;
 
     const tools = createInlineAgentTaskLifecycle({
       laneInput: {
@@ -1525,6 +1532,14 @@ maybeDescribe('inline session turns through the control API', () => {
         route.agentConfig?.runtime === 'inline'
           ? ('integration:inline' as never)
           : ('integration:worker' as never),
+      executionAdapter,
+      executionAdapters: createAgentExecutionAdapterRegistry([
+        executionAdapter,
+        {
+          id: 'integration:worker',
+          providerSessionContinuity: 'process_local',
+        } as never,
+      ]),
       resolveRunAccess: async (agentId) => ({
         toolPolicyRules: [`target:${agentId}`],
         attachedMcpSourceIds: [`mcp:${agentId}`],

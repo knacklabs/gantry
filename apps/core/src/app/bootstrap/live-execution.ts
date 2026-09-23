@@ -45,6 +45,9 @@ import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js'
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
 import { type SessionCommand } from '../../session/session-commands.js';
 import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
+import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import { providerSessionContinuityForExecutionProvider } from '../../application/agent-execution/agent-execution-adapter.js';
+import { type AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
 export type ActiveControlRoute = {
@@ -61,11 +64,11 @@ export type ActiveControlCommandHandler = (args: {
   message: NewMessage;
   command: SessionCommand;
 }) => Promise<boolean> | boolean;
-
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
+    providerSessionContinuity: AgentExecutionAdapter['providerSessionContinuity'];
     conversationJid: string;
     threadId: string | null;
     providerAccountId?: string | null;
@@ -98,7 +101,6 @@ interface AdmissionOpsRepository {
     options?: { threadId?: string | null; providerAccountId?: string | null },
   ) => Promise<NewMessage[]>;
 }
-
 interface AdmissionApp {
   getConversationRoutes(): Record<string, ConversationRoute>;
   resolveExecutionProviderId?: (
@@ -113,12 +115,13 @@ interface AdmissionApp {
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
 }
-
 export function buildLiveAdmissionProcessor(input: {
   liveTurnAuthority: LiveTurnAuthority | undefined;
   app: AdmissionApp;
   opsRepository: AdmissionOpsRepository;
-  executionAdapter: { id: ExecutionProviderId };
+  // prettier-ignore
+  executionAdapter: Pick<AgentExecutionAdapter, 'id' | 'providerSessionContinuity'>;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   messageFetchPageSize: number;
   timezone: string;
   enqueueMessageCheck: (queueJid: string) => void;
@@ -151,7 +154,6 @@ export function buildLiveAdmissionProcessor(input: {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
   const { finalizeAgentTodo, finalizeBrowserForLiveTurn } = input;
-
   const routeScopeActive = (
     scope: LiveTurnScope,
     queueJid: string,
@@ -185,7 +187,6 @@ export function buildLiveAdmissionProcessor(input: {
         opsRepository.completeSessionAgentRun?.bind(opsRepository),
       addReaction: input.addReaction,
     });
-
   return async (
     queueJid: string,
     context?: GroupMessageRunContext,
@@ -234,9 +235,16 @@ export function buildLiveAdmissionProcessor(input: {
       const executionProviderId =
         (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
+      const providerSessionContinuity =
+        providerSessionContinuityForExecutionProvider({
+          executionProviderId,
+          registry: input.executionAdapters,
+          fallback: input.executionAdapter,
+        });
       const turnContext = await opsRepository.getAgentTurnContext?.({
         agentFolder: route.folder,
         executionProviderId,
+        providerSessionContinuity,
         conversationJid: chatJid,
         threadId: threadId ?? null,
         providerAccountId: providerAccountId ?? null,
@@ -412,7 +420,6 @@ export function buildLiveAdmissionProcessor(input: {
     }
   };
 }
-
 export interface LiveExecutionServicesHandle {
   /** Stop the always-on admission loop (drain/handoff). */
   stopAdmission: () => void;
@@ -423,7 +430,6 @@ export interface LiveExecutionServicesHandle {
   /** Current recovery loop handle, set only while this worker is coordinator. */
   recoveryLoop: LiveTurnRecoveryLoop | undefined;
 }
-
 export interface WaitingStatusCoordination {
   /** Start the monitor; returns a handle with stop + oldest-age accessor. */
   start: () => { stop: () => void; oldestWaitingSeconds: () => number };
@@ -432,7 +438,6 @@ export interface WaitingStatusCoordination {
     handle: { oldestWaitingSeconds: () => number } | undefined,
   ) => void;
 }
-
 /**
  * Start the live execution services for a live-capable worker.
  *
@@ -504,14 +509,12 @@ export function startLiveExecutionServices(input: {
     input.recoverPendingMessages ?? defaultRecoverPendingMessages;
   const startLiveAdmissionWorkLoop =
     input.startLiveAdmissionWorkLoop ?? defaultStartLiveAdmissionWorkLoop;
-
   const handle: LiveExecutionServicesHandle = {
     admissionLoop: undefined,
     recoveryLoop: undefined,
     stopAdmission: () => undefined,
     stopRecovery: () => undefined,
   };
-
   const hasDurableAdmissionClaims =
     !!liveTurnLeaseDeps &&
     typeof liveTurnLeaseDeps.liveTurns.claimLiveAdmissionWorkItems ===
@@ -543,7 +546,6 @@ export function startLiveExecutionServices(input: {
     admissionLoop.stop();
     registerActiveAdmissionLoop(undefined);
   };
-
   // Lease-gated: recovery coordinator. Only the holder runs startup pending
   // message recovery + the periodic recovery sweep + the waiting-status monitor.
   let waitingMonitor: { stop: () => void } | undefined;
@@ -609,7 +611,6 @@ export function startLiveExecutionServices(input: {
     waitingStatus?.register(undefined);
   };
   handle.stopRecovery = stopCoordinator;
-
   if (!recoveryCoordinator) {
     // Single-process embedding (workstation, no lease manager): this process is
     // also the coordinator.
@@ -628,14 +629,12 @@ export function startLiveExecutionServices(input: {
   });
   return handle;
 }
-
 export interface RecoveryCoordinatorPort {
   onTransition: (handlers: {
     onAcquired: (lease: RuntimeLease) => void;
     onLost: (err: Error) => void;
   }) => void;
 }
-
 async function resumeRecoveredTurn(input: {
   turn: LiveTurn;
   lease: RunLease;

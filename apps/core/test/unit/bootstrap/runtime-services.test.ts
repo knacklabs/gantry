@@ -108,6 +108,7 @@ function makeApp(): RuntimeApp {
   return {
     executionAdapter: {
       id: 'anthropic:claude-agent-sdk',
+      providerSessionContinuity: 'process_local',
       prepare: vi.fn(),
     },
     channels: [],

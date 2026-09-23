@@ -325,6 +325,7 @@ function makeDeps(
     })),
     executionAdapter: {
       id: 'anthropic:claude-agent-sdk',
+      providerSessionContinuity: 'process_local',
       isMissingProviderSessionError: (error: string | undefined) =>
         /\bNo conversation found with session ID\b/i.test(error ?? ''),
       prepare: vi.fn(),
@@ -351,6 +352,20 @@ function makeDeps(
     },
     ...overrides,
   };
+}
+
+function useDurableProviderSessions(deps: GroupProcessingDeps): void {
+  deps.executionAdapter = {
+    id: 'deepagents:langchain',
+    providerSessionContinuity: 'durable_resume',
+    isMissingProviderSessionError: (error: string | undefined) =>
+      /\b(?:No conversation|No DeepAgents session) found with session ID\b/i.test(
+        error ?? '',
+      ),
+    prepare: vi.fn(),
+  };
+  deps.getSelectedAgentHarness = vi.fn(() => 'deepagents');
+  deps.getDefaultInteractiveModel = vi.fn(() => 'gpt-5.5');
 }
 
 /**
@@ -3160,6 +3175,7 @@ describe('createGroupProcessor', () => {
     it('passes hydrated memory context with provider session resume id', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
+      useDurableProviderSessions(deps);
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -3191,7 +3207,7 @@ describe('createGroupProcessor', () => {
       });
       expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
         executionAdapter: expect.objectContaining({
-          id: 'anthropic:claude-agent-sdk',
+          id: 'deepagents:langchain',
         }),
       });
     });
@@ -3540,12 +3556,13 @@ describe('createGroupProcessor', () => {
         };
         const group = makeGroup({ requiresTrigger: false });
         const { deps } = setupHappyPath({ group, agentOutput });
+        useDurableProviderSessions(deps);
         (
           deps.opsRepository.retireProviderSession as ReturnType<typeof vi.fn>
         ).mockResolvedValue({
           providerSessionId: 'provider-session:old',
           externalSessionId: 'claude-session-old',
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
         });
         (deps.opsRepository as any).getAgentTurnContext = vi
           .fn()
@@ -3568,14 +3585,14 @@ describe('createGroupProcessor', () => {
         expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:old',
           agentSessionId: 'agent-session:1',
-          provider: 'anthropic:claude-agent-sdk',
+          provider: 'deepagents:langchain',
           externalSessionId: 'claude-session-old',
           expectedAgentSessionResetAt: null,
         });
         expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
         expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
           agentSessionId: 'agent-session:1',
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           providerSessionId: undefined,
           cause: 'message',
         });
@@ -3606,12 +3623,13 @@ describe('createGroupProcessor', () => {
       it('expires a full-preset provider session when the agent becomes locked', async () => {
         const group = makeGroup({ requiresTrigger: false });
         const { deps } = setupHappyPath({ group });
+        useDurableProviderSessions(deps);
         (
           deps.opsRepository.retireProviderSession as ReturnType<typeof vi.fn>
         ).mockResolvedValue({
           providerSessionId: 'provider-session:full',
           externalSessionId: 'claude-session-full',
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
         });
         deps.getAgentLockStatus = vi.fn(() => 'locked');
         (deps.opsRepository as any).getAgentTurnContext = vi
@@ -3631,7 +3649,7 @@ describe('createGroupProcessor', () => {
         expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:full',
           agentSessionId: 'agent-session:1',
-          provider: 'anthropic:claude-agent-sdk',
+          provider: 'deepagents:langchain',
           externalSessionId: 'claude-session-full',
           expectedAgentSessionResetAt: null,
         });
@@ -3648,6 +3666,7 @@ describe('createGroupProcessor', () => {
       it('expires a missing provider session and retries the turn without resume', async () => {
         const group = makeGroup({ requiresTrigger: false });
         const { deps, channel } = setupHappyPath({ group });
+        useDurableProviderSessions(deps);
         (deps.opsRepository as any).getAgentTurnContext = vi
           .fn()
           .mockResolvedValue({
@@ -3706,7 +3725,7 @@ describe('createGroupProcessor', () => {
         expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:1',
           agentSessionId: 'agent-session:1',
-          provider: 'anthropic:claude-agent-sdk',
+          provider: 'deepagents:langchain',
           externalSessionId: 'claude-session-stale',
           expectedAgentSessionResetAt: null,
         });
@@ -3734,18 +3753,22 @@ describe('createGroupProcessor', () => {
         const group = makeGroup({ requiresTrigger: false });
         const otherAdapter = {
           id: 'test:other-agent-sdk',
+          providerSessionContinuity: 'process_local' as const,
           isMissingProviderSessionError: vi.fn(() => false),
           prepare: vi.fn(),
         };
         const selectedAdapter = {
-          id: 'anthropic:claude-agent-sdk',
+          id: 'deepagents:langchain',
+          providerSessionContinuity: 'durable_resume' as const,
           isMissingProviderSessionError: vi.fn((error: string | undefined) =>
             /\bNo conversation found with session ID\b/i.test(error ?? ''),
           ),
           prepare: vi.fn(),
         };
         const { deps } = setupHappyPath({ group });
-        deps.executionAdapter = undefined;
+        deps.executionAdapter = selectedAdapter;
+        deps.getSelectedAgentHarness = vi.fn(() => 'deepagents');
+        deps.getDefaultInteractiveModel = vi.fn(() => 'gpt-5.5');
         deps.executionAdapters = createAgentExecutionAdapterRegistry([
           otherAdapter,
           selectedAdapter,
@@ -3787,7 +3810,7 @@ describe('createGroupProcessor', () => {
         expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:1',
           agentSessionId: 'agent-session:1',
-          provider: 'anthropic:claude-agent-sdk',
+          provider: 'deepagents:langchain',
           externalSessionId: 'claude-session-stale',
           expectedAgentSessionResetAt: null,
         });
@@ -3796,12 +3819,15 @@ describe('createGroupProcessor', () => {
       it('falls back to runtime missing-session patterns when an adapter returns false', async () => {
         const group = makeGroup({ requiresTrigger: false });
         const selectedAdapter = {
-          id: 'anthropic:claude-agent-sdk',
+          id: 'deepagents:langchain',
+          providerSessionContinuity: 'durable_resume' as const,
           isMissingProviderSessionError: vi.fn(() => false),
           prepare: vi.fn(),
         };
         const { deps } = setupHappyPath({ group });
-        deps.executionAdapter = undefined;
+        deps.executionAdapter = selectedAdapter;
+        deps.getSelectedAgentHarness = vi.fn(() => 'deepagents');
+        deps.getDefaultInteractiveModel = vi.fn(() => 'gpt-5.5');
         deps.executionAdapters = createAgentExecutionAdapterRegistry([
           selectedAdapter,
         ]);
@@ -3847,7 +3873,7 @@ describe('createGroupProcessor', () => {
         expect(deps.opsRepository.retireProviderSession).toHaveBeenCalledWith({
           providerSessionId: 'provider-session:1',
           agentSessionId: 'agent-session:1',
-          provider: 'anthropic:claude-agent-sdk',
+          provider: 'deepagents:langchain',
           externalSessionId: 'deepagents-session-stale',
           expectedAgentSessionResetAt: null,
         });
@@ -3901,6 +3927,7 @@ describe('createGroupProcessor', () => {
       };
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group, agentOutput });
+      useDurableProviderSessions(deps);
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -3921,7 +3948,7 @@ describe('createGroupProcessor', () => {
         'new-sess-123',
         null,
         expect.objectContaining({
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: undefined,
@@ -3931,7 +3958,7 @@ describe('createGroupProcessor', () => {
       );
       expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:1',
-        executionProviderId: 'anthropic:claude-agent-sdk',
+        executionProviderId: 'deepagents:langchain',
         providerSessionId: undefined,
         cause: 'message',
       });
@@ -3946,6 +3973,7 @@ describe('createGroupProcessor', () => {
     it('persists SDK session ids from streamed output before the runner exits', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
+      useDurableProviderSessions(deps);
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -3989,7 +4017,7 @@ describe('createGroupProcessor', () => {
         'streamed-sess',
         null,
         expect.objectContaining({
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: undefined,
@@ -4026,6 +4054,7 @@ describe('createGroupProcessor', () => {
       });
       const messages = [makeMessage({ sender: 'sl:U123', content: 'hello' })];
       const { deps } = setupHappyPath({ group, messages, agentOutput });
+      useDurableProviderSessions(deps);
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -4051,7 +4080,7 @@ describe('createGroupProcessor', () => {
         'dm-sess-123',
         null,
         expect.objectContaining({
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           conversationJid: 'sl:D123',
           conversationKind: 'dm',
           memoryUserId: 'person:sl:U123',
@@ -4074,6 +4103,7 @@ describe('createGroupProcessor', () => {
       });
       const messages = [makeMessage({ sender: 'sl:U123', content: 'hello' })];
       const { deps } = setupHappyPath({ group, messages, agentOutput });
+      useDurableProviderSessions(deps);
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -7526,6 +7556,7 @@ describe('createGroupProcessor', () => {
         appId: 'default',
         agentFolder: 'my-group',
         executionProviderId: 'anthropic:claude-agent-sdk',
+        providerSessionContinuity: 'process_local',
         conversationJid: 'group1@g.us',
         providerAccountId: undefined,
         threadId: null,
@@ -10052,6 +10083,7 @@ describe('createGroupProcessor', () => {
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('0'),
       });
+      useDurableProviderSessions(deps);
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
       mockFormatMessages.mockReturnValue('formatted prompt');
@@ -10096,6 +10128,7 @@ describe('createGroupProcessor', () => {
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('0'),
       });
+      useDurableProviderSessions(deps);
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
       mockFormatMessages.mockReturnValue('formatted prompt');
@@ -10136,7 +10169,7 @@ describe('createGroupProcessor', () => {
         'session-42',
         null,
         expect.objectContaining({
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: undefined,
@@ -10156,6 +10189,7 @@ describe('createGroupProcessor', () => {
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('0'),
       });
+      useDurableProviderSessions(deps);
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
       mockFormatMessages.mockReturnValue('formatted prompt');
@@ -10198,7 +10232,7 @@ describe('createGroupProcessor', () => {
         'session-42',
         null,
         expect.objectContaining({
-          executionProviderId: 'anthropic:claude-agent-sdk',
+          executionProviderId: 'deepagents:langchain',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: undefined,

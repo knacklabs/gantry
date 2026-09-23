@@ -1,4 +1,4 @@
-# Cold-read grill — gate: requirements — requirements for LOCAL-DEV-1 (docs/specs/local-dev-launch.md)
+# Cold-read grill — gate: requirements — requirements for cache-bug (docs/specs/cache-bug.md)
 
 You did NOT write what follows. Read it cold, as an adversary trying to break the handover, never as its author defending it. You are READ-ONLY: return findings, change nothing.
 
@@ -11,29 +11,13 @@ name: grilling
 description: Grill the user relentlessly about a plan, decision, or idea. Use when the user wants to stress-test their thinking, or uses any 'grill' trigger phrases.
 ---
 
-Interview the user relentlessly until you reach a shared understanding. Map this as a **design tree**: every decision branches into the decisions that hang off it.
+Interview me relentlessly about every aspect of this until we reach a shared understanding. Walk down each branch of the decision tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
 
-Work the tree in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask _now_ without guessing at answers you haven't heard yet. Ask the whole frontier in one round: number each question and give your recommended answer. Then wait for the user's answers before the next round.
+Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
 
-Format a round like so:
+If a *fact* can be found by exploring the environment (filesystem, tools, etc.), look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
 
-```
-❓ **Q1** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
-
-➡️ <your recommended answer>
-
----
-
-❓ **Q2** - **<question title>**: <question body, might be multiple paragraphs, including multiple choices>
-
-➡️ <your recommended answer>
-```
-
-Each round the user answers reshapes the tree: settled decisions push the frontier outward and unblock questions that depended on them. Recompute the frontier and ask the next round. A question whose answer depends on another question still open in this round belongs to a _later_ round, not this one.
-
-Finding _facts_ is your job, never the user's. When a frontier question needs a fact from the environment (filesystem, tools, etc.), dispatch a sub-agent to find it; don't ask the user for anything you could look up yourself. Don't block on it: a running exploration is an unsettled prerequisite, so only the questions downstream of it wait for the sub-agent to report; ask the rest of the frontier now. The _decisions_ are the user's: put each to them and wait.
-
-The session is done when the frontier is empty: every branch of the design tree visited, nothing left silently assumed. Do not act on it until the user confirms you have reached a shared understanding.
+Do not act on it until I confirm we have reached a shared understanding.
 
 
 ## Harness grill contract
@@ -419,381 +403,422 @@ These questions were put to the human and answered. Two obligations:
   A: Preserve via PATCH (Recommended)
 - Q: Should first setup prevent saving or constructing a request until a multi-method provider’s authentication method is explicitly selected?
   A: Require selection (Recommended)
-- Q: gantry local reset only checks the target DB is loopback + named `gantry`/schema `gantry` — it never verifies the DB or home directory was actually created by Gantry. A coincidentally-named local Postgres or directory from an unrelated project could get destroyed. How should this PR handle it?
-  A: Add ownership checks now (Recommended)
-- Q: core can read its real Postgres URL/schema from settings.yaml (storage.postgres.urlEnv/schema), which can differ from the hardcoded GANTRY_DATABASE_URL/`gantry` the supervisor resets and migrates. Also, `gantry ui authorize` only works when authentication.mode is 'local', but startup never checks that before trying to issue a link. Fix now or defer?
-  A: Enforce local-mode defaults now (Recommended)
-- Q: Smaller confirmed gaps: the authorization retry message omits the resolved --runtime-home flag (so retrying can target the wrong home), and there's an IPv6 literal-bracket bug in host handling. Both are one-file, low-risk fixes inside the existing local.ts scope. Fix now or defer?
-  A: Fix now, same write scope (Recommended)
-- Q: Automated tests mock Postgres/Docker/processes entirely — they don't exercise a real stop/restart/reset cycle or prove existing browser sessions survive a new auth link. The plan already calls for manual disposable-state verification to cover that gap. Is that sufficient for this PR?
-  A: Keep mocked unit tests + my manual verification (Recommended)
-- Q: Separately from ownership verification: reset commits the DB schema drop before filesystem deletion/migration with no cross-home lock (a crash mid-reset leaves a half-reset state), and a killed supervisor can leave orphaned core/Vite children running while `stop` still stops Postgres underneath them. Should this PR also reorder reset to preflight-then-destroy and detect orphaned children before stopping Postgres, or record this as deferred hardening?
-  A: Harden ordering + orphan detection now (Recommended)
-- Q: That covers every finding from the cold-read grill. Any remaining gap before I amend the spec to what you've decided and move to the plan gate?
-  A: No — proceed to amend and record the grill pass (Recommended)
-- Q: Two consecutive Codex cold-read attempts for the LOCAL-DEV-1 requirements gate stalled for 30+ minutes each inside the shared codex app-server process (the same process also serving your ChatGPT desktop app), producing zero output before I had to stop them. This tripped the harness's 2-attempt escalation cap. How would you like to proceed?
-  A: Retry once more now (Recommended)
-- Q: Decision 0025 makes the Postgres settings_revisions table authoritative over settings.yaml, but reading it requires Postgres to be up — while the spec also says nothing destructive/mutating runs before authority checks pass. How should startup resolve this chicken-and-egg?
-  A: Reversible bootstrap-then-check (Recommended)
-- Q: The implementation exposes undocumented `local status`/`local doctor` (duplicating existing top-level `gantry status`/`gantry doctor`), and bare `gantry local` silently starts the whole dev stack instead of doing nothing. Fix this CLI surface now?
-  A: Remove duplicates, bare command prints usage (Recommended)
-- Q: The one-time authorization link is a 10-minute admin credential. Right now it always prints to inherited stdout, so shell redirection, IDE task logs, or CI capture could persist it — contradicting the no-token-in-evidence rule.
-  A: TTY-gate the raw URL (Recommended)
-- Q: Preflight-then-destroy ordering (already decided) prevents refusal-after-partial-mutation, but does nothing for a crash that happens AFTER the DB schema commit and BEFORE filesystem cleanup finishes — that leaves mixed old/new state with no way to detect or resume it.
-  A: Add a durable reset-in-progress marker now (Recommended)
-- Q: That's everything from this cold read plus the repo-answerable fixes I'll make myself (settings-authority check via the DB revision not just YAML, the correct snake_case settings key, narrowing the session-preservation criterion to exclude reset, removing the decision-0003-violating retroactive ownership marker, binding reset to the exact managed endpoint, covering the extra schema-override env vars, reusing the DB active-connection check for orphan detection instead of a public health probe, fixing reset's stop-before-preflight ordering, and registering the deferred items with `forge defer add`). Any remaining gap before I amend the spec/plan and record this gate?
-  A: No — proceed to amend and record (Recommended)
-- Q: The current staged diff is already 1,646 additions across eight files before the remaining destructive-safety work, and the sole task covers roughly twenty distinct proof seams — too large for one bounded task/PR.
-  A: Keep one task with an explicit size budget
+- Q: Grill finding 1: decision 0089 pins that every provider turn sees the 30-message channel block plus the thread window. The spec drops that snapshot on resumed sessions. Which way?
+  A: Keep 0089, ceiling only (Recommended)
+- Q: Grill finding 2: expiring a DeepAgents session starts a fresh thread but leaves the old raw LangGraph checkpoint rows, so Postgres still grows. Reclaim or narrow?
+  A: Reclaim on expiry (Recommended)
+- Q: Findings 3 to 5 have clear defaults. Confirm all three: threshold is one validated global runtime setting per decision 0025 (not an env var), default 150,000; expiry keys on the max single model-call inputTokens (no cache-read double count); durable memory stays freshly injected on every run and the rule is renamed to no duplicate channel/thread snapshot.
+  A: Confirm all three (Recommended)
+- Q: Round 2 finding: the one-off rollout invalidation command is a migration/cleanup command, which accepted decision 0003 (early stage, no back-compat) explicitly rejects. How do we handle existing oversized sessions?
+  A: Drop the command, rely on unmeasured-means-no-resume (Recommended)
+- Q: Round 2 finding: Claude's normalised inputTokens excludes cache read/write tokens and is aggregated per run, so it cannot supply the largest single model-call context. What should the ceiling measure?
+  A: New per-request model-visible input maximum (Recommended)
+- Q: Confirm the five defaults: scope is every persistent interactive provider session on any channel, jobs excluded; a session without a valid versioned measurement is not resumable, and measurements persist even from failed turns; effective cap is the lower of the global setting (valid range 20,000 to 900,000, applies on next resume) and the runtime-known safe model capacity, unknown capacity does not resume; DeepAgents checkpoint reclamation runs in one shared expiry operation for every expiry reason, never blocks a reply, leaves the session expired if cleanup fails and emits retry evidence; the observability query is operator-only, joins runtime_events to agent_runs to provider_sessions, and shows hashed identifiers by default.
+  A: Confirm all five (Recommended)
+- Q: Round 3 shows the per-request measurement is not implementable from current adapter output (DeepAgents emits one terminal usage snapshot whose input already includes cache reads; Claude aggregates per run), and the model-capacity clause is unknowable because no model identity is stored on the session. Do you want the minimal scope or the full design?
+  A: Minimal: existing per-run usage as the ceiling (Recommended)
+- Q: Finding 2: retiring legacy sessions lazily on their next turn is a runtime migration, which decisions 0003 and 0112 reject. How are pre-existing sessions handled?
+  A: Manual pre-deploy reset by the owner (Recommended)
+- Q: The active cache-bug roadmap card still carries intake-time criteria (drop the snapshot on resume, null Slack handles, update pinned tests) that contradict the grilled spec, and the harness refuses to edit an active card's criteria. How should the two contracts be reconciled?
+  A: Link the spec as the card's authority (Recommended)
+- Q: Closing question for the spec gate: the other seven findings (typed high-water column per 0017, provider-resolved usage components with partial usage on errors, fenced transition order including reset_at, adapter cleanup port with /new returning references after commit, flat limits scalar with a reader-version bump, event timing with full SHA-256 correlation, and a reset that preserves checkpoint_migrations) are being folded in from what the repository says. Any remaining gap before I amend once and record?
+  A: No remaining gap, amend and record (Recommended)
+- Q: Requirements gate closing question. The single cold read found seven implementation-shaping gaps (null-safe generation fence, one cumulative partial-usage payload on errors, explicit cache read/write booleans per route with the resolved route carried, /new returning retired references after commit, host-published events with a sanitised error, non-hydrating lost-race re-read per 0078, and aligning two architecture pages with session-resume.md). All seven are answered by the repository. Because the confirmed spec cannot be re-saved without a fresh spec-gate read and that gate's read cap is used up, they become binding plan requirements R1 to R7 rather than spec edits. Any remaining gap before I record the requirements gate and author the plan?
+  A: No remaining gap, record and plan (Recommended)
+- Q: Plan grill Q1: the compaction-delta replay path already marks a provider session degraded and then expires it when the delta is stale or too large. Decision 0159 wrongly says compaction paths reactivate. What is the contract for that path?
+  A: Keep expiry, classify as uncovered (Recommended)
+- Q: Do you accept decisions 0158 (retire after observed crossing; contextUsage.totalTokens preferred, derived usage fallback; typed column; global cap setting; no rollout) and 0159 (provider-neutral releaseSession port; /new returns retired references; covered paths ceiling, missing-session, fingerprint, /new; wording corrected per your answer above) so the plan can attest them?
+  A: Accept both as Ravi (Recommended)
+- Q: Closing question for the plan gate. The other repository-settled corrections will be folded in once: 12 spec criteria plus R1 to R7 mapped to tasks; T1 owns the compaction-delta caller, the service layer that discards resetScope's result, deep-agent-runner.ts, and a typed partial-usage carrier; T3 owns the whole release coordinator, the active /new path in runtime-services-active-new.ts, adapter-registry resolution, and post-reply timing; settings scope adds defaults, YAML renderer, revision document and tests, and the reader-version claim is corrected to what settings-revision-document.ts does today; events carry app and actor context, are best-effort, and get publish, query and projection tests per 0013; a code-owning task adds npm run lint to verify and CI; runtime-components.md and canonical-domain-model.md are named; the SQL recipe gets an executed Postgres test; the non-goal wording becomes no data migration or cleanup flow for pre-existing sessions. Any remaining gap before I amend once, record, and save the plan to the board?
+  A: No remaining gap, amend and save (Recommended)
+- Q: The harness makes the task count your call before the decomposition is recorded. The approved plan has three sequential backend tasks: T1 measurement and storage (registry booleans, derived input, partial usage on error, typed column with generated migration, fenced raise and retire operations, resetScope references, lint gate); T2 host policy (cap setting with reader-version bump, ceiling preflight with non-hydrating lost-race re-read, post-run raise, two events, docs and recipe, architecture alignment); T3 adapter release port (adapter contract, DeepAgents deleteThread, post-reply coordinator, both /new paths). How many tasks?
+  A: Three, as planned (Recommended)
+- Q: Task grill finding: both adapters also have inline runtime lanes (agentRuntime 'inline', no spawned worker) that can lose accumulated usage on failure, and T1 only covers the spawned-runner error frames. Cover inline lanes in T1, or narrow the criterion?
+  A: Cover inline lanes in T1 (Recommended)
+- Q: Closing question for the T1 task gate. The other five findings are repository-answered and will be folded in once: the compaction-delta path keeps the existing expiry helper (ready row, no retirement) per 0159, so three callers switch, not four; the Claude partial usage travels as a typed failure carrier thrown from the result branch and written by runner/index.ts (added to scope) as one error frame; canonical-ops-repo.postgres.ts joins the write scope and resetScope returns a readonly empty list on no-route paths; required tests add both runners' error frames, the caller switches, empty-list propagation, the four pinned tests and verify.py joins verify_commands; T1's acceptance criteria are restated so each is exactly one plan-contract statement, which the recorder requires; the registry type lives in model-provider-registry.ts. Any remaining gap before I amend once, record, and delegate T1?
+  A: No remaining gap, amend and delegate (Recommended)
+- Q: Run T2 and T3 in parallel worktrees after T1 merges, by moving the runner drain call and both event-type registrations into T2 so T3's write scope is disjoint (adapter contract, DeepAgents adapter, coordinator module, both /new handlers)? This amends the approved graph's dependency T3→T2 to T3→T1.
+  A: Yes, amend and run them in parallel (Recommended)
+- Q: Closing round for the amended T1 task gate. The cold read's seven findings are folded in from the repo and the session: write scope now names package.json and the three new sibling modules; the lint wording is lint:changed everywhere in the task plan; the diagram routes compaction-delta through the unchanged expire helper per 0159; the derivation criterion names the provider fallback with a new required test; the runtime surface is marked Changed; a required test proves clearSessionForChatJid propagates the retired references; and the stale-state finding resolves itself when the worker's regression fix is re-verified on Node 24. Any remaining gap before I record the gate, re-approve T1 with your name, and resume the worker?
+  A: No remaining gap, record and resume (Recommended)
+- Q: The pre-tool hook does not govern or claim file-tool writes into a sibling worktree (it resolves the repo root from the session cwd, not the target path). Because of that the degraded window closed with 0 files and stage done refuses. How do you want this handled?
+  A: Hotfix the hook + re-apply the fixes under two windows (Recommended)
+- Q: `task pr-ready` refuses to open the PR while the two harness hotfixes (review.py proof path, pre_tool_use.py worktree root) sit in the branch, because they drift the vendored gate surface. How should I handle them for the T1 PR?
+  A: Revert them in this branch (Recommended)
+- Q: Fixing the required-test ids amended T1's contract, so the harness wants a fresh task grill (running now) and a re-approval before the stage can close. May I record the re-approval as Ravi once the grill passes with no open frontier?
+  A: Yes, approve as Ravi when clean (Recommended)
+- Q: The re-grill found the approved story plan still says all four callers switch to retireProviderSession (decision 0159 §4 keeps compaction-delta on expireProviderSession) and still prescribes blocking full `npm run lint` (settled ruling is `lint:changed` blocking, full lint advisory). The task contracts are already correct — only the plan prose is stale. Editing the plan breaks its approval digest, so it needs a fresh plan cold-read grill plus your re-approval on the board. When should that happen?
+  A: After T1 merges, before T2 starts (Recommended)
+- Q: Closing round for the re-grilled T1 task gate. All six findings are folded into one amendment: the carrier contract now names DeepAgentPartialUsage as the only shape and states the abort-identity rule (AC2 amended, plus two new required tests — the unit abort seam and the Node-24 boundary _close test, both probed green); QueryFailure's owner corrected to runner/query-failure.exception.ts; the objective and task plan now say lint:changed blocking / full lint advisory; the required-test count corrected to 27; write scope narrowed from the three broad prefixes to the 15 files this task actually touches; the manual error proof replaced with a controlled failure after a usage event; the stale grill record is superseded by this one; and the story-plan contradiction is ledgered as D-0082 to be fixed in the re-ceremony you scheduled between T1's merge and T2's start. Any remaining gap before I record the gate, approve T1 as Ravi, and run the review?
+  A: No remaining gap, record and approve (Recommended)
+- Q: The quality lens flagged T1-AC9 as only partially implemented — "no blocking CI lint step". It's right about what it was shown, and wrong about the branch. `review.py` builds the bundle by resetting every HARNESS_MACHINERY_PATHS prefix to the task base, and that tuple contains `.github/` (meant for harness-authored workflows, but it swallows a client's own application CI). The synthetic review-tip commit literally reverts our 12-line `lint:changed` CI step before the reviewer sees it — `.envrc` and `package.json` keep theirs because they aren't excluded. So any acceptance criterion needing a CI change is permanently unprovable at review, and re-running reproduces the finding forever. How do you want T1's review closed?
+  A: Fold the fix into the hotfix set, re-review (Recommended)
+- Q: PR 501's code is green (ci, image, scaffold, hook gates all pass). Only pr-contract fails, because check_task_proof counts per-contract verdicts that no single review chunk can confirm — the brief makes every pass verdict every contract, so each pass guesses about code outside its slice. My merge fix stops blindness outvoting a real verdict, but can't create a verdict when no pass gives one. I've spent three cycles here. How do you want to close it?
+  A: Fix the brief: verdict only what you see (Recommended)
+- Q: Round 19: the engine complied with the new brief and omitted verdicts for contracts its slice couldn't judge. But `_contract_verdicts` fails an omission closed to `partial`, and record_review_from_json.py turns every partial into a BLOCKING finding — so 'no pass could judge this' is recorded identically to 'this contract is defective'. That conflation is the actual bug, in the recorder rather than the merge logic I patched three times. PR 501's code remains green on CI. Four cycles spent here — how do you want to close it?
+  A: Merge 501 now, fix the recorder next (Recommended)
+- Q: The grill says the T2 ∥ T3 parallel graph you approved is not independently buildable: T3 needs the cleanup event type and runner drain that T2 owns, so a T3 branch cut from T1 alone cannot typecheck or falsify its ceiling/fingerprint/missing-session proofs. And in the other direction, merging T2 first switches on the default ceiling while the cleanup drain is still a no-op, orphaning DeepAgents checkpoints until T3 lands. How should the graph run?
+  A: T3 depends on T2 — run sequentially (Recommended)
+- Q: Two runtime surfaces have no task owner. (a) The spec requires `session.provider.retired` after commit for `/new`, but the plan gives all event behaviour to T2, whose scope excludes both /new handlers, while T3 owns the handlers and claims no event work — so cleanup could ship without the required event. (b) D-0083 transfers the resolved DeepAgents route to T2, but T2's plan scope does not include the runner input contract it needs. Who takes them?
+  A: T3 takes the /new event, T2 takes the route (Recommended)
+- Q: A constitution gap the grill flagged: the coordinator catches cleanup errors and publishes `session.provider.cleanup_failed` best-effort, but nothing specifies a structured fallback log or a publication-failure test. If both the cleanup and the event publication fail, an orphaned checkpoint leaves no evidence at all — which the no-swallowed-errors and structured-logging rules forbid. Separately, the plan says `sha256(id)` without naming which id; hashing the internal provider-session id instead of the raw external-session id would break the documented SQL join.
+  A: Require a structured fallback log and name the id (Recommended)
+- Q: The plan adds the physical column `context_high_water_mark`, but constitution/pnp-database-standards.md:46 requires camelCase physical columns. Every existing column in this repo is snake_case, so the repo convention looks like a deliberate long-standing deviation — but neither the plan nor any decision records it, so the grill counts it as an undocumented constitution violation.
+  A: Record the deviation in a decision (Recommended)
+- Q: Closing round for the cache-bug plan grill. Your four decisions are applied: sequential T1->T2->T3; T3 publishes the /new retirement event while T2 takes the resolved-route plumbing; a structured fallback log plus a publication-failure test with the hash named as the RAW EXTERNAL session id; and decision 0160 written and accepted for snake_case columns. The other seven I resolved from the repo: T1's caller list cut to three with compaction-delta explicitly out of scope (0159 §4); T1's write scope corrected to the files that actually shipped, with the compaction call site marked NOT in scope; the partial-usage contract rewritten to what shipped (DeepAgentPartialUsage thrown directly, abort identity preserved, both inline lanes, QueryFailure for Claude); the resolved route marked as NOT delivered by T1; the API surface reclassified Changed with a PUT/GET round trip added to the Verify Plan; and the three parked items recorded as D-0086, D-0087 and D-0088 with triggers. Any remaining gap before I record the pass and save the plan for your approval?
+  A: No remaining gap, record and save (Recommended)
+- Q: The spec lists `contextHighWaterMark` and `cap` on every `session.provider.retired` event, but only ceiling retirement is caused by a cap check — fingerprint, missing-session and /new retirement are not, and /new's retired references don't even carry those values. How should the payload be shaped?
+  A: Discriminated payload: require for ceiling only (Recommended)
+- Q: The spec requires the /new retirement event to carry `sessionId`, but decision 0159 and the implemented reset return only providerSessionId, externalSessionId and executionProviderId. The active /new path's separate boundary lookup can fail while the reset still succeeds, so the producer cannot reliably attribute every retirement. How should correlation work?
+  A: Add agentSessionId to the retired reference (Recommended)
+- Q: The plan says cleanup drains 'after the reply path is unblocked', but fallback delivery happens after runAgent returns — so a drain at the end of runAgent can precede or delay the fallback reply. Both /new handlers can also skip cleanup entirely if their acknowledgement send rejects. When should cleanup actually run?
+  A: After the full delivery attempt settles, in a finally (Recommended)
+- Q: The high-water mark accepts any non-negative integer, but the Postgres column is `integer`, capping at 2,147,483,647. A larger cumulative run measurement is valid under the written contract yet fails at SQL — leaving the session unmarked and therefore resumable, which defeats the retirement it was supposed to trigger. The cap setting's own maximum is 900,000.
+  A: Saturate the stored mark at 900,001 (Recommended)
+- Q: Closing round for the cache-bug requirements gate. Your four decisions are applied to the spec and to decision 0159: the retirement event payload is discriminated on reason so cap and mark appear only for ceiling; each retired reference now carries agentSessionId so /new publishes one event per row from the same committed read instead of a lookup that can fail; cleanup drains after the full primary-plus-fallback delivery attempt settles, wrapped in finally around both /new acknowledgements; and the stored mark saturates at 900,001 rather than overflowing the integer column. Four more were repo-settled: the spec now defers to 0158's contextUsage.totalTokens-first measurement (an earlier draft made the derived figure primary, which would have violated the accepted decision); the settled R1-R7 requirements now live in the spec rather than only in the plan; the raise contract states that an equal or lower observation reports no change, so false is not read as a lost fence; and runtime-components.md is aligned with session-resume.md, which had claimed a cold start injects memory only. Any remaining gap before I record the pass?
+  A: No remaining gap, record it (Recommended)
+- Q: Closing round for the cache-bug plan gate, covering the 14 findings from the single cold read. Your decisions: rewrite T2/T3 against current code rather than patch again, and make the settings contract its own T4. The rewrite addressed all 14 with code-verified facts: T2 gains the 900,001 clamp (the column is integer and the assert has no clamp, and T1 is sealed) and both R6 branches; T2 LOSES the resolved-route plumbing because it was never broken (host projects modelRoute.id, the runner reads it, so usage.modelRoute is already the route) with D-0083 withdrawn and lesson 157 recording why; T3 gains agentSessionId with its propagation, group-processing.ts for the real drain boundary (runAgent is awaited at :669, finalisation at :778), and the clearCurrentSession contract plus its handler and supplier since the idle path returns void; T4 owns the typed DTO and OpenAPI entry for /v1/settings/desired-state; S9's ownership is split between T2 and T3 with the reason stated; the per-task worktree lifecycle replaces 'sequential in one story worktree'; T1's declared scope now lists the inline lanes and files that actually shipped; the recipe proof must execute SQL extracted from the document; and the decomposition rebinds to the sequential graph after approval. Any remaining gap before I record the pass?
+  A: No remaining gap, record the pass (Recommended)
+- Q: The 900,001 saturation is coupled to the cap setting's maximum (20,000-900,000), not to any model's context window (~1M on the deployed model). So a real mark can exceed it, and if the cap range is ever widened above 900,000 a clipped mark silently stops exceeding the cap — retirement quietly stops firing. The only genuine problem was the Postgres integer overflow above 2,147,483,647. How should the clamp be defined?
+  A: Clamp at the integer max, 2,147,483,647 (Recommended)
+- Q: The clamp correction changed the plan body, so the approval you just gave no longer binds to it (approved digest b669160f, live f6e0cfef). The only substantive change since you approved is the one you decided: the clamp is now the Postgres integer maximum 2,147,483,647 rather than 900,001, with both documents recording why the cap-relative figure was wrong — it coupled a policy range to a storage limit and would have silently ended retirement if the cap range were ever widened. Nothing else in the plan moved. Re-approve so I can rebind the decomposition and start T2?
+  A: Re-approve as Ravi (Recommended)
+- Q: Which pin should luna @ max land on?
+  A: The exploration role
+- Q: A fresh or replacement provider session has no mark after its first turn, so the ceiling checks it one turn later than it should. How should T2 handle the first mark?
+  A: Pin the id invariant (Recommended)
+- Q: The grill amendment grew T2 to 12 criteria, 31 required tests and 16 scope entries — bigger than when the plan was approved. Any remaining gap before T2 goes to implementation, or is it sound to hand off as one task?
+  A: Hand off as one task (Recommended)
+- Q: The amended spec resolves all nine Forge cold-read findings, and you've confirmed the two remaining design choices. Lock them in and close the spec grill: (1) Claude session-bearing SDK files are ephemeral per runner while stable config, skills, and credentials stay materialized; (2) drained rollout transactionally deletes only Claude provider-session rows and their pointers while DeepAgents rows survive. Any remaining gap before I record the spec-grill pass?
+  A: Confirm both — ephemeral SDK sessions + Claude-only row deletion (Recommended)
 
-## The artifact under interrogation (requirements for LOCAL-DEV-1 (docs/specs/local-dev-launch.md))
+## The artifact under interrogation (requirements for cache-bug (docs/specs/cache-bug.md))
 
 ---
-slug: local-dev-launch
-title: Local development launch and reset
+slug: cache-bug
+title: cache-bug — Retire oversized provider sessions across runner restarts
 status: confirmed
-saved: 2026-09-17T13:16:48+00:00
+saved: 2026-09-09T08:45:35+00:00
 ---
 
-# Local development launch and reset
+# cache-bug — Retire oversized provider sessions across runner restarts
 
 ## Why
 
-The Lite local-development change has already landed in this worktree; the
-user approved promoting it to Full Forge on 2026-09-17, with the scope
-limited to `package.json`, the CLI index, CLI local, Vite configuration,
-CLI local-routing tests, `scripts/architecture-exceptions.json`, plus
-documentation and Forge proof. A narrow one-call architecture exception
-covers the operator-owned source supervisor; agent/tool execution remains
-behind the existing sandbox boundary. Production start and service behavior
-stay unchanged.
+Every persistent interactive runner start does two things at once: it resumes
+the persisted provider session (which already holds every earlier user,
+assistant and tool turn) AND it appends a freshly reconstructed briefing (up to
+12,000 characters of durable memory plus up to 16,000 bytes of recent channel /
+active thread context) as a new user turn. The per-turn briefing is a pinned
+guarantee (decision 0089: every provider turn sees the channel block plus the
+thread window; decision 0078: memory hydrates once per turn, with its
+session-fence rehydration fallback) and stays as is. What is NOT bounded is
+the transcript those briefings accumulate in: nothing expires a provider
+session by age, turn count or size — the idle timeout only closes the runner's
+stdin, and compaction fires only on explicit `/compact` or when the SDK
+reaches the model's context window.
 
-Approved addition: `npm run dev:stop` / `gantry local stop` stops source
-core, Vite, and the verified home-owned managed Postgres container without
-deleting data or stopping unrelated Docker containers. Ctrl-C leaves
-Postgres warm.
+Production evidence (Slack): a one-word turn ("yes") read roughly 270k cached
+input tokens on each of two model calls inside one execution (pre-tool and
+post-tool), about 541k tokens for the turn. Prompt caching discounts the
+repeated prefix; it does not remove it from the context window, stop stale
+duplicate briefings reaching the model, or protect against cache misses.
 
-A cold-read spec grill found the original draft under-specified
-destructive-operation safety and authority boundaries; the owner resolved
-every finding, and this revision states those resolutions as requirements.
-A second cold-read grill of the requirements round (re-reading this spec
-against current repository reality — the actual `local.ts`, decision 0025,
-and decision 0003) found further gaps: the spec checked the wrong settings
-authority, proposed an ownership-marker design that would have violated
-decision 0003's no-backcompat-adoption rule, missed a crash window between
-the database commit and filesystem cleanup, and left the one-time
-authorization credential unprotected against non-interactive stdout capture.
-The owner resolved all of it; this revision states those resolutions too.
+Both execution adapters are affected, differently:
+
+- Claude Agent SDK: model-visible context grows linearly until SDK autocompact
+  at the context window (≈1M on the deployed model). Cost and latency grow.
+- DeepAgents / LangChain: the library summarises at ~85% of a known window, so
+  model-visible history is bounded, but the LangGraph Postgres checkpoint keeps
+  the raw state, so checkpoint tables and checkpoint load latency grow instead.
+  No application path owns checkpoint deletion.
+
+Scheduled jobs already run non-persistent sessions on both adapters and are
+out of scope. The runner is channel-neutral, so this applies to every channel
+that holds a persistent interactive session, not only Slack.
+
+Discovery: read-only Codex run `task-mttrhe3o-xh5mh1` (2026-09-09), plus the
+Claude-adapter trace in `apps/core/src/runtime/group-agent-runner.ts`,
+`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts`
+and `apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts`.
+
+Grill resolutions (spec gate, 2026-09-09; human decisions in rounds 1–5,
+final cold read amended once per the one-read rule):
+- Keep 0089 and 0078 unchanged; contain growth with a session-size ceiling
+  only (a delta snapshot on resume is parked).
+- MINIMAL scope: the ceiling uses per-run usage the adapters already report,
+  corrected for provider cache semantics (`totalBillableInputTokens` subtracts
+  cache reads and would never catch the 270k case). No per-request seam, no
+  model-capacity clause, no retry system.
+- This is a **retire-after-observed-crossing** rule, not a hard bound.
+- Threshold is one global revisioned runtime setting per decision 0025.
+- DeepAgents checkpoint rows are reclaimed through an adapter cleanup port on
+  the named retirement paths only; orphans are an operator procedure.
+- Pre-existing sessions are retired by a manual pre-deploy reset run by the
+  deployment owner (decisions 0003 and 0112): no shipped command, no lazy
+  retirement, and a deployment stop condition.
+- Roadmap card: the acceptance criteria captured on `cache-bug` at intake
+  predate grill convergence and the harness does not edit an active card's
+  criteria. Human decision (round 5): this confirmed spec is LINKED to the
+  card and is the story's authority; the intake criteria are superseded by
+  the acceptance criteria below.
 
 ## Behaviour
 
-### Commands
+1. **Observed context per run.** The observed value is
+   `contextUsage.totalTokens` when the run reports it; only when it does not
+   does the host fall back to a derived `modelVisibleInputTokens` (decision
+   0158 §2, which governs — an earlier draft of this spec made the derived
+   figure primary, which would have violated the accepted decision). The
+   derived figure comes from provider-resolved usage components of a run. The provider registry entry that already names the cache usage
+   fields gains two booleans, `cacheReadsIncludedInInput` and
+   `cacheWritesIncludedInInput`:
+   - Anthropic (`cache_read_input_tokens`, `cache_creation_input_tokens`
+     additive to `input_tokens`): both false →
+     `inputTokens + cacheReadTokens + cacheWriteTokens`;
+   - OpenAI-compatible (`prompt_tokens_details.cached_tokens` ⊆
+     `prompt_tokens`): reads true, writes n/a → `inputTokens`;
+   - no cache accounting → `inputTokens`.
+   Mixed-provider or unresolved-provider usage uses the additive (largest)
+   form; over-approximation only retires sooner. Each adapter must surface
+   the usage it has accumulated so far on an error frame (Claude: the error
+   path in `query-loop-phases-messages.ts` currently emits none; DeepAgents:
+   the terminal snapshot), so costly errored turns cannot evade retirement.
+   Because usage is per run, the figure over-approximates a single call's
+   context; accepted for a retirement trigger. Billing fields and
+   `totalBillableInputTokens` are unchanged.
 
-- `npm run dev` / `gantry local start`: start source core and Vite with HMR,
-  ensuring Postgres is available and all current migrations have completed.
-- `npm run reset` / `gantry local reset`: reset both Gantry database schemas,
-  remove known Gantry runtime state, migrate, and restart into fresh onboarding.
-- `npm run reset:db` / `gantry local reset-db`: reset both schemas, migrate,
-  and restart while preserving runtime filesystem state.
-- Keep the old core-only source command as `npm run dev:core`.
-- `npm run dev:stop` / `gantry local stop`: stop source core, Vite, and the
-  verified home-owned managed Postgres container only.
-- `gantry local` with no subcommand prints usage and exits; it must not
-  start Docker/core/Vite. `gantry local status`/`gantry local doctor` are
-  removed — the existing top-level `gantry status`/`gantry doctor` already
-  cover this, and a duplicate under `local` is an undocumented, redundant
-  CLI surface.
+   The value written to the column is CLAMPED at 2,147,483,647, the maximum a
+   Postgres `integer` holds. Without the clamp a cumulative measurement above
+   that fails at SQL and leaves the session unmarked and therefore resumable,
+   defeating the very retirement it should trigger.
 
-Local dev commands run source directly (`tsx`, no core/web *production*
-build and no root `dist/ui`) and stay entirely separate from artifact build
-commands (below) and from the production commands `npm run build` / `npm
-start`, which this change does not alter. (Every local command still runs
-`build:contracts` to produce the typed contracts workspace output the CLI
-itself depends on — that workspace build is not what "no build step" means
-here.)
+   The clamp is deliberately tied to the COLUMN's limit, not to the cap
+   setting's maximum. An earlier draft clamped at 900,001 — one above the
+   largest configurable cap — which coupled two unrelated numbers: the cap
+   range (20,000–900,000) is a policy choice, while a model's context window
+   is a different quantity entirely (≈1M on the deployed model, per Why
+   above). A session can legitimately measure above 900,001, and if the cap
+   range were ever widened past 900,000 a clipped mark would stop exceeding
+   the cap — silently ending retirement for exactly the sessions it targets.
+   Clamping at the column limit removes that coupling and keeps every
+   physically meaningful magnitude; the exact figure also remains in
+   `model.usage`.
+2. **Typed per-session high-water mark, atomic and fenced.** A new nullable
+   integer column `provider_sessions.context_high_water_mark` (decision 0017:
+   resume-governing state is a typed column, never `metadata_json`). A new
+   repository operation `raiseProviderSessionContextHighWaterMark({
+   providerSessionId, agentSessionId, agentSessionResetAt, value })` runs one
+   `UPDATE ... SET context_high_water_mark = GREATEST(COALESCE(existing, 0),
+   value)` whose predicate fences on provider-session id, `agent_session_id`
+   ownership, a resumable status, and `agent_sessions.reset_at` equal to the
+   caller's generation, and returns whether a row changed. "Changed" means
+   the mark actually ROSE: an observation equal to or lower than the stored
+   mark reports no change, because `GREATEST` leaves the row untouched. A
+   caller must not read `false` as a lost fence — it means either a losing
+   predicate or an observation that was not a new high. A non-integer or
+   negative `value` is rejected before SQL. It is called after any run
+   (including an errored run) whose output carries usage; runs without usage
+   do not call it. The turn context projection returns
+   `contextHighWaterMark` alongside the existing provider-session fields.
+3. **Retire on resume when over the cap.** Preflight order: promote a
+   `ready` row first (existing behaviour), then evaluate the mark on the
+   selected row. If it exceeds the cap and the row is `active`, retire it via
+   behaviour 5 and start a fresh session from the ordinary bounded briefing.
+   A `maintenance_compact` row is never retired by the ceiling; it resumes
+   or waits as today. Sessions at or under the cap, with no mark, or in
+   maintenance resume exactly as today. The preflight adds no hydration
+   beyond what 0078 specifies. Allowed overshoot: the one run that first
+   exceeds the cap; the *next* resume retires it.
+4. **Cap setting.** Canonical desired-state path
+   `limits.provider_session_max_input_tokens`, a global scalar accepted by
+   the strict limits parser alongside the existing flat
+   `limits.<providerId>.requests_per_minute` entries; integer in
+   20,000–900,000, default 150,000 when absent; rendered by the existing
+   settings exporter; importable and exportable through the same YAML and
+   control-API surfaces as `limits`; distributed through
+   `settings_revisions`. Because the strict parser rejects unknown keys,
+   `CURRENT_SETTINGS_READER_VERSION` is bumped and revisions carrying the key
+   set that `min_reader_version`, so an older worker holds its prior revision
+   and alerts (0025 skew contract) instead of failing. A lowered value takes
+   effect on the next resume evaluated by a worker that has applied that
+   revision. No environment variable, no per-agent override.
+5. **Atomic retirement returning the retired reference.** A NEW
+   `retireProviderSession` is one atomic `active`→`expired` transition
+   fenced on provider-session id, `agent_session_id` ownership, status
+   `active`, and `agent_sessions.reset_at`; it returns the retired
+   `{ providerSessionId, externalSessionId, executionProviderId }` or nothing
+   if no row transitioned. The existing `expireProviderSession` REMAINS for
+   the compaction-delta degradation path, which operates on a `ready` row and
+   is unchanged: no release, no retirement event (0159 §4). Three callers move
+   to the new operation — the access-fingerprint change, the missing-session
+   retry, and the ops-service facade.
+   On a lost transition the host re-reads the turn
+   context and proceeds with what it finds; it does not persist a replacement
+   handle for a generation it does not own. Covered retirement paths:
+   ceiling (new), missing-session, access-fingerprint change, and `/new`,
+   whose reset selects the scoped provider-session references inside its
+   transaction and hands them to cleanup only after commit. Explicitly NOT
+   covered (retention stated): normal handle replacement (deletes the prior
+   row without cleanup; DeepAgents thread ids are stable across runs so this
+   is rare), agent and workspace removal cascades, and compaction failure or
+   cancellation paths, which today reactivate the session and promise
+   continuity to the user and keep doing so. Orphans from uncovered paths
+   are the operator procedure in behaviour 7.
+6. **Adapter cleanup port.** The execution-adapter contract gains an optional
+   `releaseSession({ externalSessionId, runtimeStorage })` capability; the
+   host calls it from a non-empty retirement result, passing the same
+   `runtimeStorage` it passes to `prepare()`, after the COMPLETE delivery
+   attempt settles. "Settles" means the primary send and any fallback
+   delivery have finished, successfully or not: a drain at the end of
+   `runAgent` would precede or delay the fallback reply, which happens after
+   `runAgent` returns. Cleanup must never block delivery and must never throw
+   through it, and both `/new` acknowledgements wrap it in `finally` so a
+   rejected acknowledgement cannot skip cleanup and leak the checkpoint. The DeepAgents adapter implements it by deriving the checkpoint
+   schema exactly as `prepare()` does and calling the saver's
+   `deleteThread(externalSessionId)`, which removes that thread's rows from
+   `checkpoints`, `checkpoint_blobs` and `checkpoint_writes`; it is
+   idempotent and on failure emits the cleanup-failed event of behaviour 8
+   and leaves the session expired. The Claude adapter does not implement it.
+   Core runtime stays provider-neutral: it never names a checkpoint table.
+7. **Briefing, jobs, and operator procedures.** Every turn still receives
+   the memory block and channel/thread snapshot exactly as 0089 and 0078
+   require. Scheduled jobs are untouched. `docs/memory/` records:
+   (a) the deployment owner's pre-deploy reset — drain live traffic, stop
+   workers, select the interactive provider sessions (rows whose agent
+   session has no `job_id` and a resumable status), delete the DeepAgents
+   rows for exactly those `external_session_id`s from `checkpoints`,
+   `checkpoint_blobs` and `checkpoint_writes` (never
+   `checkpoint_migrations`), delete those provider-session rows, verify zero
+   resumable interactive rows, then deploy; deploying with resumable
+   interactive rows present is a stop condition because those sessions carry
+   no mark and will resume normally; (b) the orphan reclamation procedure
+   driven by cleanup-failed events and the uncovered paths in behaviour 5.
+8. **Observability events.** Two registered runtime event types.
+   `session.provider.retired` carries a DISCRIMINATED payload on `reason` ∈
+   {ceiling, fingerprint, missing, new}: `providerSessionHash` and
+   `executionProviderId` always, plus `contextHighWaterMark` and `cap` ONLY
+   when `reason = ceiling`. The other three reasons are not caused by a cap
+   check, so those two fields are causal evidence that does not exist for
+   them; the type omits them rather than carrying nulls that cannot be told
+   apart from unknown values. Published at preflight with envelope
+   `sessionId = agentSessionId` and no run id for ceiling and fingerprint;
+   after the failed attempt with that attempt's `runId` for missing-session;
+   after commit for `/new`, one event PER RETIRED ROW, with `sessionId` taken
+   from the `agentSessionId` now carried on each retired reference (decision
+   0159) rather than from a separate boundary lookup that can fail while the
+   reset succeeds.
+   `session.provider.cleanup_failed` (payload: `providerSessionHash`,
+   `executionProviderId`, `error`). `providerSessionHash` is the full
+   lowercase hex SHA-256 of the raw external session id, and the recipe joins
+   with `encode(sha256(external_session_id::bytea), 'hex')`.
+9. **Observability recipe.** An operator-only read-only SQL recipe in
+   `docs/memory/`: per provider session (hashed), the typed mark and the
+   per-run `model.usage` series via `agent_runs` LEFT JOIN `runtime_events`
+   ordered by `agent_runs.started_at`, unioned with `session.provider.retired`
+   events by hash and `agent_session_id`; plus DeepAgents checkpoint-table
+   row counts per hashed thread id in the derived checkpoint schema.
 
-### Build commands
+## Settled requirements (R1-R7)
 
-Building deployable artifacts is a distinct concern from running source
-locally, and stays that way: `npm run dev`/`local start` never builds the
-core/web production `dist/`, and building `dist/` never starts a dev server.
-Document the existing build commands so the separation and the reuse are
-explicit rather than implicit:
+Resolved at the requirements gate and binding on every task. They were
+recorded in `.factory/stories/cache-bug/grills/requirements.json` and carried
+only in the plan; a grill flagged their absence here, so they now live in the
+spec that governs the story.
 
-- `npm run build:contracts` / `npm run build:sdk` / `npm run build:web`:
-  build one workspace's own artifacts. Unchanged.
-- `npm run build:core`: build only the backend runtime artifacts (contracts,
-  SDK, the core `tsc` output, migrations copy, CLI executable bit) with no
-  web build or copy step — the artifact-build counterpart to `npm run
-  dev:core`. New: extracted out of `build:runtime` so backend-only artifacts
-  can be built independently of the web bundle, reusing the exact same
-  underlying steps.
-- `npm run build:runtime`: `build:core` plus `build:web` plus copying the
-  web build into `dist/ui`. Behaviorally identical to today — restated as a
-  composition of `build:core` and `build:web` instead of its own inlined
-  step list.
-- `npm run build`: `build:runtime` plus the SDK example build. Unchanged.
-- `npm start`: `db:migrate` then run the built `dist/index.js`. Unchanged —
-  production startup is untouched by this change.
-
-### Environment and lifecycle
-
-Source development defaults to gitignored `<repo>/.gantry`, with explicit
-`--runtime-home` and exported `GANTRY_HOME` taking precedence. Create missing
-local defaults in its `.env` with private permissions, preserving existing
-values. Generate an encryption key. Use process environment before file values
-for that generated bootstrap `.env` only; existing `.env` values are never
-silently overwritten. Derive public host and port from `GANTRY_CONTROL_HOST`
-and `GANTRY_CONTROL_PORT`, defaulting to loopback port 3939. Fresh
-authentication configuration must match this origin; existing conflicts fail
-with remediation.
-
-Reuse the configured reachable loopback database. Start Compose only for the
-managed default database, binding its storage to `<GANTRY_HOME>/postgres`.
-Never silently replace an unavailable custom database or adopt a foreign
-container by its name. Validate Node 24 and source-checkout prerequisites.
-
-Before any destructive or mutating step (database reset, filesystem reset,
-migration, container start), complete every precondition check: home safety,
-Node version, database-target authority (below), and authentication-mode
-authority (below). A precondition failure must leave existing state
-untouched and exit before anything is deleted, migrated, or started.
-
-Decision 0025 makes the Postgres `settings_revisions` table authoritative
-over `settings.yaml`, but reading it requires Postgres to be reachable, and
-authority must be confirmed before anything destructive runs. Resolve this
-with a reversible bootstrap-then-check: start (or confirm running) only the
-verified home-owned managed container as a preflight bootstrap step, read
-and validate the latest settings revision against local-mode defaults, then
-either continue into migrations/core/Vite or stop that container again
-before returning a precondition failure. No migration, filesystem deletion,
-or application child process runs until this check passes.
-
-Run migrations before core, start core on a private loopback port, and expose
-Vite on the public origin. Proxy browser authentication and API traffic to core.
-Print the stable resolved UI URL when healthy. Ctrl-C stops children and leaves
-Postgres warm. A child failure stops its sibling and exits nonzero. Development
-must not fall back to built UI assets.
-
-### Database-target authority
-
-The database the local supervisor migrates and resets must be the same
-database core will actually use at runtime, and that determination follows
-decision 0025: the latest Postgres settings revision is authoritative when
-one exists (read during the reversible bootstrap-then-check above), and the
-runtime-home `settings.yaml` is authoritative only for a genuinely fresh
-home with no revision yet. If the authoritative settings declare a
-non-default `storage.postgres.url_env` (the actual settings key; not
-`urlEnv`) or `storage.postgres.schema`, or if `GANTRY_SETTINGS_POSTGRES_SCHEMA`,
-a `schema=` query parameter, or `GANTRY_DB_SCHEMA` would redirect migrations
-to a different schema than core will use, source-local startup must refuse
-before touching the database or filesystem, naming the conflicting setting
-and how to align it, rather than silently operating on
-`GANTRY_DATABASE_URL`/`gantry` while core would use something else.
-
-### Reset ownership
-
-Reset must not act on a database or directory tree it cannot show it owns.
-
-- **Filesystem reset ownership.** Gantry writes a marker at the moment it
-  bootstraps a genuinely new runtime home (a home directory that did not
-  exist before this command created it) — never at any later point, and
-  never onto a home that already existed. `local reset` refuses to touch
-  `LOCAL_RESET_PATHS` under any home lacking that marker; there is no
-  automatic or retroactive way to mark an existing, unmarked home, because
-  treating an unrecognized directory as reset-authorized after the fact is
-  exactly the compatibility/adoption path decision 0003 forbids. An unmarked
-  home is refused with a manual remediation (move or delete the old home, or
-  point `--runtime-home` at a new path, so a fresh, marked home is
-  bootstrapped by `local start`). The marker survives `reset-db` and is
-  rewritten fresh by a full `reset`.
-- **Database reset ownership.** `local reset` and `local reset-db` may only
-  run against the exact verified home-owned managed Postgres container: the
-  same ownership check `local stop` already performs, run unconditionally
-  before reset regardless of whether the target was already reachable, and
-  bound to the specific container's published connection endpoint — not
-  merely "a reachable loopback database named `gantry`". A reachable custom
-  database that matches the name coincidentally is refused, not reset, and a
-  non-default `GANTRY_DATABASE_URL` is refused for reset outright since its
-  ownership cannot be verified.
-- **Preflight-then-destroy ordering.** Every check above, and every stop of
-  already-running local children, completes before the schema is dropped or
-  any file is removed — reset must not stop the running supervisor and then
-  discover a precondition failure with children already stopped.
-
-### Reset crash recovery
-
-A crash between the database schema commit and filesystem cleanup finishing
-must be observable and refused, not silently treated as a clean reset target
-on the next run. Write a durable reset-in-progress marker immediately before
-the destructive database step, and remove it only after filesystem cleanup
-(for a full reset) or after the schema recreation completes (for
-`reset-db`) — whichever is that variant's last destructive step. A
-subsequent `start`/`reset`/`reset-db` that finds a stale marker refuses with
-a clear "a previous reset did not finish cleanly" message and a remediation
-(rerun the same reset command to finish it) rather than starting core
-against mixed old/new state. This is a durable flag and a refusal, not a
-cross-process lock — the deferred mutual-exclusion lock (tracked separately)
-is about concurrent reset attempts, not crash recovery.
-
-### Orphan and stale-state recovery
-
-`local stop` must not stop the managed Postgres container while a Gantry
-core process it does not control is still using it. Core binds its own
-loopback port privately behind Vite, so a public-origin health probe cannot
-see an orphaned core process if Vite or the supervisor died — the check must
-use the database itself: reuse the existing active-connection check (already
-used by `resetLocalDatabase` via `pg_stat_activity`) after the managed
-children this `stop` invocation controls have been shut down, and refuse to
-stop Postgres while any other connection remains, reporting the orphaned
-state with a remediation to locate and stop those processes directly.
-
-### Approved automatic local authorization addition
-
-On every successful source-local start, including ordinary restarts and both
-reset variants, print a fresh short-lived (ten-minute), single-use
-authorization link after health readiness — health meaning the public Vite
-origin's proxied `/healthz` responds healthy, not the deeper `/readyz`
-onboarding-readiness check, since fresh onboarding can legitimately leave
-`/readyz` red. Reuse `gantry ui authorize` against the resolved runtime home
-and public origin. Before starting any child process, require
-`authentication.mode` to be `local` — the only mode `gantry ui authorize`
-can ever serve — and a loopback public origin (decision 0132); refuse with
-remediation before startup if not, rather than starting a healthy stack and
-then failing authorization on every retry.
-
-The raw authorization URL is a ten-minute administrator credential. Print it
-in full only when stdout is an interactive terminal (a TTY); when stdout is
-not a TTY (redirected to a file, captured by an IDE task runner, or CI),
-keep the healthy development stack running and print only the stable UI URL
-plus the resolved manual retry command (`gantry ui authorize
---runtime-home <home>`) — never the raw token — so non-interactive capture
-can never persist the credential. Keep the stable UI URL available for
-browsers with valid sessions regardless; issuing a new link must not revoke
-those sessions. Do not persist plaintext authorization URLs in runtime
-files. If link issuance fails for a reason other than an unsupported mode,
-keep the healthy development stack running and print an actionable retry
-command that includes the resolved `--runtime-home` flag, so retrying
-targets the same home instead of a different default.
-
-Existing browser sessions remain valid after ordinary restarts and after a
-new link is issued without a reset. `reset` and `reset-db` both drop and
-recreate the `gantry` schema, which holds session state, so no session can
-survive either reset variant — the requirement is scoped to restart/relaunch
-without a reset, not to reset itself.
-
-| Surface | Classification | Reason |
-| --- | --- | --- |
-| Runtime behavior | Changed | Issues an optional link after each healthy launch; preflights mode/origin/database authority first via a reversible bootstrap-then-check. |
-| settings.yaml | Changed | Source-local startup creates it when missing, and full reset deletes and recreates it; the file is authoritative only for a genuinely fresh home with no settings revision yet — otherwise the latest Postgres settings revision (decision 0025) governs, and startup's existing bootstrap imports the file as that revision when none exists. |
-| Postgres/runtime projection | Changed | Local reset recreates `gantry`/`pgboss` only against the verified home-owned managed container, guarded by a reset-in-progress marker; auth link issuance inserts hashed single-use authorization state through existing storage. |
-| Control API | Unchanged by design | Existing authorization and redemption paths are reused. |
-| SDK/contracts | Unchanged by design | No client-contract change. |
-| CLI | Changed | Local supervisor invokes existing UI authorization command; `local status`/`local doctor` are removed as duplicates of top-level commands; build commands gain a documented `build:core` composition. |
-| MCP/admin tools | Unchanged by design | No new administration operations. |
-| Channel/provider adapters | Unchanged by design | Browser login does not alter adapters. |
-| Docs/prompts | Changed | Describe automatic links, database/auth-mode authority, reset crash recovery, and build commands. |
-| Audit/events | Unchanged by design | Existing authorization flow owns its events. |
-| Tests/verification | Changed | Check readiness ordering, resolved environment, ownership/authority refusals, preflight ordering, orphan-stop refusal, reset-crash-marker refusal, TTY-gated token output, and issuance failure. |
-
-Search README for obsolete explicit-only authorization guidance.
-
-### Reset boundaries
-
-Both commands run every precondition check (home safety, Node version,
-database-target authority, authentication-mode authority) and stop verified
-local children before any destructive step. They print the resolved home
-and redacted database target. Refuse unsafe home paths, non-loopback
-databases, databases not named `gantry`, and any database/home that fails
-the ownership checks above. Recreate only `gantry` and `pgboss` under a
-reset-in-progress marker, then run the complete current migration chain.
-Full reset additionally removes known settings, onboarding, agents, data,
-store, logs, artifacts, and runtime projection paths. Preserve `.env`,
-`postgres/`, unknown files, unrelated processes, and user runtime data
-during verification.
-
-### Deferred
-
-Docker-only startup on a dedicated port is explicitly deferred to a
-follow-up (D-0092); this change retains reachable configured loopback
-database reuse. A cross-process, DB-scoped mutual-exclusion lock for
-concurrent reset attempts is explicitly deferred (D-0093) — preflight-then-
-destroy ordering, ownership verification, and the reset-in-progress marker
-are in scope; a new distributed-locking mechanism is not. No additional
-dependencies or SDK/API schema changes are authorized.
+- **R1 — null-safe generation fences.** Every generation fence compares
+  `agent_sessions.reset_at` with `IS NOT DISTINCT FROM`, never plain equality:
+  `reset_at` is nullable, so a never-reset session would match no row under
+  `=`. Proof covers null/null succeeding and null/non-null being rejected.
+- **R2 — one cumulative partial-usage payload.** An errored turn's single
+  final error output carries one cumulative partial-usage payload with the
+  turn's stable usage identifier, and the host records the mark exactly once.
+  No double-write, no omitted mark, no second event shape.
+- **R3 — complete route metadata.** Every executable route declares explicit
+  cache read and write inclusion booleans, the registry validator rejects a
+  route missing either, and the DeepAgents normaliser carries the resolved
+  route. OpenAI and OpenRouter report nonzero cache writes, so "n/a" was
+  wrong.
+- **R4 — reply before release.** `/new` reset returns immutable retired
+  references after commit; the handler replies and then dispatches
+  best-effort cleanup. Orphans from process loss are covered by the operator
+  scan, not by a retry system.
+- **R5 — sanitised errors and event proof.** The host publishes both event
+  types directly through the runtime event exchange (0013) with `sessionId`.
+  A cleanup error is sanitised and never carries a raw external session id.
+  Proof covers publish, query and projection.
+- **R6 — non-hydrating race recovery.** A lost-race re-read uses
+  `hydrateMemory: false` and the existing generation-fenced carry from the
+  compaction-delta path, so decision 0078's exactly-once hydration holds.
+- **R7 — architecture alignment.** `docs/architecture/runtime-components.md`
+  and `canonical-domain-model.md` are aligned with `session-resume.md` as a
+  canon edit inside the task. The pages currently say a cold run restores
+  Gantry memory only, which contradicts the persisted-handle resume this
+  story depends on.
 
 ## Acceptance criteria
 
-- `npm run dev` / `gantry local start` runs migrations before starting source
-  core and Vite together, and production startup (`npm start`) is unchanged.
-- `npm run dev:core` remains available as the old core-only source command.
-- `npm run build:core` builds backend artifacts only (no web build/copy),
-  composed from the same steps `build:runtime` already uses; `npm run
-  build:runtime` and `npm run build` produce the same `dist/` output as
-  today.
-- `gantry local` with no subcommand prints usage and does not start
-  anything; `gantry local status`/`gantry local doctor` no longer exist as
-  duplicates of the top-level commands.
-- Every destructive or mutating step is preceded by home safety, Node
-  version, database-target authority (checked against the authoritative
-  Postgres settings revision when one exists, via a reversible
-  bootstrap-then-check), and authentication-mode authority checks; a failed
-  check leaves existing state untouched, with local children stopped only
-  after every check passes.
-- A genuinely fresh runtime home gets a Gantry-written ownership marker at
-  the moment of its first bootstrap; filesystem reset refuses on any home
-  without one, with no retroactive marking path. Database reset refuses
-  unless the target is the exact verified home-owned managed Postgres
-  container's endpoint, never merely "a reachable loopback database named
-  `gantry`", and refuses outright for a non-default `GANTRY_DATABASE_URL`.
-- Source-local startup refuses, before touching the database or filesystem,
-  when the authoritative settings (the latest Postgres revision, or
-  `settings.yaml` for a genuinely fresh home) declare a non-default
-  `storage.postgres.url_env`/`schema`, or when `GANTRY_SETTINGS_POSTGRES_SCHEMA`
-  / a URL `schema=` parameter / `GANTRY_DB_SCHEMA` would redirect migrations
-  to a different schema than core will use — naming the conflict and how to
-  align it.
-- A reset that crashes after the database schema commit but before
-  filesystem cleanup finishes leaves a durable marker; the next start/reset
-  refuses with a clear message and a rerun remediation instead of starting
-  against mixed old/new state.
-- `npm run dev:stop` / `gantry local stop` stops source core, Vite, and the
-  verified home-owned managed Postgres container only, without deleting data
-  or stopping unrelated Docker containers, and refuses to stop that
-  container while an orphaned core process still holds an active database
-  connection after this invocation's own children have been shut down;
-  Ctrl-C leaves Postgres warm.
-- Reset commands stop verified local children only after every precondition
-  passes, refuse unsafe home paths, non-loopback databases, databases not
-  named `gantry`, and any home/database that fails ownership verification,
-  recreate only `gantry` and `pgboss`, preserve `.env`, `postgres/`, unknown
-  files, and unrelated processes, then restart through the same
-  healthy-start path.
-- Every successful start or reset first confirms `authentication.mode` is
-  `local` and the public origin is loopback, then prints a fresh
-  short-lived, single-use browser authorization link after health readiness
-  (proxied `/healthz`, not `/readyz`) via `gantry ui authorize` — the raw
-  link only when stdout is an interactive TTY, otherwise the stable UI URL
-  plus a retry command that includes the resolved `--runtime-home`, never
-  the raw token. A failed issuance for any other reason keeps the healthy
-  dev stack running.
-- Existing sessions remain valid after a restart or a freshly issued link
-  without a reset; `reset` and `reset-db` both end all existing sessions by
-  design, since they recreate the `gantry` schema. Manual verification
-  proves session survival on restart without storing raw URLs or tokens in
-  artifacts.
-- Source development resolves the runtime home with precedence
-  `--runtime-home` > `GANTRY_HOME` > `<repo>/.gantry`, creates missing
-  private `.env` defaults while preserving existing values, and validates
-  Node 24 and source-checkout prerequisites.
-- Verification covers home/env precedence, bootstrap preservation, database
-  reuse/startup, migration ordering, origin/proxy wiring, signal/child
-  cleanup, reset deletion/ownership boundaries, unsafe-target refusal,
-  database/auth-mode authority refusal, reset-crash-marker refusal,
-  orphan-stop refusal, TTY-gated token output, and restart, using disposable
-  state only — including at least one manual pass against a real disposable
-  Docker Postgres container, satisfying the repository's DB-backed-change
-  verification requirement without a new automated integration-test lane.
+1. Unit tests: `modelVisibleInputTokens` for an Anthropic usage of 1,000
+   input / 270,000 cache read / 500 cache write is 271,500; for an
+   OpenAI-compatible usage of 1,000 input / 800 cached is 1,000; a
+   mixed-provider usage uses the additive form; billing fields unchanged.
+2. Adapter tests: an errored Claude run and an errored DeepAgents run each
+   surface the usage accumulated before the error.
+3. Repository tests (Postgres): the raise operation keeps the larger value,
+   leaves `metadata_json` untouched, rejects a stale owner, rejects a stale
+   `reset_at` generation, ignores non-resumable rows, rejects invalid values
+   before SQL, and reports whether a row changed; the migration adds the
+   typed column.
+4. Unit tests (host): a usage-bearing errored run raises the mark; a run
+   with no usage does not call the operation.
+5. Unit tests: a session with a mark over the cap is not passed as the resume
+   id; retirement returns the reference; the run proceeds without resume; the
+   replacement handle is persisted; the reply is delivered. A session whose
+   run crosses the cap is retired on the following resume, not mid-run. A
+   `maintenance_compact` row over the cap is not retired. A `ready` row is
+   promoted before evaluation. A lost transition persists no replacement.
+6. Unit test: a session at or under the cap, or with no mark, resumes and
+   still carries the memory block and snapshot. Existing tests pinning that
+   (`group-processing.test.ts` "passes hydrated memory context with provider
+   session resume id", `agent-runner-ipc.test.ts` live-turn persist/resume,
+   `claude-agent-sdk-boundary.integration.test.ts` memory+prompt user
+   message, `deepagents-memory-context.test.ts`) stay green and untouched.
+7. Settings tests: `limits.provider_session_max_input_tokens` parses next to
+   provider entries, defaults to 150,000 when absent, rejects values outside
+   20,000–900,000 with a path-level error, round-trips through export, is
+   applied from a new revision by a current worker, and a worker below the
+   bumped reader version holds its prior revision and alerts.
+8. Postgres integration test (DeepAgents, using the existing
+   `deepagents-checkpoint.postgres.integration.test.ts` harness and its
+   isolated schema fixture): for ceiling, missing-session, fingerprint and
+   `/new` paths, the retired thread's rows are removed from all three tables,
+   `checkpoint_migrations` and other threads' rows remain; a second call is a
+   no-op; a simulated deletion failure leaves the session expired, the reply
+   delivered, and a `session.provider.cleanup_failed` event recorded; a lost
+   retirement transition performs no cleanup.
+9. Unit tests: `session.provider.retired` is emitted with the specified
+   payload and timing per reason, carries `sessionId` or `runId` as stated,
+   and is not dropped by event forwarding.
+10. Scheduled-job tests are untouched and green.
+11. `verify.py` green.
+12. Both operator procedures and the observability recipe exist in
+    `docs/memory/`, and the query runs against the current schema.
+
+## Non-goals
+
+- Changing what a turn's briefing contains (0089, 0078) or its limits. A
+  delta snapshot on resume is parked: revisit if retirement alone leaves
+  turns too expensive.
+- A per-model-request context measurement or a model-capacity-aware cap
+  (parked; revisit if the per-run figure proves too coarse).
+- A hard mid-run bound; this rule retires after an observed crossing.
+- Replacing cross-process resume with briefing-only reconstruction.
+- Any shipped migration, cleanup, or lazy-retirement behaviour for
+  pre-existing state (0003, 0112).
+- Cleanup on handle replacement, agent/workspace removal cascades, or
+  compaction failure paths; and any durable cleanup retry system.
+- Fixing the DeepAgents usage normaliser's largest-not-summed billing
+  accounting (separate defect; recorded as a deferral).
 
 
 ## What to return

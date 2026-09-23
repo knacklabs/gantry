@@ -67,6 +67,7 @@ export function deepAgentsCheckpointSchema(storageSchema: string): string {
 
 export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapter {
   readonly id = 'deepagents:langchain' as AgentExecutionProviderId;
+  readonly providerSessionContinuity = 'durable_resume' as const;
 
   isMissingProviderSessionError(error: string | undefined): boolean {
     return isMissingDeepAgentSessionError(error);

@@ -324,7 +324,7 @@ describe('live-turn host lease acquisition', () => {
     await manager.stop();
   });
 
-  it('resolves live-turn scope from the exact thread route', async () => {
+  it('keeps recovered process-local turns detached from provider sessions', async () => {
     const getAgentTurnContext = vi.fn(async () => ({
       appId: 'default',
       agentSessionId: 'session-thread',
@@ -345,7 +345,10 @@ describe('live-turn host lease acquisition', () => {
           }),
         },
         opsRepository: { getAgentTurnContext },
-        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          providerSessionContinuity: 'process_local',
+        },
         queueJid: makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1'),
       }),
     ).resolves.toEqual({
@@ -355,7 +358,10 @@ describe('live-turn host lease acquisition', () => {
       threadId: 'T1',
     });
     expect(getAgentTurnContext).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationKind: 'dm' }),
+      expect.objectContaining({
+        conversationKind: 'dm',
+        providerSessionContinuity: 'process_local',
+      }),
     );
   });
 
@@ -382,7 +388,10 @@ describe('live-turn host lease acquisition', () => {
           }),
         },
         opsRepository: { getAgentTurnContext },
-        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          providerSessionContinuity: 'process_local',
+        },
         queueJid,
       }),
     ).resolves.toEqual({
@@ -410,7 +419,10 @@ describe('live-turn host lease acquisition', () => {
           }),
         },
         opsRepository: { getAgentTurnContext },
-        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          providerSessionContinuity: 'process_local',
+        },
         queueJid: makeAgentThreadQueueKey('sl:C123', 'agent:alpha'),
       }),
     ).resolves.toBeNull();
