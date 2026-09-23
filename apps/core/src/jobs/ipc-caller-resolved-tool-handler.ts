@@ -35,6 +35,50 @@ export function resolveCallerResolvedToolInputSchema(input: {
   );
 }
 
+export function bindCallerResolvedToolInput(input: {
+  toolInput: unknown;
+  inputSchema: Record<string, unknown>;
+  trustedContext?: Record<string, unknown>;
+}):
+  | { ok: true; toolInput: unknown }
+  | { ok: false; missing: Array<'requestId' | 'attemptId'> } {
+  const properties = input.inputSchema.properties;
+  if (
+    !properties ||
+    typeof properties !== 'object' ||
+    Array.isArray(properties)
+  ) {
+    return { ok: true, toolInput: input.toolInput };
+  }
+  const identityFields = (['requestId', 'attemptId'] as const).filter((field) =>
+    Object.hasOwn(properties, field),
+  );
+  if (identityFields.length === 0) {
+    return { ok: true, toolInput: input.toolInput };
+  }
+  const missing = identityFields.filter((field) => {
+    const value = input.trustedContext?.[field];
+    return typeof value !== 'string' || !value.trim();
+  });
+  if (missing.length > 0) return { ok: false, missing };
+  if (
+    !input.toolInput ||
+    typeof input.toolInput !== 'object' ||
+    Array.isArray(input.toolInput)
+  ) {
+    return { ok: true, toolInput: input.toolInput };
+  }
+  return {
+    ok: true,
+    toolInput: {
+      ...(input.toolInput as Record<string, unknown>),
+      ...Object.fromEntries(
+        identityFields.map((field) => [field, input.trustedContext![field]]),
+      ),
+    },
+  };
+}
+
 export function resolveCallerResolvedRunId(input: {
   runId?: string;
   parentTaskId?: string;
@@ -47,6 +91,19 @@ export function resolveCallerResolvedRunId(input: {
   return (
     input.sandboxRunId?.trim() || input.parentTaskRunId?.trim() || undefined
   );
+}
+
+export function callerResolvedToolFailureCode(
+  error: unknown,
+): 'interaction_timeout' | 'interaction_cancelled' | 'caller_tool_failed' {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/caller tool interaction expired/iu.test(message)) {
+    return 'interaction_timeout';
+  }
+  if (/caller tool interaction cancelled/iu.test(message)) {
+    return 'interaction_cancelled';
+  }
+  return 'caller_tool_failed';
 }
 
 export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
@@ -114,7 +171,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   const toolName = toTrimmedString(context.data.payload?.toolName, {
     maxLen: 80,
   });
-  const toolInput = context.data.payload?.toolInput ?? {};
+  const rawToolInput = context.data.payload?.toolInput ?? {};
   const definition = config?.tools.find((tool) => tool.name === toolName);
   const isCompletionGate =
     !parentTaskId && job?.agent_task?.completionGate?.toolName === toolName;
@@ -141,7 +198,21 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     );
     return;
   }
-  const parsedToolInput = z.fromJSONSchema(inputSchema).safeParse(toolInput);
+  const boundToolInput = bindCallerResolvedToolInput({
+    toolInput: rawToolInput,
+    inputSchema,
+    trustedContext: job?.agent_task?.trustedCapabilityContext,
+  });
+  if (!boundToolInput.ok) {
+    responder.reject(
+      `Caller-resolved tool requires trusted ${boundToolInput.missing.join(' and ')} identity from the job context.`,
+      'forbidden',
+    );
+    return;
+  }
+  const parsedToolInput = z
+    .fromJSONSchema(inputSchema)
+    .safeParse(boundToolInput.toolInput);
   if (!parsedToolInput.success) {
     responder.reject(
       `Caller-resolved tool input violates its pinned schema: ${parsedToolInput.error.issues
@@ -223,7 +294,7 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
   } catch (error) {
     responder.reject(
       error instanceof Error ? error.message : String(error),
-      'caller_tool_failed',
+      callerResolvedToolFailureCode(error),
     );
   }
 };

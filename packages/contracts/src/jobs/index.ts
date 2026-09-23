@@ -364,6 +364,54 @@ export const UpdateJobRequestSchema = z
       .optional(),
     addBrowserAllowedNetworkHosts:
       JobAgentTaskSchema.shape.browserAllowedNetworkHosts,
+    addCapabilityAllowedOrigins: z
+      .array(
+        z.union([
+          z
+            .string()
+            .max(2048)
+            .refine((origin) => {
+              try {
+                const url = new URL(origin);
+                return (
+                  ['http:', 'https:'].includes(url.protocol) &&
+                  !url.username &&
+                  !url.password &&
+                  url.origin === origin
+                );
+              } catch {
+                return false;
+              }
+            }, 'Expected an exact HTTP(S) origin'),
+          z
+            .object({
+              origin: z
+                .string()
+                .max(2048)
+                .refine((origin) => {
+                  try {
+                    const url = new URL(origin);
+                    return (
+                      url.protocol === 'https:' &&
+                      !url.username &&
+                      !url.password &&
+                      url.origin === origin
+                    );
+                  } catch {
+                    return false;
+                  }
+                }, 'Expected an exact HTTPS origin'),
+              methods: z
+                .array(z.enum(['GET', 'HEAD', 'POST']))
+                .min(1)
+                .max(3),
+            })
+            .strict(),
+        ]),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
     callerResolvedTools: JobAgentTaskSchema.shape.callerResolvedTools,
     modelControls: JobAgentTaskSchema.shape.modelControls,
     requiredSkill: JobAgentTaskSchema.shape.requiredSkill,

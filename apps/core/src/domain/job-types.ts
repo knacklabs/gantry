@@ -117,6 +117,8 @@ export interface JobAgentTask {
     schema: Record<string, unknown>;
     schemaDigest: string;
   };
+  /** App-authored immutable values injected only after capability preflight. */
+  trustedCapabilityContext?: Record<string, unknown>;
   browserAllowedNetworkHosts?: string[];
   modelControls?: {
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';

@@ -36,6 +36,11 @@ import {
   callableAgentToolName,
   type CallableAgentToolManifestEntry,
 } from '../../../../application/core-tools/callable-agent-tools.js';
+import {
+  EXTERNAL_CAPABILITY_CALL_WAIT_GRACE_MS,
+  EXTERNAL_CAPABILITY_CALL_WAIT_MS_ENV,
+  MANAGED_CAPABILITY_TOOL_TIMEOUT_MARGIN_MS,
+} from '../../../../runner/mcp/tools/service-constants.js';
 
 // Connects the DeepAgents runner to Gantry-owned MCP authority and converts it
 // to LangChain tools. DeepAgents has no autonomous MCP — we fully control the
@@ -60,9 +65,14 @@ const GANTRY_SERVER_NAME = 'gantry';
 const HUMAN_WAIT_CHECKPOINT_TOOL_NAME = 'job_checkpoint_save';
 const LONG_BROWSER_TOOL_NAMES = new Set(['browser_open', 'browser_act']);
 const CAPTCHA_CHALLENGE_TOOL_NAME = 'browser_captcha_challenge';
+const EXTERNAL_CAPABILITY_CALL_TOOL_NAME = 'external_capability_call';
 const HUMAN_INTERACTION_TOOL_TIMEOUT_MS = 30 * 60_000 + 20_000;
 const CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS =
   CALLABLE_AGENT_SYNC_WAIT_MAX_MS + 20_000;
+const DEFAULT_GANTRY_HOSTED_CAPABILITY_DEADLINE_MS = 60_000;
+// Node clamps larger setTimeout values to 1 ms, which would turn an oversized
+// admitted deadline into an immediate MCP timeout.
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface ExternalServerConfig {
   type?: 'stdio' | 'http' | 'sse';
@@ -110,6 +120,13 @@ export async function connectGantryAndThirdPartyMcpTools(
     );
   }
 
+  // Validate capability-controlled durations before opening MCP connections so
+  // a malformed admitted manifest cannot leak a child process or silently fall
+  // back to Node's one-millisecond overflow behaviour.
+  const hostedCapabilityTimeoutMs = gantryHostedCapabilityToolTimeoutMs(
+    input.semanticCapabilities,
+  );
+
   const projection = buildGantryMcpProjection({
     configuredAllowedTools: input.configuredAllowedTools,
     ...(input.semanticCapabilities
@@ -128,7 +145,17 @@ export async function connectGantryAndThirdPartyMcpTools(
       transport: 'stdio',
       command: 'node',
       args: [mcpServerPath],
-      env: projection.env,
+      env: {
+        ...projection.env,
+        ...(hostedCapabilityTimeoutMs === undefined
+          ? {}
+          : {
+              [EXTERNAL_CAPABILITY_CALL_WAIT_MS_ENV]: String(
+                hostedCapabilityTimeoutMs -
+                  EXTERNAL_CAPABILITY_CALL_WAIT_GRACE_MS,
+              ),
+            }),
+      },
       stderr: 'inherit',
     },
   };
@@ -181,6 +208,12 @@ export async function connectGantryAndThirdPartyMcpTools(
     if (tool.name === CAPTCHA_CHALLENGE_TOOL_NAME) {
       return withToolTimeout(tool, 10 * 60_000);
     }
+    if (
+      tool.name === EXTERNAL_CAPABILITY_CALL_TOOL_NAME &&
+      hostedCapabilityTimeoutMs !== undefined
+    ) {
+      return withToolTimeout(tool, hostedCapabilityTimeoutMs);
+    }
     return tool;
   });
   const delegateTaskTool = gantryTools.find(
@@ -199,7 +232,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     // Durable external-capability jobs persist state through typed artifacts.
     // Raw workspace tools would create a second, non-checkpointed state path.
     filesystemToolsEnabled:
-      !hasDurableExternalCapability(input.semanticCapabilities) &&
+      !hasManagedCapability(input.semanticCapabilities) &&
       shouldProjectGantryFilesystemTools({
         filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
       }),
@@ -274,13 +307,43 @@ function withCallableAgentTimeout(
   return withToolTimeout(underlying, CALLABLE_AGENT_MCP_TOOL_TIMEOUT_MS);
 }
 
-function hasDurableExternalCapability(
+function gantryHostedCapabilityToolTimeoutMs(
+  capabilities: ConnectGantryMcpInput['semanticCapabilities'],
+): number | undefined {
+  let maximumDeadlineMs: number | undefined;
+  for (const capability of capabilities ?? []) {
+    for (const operation of capability.operations ?? []) {
+      if (operation.executionMode !== 'gantry_hosted') continue;
+      const deadlineMs =
+        operation.deadlineMs === undefined
+          ? DEFAULT_GANTRY_HOSTED_CAPABILITY_DEADLINE_MS
+          : operation.deadlineMs;
+      if (
+        !Number.isSafeInteger(deadlineMs) ||
+        deadlineMs < 0 ||
+        deadlineMs >
+          MAX_TIMER_DELAY_MS - MANAGED_CAPABILITY_TOOL_TIMEOUT_MARGIN_MS
+      ) {
+        throw new Error(
+          `Invalid Gantry-hosted capability deadlineMs: expected a non-negative safe integer no greater than ${MAX_TIMER_DELAY_MS - MANAGED_CAPABILITY_TOOL_TIMEOUT_MARGIN_MS}, received ${String(deadlineMs)}.`,
+        );
+      }
+      maximumDeadlineMs = Math.max(maximumDeadlineMs ?? 0, deadlineMs);
+    }
+  }
+  if (maximumDeadlineMs === undefined) return undefined;
+  return maximumDeadlineMs + MANAGED_CAPABILITY_TOOL_TIMEOUT_MARGIN_MS;
+}
+
+function hasManagedCapability(
   capabilities: ConnectGantryMcpInput['semanticCapabilities'],
 ): boolean {
   return Boolean(
     capabilities?.some((capability) =>
       capability.operations?.some(
-        (operation) => operation.executionMode === 'durable_async',
+        (operation) =>
+          operation.executionMode === 'durable_async' ||
+          operation.executionMode === 'gantry_hosted',
       ),
     ),
   );

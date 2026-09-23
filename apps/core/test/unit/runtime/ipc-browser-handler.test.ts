@@ -118,6 +118,32 @@ describe('ipc-browser-handler', () => {
         payload: { target: '#query', text: 'roads' },
       }),
     ).toThrow('requires a typed research_intent');
+    expect(
+      enforceBrowserMutationPolicy({
+        action: 'scroll_and_observe',
+        publicToolName: 'browser_act',
+        policy: 'public_readonly_research',
+        payload: {
+          row_selector: 'tbody tr',
+          identity_selector: 'a.result',
+          research_intent: 'paginate',
+        },
+      }),
+    ).toEqual({
+      row_selector: 'tbody tr',
+      identity_selector: 'a.result',
+    });
+    expect(() =>
+      enforceBrowserMutationPolicy({
+        action: 'scroll_and_observe',
+        publicToolName: 'browser_act',
+        policy: 'public_readonly_research',
+        payload: {
+          row_selector: 'tbody tr',
+          identity_selector: 'a.result',
+        },
+      }),
+    ).toThrow('requires a typed research_intent');
   });
 
   it('allows trusted CAPTCHA tools to inspect and operate their bound controls', () => {
@@ -180,6 +206,110 @@ describe('ipc-browser-handler', () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     resetBrowserUsageGovernorForTests();
+  });
+
+  it('persists validated pagination probes as host-owned job artifacts', async () => {
+    const evidence = {
+      schemaVersion: 'browser.pagination_probe@1',
+      capturedAt: '2026-09-23T10:00:00.000Z',
+      pageUrl: 'https://example.com/listing',
+      selectors: { row: 'tbody tr', identity: 'a.result' },
+      outcome: 'no_growth',
+      before: {
+        rows: { count: 1, uniqueCount: 1, identities: ['A'] },
+      },
+      after: {
+        rows: { count: 1, uniqueCount: 1, identities: ['A'] },
+      },
+      observedRequests: [],
+      elapsedMs: 1_000,
+    };
+    const writes: Array<Record<string, unknown>> = [];
+    const writeFileArtifact = vi.fn(async (input: Record<string, unknown>) => {
+      writes.push(input);
+      return {
+        id: 'file-artifact:00000000-0000-4000-8000-000000000001',
+      };
+    });
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-pagination-probe',
+        action: 'scroll_and_observe',
+        payload: {
+          row_selector: 'tbody tr',
+          identity_selector: 'a.result',
+        },
+        appId: 'app:test',
+        jobId: 'job-1',
+      },
+      {
+        sourceAgentFolder: 'main_agent',
+        browserProfileName: 'c-child-abc123abc123',
+        browserIpcAuthorized: true,
+        getFileArtifactStore: () => ({ writeFileArtifact }) as never,
+        callBrowserTool: vi.fn(async () => ({
+          content: [{ type: 'text', text: JSON.stringify(evidence) }],
+        })),
+      },
+    );
+
+    expect(writes).toEqual([
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        virtualScope: expect.stringMatching(/^job-[0-9a-f]{32}$/u),
+        virtualPath: expect.stringMatching(
+          /^browser-pagination-probe\/[0-9a-f-]+\.json$/u,
+        ),
+        content: JSON.stringify(evidence),
+        contentType: 'application/json',
+        createdBy: 'host:browser-pagination-probe',
+        metadata: {
+          provenance: {
+            origin: 'host',
+            kind: 'browser_pagination_probe',
+          },
+        },
+      }),
+    ]);
+    expect(response).toMatchObject({
+      ok: true,
+      data: {
+        structuredContent: {
+          schemaVersion: 'browser.pagination_probe@1',
+          artifactId: 'file-artifact:00000000-0000-4000-8000-000000000001',
+        },
+      },
+    });
+  });
+
+  it('fails before scrolling when trusted pagination artifact context is missing', async () => {
+    const callBrowserTool = vi.fn();
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-pagination-probe-no-context',
+        action: 'scroll_and_observe',
+        payload: {
+          row_selector: 'tbody tr',
+          identity_selector: 'a.result',
+        },
+      },
+      {
+        sourceAgentFolder: 'main_agent',
+        browserProfileName: 'c-child-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool,
+      },
+    );
+
+    expect(response).toMatchObject({ ok: false });
+    expect(response.error).toContain(
+      'trusted job artifact context is required',
+    );
+    expect(callBrowserTool).not.toHaveBeenCalled();
+    expect(ensureBrowserReady).not.toHaveBeenCalled();
   });
 
   it('allows conversation-scoped groups to inspect browser status', async () => {

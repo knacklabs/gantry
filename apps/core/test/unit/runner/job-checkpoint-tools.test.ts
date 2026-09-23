@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 const waitForTaskResponse = vi.hoisted(() => vi.fn());
@@ -94,6 +94,10 @@ describe('job checkpoint MCP tools', () => {
     handleFileToolAction.mockReset();
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('accepts an opaque caller-tool payload with an optional browser binding', () => {
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
@@ -107,6 +111,92 @@ describe('job checkpoint MCP tools', () => {
     });
 
     expect(parsed.humanInteraction).toEqual(captchaInteraction());
+  });
+
+  it('projects the declared caller-tool schema into the atomic human interaction', () => {
+    vi.stubEnv(
+      'GANTRY_CALLER_RESOLVED_TOOLS_JSON',
+      JSON.stringify({
+        tools: [
+          {
+            name: 'website_recipe_request_human',
+            description: 'Request authorized human assistance.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                version: { const: 2 },
+                requestId: { type: 'string' },
+                attemptId: { type: 'string' },
+                type: { const: 'captcha' },
+                reason: { type: 'string' },
+                checkpointRef: { type: ['string', 'null'] },
+                automaticAttemptEvidenceRef: {
+                  type: ['string', 'null'],
+                },
+                permissionScope: {
+                  type: 'object',
+                  properties: {
+                    origin: { type: ['string', 'null'] },
+                    methods: { type: 'array', items: { type: 'string' } },
+                  },
+                  required: ['origin', 'methods'],
+                  additionalProperties: false,
+                },
+                evidenceRefs: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+              },
+              required: [
+                'version',
+                'requestId',
+                'attemptId',
+                'type',
+                'reason',
+                'checkpointRef',
+                'automaticAttemptEvidenceRef',
+                'permissionScope',
+                'evidenceRefs',
+              ],
+              additionalProperties: false,
+            },
+          },
+        ],
+        interactionTimeoutMs: 300_000,
+      }),
+    );
+    const server = new TestMcpServer();
+    registerJobCheckpointTools(server as never);
+    const schema = z.object(
+      server.schemas.get('job_checkpoint_save') as z.ZodRawShape,
+    );
+
+    const parsed = schema.safeParse({
+      ...checkpoint,
+      humanInteraction: {
+        toolName: 'website_recipe_request_human',
+        toolInput: {
+          type: 'captcha',
+          origin: 'https://eprocure.gov.in',
+          imageTarget: '#captchaImage',
+          inputTarget: '#captchaText',
+          submitTarget: '#Submit',
+          evidence: [],
+        },
+        browserChallenge: {
+          challengeId: 'captcha-1',
+          answerResultField: 'humanAnswer',
+        },
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    expect(
+      schema.safeParse({
+        ...checkpoint,
+        humanInteraction: captchaInteraction(),
+      }).success,
+    ).toBe(true);
   });
 
   it('accepts explicit nulls for absent generic checkpoint references', () => {
@@ -126,18 +216,49 @@ describe('job checkpoint MCP tools', () => {
     expect(parsed.pendingInteractionRef).toBeNull();
   });
 
-  it('saves an ordinary checkpoint without opening an interaction', async () => {
+  it('rejects a bare human_wait before checkpoint persistence', async () => {
+    const server = new TestMcpServer();
+    registerJobCheckpointTools(server as never);
+
+    const result = await server.tools.get('job_checkpoint_save')?.({
+      ...checkpoint,
+      pendingInteractionRef: null,
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(JSON.stringify(result)).toContain(
+      'human_wait requires humanInteraction',
+    );
+    expect(writeIpcFile).not.toHaveBeenCalled();
+    expect(submitTaskLifecycleDataRequest).not.toHaveBeenCalled();
+  });
+
+  it('replays human_wait only when status proves the pending interaction reference', async () => {
+    const persistedInteractionId = `interaction_${'1'.repeat(8)}-${'2'.repeat(4)}-4${'3'.repeat(3)}-a${'4'.repeat(3)}-${'5'.repeat(12)}`;
     waitForTaskResponse.mockResolvedValueOnce({
       ok: true,
-      data: { id: 'checkpoint-2', sequence: 2, milestone: 'human_wait' },
+      data: {
+        checkpoint: {
+          sequence: 2,
+          milestone: 'human_wait',
+          payload: { pendingInteractionRef: persistedInteractionId },
+        },
+      },
     });
     const server = new TestMcpServer();
     registerJobCheckpointTools(server as never);
 
-    const result = await server.tools.get('job_checkpoint_save')?.(checkpoint);
+    const result = await server.tools.get('job_checkpoint_save')?.({
+      ...checkpoint,
+      pendingInteractionRef: persistedInteractionId,
+      humanInteraction: undefined,
+    });
 
     expect(result.isError).not.toBe(true);
     expect(writeIpcFile).toHaveBeenCalledOnce();
+    expect(writeIpcFile.mock.calls[0]?.[1]).toMatchObject({
+      type: 'job_checkpoint_status',
+    });
     expect(submitTaskLifecycleDataRequest).not.toHaveBeenCalled();
   });
 
@@ -146,9 +267,12 @@ describe('job checkpoint MCP tools', () => {
       ok: true,
       data: { id: 'checkpoint-2', sequence: 2, milestone: 'human_wait' },
     });
-    submitTaskLifecycleDataRequest.mockResolvedValueOnce({
-      ok: true,
-      data: { humanAnswer: 'ephemeral-secret' },
+    let checkpointSavesBeforeInteraction = 0;
+    submitTaskLifecycleDataRequest.mockImplementationOnce(async () => {
+      checkpointSavesBeforeInteraction = writeIpcFile.mock.calls.filter(
+        (call) => call[1]?.type === 'job_checkpoint_save',
+      ).length;
+      return { ok: true, data: { humanAnswer: 'ephemeral-secret' } };
     });
     settleCaptchaChallenge.mockResolvedValueOnce({
       content: [{ type: 'text', text: 'CAPTCHA accepted.' }],
@@ -174,6 +298,7 @@ describe('job checkpoint MCP tools', () => {
         }),
       }),
     );
+    expect(checkpointSavesBeforeInteraction).toBe(1);
     expect(writeIpcFile).toHaveBeenCalledWith(
       '/tmp/tasks',
       expect.objectContaining({

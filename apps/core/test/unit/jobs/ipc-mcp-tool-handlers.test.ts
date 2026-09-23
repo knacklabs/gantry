@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
+import { ExternalCapabilityTaskService } from '@core/application/capabilities/external-capability-task-service.js';
 import type {
   AsyncTaskBacklogAdmissionInput,
   AsyncTaskClaimInput,
@@ -24,6 +25,7 @@ import type {
 } from '@core/domain/ports/job-semantic-checkpoints.js';
 import { jobArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
 import type { FileArtifactStore } from '@core/domain/ports/file-artifact-store.js';
+import { FileArtifactNotFoundError } from '@core/domain/file-artifacts/file-artifact.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
@@ -31,6 +33,11 @@ import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
 import { registerExternalCapabilitySuspension } from '@core/jobs/external-capability-suspension.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
 import { stableSha256Json } from '@core/shared/stable-hash.js';
+import * as ipcShared from '@core/jobs/ipc-shared.js';
+import {
+  HostedCapabilityCommitUncertainError,
+  HostedCapabilityExecutionDeadlineError,
+} from '@core/runtime/gantry-hosted-capability-module-runner.js';
 
 const runtimeHomes: string[] = [];
 const evaluationArguments = {
@@ -52,6 +59,21 @@ const durableOperation = {
   requiresActiveJob: true,
   resultEnvelopeSchema: { type: 'object' },
   resultEnvelopeSchemaDigest: 'sha256:test-result-schema',
+};
+
+const gantryHostedOperation = {
+  executionMode: 'gantry_hosted' as const,
+  requiresActiveJob: true,
+  resultEnvelopeSchema: { type: 'object' },
+  resultEnvelopeSchemaDigest: 'sha256:test-result-schema',
+  suspensionCheckpoint: {
+    milestone: 'validation_submitted',
+    payloadPatch: {
+      safePhase: 'validating',
+      nextAction: 'Resume this exact validation invocation.',
+    },
+    invocationRefPath: ['evaluatorInvocationRef'],
+  },
 };
 
 const checkpointPayloadSchema = {
@@ -104,6 +126,29 @@ function asyncRuntimeDeps(
   checkpoints: JobSemanticCheckpointRepository = new MemoryJobCheckpointRepository(),
   fileArtifacts?: FileArtifactStore,
 ) {
+  const retained = new Map<string, { artifact: unknown; content: string }>();
+  const defaultArtifacts = {
+    readFileArtifact: vi.fn(async (input: { virtualPath: string }) => {
+      const saved = retained.get(input.virtualPath);
+      if (!saved) throw new FileArtifactNotFoundError();
+      return saved;
+    }),
+    writeFileArtifact: vi.fn(
+      async (input: {
+        content: string;
+        virtualScope: string;
+        virtualPath: string;
+      }) => {
+        const artifact = {
+          id: 'file-artifact:88888888-8888-4888-8888-888888888888',
+          virtualScope: input.virtualScope,
+          contentHash: `sha256:${stableSha256Json(JSON.parse(input.content))}`,
+        };
+        retained.set(input.virtualPath, { artifact, content: input.content });
+        return artifact;
+      },
+    ),
+  };
   return {
     getAsyncTaskRepository: () => repository,
     getJobSemanticCheckpointRepository: () => checkpoints,
@@ -117,12 +162,447 @@ function asyncRuntimeDeps(
         },
       })),
     },
-    ...(fileArtifacts ? { getFileArtifactStore: () => fileArtifacts } : {}),
+    getFileArtifactStore: () => fileArtifacts ?? defaultArtifacts,
     runnerSandboxProvider: { enforcing: true },
   } as never;
 }
 
 describe('external capability MCP task', () => {
+  it.each([
+    [
+      {
+        serverName: 'evaluator',
+        toolName: 'validate_recipe',
+        capabilityId: 'evaluator@1',
+        arguments: {},
+      },
+      ['idempotencyKey'],
+    ],
+    [
+      {
+        serverName: 'evaluator',
+        toolName: 'validate_recipe',
+        capabilityId: 'evaluator@1',
+        idempotencyKey: 'key',
+      },
+      ['arguments or argumentsArtifactId'],
+    ],
+    [
+      {
+        serverName: 'evaluator',
+        toolName: 'validate_recipe',
+        capabilityId: 'evaluator@1',
+        idempotencyKey: 'key',
+        arguments: '{}',
+      },
+      ['arguments or argumentsArtifactId'],
+    ],
+  ])(
+    'returns correctable envelope errors without admitting or executing a task (%j)',
+    async (payload, missingFields) => {
+      const acceptData = vi.fn();
+      const reject = vi.fn();
+      vi.spyOn(ipcShared, 'createTaskResponder').mockReturnValue({
+        acceptData,
+        reject,
+        accept: vi.fn(),
+      } as never);
+      const proxyFactory = vi.fn();
+      const repository = new MemoryAsyncTaskRepository();
+      const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+        proxyFactory as never,
+      );
+      await externalCapabilityCallToolHandler({
+        data: {
+          type: 'external_capability_call',
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          jobId: 'job-1',
+          runId: 'run-1',
+          sourceJobId: 'job-1',
+          sourceRunId: 'run-1',
+          payload,
+        },
+        sourceAgentFolder: 'main_agent',
+        sourceAgentFolderJids: ['sl:C123'],
+        deps: asyncRuntimeDeps(repository, new MemoryJobCheckpointRepository()),
+        conversationBindings: {},
+      } as never);
+      expect(reject).not.toHaveBeenCalled();
+      expect(acceptData).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          code: 'CAPABILITY_INPUT_SCHEMA_INVALID',
+          missingFields,
+          recoverable: true,
+          retrySamePayload: false,
+        }),
+        'CAPABILITY_INPUT_SCHEMA_INVALID',
+      );
+      expect(proxyFactory).not.toHaveBeenCalled();
+      expect(repository.tasks.size).toBe(0);
+    },
+  );
+  it.each([
+    'completed',
+    'conflict',
+    'network',
+    'fatal',
+    'uncertain',
+    'deadline',
+    'retention',
+  ] as const)(
+    'handles durable hosted settlement %s truthfully',
+    async (outcome) => {
+      const rejectedSettlement =
+        outcome === 'conflict'
+          ? vi
+              .spyOn(ExternalCapabilityTaskService.prototype, 'complete')
+              .mockResolvedValue({ outcome })
+          : null;
+      const acceptData = vi.fn();
+      const responder =
+        outcome !== 'completed'
+          ? vi.spyOn(ipcShared, 'createTaskResponder').mockReturnValue({
+              acceptData,
+              reject: vi.fn(),
+              accept: vi.fn(),
+            } as never)
+          : null;
+      const repository = new MemoryAsyncTaskRepository();
+      const checkpoints = new MemoryJobCheckpointRepository();
+      let savedArguments: string | undefined;
+      const replayArtifactId =
+        'file-artifact:99999999-9999-4999-8999-999999999999';
+      const fileArtifacts = {
+        writeFileArtifact: vi.fn(
+          async (input: { content: string; virtualScope: string }) => {
+            savedArguments = input.content;
+            return {
+              id: replayArtifactId,
+              virtualScope: input.virtualScope,
+              contentHash: `sha256:${stableSha256Json(JSON.parse(input.content))}`,
+            };
+          },
+        ),
+        readFileArtifact: vi.fn(async () => {
+          if (savedArguments === undefined)
+            throw new FileArtifactNotFoundError();
+          return {
+            artifact: {
+              id: replayArtifactId,
+              virtualScope: jobArtifactScope('job-1'),
+              sizeBytes: savedArguments.length,
+              contentHash: `sha256:${stableSha256Json(JSON.parse(savedArguments))}`,
+            },
+            content: savedArguments,
+          };
+        }),
+      } as unknown as FileArtifactStore;
+      if (outcome === 'retention') {
+        vi.mocked(fileArtifacts.writeFileArtifact).mockRejectedValueOnce(
+          new Error('storage unavailable'),
+        );
+      }
+      const execute = vi.fn(
+        async (
+          _input: unknown,
+          commitResult: (
+            operation: string,
+            payload: Record<string, unknown>,
+          ) => Promise<unknown>,
+        ) => {
+          const committed = await commitResult('validation_commit', {
+            proof: 'runner-result',
+          });
+          expect(committed).toEqual({
+            status: 'proven',
+            evaluationId: 'evaluation-1',
+          });
+          return committed;
+        },
+      );
+      if (outcome === 'network' || outcome === 'fatal') {
+        execute.mockRejectedValueOnce(
+          new Error(
+            outcome === 'network'
+              ? 'network connection lost'
+              : 'invalid signed bundle',
+          ),
+        );
+      }
+      if (outcome === 'uncertain')
+        execute.mockRejectedValueOnce(
+          new HostedCapabilityCommitUncertainError(
+            new Error('deadline expired'),
+          ),
+        );
+      if (outcome === 'deadline')
+        execute.mockRejectedValueOnce(
+          new HostedCapabilityExecutionDeadlineError(),
+        );
+      const callTool = vi.fn(async () => ({
+        structuredContent: {
+          status: 'proven',
+          evaluationId: 'evaluation-1',
+        },
+      }));
+      const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+        vi.fn(async () => ({
+          preflightExternalCapabilityCall: vi.fn(async () => ({
+            ok: true as const,
+            operation: gantryHostedOperation,
+          })),
+          callTool,
+          describeTool: vi.fn(),
+          listTools: vi.fn(),
+        })) as never,
+      );
+      configurePendingInteractionDurability({
+        repository: {
+          getActiveRunLease: vi.fn(async () => ({
+            runId: 'run-1',
+            leaseToken: 'lease-1',
+            fencingVersion: 1,
+          })),
+        } as never,
+      });
+
+      const updateJob = vi.fn(async () => undefined);
+      const onSchedulerChanged = vi.fn();
+
+      const context = {
+        data: {
+          type: 'external_capability_call',
+          appId: 'app:test',
+          agentId: 'agent:signed',
+          chatJid: 'sl:C123',
+          targetJid: 'sl:C123',
+          jobId: 'job-1',
+          runId: 'run-1',
+          sourceJobId: 'job-1',
+          sourceRunId: 'run-1',
+          runLeaseToken: 'lease-1',
+          runLeaseFencingVersion: 1,
+          payload: {
+            serverName: 'manipal-evaluator',
+            toolName: 'validate_recipe',
+            capabilityId: 'manipal.website-recipe-evaluator@13',
+            idempotencyKey: 'validation-1',
+            arguments: evaluationArguments,
+          },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          ...asyncRuntimeDeps(repository, checkpoints, fileArtifacts),
+          getGantryHostedCapabilityRunner: () => ({ execute }),
+          getJobControl: () => ({
+            getAppSessionById: vi.fn(async () => ({ appId: 'app:test' })),
+          }),
+          onSchedulerChanged,
+          opsRepository: {
+            getJobById: vi.fn(async () => ({
+              session_id: 'session-1',
+              status: 'paused',
+              pause_reason: `Waiting for external capability task ${[...repository.tasks.keys()][0] ?? ''}.`,
+              agent_task: {
+                checkpointContract: {
+                  schema: checkpointPayloadSchema,
+                  schemaDigest: `sha256:${stableSha256Json(checkpointPayloadSchema)}`,
+                },
+                trustedCapabilityContext: {
+                  requestId: 'request-1',
+                  attemptId: 'attempt-1',
+                },
+              },
+            })),
+            updateJob,
+          },
+        } as never,
+        conversationBindings: {},
+        sourceAgentFolderJids: ['sl:C123'],
+      } as never;
+
+      await externalCapabilityCallToolHandler(context);
+      if (outcome === 'retention') {
+        expect(acceptData).toHaveBeenLastCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            code: 'GANTRY_HOSTED_INPUT_RETENTION_FAILED',
+            retrySamePayload: true,
+          }),
+          expect.any(String),
+        );
+        expect(execute).not.toHaveBeenCalled();
+        expect(callTool).not.toHaveBeenCalled();
+        await externalCapabilityCallToolHandler(context);
+        expect(execute).toHaveBeenCalledOnce();
+        responder?.mockRestore();
+        return;
+      }
+      if (
+        outcome === 'network' ||
+        outcome === 'fatal' ||
+        outcome === 'uncertain' ||
+        outcome === 'deadline'
+      ) {
+        expect(acceptData).toHaveBeenLastCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            status: 'rejected',
+            code:
+              outcome === 'deadline'
+                ? 'GANTRY_HOSTED_CAPABILITY_EXECUTION_DEADLINE'
+                : 'GANTRY_HOSTED_CAPABILITY_FAILED',
+            retrySamePayload: outcome !== 'fatal',
+            retryable: outcome !== 'fatal',
+          }),
+          outcome === 'deadline'
+            ? 'GANTRY_HOSTED_CAPABILITY_EXECUTION_DEADLINE'
+            : 'GANTRY_HOSTED_CAPABILITY_FAILED',
+        );
+        expect([...repository.tasks.values()][0]?.status).toBe(
+          outcome !== 'fatal' ? 'waiting_external' : 'cancelled',
+        );
+        if (outcome === 'uncertain') {
+          expect(savedArguments && JSON.parse(savedArguments)).toEqual(
+            evaluationArguments,
+          );
+          expect(acceptData).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ argumentsArtifactId: replayArtifactId }),
+            expect.any(String),
+          );
+          const checkpoint = await checkpoints.getLatestCheckpoint();
+          expect(checkpoint?.payload.artifactRefs).toContainEqual(
+            expect.objectContaining({
+              artifactId: replayArtifactId,
+              kind: 'capability_arguments',
+            }),
+          );
+          expect(checkpoint?.payload.nextAction).toContain(replayArtifactId);
+          const replayContext = context as unknown as {
+            data: { payload: Record<string, unknown> };
+          };
+          replayContext.data.payload.arguments = {
+            candidateHash: 'changed-input',
+          };
+          await externalCapabilityCallToolHandler(context);
+          expect(acceptData).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+              code: 'GANTRY_HOSTED_CAPABILITY_IDEMPOTENCY_CONFLICT',
+            }),
+            expect.any(String),
+          );
+          expect(execute).toHaveBeenCalledOnce();
+          delete replayContext.data.payload.arguments;
+          replayContext.data.payload.argumentsArtifactId = replayArtifactId;
+        }
+        await externalCapabilityCallToolHandler(context);
+        expect(execute).toHaveBeenCalledTimes(outcome !== 'fatal' ? 2 : 1);
+        responder?.mockRestore();
+        return;
+      }
+      if (rejectedSettlement) {
+        rejectedSettlement.mockRestore();
+        responder?.mockRestore();
+        expect(acceptData).toHaveBeenLastCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            status: 'rejected',
+            code: 'GANTRY_HOSTED_CAPABILITY_SETTLEMENT_REJECTED',
+          }),
+          'GANTRY_HOSTED_CAPABILITY_SETTLEMENT_REJECTED',
+        );
+        expect(updateJob).not.toHaveBeenCalled();
+        expect(onSchedulerChanged).not.toHaveBeenCalled();
+        expect(
+          [...repository.tasks.values()].some(
+            (task) => task.status === 'completed',
+          ),
+        ).toBe(false);
+        return;
+      }
+      await externalCapabilityCallToolHandler(context);
+
+      expect(execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          capabilityId: 'manipal.website-recipe-evaluator@13',
+          operation: 'validate_recipe',
+          arguments: evaluationArguments,
+          runtimeContext: expect.objectContaining({
+            requestId: 'request-1',
+            attemptId: 'attempt-1',
+            gantryJobId: 'job-1',
+            gantryRunId: 'run-1',
+            idempotencyKey: 'validation-1',
+            capabilityTaskIdentity: expect.objectContaining({
+              capabilityId: 'manipal.website-recipe-evaluator@13',
+              operation: 'validate_recipe',
+            }),
+          }),
+        }),
+        expect.any(Function),
+      );
+      expect(callTool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'validation_commit',
+          authorizationToolName: 'validate_recipe',
+          authorizationArguments: evaluationArguments,
+          arguments: expect.objectContaining({
+            proof: 'runner-result',
+            _gantryCapabilityTask: {
+              taskId: expect.any(String),
+              completionToken: expect.any(String),
+            },
+          }),
+        }),
+      );
+      expect(execute).toHaveBeenCalledOnce();
+      const checkpointRepository =
+        context.deps.getJobSemanticCheckpointRepository() as MemoryJobCheckpointRepository;
+      expect(checkpointRepository.latest).toMatchObject({
+        milestone: 'validation_submitted',
+        payload: {
+          safePhase: 'validating',
+          evaluatorInvocationRef: 'invocation:validation-1',
+          nextAction: expect.stringContaining(replayArtifactId),
+        },
+      });
+      expect(updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          status: 'active',
+          next_run: expect.any(String),
+          pause_reason: null,
+        }),
+      );
+      expect(onSchedulerChanged).toHaveBeenCalledWith('job-1');
+      expect([...repository.tasks.values()]).toContainEqual(
+        expect.objectContaining({
+          kind: 'external_capability',
+          status: 'completed',
+        }),
+      );
+
+      await externalCapabilityCallToolHandler({
+        ...context,
+        data: {
+          ...(context as { data: Record<string, unknown> }).data,
+          payload: {
+            ...((context as { data: { payload: Record<string, unknown> } }).data
+              .payload ?? {}),
+            arguments: { ...evaluationArguments, candidateHash: 'changed' },
+          },
+        },
+      } as never);
+      expect(execute).toHaveBeenCalledOnce();
+    },
+  );
+
   it('executes recipe compilation synchronously without scheduling an external task', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const compileArguments = {
@@ -485,7 +965,7 @@ describe('external capability MCP task', () => {
     expect(callTool).toHaveBeenCalledOnce();
   });
 
-  it('persists the declarative suspension checkpoint before suspending the authenticated job run', async () => {
+  it('recovers a legacy waiting task before persisting its suspension checkpoint', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const checkpoints = new MemoryJobCheckpointRepository();
     const abort = vi.fn();
@@ -516,6 +996,22 @@ describe('external capability MCP task', () => {
         })),
       } as never,
     });
+    const stranded = await new ExternalCapabilityTaskService(repository).accept(
+      {
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        conversationId: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        capabilityId: 'manipal.website-recipe-evaluator@1',
+        operation: 'evaluation.submit',
+        contentDigest: `sha256:${stableSha256Json(evaluationArguments)}`,
+        invocationRef: 'invocation:evaluation-submit-1',
+        idempotencyKey: 'evaluation-submit-1',
+      },
+    );
+    delete repository.tasks.get(stranded.taskId)?.authoritySnapshotJson
+      .contentDigest;
 
     await externalCapabilityCallToolHandler({
       data: {
@@ -583,6 +1079,71 @@ describe('external capability MCP task', () => {
       },
     });
     unregister();
+  });
+
+  it('completes deterministic revision results without suspending the job', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const checkpoints = new MemoryJobCheckpointRepository();
+    const callTool = vi.fn(async () => ({
+      structuredContent: {
+        status: 'revision_required',
+        diagnostics: ['candidate selector is invalid'],
+      },
+    }));
+    const { externalCapabilityCallToolHandler } = createMcpToolHandlers(
+      vi.fn(async () => ({
+        preflightExternalCapabilityCall: vi.fn(async () => ({
+          ok: true as const,
+          operation: durableCheckpointOperation,
+        })),
+        callTool,
+        describeTool: vi.fn(),
+        listTools: vi.fn(),
+      })) as never,
+    );
+    configurePendingInteractionDurability({
+      repository: {
+        getActiveRunLease: vi.fn(async () => ({
+          runId: 'run-1',
+          leaseToken: 'lease-1',
+          fencingVersion: 1,
+        })),
+      } as never,
+    });
+
+    await externalCapabilityCallToolHandler({
+      data: {
+        type: 'external_capability_call',
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        jobId: 'job-1',
+        runId: 'run-1',
+        sourceJobId: 'job-1',
+        sourceRunId: 'run-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
+        payload: {
+          serverName: 'manipal-evaluator',
+          toolName: 'validate_recipe',
+          capabilityId: 'manipal.website-recipe-evaluator@12',
+          idempotencyKey: 'validation-1',
+          arguments: evaluationArguments,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: asyncRuntimeDeps(repository, checkpoints),
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    const task = [...repository.tasks.values()].find(
+      (candidate) => candidate.kind === 'external_capability',
+    );
+    expect(task).toMatchObject({ status: 'completed' });
+    expect(callTool).toHaveBeenCalledOnce();
+    expect(checkpoints.latest?.sequence).toBe(1);
   });
 
   it('returns a durable capability submission rejection to the agent instead of failing the run', async () => {
@@ -1132,9 +1693,8 @@ describe('MCP IPC tool handlers', () => {
     vi.resetModules();
     vi.stubEnv('GANTRY_HOME', runtimeHome);
     const ipcAuth = await import('@core/runtime/ipc-auth.js');
-    const pendingInteractionDurability = await import(
-      '@core/application/interactions/pending-interaction-durability.js'
-    );
+    const pendingInteractionDurability =
+      await import('@core/application/interactions/pending-interaction-durability.js');
     const { createMcpToolHandlers: createHandlers } =
       await import('@core/jobs/ipc-mcp-tool-handlers.js');
     const createProxy = vi.fn(async () => {

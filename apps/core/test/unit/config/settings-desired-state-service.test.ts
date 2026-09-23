@@ -4400,9 +4400,61 @@ describe('reconcile preserves agent-installed bindings', () => {
             conversationId: 'conversation:telegram:review',
             threadId: 'thread:telegram:review:topic',
             createdAt: '2026-07-21T11:00:00.000Z',
+            updatedAt: '2026-07-21T11:00:00.000Z',
           }),
         ],
       }),
+    );
+  });
+
+  it('rotates the MCP binding revision when configured tool authority changes', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['search_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    repositories.mcpServers.getServer.mockResolvedValue({
+      id: 'mcp:github',
+      appId: 'default',
+      status: 'active',
+      name: 'github',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'stdio_template',
+      config: { transport: 'stdio_template', templateId: 'github' },
+      allowedToolPatterns: ['read_*', 'search_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+    });
+    repositories.mcpServers.listAgentBindings.mockResolvedValue([
+      {
+        ...agentMcpBinding('active'),
+        serverId: 'mcp:github',
+        allowedToolPatterns: ['read_*'],
+      },
+    ]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    const replacement =
+      repositories.agents.replaceAgentCapabilityBindings.mock.calls[0]?.[0];
+    expect(replacement.mcpBindings[0]).toMatchObject({
+      allowedToolPatterns: ['search_*'],
+    });
+    expect(replacement.mcpBindings[0].updatedAt).not.toBe(
+      '2026-07-20T00:00:00.000Z',
     );
   });
 

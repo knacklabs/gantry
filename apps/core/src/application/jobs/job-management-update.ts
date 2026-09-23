@@ -41,6 +41,15 @@ export async function updateManagedJob(
   const job = await requireJob(deps, input.jobId);
   await assertAccess(deps, job, input);
   const patch = { ...input.patch };
+  if (
+    patch.addCapabilityAllowedOrigins !== undefined &&
+    (!input.appId || input.appId === 'default' || input.access)
+  ) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'Trusted capability origin extensions require authenticated app job control.',
+    );
+  }
   assertPublicJobNamespace({ jobId: job.id, prompt: patch.prompt });
   const targetWorkspaceKey = patch.workspaceKey ?? job.workspace_key;
   const targetScheduleType = patch.scheduleType ?? job.schedule_type;

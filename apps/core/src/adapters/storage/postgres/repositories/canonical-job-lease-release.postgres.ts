@@ -26,7 +26,7 @@ export async function releaseStaleCanonicalJobLeases(
         AND rl.expires_at > ${nowIso}
     )`;
     const stalePredicate = and(
-      eq(jobs.status, 'running'),
+      inArray(jobs.status, ['running', 'active']),
       isNotNull(jobs.leaseExpiresAt),
       noLiveRunLease,
     );
@@ -39,6 +39,7 @@ export async function releaseStaleCanonicalJobLeases(
       .update(jobs)
       .set({
         status: 'active',
+        nextRunAt: nowIso,
         leaseRunId: null,
         leaseExpiresAt: null,
         updatedAt: nowIso,

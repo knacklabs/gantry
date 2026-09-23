@@ -1,5 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
+import { createConfiguredGantryHostedCapabilityRunner } from '@core/runtime/gantry-hosted-capability-module-runner.js';
+import { jobArtifactScope } from '@core/domain/ports/job-semantic-checkpoints.js';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -87,6 +91,92 @@ maybeDescribe('Postgres file artifact store', () => {
       }),
       content: '  leading whitespace is data\n',
     });
+  });
+
+  it('stores hosted binary evidence under its trusted job owner with real byte integrity', async () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-hosted-artifact-test-'),
+    );
+    try {
+      const bytes = Buffer.from('%PDF-1.7\nfixture\n%%EOF');
+      const source = `export async function execute(_input, host) { return await host.writeBinaryArtifact({ bodyBase64: '${bytes.toString('base64')}', contentType: 'application/pdf' }); }`;
+      const modulePath = path.join(directory, 'runner.mjs');
+      fs.writeFileSync(modulePath, source);
+      const task = {
+        id: 'artifact-task',
+        kind: 'external_capability',
+        status: 'waiting_external',
+        appId: 'app:test',
+        agentId: 'agent:binary',
+        parentJobId: 'artifact-job',
+        leaseToken: 'test-lease',
+        fencingVersion: 1,
+        privateCorrelationJson: {},
+        authoritySnapshotJson: {
+          capabilityId: 'fixture.binary@1',
+          operation: 'collect',
+        },
+      };
+      const runner = createConfiguredGantryHostedCapabilityRunner({
+        env: JSON.stringify([
+          {
+            capabilityId: 'fixture.binary@1',
+            operation: 'collect',
+            modulePath,
+            sha256: createHash('sha256').update(source).digest('hex'),
+          },
+        ]),
+        getFileArtifactStore: () => runtime.storageRuntime.fileArtifacts,
+        getAsyncTaskRepository: () => ({ getTask: async () => task }) as never,
+        openBrowserSession: async () => {
+          throw new Error('Browser not required');
+        },
+      });
+      const result = (await runner!.execute({
+        appId: 'app:test',
+        agentId: 'agent:binary',
+        conversationId: 'app:fixture',
+        threadId: null,
+        jobId: 'artifact-job',
+        runId: 'artifact-run',
+        capabilityId: 'fixture.binary@1',
+        operation: 'collect',
+        arguments: {},
+        runtimeContext: {
+          allowedOrigins: ['https://example.gov'],
+          capabilityTaskIdentity: { taskId: task.id },
+          runtimeLimits: { maxDocumentBytes: 1000 },
+        },
+        deadlineMs: 10000,
+      })) as {
+        artifactId: FileArtifactId;
+        contentHash: string;
+        sizeBytes: number;
+      };
+      const loaded =
+        await runtime.storageRuntime.fileArtifacts.readFileArtifact({
+          appId: 'app:test',
+          agentId: 'agent:binary',
+          id: result.artifactId,
+        });
+      expect(loaded.artifact.virtualScope).toBe(
+        jobArtifactScope('artifact-job'),
+      );
+      expect(Buffer.from(loaded.content)).toEqual(bytes);
+      expect(result.contentHash).toBe(
+        `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      );
+      expect(result.sizeBytes).toBe(bytes.length);
+      await expect(
+        runtime.storageRuntime.fileArtifacts.readFileArtifact({
+          appId: 'app:test',
+          agentId: 'agent:other',
+          id: result.artifactId,
+        }),
+      ).rejects.toThrow();
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('versions artifacts per owner and returns the latest path version', async () => {

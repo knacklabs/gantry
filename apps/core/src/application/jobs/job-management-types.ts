@@ -227,6 +227,13 @@ export type JobUpdatePatch = Partial<{
   minimumTotalRuntimeMs: number;
   minimumRemainingRuntimeMs: number;
   addBrowserAllowedNetworkHosts: string[];
+  addCapabilityAllowedOrigins: Array<
+    | string
+    | {
+        origin: string;
+        methods: Array<'GET' | 'HEAD' | 'POST'>;
+      }
+  >;
   callerResolvedTools: NonNullable<Job['agent_task']>['callerResolvedTools'];
   modelControls: NonNullable<Job['agent_task']>['modelControls'];
   requiredSkill: { name: string; contentHash: string };

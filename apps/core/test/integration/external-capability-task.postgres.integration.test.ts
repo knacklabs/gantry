@@ -83,6 +83,7 @@ maybeDescribe('external capability tasks', () => {
       runId,
       capabilityId: 'manipal.website-recipe-evaluator@1',
       operation: 'evaluation.submit',
+      contentDigest: 'sha256:payload-1',
       invocationRef: 'evaluation:eval-1',
       idempotencyKey: 'recipe-job:attempt-1:candidate:test-plan',
     };
@@ -106,6 +107,9 @@ maybeDescribe('external capability tasks', () => {
 
     await expect(
       service.accept({ ...acceptanceInput, invocationRef: 'evaluation:other' }),
+    ).rejects.toThrow('reused for different work');
+    await expect(
+      service.accept({ ...acceptanceInput, contentDigest: 'sha256:payload-2' }),
     ).rejects.toThrow('reused for different work');
 
     await expect(
@@ -215,6 +219,73 @@ maybeDescribe('external capability tasks', () => {
     );
   });
 
+  it('persists the exact hosted-capability predecessor across service reconstruction', async () => {
+    const jobId = 'job-hosted-capability-predecessor';
+    const runId = 'run-hosted-capability-predecessor';
+    const agentId = 'agent:external_capability_agent';
+    await runtime.ops.upsertJob(job(jobId));
+    await runtime.ops.createJobRun({
+      run_id: runId,
+      job_id: jobId,
+      execution_provider_id: 'openai:codex',
+      scheduled_for: nowIso(),
+      started_at: nowIso(),
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    });
+    const common = {
+      appId: 'default',
+      agentId,
+      conversationId: 'control:hosted-capability-predecessor-test',
+      jobId,
+      runId,
+      capabilityId: 'manipal.website-recipe-evaluator@15',
+      operation: 'validate_recipe',
+      executionMode: 'gantry_hosted' as const,
+    };
+    const firstService = new ExternalCapabilityTaskService(
+      runtime.repositories.asyncTasks,
+    );
+    const first = await firstService.accept({
+      ...common,
+      contentDigest: 'sha256:first-payload',
+      invocationRef: 'validation:first',
+      idempotencyKey: 'hosted-validation:first',
+    });
+    await expect(
+      firstService.complete({
+        appId: common.appId,
+        taskId: first.taskId,
+        completionToken: first.completionToken,
+        completionId: 'completion:first',
+        resultRef: 'artifact:first',
+        summary: 'First validation requires revision.',
+        result: { status: 'revision_required' },
+      }),
+    ).resolves.toMatchObject({ outcome: 'completed' });
+
+    const reconstructedService = new ExternalCapabilityTaskService(
+      runtime.repositories.asyncTasks,
+    );
+    const second = await reconstructedService.accept({
+      ...common,
+      contentDigest: 'sha256:second-payload',
+      invocationRef: 'validation:second',
+      idempotencyKey: 'hosted-validation:second',
+    });
+    const stored = await runtime.repositories.asyncTasks.getTask(
+      second.taskId,
+    );
+
+    expect(stored?.privateCorrelationJson).toMatchObject({
+      previousCapabilityTaskId: first.taskId,
+    });
+  });
+
   it('cancels idempotently, ignores late completion, and cannot recover', async () => {
     const jobId = 'job-external-capability-cancel';
     const runId = 'run-external-capability-cancel';
@@ -243,6 +314,7 @@ maybeDescribe('external capability tasks', () => {
       runId,
       capabilityId: 'manipal.website-recipe-evaluator@1',
       operation: 'evaluation.submit',
+      contentDigest: 'sha256:payload-cancel',
       invocationRef: 'evaluation:eval-cancel',
       idempotencyKey: 'recipe-job:attempt-cancel:candidate:test-plan',
     };

@@ -15,6 +15,7 @@ import type {
   JobUpdatePatch,
   SchedulerJobAccess,
 } from './job-management-types.js';
+import { extendCapabilityAllowedOrigins } from './job-management-capability-origins.js';
 
 const MAX_QUERY_LIMIT = 1_000;
 
@@ -448,6 +449,22 @@ export function buildJobUpdates(
       ...agentTask,
       browserAllowedNetworkHosts,
     };
+  }
+  if (patch.addCapabilityAllowedOrigins !== undefined) {
+    const agentTask = updates.agent_task ?? job.agent_task;
+    if (!agentTask) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'The retained task requires a trusted allowedOrigins context.',
+      );
+    }
+    const updatedAgentTask = extendCapabilityAllowedOrigins({
+      job,
+      agentTask,
+      approvals: patch.addCapabilityAllowedOrigins,
+      now: clock.now(),
+    });
+    if (updatedAgentTask) updates.agent_task = updatedAgentTask;
   }
   if (patch.callerResolvedTools !== undefined) {
     const agentTask = updates.agent_task ?? job.agent_task;

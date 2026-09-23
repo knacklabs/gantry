@@ -504,28 +504,78 @@ async function configuredMcpSourceBindings(input: {
           return null;
         }
         const existing = existingByServerId.get(serverId);
+        const allowedToolPatterns = normalizeMcpToolScope({
+          serverName: server.name,
+          requested: source.tools,
+          definitionPatterns: reviewedMcpToolPatterns(server),
+        });
+        const required = existing?.required ?? false;
+        const permissionPolicyIds = existing?.permissionPolicyIds ?? [];
+        const conversationId = existing?.conversationId;
+        const threadId = existing?.threadId;
+        const authorityUnchanged = existing
+          ? sameMcpBindingAuthority(existing, {
+              appId: input.appId,
+              agentId: input.agentId,
+              serverId,
+              status: 'active',
+              required,
+              permissionPolicyIds,
+              allowedToolPatterns,
+              conversationId,
+              threadId,
+            })
+          : false;
         return {
           id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
           appId: input.appId,
           agentId: input.agentId,
           serverId,
           status: 'active' as const,
-          required: existing?.required ?? false,
-          permissionPolicyIds: existing?.permissionPolicyIds ?? [],
-          allowedToolPatterns: normalizeMcpToolScope({
-            serverName: server.name,
-            requested: source.tools,
-            definitionPatterns: reviewedMcpToolPatterns(server),
-          }),
-          conversationId: existing?.conversationId,
-          threadId: existing?.threadId,
+          required,
+          permissionPolicyIds,
+          allowedToolPatterns,
+          conversationId,
+          threadId,
           createdAt: existing?.createdAt ?? input.now,
-          updatedAt: input.now,
+          // The MCP definition has its own revision. This binding revision
+          // changes only when the complete binding authority changes.
+          updatedAt: authorityUnchanged ? existing!.updatedAt : input.now,
         };
       }),
   );
   return bindings.filter(
     (binding): binding is NonNullable<typeof binding> => binding !== null,
+  );
+}
+
+function sameMcpBindingAuthority(
+  existing: AgentMcpServerBinding,
+  next: Pick<
+    AgentMcpServerBinding,
+    | 'appId'
+    | 'agentId'
+    | 'serverId'
+    | 'status'
+    | 'required'
+    | 'permissionPolicyIds'
+    | 'allowedToolPatterns'
+    | 'conversationId'
+    | 'threadId'
+  >,
+): boolean {
+  return (
+    existing.appId === next.appId &&
+    existing.agentId === next.agentId &&
+    existing.serverId === next.serverId &&
+    existing.status === next.status &&
+    existing.required === next.required &&
+    JSON.stringify(existing.permissionPolicyIds) ===
+      JSON.stringify(next.permissionPolicyIds) &&
+    JSON.stringify(existing.allowedToolPatterns) ===
+      JSON.stringify(next.allowedToolPatterns) &&
+    existing.conversationId === next.conversationId &&
+    existing.threadId === next.threadId
   );
 }
 

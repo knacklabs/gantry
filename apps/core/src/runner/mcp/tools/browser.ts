@@ -46,6 +46,7 @@ type BrowserActAction =
   | 'type'
   | 'wait_for'
   | 'screenshot'
+  | 'scroll_and_observe'
   | 'evaluate'
   | 'press_key'
   | 'hover'
@@ -65,7 +66,7 @@ const DEFAULT_BROWSER_TOOL_TIMEOUT_MS = MAX_BROWSER_TOOL_TIMEOUT_MS;
 const MAX_CAPTCHA_TTL_MS = 30 * 60_000;
 const CAPTCHA_IMAGE_FALLBACK_SELECTOR =
   'img[src*="captcha" i],img[src^="data:image" i],img[id*="captcha" i],img[class*="captcha" i],img[alt*="captcha" i],img[title*="captcha" i],canvas[id*="captcha" i],canvas[class*="captcha" i],svg[id*="captcha" i],svg[class*="captcha" i],input[type="image"][src*="captcha" i],[style*="background-image" i][id*="captcha" i],[style*="background-image" i][class*="captcha" i]';
-const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 4;
+const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 3;
 const CAPTCHA_BROWSER_ACTION_TIMEOUT_MS = 30_000;
 const CAPTCHA_SUCCESS_PROOF_TIMEOUT_MS = 15_000;
 const CAPTCHA_SUCCESS_PROOF_POLL_MS = 1_500;
@@ -235,6 +236,13 @@ function browserTimeoutMs(args: Record<string, unknown>): number {
   );
 }
 
+function navigationTimeoutMs(args: Record<string, unknown>): number {
+  // Public sites can legitimately take longer than a model's conventional
+  // 30-second timeout. Navigation must get the safe bounded budget; the
+  // enclosing job deadline remains authoritative.
+  return Math.max(DEFAULT_BROWSER_TOOL_TIMEOUT_MS, browserTimeoutMs(args));
+}
+
 async function callBrowserBackend(
   publicToolName: PublicBrowserToolName,
   action: BrowserBackendAction,
@@ -387,6 +395,7 @@ const actAction = z.enum([
   'type',
   'wait_for',
   'screenshot',
+  'scroll_and_observe',
   'evaluate',
   'press_key',
   'hover',
@@ -442,7 +451,7 @@ export function registerBrowserTools(server: McpServer): void {
         'browser_open',
         'navigate',
         { url: args.url },
-        timeoutMs,
+        navigationTimeoutMs(args),
       );
     },
   );
@@ -511,11 +520,19 @@ export function registerBrowserTools(server: McpServer): void {
       if (typeof args.research_intent === 'string') {
         actionPayload.research_intent = args.research_intent;
       }
-      return callBrowserBackend(
+      if (action === 'scroll_and_observe' && !currentJobId()) {
+        return formatBrowserFailure(
+          action,
+          'a scheduled job scope is required to retain pagination probe evidence',
+        );
+      }
+      return await callBrowserBackend(
         'browser_act',
         actBackendAction(action),
         actBackendPayload(action, actionPayload),
-        browserTimeoutMs(args),
+        action === 'navigate' || action === 'scroll_and_observe'
+          ? navigationTimeoutMs(args)
+          : browserTimeoutMs(args),
       );
     },
   );
@@ -651,7 +668,7 @@ export function registerBrowserTools(server: McpServer): void {
           content: [
             {
               type: 'text' as const,
-              text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts are exhausted. Create the authorized fallback only by calling job_checkpoint_save with milestone="human_wait" and its humanInteraction CAPTCHA fields, using the latest screenshot and automatic-attempt evidence returned by attempt four. There is no separate human-request tool.`,
+              text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts are exhausted. Create the authorized fallback only by calling job_checkpoint_save with milestone="human_wait" and a declared humanInteraction.browserChallenge.challengeId for the active challenge, using the latest screenshot and automatic-attempt evidence returned by attempt ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS}. There is no separate human-request tool.`,
             },
           ],
         };
@@ -814,7 +831,7 @@ export function registerBrowserTools(server: McpServer): void {
         content: [
           {
             type: 'text' as const,
-            text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts were inconclusive.\nCapture: ${captureMode}\nFingerprint: ${challenge.challengeFingerprint}\nScreenshot evidence: ${screenshotArtifact ? `${screenshotArtifact.id} (${screenshotArtifact.contentHash})` : 'unavailable'}\nAutomatic CAPTCHA attempt evidence: ${evidence ? `${evidence.id} (${evidence.contentHash})` : 'unavailable'}\nAutomatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.type="captcha" using challenge ${challengeId}. Include this fingerprint and these evidence references. That atomic call waits for authorization and submits the answer; there is no separate human-request tool.`,
+            text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts were inconclusive.\nCapture: ${captureMode}\nFingerprint: ${challenge.challengeFingerprint}\nScreenshot evidence: ${screenshotArtifact ? `${screenshotArtifact.id} (${screenshotArtifact.contentHash})` : 'unavailable'}\nAutomatic CAPTCHA attempt evidence: ${evidence ? `${evidence.id} (${evidence.contentHash})` : 'unavailable'}\nAutomatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.browserChallenge.challengeId=${challengeId}; using challenge ${challengeId}. Include this fingerprint and these evidence references in its toolInput. That atomic call waits for authorization and submits the answer; there is no separate human-request tool.`,
           },
         ],
       };
@@ -1243,7 +1260,7 @@ export async function settleCaptchaChallenge(
         text:
           mode === 'human' && captchaTargetStillPresent
             ? `The authorized answer did not clear the CAPTCHA gate. Fresh CAPTCHA screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). Capture this new challenge with browser_captcha_challenge so automatic solving runs before any new human fallback.`
-            : `Post-attempt CAPTCHA screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). ${challenge.attemptNumber < MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ? 'If the CAPTCHA remains, capture the refreshed challenge with browser_captcha_challenge and retry.' : `If the CAPTCHA remains, automatic attempts are exhausted. Checkpoint, request authorized human fallback, then submit that answer with browser_captcha_settle using challenge ${refreshedChallengeId}.`}`,
+            : `Post-attempt CAPTCHA screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). ${challenge.attemptNumber < MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ? 'If the CAPTCHA remains, capture the refreshed challenge with browser_captcha_challenge and retry.' : `If the CAPTCHA remains, automatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.browserChallenge.challengeId=${refreshedChallengeId}; that atomic call waits for authorization and submits the answer. There is no separate human-request tool.`}`,
       });
       if (
         mode === 'automatic' &&
@@ -1538,7 +1555,7 @@ async function continueAutomaticCaptchaAttempts(input: {
     content: [
       {
         type: 'text' as const,
-        text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts were inconclusive. Screenshot evidence: ${input.challenge.screenshotEvidenceRef ?? 'unavailable'}. Automatic CAPTCHA attempt evidence: ${latestEvidence ? `${latestEvidence.id} (${latestEvidence.contentHash})` : 'unavailable'}. Automatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.type="captcha" using challenge ${latestChallengeId}.`,
+        text: `All ${MAX_AUTOMATIC_CAPTCHA_ATTEMPTS} automatic CAPTCHA attempts were inconclusive. Screenshot evidence: ${input.challenge.screenshotEvidenceRef ?? 'unavailable'}. Automatic CAPTCHA attempt evidence: ${latestEvidence ? `${latestEvidence.id} (${latestEvidence.contentHash})` : 'unavailable'}. Automatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.browserChallenge.challengeId=${latestChallengeId}; that atomic call waits for authorization and submits the answer. There is no separate human-request tool.`,
       },
     ],
   };
@@ -1909,6 +1926,8 @@ function actBackendAction(action: BrowserActAction): BrowserBackendAction {
       return 'wait_for';
     case 'screenshot':
       return 'screenshot';
+    case 'scroll_and_observe':
+      return 'scroll_and_observe';
     case 'evaluate':
       return 'evaluate';
     case 'press_key':

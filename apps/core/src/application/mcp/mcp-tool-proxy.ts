@@ -79,6 +79,11 @@ interface McpToolCallInput {
   arguments?: Record<string, unknown>;
   /** Host-only fields may be sent after authority is checked against model arguments. */
   authorizationArguments?: Record<string, unknown>;
+  /**
+   * A trusted host callback may execute a private follow-up operation under the
+   * authority of the reviewed model-facing operation that initiated it.
+   */
+  authorizationToolName?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -86,8 +91,9 @@ interface McpToolCallInput {
 export type ExternalCapabilityPreflightResult =
   | {
       ok: true;
+      arguments: Record<string, unknown>;
       operation: {
-        executionMode: 'sync' | 'durable_async';
+        executionMode: 'sync' | 'durable_async' | 'gantry_hosted';
         requiresActiveJob: boolean;
         deadlineMs?: number;
         resultEnvelopeSchema?: Record<string, unknown>;
@@ -492,8 +498,16 @@ export class McpToolProxy {
     let toolReturned = false;
     try {
       const reviewed = await this.resolveReviewedTool(
-        input.authorizationArguments
-          ? { ...input, arguments: input.authorizationArguments }
+        input.authorizationArguments || input.authorizationToolName
+          ? {
+              ...input,
+              ...(input.authorizationToolName
+                ? { toolName: input.authorizationToolName }
+                : {}),
+              ...(input.authorizationArguments
+                ? { arguments: input.authorizationArguments }
+                : {}),
+            }
           : input,
         finalize,
       );
@@ -507,13 +521,18 @@ export class McpToolProxy {
       );
       retainMcpClient(capability);
       try {
-        const outputSchema = await resolveMcpToolOutputSchema({
-          request: input,
-          capability,
-          client,
-          timeoutMs: MCP_PROXY_TIMEOUT_MS,
-          signal: input.signal,
-        });
+        // Private host follow-ups are intentionally absent from the
+        // model-visible source inventory. Their parent operation was reviewed
+        // above, and the caller validates the parent result envelope.
+        const outputSchema = input.authorizationToolName
+          ? undefined
+          : await resolveMcpToolOutputSchema({
+              request: input,
+              capability,
+              client,
+              timeoutMs: MCP_PROXY_TIMEOUT_MS,
+              signal: input.signal,
+            });
         const resultValidation = prepareMcpToolResultValidation({
           serverName: input.serverName,
           toolName: input.toolName,
@@ -584,7 +603,10 @@ export class McpToolProxy {
   }
 
   async preflightExternalCapabilityCall(
-    input: McpToolCallInput & { capabilityId: string },
+    input: McpToolCallInput & {
+      capabilityId: string;
+      envelopeIdempotencyKey?: string;
+    },
   ): Promise<ExternalCapabilityPreflightResult> {
     const reviewed = await this.resolveReviewedTool(
       input,
@@ -616,6 +638,51 @@ export class McpToolProxy {
         false,
       );
     }
+    const preflightReviewedArguments =
+      (): ExternalCapabilityPreflightResult => {
+        const schema = z.fromJSONSchema(contract.inputSchema);
+        const capabilityArguments =
+          capabilityArgumentsWithEnvelopeIdempotencyKey({
+            schema: contract.inputSchema,
+            arguments: input.arguments ?? {},
+            envelopeIdempotencyKey: input.envelopeIdempotencyKey,
+          });
+        const validation = schema.safeParse(capabilityArguments);
+        if (!validation.success) {
+          return {
+            ...externalCapabilityPreflightFailure(
+              'CAPABILITY_INPUT_SCHEMA_INVALID',
+              'External capability arguments do not match the reviewed input schema.',
+              true,
+            ),
+            diagnostics: externalCapabilityDiagnostics(validation.error.issues),
+          };
+        }
+        return {
+          ok: true,
+          arguments: capabilityArguments,
+          operation: {
+            executionMode: contract.executionMode ?? 'sync',
+            requiresActiveJob: contract.requiresActiveJob ?? false,
+            ...(contract.deadlineMs !== undefined
+              ? { deadlineMs: contract.deadlineMs }
+              : {}),
+            ...(contract.resultEnvelopeSchema
+              ? { resultEnvelopeSchema: contract.resultEnvelopeSchema }
+              : {}),
+            ...(contract.suspensionCheckpoint
+              ? { suspensionCheckpoint: contract.suspensionCheckpoint }
+              : {}),
+          },
+        };
+      };
+    // Gantry-hosted operations execute a reviewed, digest-pinned local module.
+    // Their immutable catalog contract is the source of truth; requiring a
+    // live MCP server here would make the hosted runner depend on an unrelated
+    // source-inventory transport that is intentionally not mounted.
+    if (contract.executionMode === 'gantry_hosted') {
+      return preflightReviewedArguments();
+    }
     const client = await connectMcpToolProxyClient(
       reviewed.capability,
       this.options,
@@ -643,34 +710,7 @@ export class McpToolProxy {
           false,
         );
       }
-      const schema = z.fromJSONSchema(contract.inputSchema);
-      const validation = schema.safeParse(input.arguments ?? {});
-      if (validation.success) {
-        return {
-          ok: true,
-          operation: {
-            executionMode: contract.executionMode ?? 'sync',
-            requiresActiveJob: contract.requiresActiveJob ?? false,
-            ...(contract.deadlineMs !== undefined
-              ? { deadlineMs: contract.deadlineMs }
-              : {}),
-            ...(contract.resultEnvelopeSchema
-              ? { resultEnvelopeSchema: contract.resultEnvelopeSchema }
-              : {}),
-            ...(contract.suspensionCheckpoint
-              ? { suspensionCheckpoint: contract.suspensionCheckpoint }
-              : {}),
-          },
-        };
-      }
-      return {
-        ...externalCapabilityPreflightFailure(
-          'CAPABILITY_INPUT_SCHEMA_INVALID',
-          'External capability arguments do not match the reviewed input schema.',
-          true,
-        ),
-        diagnostics: externalCapabilityDiagnostics(validation.error.issues),
-      };
+      return preflightReviewedArguments();
     } finally {
       scheduleMcpClientIdleClose(reviewed.capability);
     }
@@ -813,6 +853,32 @@ export class McpToolProxy {
       finalizeDenied,
     });
   }
+}
+
+function capabilityArgumentsWithEnvelopeIdempotencyKey(input: {
+  schema: Record<string, unknown>;
+  arguments: Record<string, unknown>;
+  envelopeIdempotencyKey?: string;
+}): Record<string, unknown> {
+  if (
+    !input.envelopeIdempotencyKey ||
+    Object.hasOwn(input.arguments, 'idempotencyKey')
+  ) {
+    return input.arguments;
+  }
+  const properties = input.schema.properties;
+  if (
+    !properties ||
+    typeof properties !== 'object' ||
+    Array.isArray(properties) ||
+    !Object.hasOwn(properties, 'idempotencyKey')
+  ) {
+    return input.arguments;
+  }
+  return {
+    ...input.arguments,
+    idempotencyKey: input.envelopeIdempotencyKey,
+  };
 }
 
 function externalCapabilityPreflightFailure(

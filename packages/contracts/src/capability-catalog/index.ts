@@ -46,7 +46,9 @@ export const ReviewedMcpCapabilityManifestSchema = z
               .string()
               .regex(/^sha256:[a-f0-9]{64}$/)
               .optional(),
-            executionMode: z.enum(['sync', 'durable_async']).optional(),
+            executionMode: z
+              .enum(['sync', 'durable_async', 'gantry_hosted'])
+              .optional(),
             requiresActiveJob: z.boolean().optional(),
             deadlineMs: z.number().int().min(1_000).max(86_400_000).optional(),
             suspensionCheckpoint: z

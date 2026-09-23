@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 
 import {
   BROWSER_BACKEND_ACTIONS,
@@ -36,6 +37,12 @@ import {
 import { type IpcDomainContext } from './ipc-domain-types.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
 import { markBrowserProfileActivity } from './browser-profile-sync.js';
+import {
+  HOST_BROWSER_PAGINATION_PROBE_CREATED_BY,
+  HOST_BROWSER_PAGINATION_PROBE_PROVENANCE,
+} from '../domain/file-artifacts/file-artifact.js';
+import { jobArtifactScope } from '../domain/ports/job-semantic-checkpoints.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
   clearBrowserNetworkPolicyNavigationDenial,
   ensureBrowserNetworkPolicy,
@@ -198,6 +205,50 @@ function browserToolResultText(result: unknown): string | undefined {
   return text || undefined;
 }
 
+function paginationProbeEvidence(result: unknown): Record<string, unknown> {
+  const text = browserToolResultText(result);
+  if (!text) throw new Error('Browser pagination probe evidence is missing.');
+  const value = JSON.parse(text) as Record<string, unknown>;
+  if (
+    value.schemaVersion !== 'browser.pagination_probe@1' ||
+    !['growth', 'no_growth', 'blocked'].includes(String(value.outcome)) ||
+    !Array.isArray(value.observedRequests)
+  ) {
+    throw new Error('Browser pagination probe evidence is invalid.');
+  }
+  return value;
+}
+
+async function persistPaginationProbeResult(
+  request: BrowserRequest,
+  context: BrowserContext,
+  result: unknown,
+): Promise<unknown> {
+  const store = context.getFileArtifactStore?.();
+  if (!request.jobId || !request.appId || !store) {
+    throw new Error(
+      'Browser pagination probe trusted job artifact context is required.',
+    );
+  }
+  const evidence = paginationProbeEvidence(result);
+  const artifact = await store.writeFileArtifact({
+    appId: request.appId,
+    agentId: memoryAgentIdForWorkspaceFolder(context.sourceAgentFolder),
+    virtualScope: jobArtifactScope(request.jobId),
+    virtualPath: `browser-pagination-probe/${randomUUID()}.json`,
+    content: JSON.stringify(evidence),
+    contentType: 'application/json',
+    createdBy: HOST_BROWSER_PAGINATION_PROBE_CREATED_BY,
+    metadata: { provenance: HOST_BROWSER_PAGINATION_PROBE_PROVENANCE },
+  });
+  const output = { ...evidence, artifactId: artifact.id };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(output, null, 2) }],
+    structuredContent: output,
+    ...(evidence.outcome === 'blocked' ? { isError: true } : {}),
+  };
+}
+
 function createBrowserIpcDeadline(
   timeoutMs: number | undefined,
   deadlineAtMs: number | undefined,
@@ -344,6 +395,15 @@ async function handleBrowserToolActionInner(
     }
   }
 
+  if (
+    request.action === 'scroll_and_observe' &&
+    (!request.jobId || !request.appId || !context.getFileArtifactStore?.())
+  ) {
+    throw new Error(
+      'Browser pagination probe trusted job artifact context is required.',
+    );
+  }
+
   browserIpcRemainingMs(deadline);
   const session = await ensureBrowserReady({
     profileName,
@@ -469,7 +529,13 @@ async function handleBrowserToolActionInner(
         : 'Browser navigation failed with ERR_BLOCKED_BY_CLIENT; Gantry network policy recorded no navigation denial.',
     };
   }
-  return { ok: true, data: result };
+  return {
+    ok: true,
+    data:
+      request.action === 'scroll_and_observe'
+        ? await persistPaginationProbeResult(request, context, result)
+        : result,
+  };
 }
 
 function browserBackendTimedOut(err: unknown): boolean {
@@ -505,6 +571,7 @@ const PUBLIC_RESEARCH_MUTATING_ACTIONS = new Set<BrowserBackendAction>([
   'press_key',
   'select_option',
   'fill_form',
+  'scroll_and_observe',
 ]);
 const PROHIBITED_PUBLIC_RESEARCH_TARGET =
   /(login|log[-_ ]?in|sign[-_ ]?in|register|account|password|purchase|checkout|payment|upload|apply|application|submit|place[-_ ]?(bid|order))/iu;
@@ -564,7 +631,9 @@ function trustedElementInspectionPayload(
   const selector =
     typeof payload.selector === 'string' ? payload.selector.trim() : '';
   if (!selector || selector.length > 2_000 || selector.includes('\0')) {
-    throw new Error('Browser element inspection requires a valid CSS selector.');
+    throw new Error(
+      'Browser element inspection requires a valid CSS selector.',
+    );
   }
   return {
     target: 'body',

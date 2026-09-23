@@ -177,6 +177,7 @@ describe('buildGantryMcpProjection', () => {
           implementationBindings: [
             { kind: 'adapter', adapterRef: 'website-recipe-evaluator' },
           ],
+          operations: [{ executionMode: 'gantry_hosted' }],
         },
       ],
       processEnv: {

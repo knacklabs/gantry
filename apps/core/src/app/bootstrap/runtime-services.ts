@@ -125,6 +125,7 @@ import type { GroupProcessingDeps } from '../../runtime/group-processing-types.j
 import { createAttachmentOpen } from './attachment-resolver-wiring.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { createProviderAttachmentMaterializer } from '../../shared/provider-attachment-materialization.js';
+import { createConfiguredGantryHostedCapabilityRunner } from '../../runtime/gantry-hosted-capability-module-runner.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 
 export function createRuntimeProviderAttachmentMaterializer(app: RuntimeApp) {
@@ -161,6 +162,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   collectSessionMemory: SessionMemoryCollector;
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getJobControl?: IpcDeps['getJobControl'];
   getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
@@ -284,6 +286,14 @@ export async function startRuntimeServices(
     ...deps,
     runnerSandboxProvider: app.runnerSandboxProvider,
   };
+  const gantryHostedCapabilityRunner =
+    createConfiguredGantryHostedCapabilityRunner({
+      getFileArtifactStore: () => resolved.getFileArtifactStore?.(),
+      getAsyncTaskRepository: () => resolved.getAsyncTaskRepository?.(),
+      openBrowserSession: (profileName, options) =>
+        ensureBrowserReady({ ...options, profileName }),
+      closeBrowserSession: closeBrowser,
+    });
   const workerCoordination = resolved.getWorkerCoordinationRepository?.();
   const liveTurns = resolved.getLiveTurnRepository?.();
   const liveTurnLeaseDeps =
@@ -419,6 +429,7 @@ export async function startRuntimeServices(
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getJobSemanticCheckpointRepository:
         resolved.getJobSemanticCheckpointRepository,
+      getGantryHostedCapabilityRunner: () => gantryHostedCapabilityRunner,
       getBrowserStatus,
       openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
@@ -469,6 +480,7 @@ export async function startRuntimeServices(
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getJobSemanticCheckpointRepository:
         resolved.getJobSemanticCheckpointRepository,
+      getGantryHostedCapabilityRunner: () => gantryHostedCapabilityRunner,
       getMcpServerRepository: resolved.getMcpServerRepository,
       getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getSkillArtifactStore: resolved.getSkillArtifactStore,

@@ -1,4 +1,9 @@
-import { chromium, type Browser, type Route } from 'playwright-core';
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Route,
+} from 'playwright-core';
 
 import { resolvePublicEgressAddress } from '../shared/egress-target-resolution.js';
 import { nowMs } from '../shared/time/datetime.js';
@@ -24,6 +29,14 @@ export type BrowserNetworkPolicyDenialReason =
   | 'unsupported_protocol'
   | 'navigation_host_not_allowed'
   | 'non_public_address';
+
+export interface BrowserNetworkPolicyRequestDenial {
+  readonly origin: string;
+  readonly url: string;
+  readonly method: string;
+  readonly resourceType: string;
+  readonly reason: 'method_not_allowed';
+}
 
 export function lastBrowserNetworkPolicyNavigationDenial(
   port: number,
@@ -89,6 +102,25 @@ export async function ensureBrowserNetworkPolicy(input: {
   }
 }
 
+export async function installBrowserContextNetworkPolicy(input: {
+  context: BrowserContext;
+  allowedHosts: readonly string[];
+  allowedOrigins?: readonly string[];
+  allowedMethodsByOrigin?: Readonly<Record<string, readonly string[]>>;
+  onRequestDenied?: (denial: BrowserNetworkPolicyRequestDenial) => void;
+  allowPublicNavigationDiscovery?: boolean;
+}): Promise<void> {
+  const state = {
+    allowedHosts: [...input.allowedHosts],
+    allowedOrigins: input.allowedOrigins,
+    allowedMethodsByOrigin: input.allowedMethodsByOrigin,
+    onRequestDenied: input.onRequestDenied,
+    allowPublicNavigationDiscovery:
+      input.allowPublicNavigationDiscovery === true,
+  };
+  await input.context.route('**/*', async (route) => guardRoute(route, state));
+}
+
 async function install(input: {
   port: number;
   allowedHosts: readonly string[];
@@ -119,11 +151,14 @@ async function guardRoute(
   route: Route,
   state: {
     allowedHosts: readonly string[];
+    allowedOrigins?: readonly string[];
+    allowedMethodsByOrigin?: Readonly<Record<string, readonly string[]>>;
+    onRequestDenied?: (denial: BrowserNetworkPolicyRequestDenial) => void;
     allowPublicNavigationDiscovery: boolean;
   },
-  port: number,
+  port?: number,
 ) {
-  if (state.allowedHosts.length === 0) {
+  if (state.allowedHosts.length === 0 && state.allowedOrigins === undefined) {
     await route.continue();
     return;
   }
@@ -151,6 +186,40 @@ async function guardRoute(
       request.isNavigationRequest(),
       url.href,
       'unsupported_protocol',
+    );
+    await route.abort('blockedbyclient');
+    return;
+  }
+  // Validation is exact-origin and all-request; authoring discovery is unchanged.
+  const configuredMethods = state.allowedMethodsByOrigin?.[url.origin];
+  const allowedMethods =
+    state.allowedOrigins !== undefined
+      ? (configuredMethods ?? ['GET', 'HEAD'])
+      : configuredMethods;
+  if (
+    allowedMethods &&
+    (!allowedMethods.includes(request.method()) ||
+      (request.method() === 'POST' && url.protocol !== 'https:'))
+  ) {
+    state.onRequestDenied?.({
+      origin: url.origin,
+      url: url.href,
+      method: request.method(),
+      resourceType: request.resourceType(),
+      reason: 'method_not_allowed',
+    });
+    await route.abort('blockedbyclient');
+    return;
+  }
+  if (
+    state.allowedOrigins !== undefined &&
+    (url.username || url.password || !state.allowedOrigins.includes(url.origin))
+  ) {
+    rememberNavigationDenial(
+      port,
+      request.isNavigationRequest(),
+      url.href,
+      'navigation_host_not_allowed',
     );
     await route.abort('blockedbyclient');
     return;
@@ -186,12 +255,14 @@ async function guardRoute(
 }
 
 function rememberNavigationDenial(
-  port: number,
+  port: number | undefined,
   navigationRequest: boolean,
   url: string,
   reason: BrowserNetworkPolicyDenialReason,
 ): void {
-  if (navigationRequest) navigationDenials.set(port, { url, reason });
+  if (navigationRequest && port !== undefined) {
+    navigationDenials.set(port, { url, reason });
+  }
 }
 
 async function isPublicHost(hostname: string) {

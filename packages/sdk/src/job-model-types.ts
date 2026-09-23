@@ -396,6 +396,8 @@ export interface JobAgentTask {
     interactionTimeoutMs: number;
     allowSelectedMcpToolCalls?: boolean;
   };
+  /** Immutable app-owned context; never copied from model tool arguments. */
+  trustedCapabilityContext?: Record<string, unknown>;
   completionGate?: {
     toolName: string;
     maxNoProgressContinuations: number;
@@ -423,6 +425,14 @@ export interface UpdateJobInput {
   minimumRemainingRuntimeMs?: number;
   /** Monotonically add administrator-approved hosts to a retained browser job. */
   addBrowserAllowedNetworkHosts?: string[];
+  /** App-owned paused-job extension of exact validation origins and methods. */
+  addCapabilityAllowedOrigins?: Array<
+    | string
+    | {
+        origin: string;
+        methods: Array<'GET' | 'HEAD' | 'POST'>;
+      }
+  >;
   /** Replace the reviewed caller-tool contract when re-pinning a durable skill. */
   callerResolvedTools?: JobAgentTask['callerResolvedTools'];
   /** Refresh bounded model controls when resuming a durable agent job. */

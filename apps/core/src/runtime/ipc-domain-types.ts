@@ -49,6 +49,7 @@ import type { PermissionMode } from '../shared/permission-mode.js';
 import type { PermissionPromotionRepository } from '../domain/ports/permission-promotion.js';
 import type { PermissionDecisionMemoryRepository } from '../domain/ports/permission-decision-memory.js';
 import type { AttachmentOpenResult } from '../application/attachments/attachment-resolver.js';
+import type { GantryHostedCapabilityRunner } from '../domain/ports/gantry-hosted-capability-runner.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -106,6 +107,9 @@ export interface IpcDeps {
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getJobSemanticCheckpointRepository?: () =>
     | JobSemanticCheckpointRepository
+    | undefined;
+  getGantryHostedCapabilityRunner?: () =>
+    | GantryHostedCapabilityRunner
     | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
