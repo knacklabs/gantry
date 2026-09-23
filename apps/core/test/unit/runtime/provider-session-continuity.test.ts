@@ -10,38 +10,30 @@ const failover = vi.hoisted(() => ({
 }));
 
 vi.mock('@core/runtime/group-initial-execution-provider.js', () => ({
-  resolveInitialGroupExecutionProviderId: vi.fn(async () => ({
-    executionProviderId: failover.initialProvider,
-    firstModel: 'first-model',
-    failoverCandidates: failover.targetProvider
-      ? ['first-model', 'second-model']
-      : [],
-    initialModelSelection: {
-      modelAlias: 'first-model',
-      selectionSource: 'test',
-    },
-  })),
+  resolveInitialGroupExecutionProviderId: vi.fn(async () => {
+    const firstModel =
+      failover.initialProvider === 'anthropic:claude-agent-sdk'
+        ? 'opus'
+        : 'gpt';
+    const secondModel =
+      failover.targetProvider === 'anthropic:claude-agent-sdk'
+        ? 'opus'
+        : failover.targetProvider === failover.initialProvider
+          ? 'gpt-5.4'
+          : 'gpt';
+    return {
+      executionProviderId: failover.initialProvider,
+      firstModel,
+      failoverCandidates: failover.targetProvider
+        ? [firstModel, secondModel]
+        : [],
+      initialModelSelection: {
+        modelAlias: firstModel,
+        selectionSource: 'test',
+      },
+    };
+  }),
 }));
-
-vi.mock('@core/runtime/failover-candidate-loop.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('@core/runtime/failover-candidate-loop.js')
-    >();
-  return {
-    ...actual,
-    runFamilyFailoverLoop: vi.fn(async (input) => {
-      if (!failover.targetProvider) return input.initialOutput;
-      input.onFailover(failover.targetProvider as never, {
-        toProviderId: failover.targetProvider as never,
-        fromModel: 'first-model',
-        toModel: 'second-model',
-        reason: input.initialOutput.error,
-      });
-      return input.invoke('second-model');
-    }),
-  };
-});
 
 const CLAUDE = 'anthropic:claude-agent-sdk';
 const DEEPAGENTS = 'deepagents:langchain';
@@ -154,7 +146,12 @@ function fixture(input?: {
         raiseProviderSessionContextHighWaterMark,
       }) as never,
   });
-  const invoke = () =>
+  const invoke = (options?: {
+    maintenanceProviderSession?: {
+      providerSessionId: string;
+      externalSessionId: string;
+    };
+  }) =>
     runner(
       {
         name: 'Main',
@@ -165,6 +162,7 @@ function fixture(input?: {
       'gantry:app-one:conversation:one',
       'gantry:app-one:conversation:one',
       async () => {},
+      options,
     );
   return {
     contexts,
@@ -363,5 +361,57 @@ describe('provider-session continuity', () => {
         .slice(1)
         .some(({ hydrateMemory }) => hydrateMemory === true),
     ).toBe(false);
+  });
+
+  it('preserves a durable maintenance session across same-provider failover', async () => {
+    failover.initialProvider = DEEPAGENTS;
+    failover.targetProvider = DEEPAGENTS;
+    const test = fixture({
+      firstOutput: {
+        status: 'error',
+        result: null,
+        error: 'API Error: 401 invalid key',
+      },
+    });
+
+    await test.invoke({
+      maintenanceProviderSession: {
+        providerSessionId: 'maintenance:provider',
+        externalSessionId: 'maintenance:external',
+      },
+    });
+
+    expect(test.runAgent).toHaveBeenCalledTimes(2);
+    expect(test.runAgent.mock.calls[0][1]).toMatchObject({
+      sessionId: 'maintenance:external',
+    });
+    expect(test.runAgent.mock.calls[1][1]).toMatchObject({
+      sessionId: 'maintenance:external',
+    });
+    expect(test.setSession).not.toHaveBeenCalled();
+    expect(test.retireProviderSession).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when provider-session maintenance crosses providers', async () => {
+    failover.initialProvider = DEEPAGENTS;
+    failover.targetProvider = CLAUDE;
+    const test = fixture({
+      firstOutput: {
+        status: 'error',
+        result: null,
+        error: 'API Error: 401 invalid key',
+      },
+    });
+
+    await expect(
+      test.invoke({
+        maintenanceProviderSession: {
+          providerSessionId: 'maintenance:provider',
+          externalSessionId: 'maintenance:external',
+        },
+      }),
+    ).resolves.toBe('error');
+
+    expect(test.runAgent).toHaveBeenCalledOnce();
   });
 });

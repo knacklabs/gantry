@@ -1092,8 +1092,6 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               provider: ['anthropic', 'sdk'].join('_'),
               diagnostic: 'runner_startup_timing',
-              persistSdkSession: false,
-              resumedSession: false,
               sdkQueryPreparedMs: expect.any(Number),
               sdkQueryIteratorMs: expect.any(Number),
               firstSdkEventMs: expect.any(Number),
@@ -1982,12 +1980,15 @@ describe('agent-runner IPC lifecycle', () => {
             payload: expect.objectContaining({
               provider: ['anthropic', 'sdk'].join('_'),
               diagnostic: 'runner_startup_timing',
-              persistSdkSession: false,
-              resumedSession: false,
             }),
           }),
         ]),
       );
+      const startupTiming = startupDiagnostics.find(
+        (event) => event.payload?.diagnostic === 'runner_startup_timing',
+      );
+      expect(startupTiming?.payload).not.toHaveProperty('persistSdkSession');
+      expect(startupTiming?.payload).not.toHaveProperty('resumedSession');
       expect(JSON.stringify(startupDiagnostics)).not.toContain(
         'stale-sdk-session',
       );

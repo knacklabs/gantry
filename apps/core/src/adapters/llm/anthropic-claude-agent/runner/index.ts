@@ -228,7 +228,7 @@ async function runScheduledQuery(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      { enableIpcFollowups: false, persistSdkSession: false },
+      { enableIpcFollowups: false },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;
@@ -272,7 +272,7 @@ async function runInteractiveQueryLoop(opts: {
 
   try {
     log(
-      `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
+      'Starting live streaming query with fresh non-persistent SDK session...',
     );
     const queryResult = await runQuery(
       opts.prompt,
@@ -282,7 +282,7 @@ async function runInteractiveQueryLoop(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      { enableIpcFollowups: true, persistSdkSession: true },
+      { enableIpcFollowups: true },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;

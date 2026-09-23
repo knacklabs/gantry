@@ -20,6 +20,20 @@ import type { ProviderSessionContinuity } from '../domain/repositories/ops-repo.
 type AgentTurnContext = Awaited<
   ReturnType<NonNullable<GroupProcessingRepository['getAgentTurnContext']>>
 >;
+type LoadTurnContext = (
+  promoteReadyProviderSession: boolean,
+  hydrateMemory?: boolean,
+) => Promise<AgentTurnContext | undefined>;
+type ProviderSessionPolicyDeps = {
+  currentAccessFingerprint: string;
+  repository: GroupProcessingRepository;
+  executionProviderId: ExecutionProviderId;
+  publish: GroupProcessingDeps['publishRuntimeEvent'];
+  appId: string;
+  groupName: string;
+  loadTurnContext: LoadTurnContext;
+  onRetired: (reference: RetiredProviderSessionReference) => void;
+};
 
 export async function retireSelectedProviderSession(input: {
   repository: GroupProcessingRepository;
@@ -240,10 +254,7 @@ async function recoverLostProviderSessionRetirement(input: {
   restoreResumeIdentifiers: boolean;
   currentAccessFingerprint: string;
   cap: number;
-  loadTurnContext: (
-    promoteReadyProviderSession: boolean,
-    hydrateMemory?: boolean,
-  ) => Promise<AgentTurnContext | undefined>;
+  loadTurnContext: LoadTurnContext;
 }): Promise<ProviderSessionCeilingPreflightResult> {
   const refreshed = await input.loadTurnContext(false, false);
   const nextContext =
@@ -284,25 +295,13 @@ async function recoverLostProviderSessionRetirement(input: {
   };
 }
 
-export async function prepareProviderSessionContext(input: {
-  turnContext: AgentTurnContext | undefined;
-  latestProviderSessionId: string | undefined;
-  currentProviderSessionId: string | undefined;
-  resumeProviderSessionId: string | undefined;
-  resumeExternalSessionId: string | undefined;
-  maintenanceProviderSession: boolean;
-  currentAccessFingerprint: string;
-  repository: GroupProcessingRepository;
-  executionProviderId: ExecutionProviderId;
-  publish: GroupProcessingDeps['publishRuntimeEvent'];
-  appId: string;
-  groupName: string;
-  loadTurnContext: (
-    promoteReadyProviderSession: boolean,
-    hydrateMemory?: boolean,
-  ) => Promise<AgentTurnContext | undefined>;
-  onRetired: (reference: RetiredProviderSessionReference) => void;
-}): Promise<ProviderSessionCeilingPreflightResult> {
+export async function prepareProviderSessionContext(
+  input: Omit<
+    ProviderSessionCeilingPreflightResult,
+    'providerSessionPersistenceAllowed'
+  > &
+    ProviderSessionPolicyDeps & { maintenanceProviderSession: boolean },
+): Promise<ProviderSessionCeilingPreflightResult> {
   const { turnContext } = input;
   const cap = getConfiguredProviderSessionMaxInputTokens();
   if (
@@ -373,33 +372,29 @@ export async function prepareProviderSessionContext(input: {
   );
 }
 
-export async function prepareProviderSessionFailoverAttempt(input: {
-  previousContext: AgentTurnContext | undefined;
-  loadTurnContext: (
-    promoteReadyProviderSession: boolean,
-    hydrateMemory?: boolean,
-  ) => Promise<AgentTurnContext | undefined>;
-  repository: GroupProcessingRepository;
-  executionProviderId: ExecutionProviderId;
-  providerSessionContinuity: ProviderSessionContinuity;
-  group: Parameters<typeof prepareCompactionDeltaReplay>[0]['group'];
-  chatJid: string;
-  threadId: string | null;
-  currentAccessFingerprint: string;
-  publish: GroupProcessingDeps['publishRuntimeEvent'];
-  appId: string;
-  groupName: string;
-  patternsContextBlock: string;
-  approvedSkillContextBlock: string;
-  updateRunProviderMetadata(
-    input: {
-      providerRunId?: string | null;
-      providerSessionId: string | null;
-    },
-    required?: boolean,
-  ): Promise<void>;
-  onRetired(reference: RetiredProviderSessionReference): void;
-}): Promise<{
+export async function prepareProviderSessionFailoverAttempt(
+  input: ProviderSessionPolicyDeps & {
+    previousContext: AgentTurnContext | undefined;
+    previousExecutionProviderId: ExecutionProviderId;
+    providerSessionContinuity: ProviderSessionContinuity;
+    maintenanceProviderSession?: {
+      providerSessionId: string;
+      externalSessionId: string;
+    };
+    group: Parameters<typeof prepareCompactionDeltaReplay>[0]['group'];
+    chatJid: string;
+    threadId: string | null;
+    patternsContextBlock: string;
+    approvedSkillContextBlock: string;
+    updateRunProviderMetadata(
+      input: {
+        providerRunId?: string | null;
+        providerSessionId: string | null;
+      },
+      required?: boolean,
+    ): Promise<void>;
+  },
+): Promise<{
   turnContext: AgentTurnContext | undefined;
   latestProviderSessionId: string | undefined;
   currentProviderSessionId: string | undefined;
@@ -408,6 +403,15 @@ export async function prepareProviderSessionFailoverAttempt(input: {
   providerSessionPersistenceAllowed: boolean;
   memoryContextBlock: string;
 }> {
+  if (
+    input.maintenanceProviderSession &&
+    (input.providerSessionContinuity !== 'durable_resume' ||
+      input.previousExecutionProviderId !== input.executionProviderId)
+  ) {
+    throw new Error(
+      'Provider-session maintenance cannot fail over across execution providers',
+    );
+  }
   const refreshed = await input.loadTurnContext(false, false);
   const sameGeneration =
     refreshed &&
@@ -428,13 +432,19 @@ export async function prepareProviderSessionFailoverAttempt(input: {
     group: input.group,
     chatJid: input.chatJid,
     threadId: input.threadId,
-    maintenanceProviderSession: undefined,
+    maintenanceProviderSession: input.maintenanceProviderSession,
   });
   let turnContext = replay.turnContext;
-  let latestProviderSessionId = turnContext?.externalSessionId?.trim();
-  let currentProviderSessionId = turnContext?.providerSessionId;
-  let resumeProviderSessionId = turnContext?.providerSessionId;
-  let resumeExternalSessionId = turnContext?.externalSessionId;
+  let latestProviderSessionId =
+    input.maintenanceProviderSession?.externalSessionId.trim() ||
+    turnContext?.externalSessionId?.trim();
+  let currentProviderSessionId =
+    input.maintenanceProviderSession?.providerSessionId ??
+    turnContext?.providerSessionId;
+  let resumeProviderSessionId = currentProviderSessionId;
+  let resumeExternalSessionId =
+    input.maintenanceProviderSession?.externalSessionId ??
+    turnContext?.externalSessionId;
   let providerSessionPersistenceAllowed =
     input.providerSessionContinuity === 'durable_resume';
   if (providerSessionPersistenceAllowed) {
@@ -451,7 +461,7 @@ export async function prepareProviderSessionFailoverAttempt(input: {
       currentProviderSessionId,
       resumeProviderSessionId,
       resumeExternalSessionId,
-      maintenanceProviderSession: false,
+      maintenanceProviderSession: Boolean(input.maintenanceProviderSession),
       currentAccessFingerprint: input.currentAccessFingerprint,
       repository: input.repository,
       executionProviderId: input.executionProviderId,
@@ -623,22 +633,13 @@ export async function persistDurableProviderSessionFromOutput(input: {
   return nextSessionId;
 }
 
-export async function applyProviderSessionCeilingPreflight(input: {
-  turnContext: AgentTurnContext | undefined;
-  cap: number;
-  currentAccessFingerprint: string;
-  maintenanceProviderSession: boolean;
-  repository: GroupProcessingRepository;
-  executionProviderId: ExecutionProviderId;
-  publish: GroupProcessingDeps['publishRuntimeEvent'];
-  appId: string;
-  groupName: string;
-  loadTurnContext: (
-    promoteReadyProviderSession: boolean,
-    hydrateMemory?: boolean,
-  ) => Promise<AgentTurnContext | undefined>;
-  onRetired: (reference: RetiredProviderSessionReference) => void;
-}): Promise<ProviderSessionCeilingPreflightResult | undefined> {
+export async function applyProviderSessionCeilingPreflight(
+  input: ProviderSessionPolicyDeps & {
+    turnContext: AgentTurnContext | undefined;
+    cap: number;
+    maintenanceProviderSession: boolean;
+  },
+): Promise<ProviderSessionCeilingPreflightResult | undefined> {
   const { turnContext } = input;
   if (
     !turnContext?.providerSessionId ||

@@ -54,6 +54,7 @@ function installHermeticRunnerTools(home: string): string {
   fs.writeFileSync(
     path.join(binDir, 'claude'),
     `#!${process.execPath}
+require('node:fs').appendFileSync(require('node:path').join(process.cwd(), 'claude-invoked'), 'invoked\\n');
 const sessionId = '00000000-0000-4000-8000-000000000001';
 let emitted = false;
 let input = '';
@@ -143,7 +144,6 @@ process.stdin.on('data', (chunk) => {
           response: { commands: [], models: [], agents: [] },
         },
       });
-      emit();
     } else if (
       message.type === 'control_request' &&
       message.request?.subtype === 'get_context_usage'
@@ -169,10 +169,33 @@ process.stdin.on('data', (chunk) => {
         },
       });
       setTimeout(() => process.exit(0), 10);
+    } else if (message.type === 'user') {
+      emit();
     }
   }
 });
-process.stdin.on('end', emit);
+process.stdin.on('end', () => process.exit(emitted ? 0 : 2));
+`,
+  );
+
+  fs.writeFileSync(
+    path.join(binDir, 'bash'),
+    `#!${process.execPath}
+const { spawn } = require('node:child_process');
+const child = spawn('/bin/bash', process.argv.slice(2), {
+  stdio: 'inherit',
+  env: { ...process.env, HOME: ${JSON.stringify(home)} },
+});
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => child.kill(signal));
+}
+child.on('error', (error) => {
+  console.error(error);
+  process.exit(1);
+});
+child.on('exit', (code, signal) => {
+  process.exit(signal ? 1 : (code ?? 0));
+});
 `,
   );
 
@@ -236,7 +259,7 @@ child.on('exit', (code, signal) => {
 });
 `,
   );
-  for (const executable of ['claude', 'socat', 'rg', 'bwrap']) {
+  for (const executable of ['claude', 'bash', 'socat', 'rg', 'bwrap']) {
     fs.chmodSync(path.join(binDir, executable), 0o700);
   }
   return binDir;
@@ -280,8 +303,8 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
     { timeout: TEST_TIMEOUT_MS },
     async () => {
       try {
-        fakeHome = fs.mkdtempSync(
-          path.join(os.tmpdir(), 'gantry-agent-e2e-job-home-'),
+        fakeHome = fs.realpathSync(
+          fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-agent-e2e-job-home-')),
         );
         installRuntimeSettings(fakeHome);
         const runnerBin = installHermeticRunnerTools(fakeHome);
@@ -329,6 +352,12 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
         expect(createdAgent.status).toBe(201);
         const agentId = createdAgent.body.id;
         const workspaceKey = agentId.replace(/^agent:/, '');
+        const invocationMarker = path.join(
+          fakeHome,
+          'agents',
+          workspaceKey,
+          'claude-invoked',
+        );
 
         const ensured = await api.request<{
           sessionId: string;
@@ -414,6 +443,10 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
         );
         expect(triggered.status).toBe(202);
         const triggerId = triggered.body.triggerId;
+        await expect
+          .poll(() => fs.existsSync(invocationMarker), { timeout: 15_000 })
+          .toBe(true);
+        expect(fs.readFileSync(invocationMarker, 'utf8')).toBe('invoked\n');
         const waited = await api.request<{
           runId: string;
           status: string;
@@ -483,11 +516,15 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
         ).toMatchObject({ delivery_state: 'sent', notified: true });
 
         const sessionEvents = await api.listEvents(ensured.body.sessionId);
-        expect(
-          sessionEvents.some(
-            (event) => event.eventType === 'session.message.outbound',
-          ),
-        ).toBe(true);
+        const terminalProgressEvent = sessionEvents.find(
+          (event) =>
+            event.eventType === 'session.progress' &&
+            payloadRecord(event.payload).done === true,
+        );
+        expect(payloadRecord(terminalProgressEvent?.payload)).toMatchObject({
+          done: true,
+          text: expect.stringContaining('job completed'),
+        });
 
         const client = new Client({ connectionString: harness.databaseUrl });
         await client.connect();
@@ -528,7 +565,7 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
           }>(
             `SELECT event_type, payload_json
                FROM gantry.runtime_events
-              WHERE job_id = $1 OR (session_id = $2 AND event_type = 'session.message.outbound')
+              WHERE job_id = $1 OR (session_id = $2 AND event_type = 'session.progress')
               ORDER BY event_id`,
             [jobId, ensured.body.sessionId],
           );
@@ -539,9 +576,21 @@ maybeDescribe('agent-e2e job lifecycle (packaged runtime, hermetic)', () => {
               'job.started',
               'job.completed',
               'job.run.completed',
-              'session.message.outbound',
+              'session.progress',
             ]),
           );
+          expect(
+            payloadRecord(
+              durableEvents.rows.find(
+                (event) =>
+                  event.event_type === 'session.progress' &&
+                  payloadRecord(event.payload_json).done === true,
+              )!.payload_json,
+            ),
+          ).toMatchObject({
+            done: true,
+            text: expect.stringContaining('job completed'),
+          });
           expect(
             payloadRecord(
               durableEvents.rows.find(
