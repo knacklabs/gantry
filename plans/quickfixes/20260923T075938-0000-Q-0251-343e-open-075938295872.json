@@ -1,0 +1,10 @@
+{
+  "event": "open",
+  "id": "Q-0251-343e",
+  "profile": "quickfix",
+  "reason": "Fix localhost MCP connection validation adding forbidden loopback network host",
+  "started_at": "2026-09-23T07:59:38+00:00",
+  "max_files": 5,
+  "files": [],
+  "harness_source": false
+}

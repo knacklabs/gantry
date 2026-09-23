@@ -261,6 +261,42 @@ describe('McpServerService', () => {
     expect(server.networkHosts).toContain('mcp.example.test:443');
   });
 
+  it('validates loopback HTTP sources without declaring a forbidden network host', async () => {
+    const { repo, service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'local-demo',
+      transportConfig: {
+        transport: 'http',
+        url: 'http://127.0.0.1:14319/mcp',
+      },
+    });
+
+    expect(server.networkHosts).toEqual([]);
+    await expect(
+      service.testServer({ appId: 'app:one' as never, serverId: server.id }),
+    ).resolves.toMatchObject({ ok: true });
+
+    repo.servers.set(server.id, {
+      ...server,
+      networkHosts: ['127.0.0.1:14319'],
+    });
+    await expect(
+      service.testServer({ appId: 'app:one' as never, serverId: server.id }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      service.connectServer({
+        appId: 'app:one' as never,
+        name: 'local-demo-other',
+        transportConfig: {
+          transport: 'http',
+          url: 'http://127.0.0.1:14319/mcp',
+        },
+        networkHosts: ['127.0.0.2:14319'],
+      }),
+    ).rejects.toThrow(/networkHosts cannot target private, loopback/);
+  });
+
   it('derives the remote URL host when the same hostname is declared on another port', async () => {
     const { service } = serviceWithRepo();
     const server = await service.connectServer({

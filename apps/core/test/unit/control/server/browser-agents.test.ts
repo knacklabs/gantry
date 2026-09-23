@@ -37,6 +37,7 @@ const agentRouteSource = `${source}\n${helpers}\n${observability}\n${workflowMap
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone')).toBe(true);
+  expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone/persona')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone/workflow-map')).toBe(
     true,
   );
@@ -86,6 +87,12 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(agentRouteSource).toContain('const AGENT_SOURCES_PATH');
   expect(agentRouteSource).toContain('const AGENT_CAPABILITIES_PATH');
   expect(agentRouteSource).toContain('const AGENT_VERSIONS_PATH');
+  expect(agentRouteSource).toContain('const AGENT_PERSONA_PATH');
+  expect(agentRouteSource).toContain("readProfileFile(folder, 'soul'");
+  expect(agentRouteSource).toContain("kind: 'soul'");
+  expect(agentRouteSource).toContain('expectedVersion: body.expectedVersion');
+  expect(agentRouteSource).toContain('defaultSoulPromptMarkdown(agent.name)');
+  expect(agentRouteSource).toContain('ensureAgentDefaults(');
   expect(agentRouteSource).toContain('const AGENT_AUDIT_PATH');
   expect(agentRouteSource).toContain('const AGENT_USAGE_PATH');
   expect(agentRouteSource).toContain(

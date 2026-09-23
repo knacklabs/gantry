@@ -62,6 +62,7 @@ import {
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
+import { AgentPersonaEditor } from '../components/agent-persona-editor';
 import { AgentVersionHistory } from '../components/agent-version-history';
 import {
   RoleEditorDialog,
@@ -953,6 +954,10 @@ function Instructions({ agent }: { agent: AgentDirectoryItem }) {
           Last changed {formatDate(agent.updatedAt)}
         </div>
       </InfoCard>
+      <AgentPersonaEditor
+        agentId={agent.id}
+        disabled={agent.status === 'offboarded'}
+      />
       <RoleAssignmentDialog
         agent={agent}
         open={roleDialogOpen}

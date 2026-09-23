@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeFileArtifactStore,
+  getRuntimeStorage,
+} from '../../../adapters/storage/postgres/runtime-store.js';
 import { CustomRoleService } from '../../../application/agents/custom-role-service.js';
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
+import { ProfileVersionConflictError } from '../../../application/agents/agent-profile-service.js';
+import { defaultSoulPromptMarkdown } from '../../../application/agents/prompt-profile-defaults.js';
+import { PromptProfileService } from '../../../application/agents/prompt-profile-service.js';
 import type { ConsoleRole } from '../../../application/auth/auth-foundations.js';
 import { isRecentlyReauthenticated } from '../../../application/auth/auth-foundations.js';
 import type {
@@ -14,6 +20,13 @@ import type {
   CustomRoleId,
 } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
+import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
+import { FileArtifactNotFoundError } from '../../../domain/file-artifacts/file-artifact.js';
+import {
+  createProfileFileMirrorExists,
+  createProfileFileMirrorWriter,
+} from '../../../platform/profile-file-mirror.js';
+import { isValidWorkspaceFolder } from '../../../platform/workspace-folder.js';
 import { nowIso } from '../../../shared/time/datetime.js';
 import { listModelCatalogEntries } from '../../../shared/model-catalog.js';
 import { semanticCapabilityFromToolCatalogItem } from '../../../shared/semantic-capabilities.js';
@@ -42,6 +55,7 @@ import {
 } from './browser-agents-helpers.js';
 import { handleBrowserAgentObservabilityRoutes } from './browser-agent-observability.js';
 import { isBrowserAgentsPath } from './browser-agent-route-matcher.js';
+import { buildAgentProfileService } from './agents.js';
 export { isBrowserAgentsPath } from './browser-agent-route-matcher.js';
 
 type BrowserAgentsSettings = {
@@ -53,6 +67,7 @@ const AGENT_STATUS_PATH = /^\/ui\/api\/agents\/([^/]+)\/(enable|disable)$/;
 const AGENT_SOURCES_PATH = /^\/ui\/api\/agents\/([^/]+)\/sources$/;
 const AGENT_CAPABILITIES_PATH = /^\/ui\/api\/agents\/([^/]+)\/capabilities$/;
 const AGENT_VERSIONS_PATH = /^\/ui\/api\/agents\/([^/]+)\/versions$/;
+const AGENT_PERSONA_PATH = /^\/ui\/api\/agents\/([^/]+)\/persona$/;
 const ROLE_PATH = /^\/ui\/api\/roles\/([^/]+)$/;
 const AGENT_MODELS_PATH = '/ui/api/agent-models';
 
@@ -200,6 +215,50 @@ export async function handleBrowserAgentRoutes(
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
       sendJson(res, 200, { agent: await agentView(storage, agent) });
+      return true;
+    }
+    const personaMatch = pathname.match(AGENT_PERSONA_PATH);
+    if (personaMatch) {
+      const agentId = decodeURIComponent(personaMatch[1]) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      const folder = folderForAgentId(agentId);
+      if (!folder || !isValidWorkspaceFolder(folder))
+        return (
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'Agent has no persona profile.',
+          ),
+          true
+        );
+      try {
+        const profile = await buildAgentProfileService(
+          agentId,
+          appId,
+          ctx.runtimeHome,
+        ).readProfileFile(folder, 'soul', {
+          actor: `browser:${session.userId}`,
+        });
+        sendJson(res, 200, {
+          persona: {
+            content: profile.content,
+            version: profile.version,
+            isDefault: false,
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof FileArtifactNotFoundError)) throw error;
+        sendJson(res, 200, {
+          persona: {
+            content: defaultSoulPromptMarkdown(agent.name),
+            version: 0,
+            isDefault: true,
+          },
+        });
+      }
       return true;
     }
     if (
@@ -430,6 +489,19 @@ export async function handleBrowserAgentRoutes(
       };
       await storage.repositories.agents.saveAgent(agent);
       await storage.repositories.agentConfigs.saveConfigVersion(config);
+      const folder = folderForAgentId(agent.id);
+      if (folder && isValidWorkspaceFolder(folder))
+        await new PromptProfileService({
+          appId,
+          fileArtifactStore: () => getRuntimeFileArtifactStore(),
+          mirrorProfileFile: createProfileFileMirrorWriter(ctx.runtimeHome),
+          mirrorFileExists: createProfileFileMirrorExists(ctx.runtimeHome),
+        }).ensureAgentDefaults({
+          agentFolder: folder,
+          agentName: agent.name,
+          appId,
+          agentId: agent.id,
+        });
       if (modelAlias !== undefined) {
         await ctx.agentSettings.writeAgentModelSetting({
           runtimeHome: ctx.runtimeHome,
@@ -549,6 +621,83 @@ export async function handleBrowserAgentRoutes(
       }
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { agent: await agentView(storage, updated) });
+      return true;
+    }
+    const personaMatch = pathname.match(AGENT_PERSONA_PATH);
+    if (personaMatch && req.method === 'PUT') {
+      const agentId = decodeURIComponent(personaMatch[1]) as AgentId;
+      const agent = await storage.repositories.agents.getAgent(agentId);
+      if (!agent || agent.appId !== appId)
+        return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);
+      if (agent.status === 'offboarded')
+        return (
+          sendError(
+            res,
+            409,
+            'CONFLICT',
+            'Offboarded AI employees cannot be changed.',
+          ),
+          true
+        );
+      const folder = folderForAgentId(agentId);
+      if (!folder || !isValidWorkspaceFolder(folder))
+        return (
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'Agent has no persona profile.',
+          ),
+          true
+        );
+      const body = await readJson(req);
+      if (
+        !object(body) ||
+        typeof body.content !== 'string' ||
+        !body.content.trim() ||
+        body.content.length > 3000 ||
+        typeof body.expectedVersion !== 'number' ||
+        !Number.isSafeInteger(body.expectedVersion) ||
+        body.expectedVersion < 0
+      )
+        return (
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            'Enter a persona of 1–3,000 characters and refresh before saving.',
+          ),
+          true
+        );
+      try {
+        const saved = await buildAgentProfileService(
+          agentId,
+          appId,
+          ctx.runtimeHome,
+        ).writeProfileFile({
+          agentFolder: folder,
+          kind: 'soul',
+          content: body.content,
+          expectedVersion: body.expectedVersion,
+          actor,
+          approvalSource: 'browser_admin',
+        });
+        sendJson(res, 200, {
+          persona: {
+            content: body.content,
+            version: saved.version,
+            isDefault: false,
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof ProfileVersionConflictError)) throw error;
+        sendError(
+          res,
+          409,
+          'CONFLICT',
+          'This persona changed elsewhere. Refresh it before saving.',
+        );
+      }
       return true;
     }
     const statusMatch = pathname.match(AGENT_STATUS_PATH);

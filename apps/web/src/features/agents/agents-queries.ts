@@ -32,6 +32,26 @@ export type BrowserPage<T> = {
 
 export type AgentDirectoryPage = BrowserPage<AgentDirectoryItem>;
 
+export type AgentPersona = {
+  content: string;
+  version: number;
+  isDefault: boolean;
+};
+
+export function agentPersonaQuery(agentId: string) {
+  return queryOptions({
+    queryKey: [...agentQueryKeys.all, 'persona', agentId] as const,
+    queryFn: async (): Promise<{ persona: AgentPersona }> => {
+      const response = await browserFetch(
+        `/ui/api/agents/${encodeURIComponent(agentId)}/persona`,
+        { credentials: 'same-origin' },
+      );
+      if (!response.ok) throw new Error('Persona could not be loaded.');
+      return response.json() as Promise<{ persona: AgentPersona }>;
+    },
+  });
+}
+
 export type AgentWorkflowRelationship =
   | {
       id: string;

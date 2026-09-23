@@ -49,7 +49,7 @@ import {
 
 const PROFILE_JSON_BODY_MAX_BYTES = MAX_PROFILE_CONTENT_BYTES * 6 + 64 * 1024;
 
-function buildAgentProfileService(
+export function buildAgentProfileService(
   actorAgentId: AgentId,
   appId: AppId,
   runtimeHome: string,

@@ -6,6 +6,7 @@ const AGENT_PATHS = [
   /^\/ui\/api\/agents\/([^/]+)\/sources$/,
   /^\/ui\/api\/agents\/([^/]+)\/capabilities$/,
   /^\/ui\/api\/agents\/([^/]+)\/versions$/,
+  /^\/ui\/api\/agents\/([^/]+)\/persona$/,
 ];
 
 export function isBrowserAgentsPath(pathname: string): boolean {

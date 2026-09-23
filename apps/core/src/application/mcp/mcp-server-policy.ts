@@ -41,9 +41,10 @@ const NPM_PACKAGE_SPEC_PATTERN =
 /**
  * Validate and normalize declared MCP server network hosts. Third-party MCP
  * source install/bind is inventory only; approved tool patterns define operation
- * authority, while declared hosts are review/audit metadata. For remote http/sse
+ * authority, while declared hosts are review/audit metadata. For public http/sse
  * servers the configured URL host is added automatically when omitted so review
- * prompts and audit can show the connection target.
+ * prompts and audit can show the connection target. Local loopback endpoints are
+ * transport configuration, not public network-host declarations.
  */
 export function normalizeMcpNetworkHosts(input: {
   serverName: string;
@@ -51,7 +52,26 @@ export function normalizeMcpNetworkHosts(input: {
   config: McpServerTransportConfig;
 }): string[] {
   const hosts = new Set<string>();
+  const url =
+    (input.config.transport === 'http' || input.config.transport === 'sse') &&
+    input.config.url
+      ? new URL(input.config.url)
+      : undefined;
+  const urlHost = url
+    ? `${url.hostname.toLowerCase().replace(/\.+$/, '')}:${url.port || defaultPortForProtocol(url.protocol)}`
+    : undefined;
+  const localLoopbackAuthority =
+    url?.protocol === 'http:' && isLoopbackAddress(url.hostname) && urlHost
+      ? declaredNetworkAuthority(urlHost)
+      : undefined;
   for (const value of input.networkHosts ?? []) {
+    // Older local definitions stored the URL host here; ignore only that exact
+    // transport endpoint so they remain valid without admitting other private hosts.
+    if (
+      localLoopbackAuthority &&
+      declaredNetworkAuthority(value) === localLoopbackAuthority
+    )
+      continue;
     const result = parseDeclaredNetworkHost(value);
     if (!result.ok) {
       throw new ApplicationError(
@@ -61,13 +81,7 @@ export function normalizeMcpNetworkHosts(input: {
     }
     hosts.add(result.host);
   }
-  if (
-    (input.config.transport === 'http' || input.config.transport === 'sse') &&
-    input.config.url
-  ) {
-    const url = new URL(input.config.url);
-    const port = url.port || defaultPortForProtocol(url.protocol);
-    const urlHost = `${url.hostname.toLowerCase().replace(/\.+$/, '')}:${port}`;
+  if (urlHost && !localLoopbackAuthority) {
     const alreadyDeclared = [...hosts].some(
       (host) =>
         declaredNetworkAuthority(host) === declaredNetworkAuthority(urlHost),

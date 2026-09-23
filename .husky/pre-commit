@@ -12,4 +12,19 @@ if ! command -v npm >/dev/null 2>&1; then
   fi
 fi
 
+if ! command -v npm >/dev/null 2>&1; then
+  for node_bin in /opt/homebrew/opt/node@24/bin /usr/local/opt/node@24/bin; do
+    if [ -x "$node_bin/node" ] && [ -x "$node_bin/npm" ]; then
+      PATH="$node_bin:$PATH"
+      export PATH
+      break
+    fi
+  done
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo 'pre-commit requires Node.js 24 and npm on PATH.' >&2
+  exit 127
+fi
+
 npm run format:fix

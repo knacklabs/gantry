@@ -4,22 +4,16 @@ import {
   Activity,
   Bot,
   Boxes,
-  Brain,
-  BrainCircuit,
   CalendarClock,
   CircleHelp,
   LayoutDashboard,
   MessagesSquare,
-  MessageCircle,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   PlugZap,
-  Gauge,
-  ExternalLink,
   Settings2,
   ShieldCheck,
-  Workflow,
 } from 'lucide-react';
 
 import { GantryMark } from '../ui/compositions/gantry-logo';
@@ -56,14 +50,6 @@ const navigation = [
       { to: '/people', label: 'People', icon: Bot },
       { to: '/providers', label: 'Model providers', icon: PlugZap },
       { to: '/mcp-servers', label: 'Tools', icon: Boxes },
-      { to: '/channel-accounts', label: 'Channel accounts', icon: MessagesSquare },
-    ],
-  },
-  {
-    label: 'Conversations',
-    items: [
-      { to: '/chat', label: 'Chat', icon: MessageCircle },
-      { to: '/memory', label: 'What I remember', icon: Brain },
     ],
   },
   {
@@ -72,21 +58,7 @@ const navigation = [
       { to: '/jobs', label: 'Jobs', icon: CalendarClock },
       { to: '/diagnostics', label: 'Diagnostics', icon: Activity },
       { to: '/runtime/models', label: 'Models', icon: Boxes },
-      { to: '/runtime/memory', label: 'Memory engine', icon: BrainCircuit },
-      { to: '/runtime/capacity', label: 'Capacity', icon: Gauge },
       { to: '/runtime/guardrails', label: 'Guardrails', icon: ShieldCheck },
-      { to: '/activity', label: 'Activity', icon: Activity },
-    ],
-  },
-  {
-    label: 'Workflows',
-    items: [
-      { to: '/workflows', label: 'Definitions', icon: Workflow },
-      {
-        to: '/workflows/external',
-        label: 'External systems',
-        icon: ExternalLink,
-      },
     ],
   },
 ] as const;
@@ -96,14 +68,31 @@ const NAV_ITEM_CLASS_NAME =
 const NAV_ITEM_ACTIVE_CLASS_NAME =
   'border-border-strong bg-surface-strong text-text';
 
-export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse }: { collapsed?: boolean; onNavigate?: () => void; onToggleCollapse?: () => void }) {
+export function AppNavigation({
+  collapsed = false,
+  onNavigate,
+  onToggleCollapse,
+}: {
+  collapsed?: boolean;
+  onNavigate?: () => void;
+  onToggleCollapse?: () => void;
+}) {
   const summary = useQuery(navigationSummaryQuery);
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-[34px] flex-wrap items-center justify-center gap-x-[9px] gap-y-[14px] px-[5px] pt-1">
-        <Link aria-label="Gantry home" className={`inline-flex min-h-7 min-w-0 items-center text-ink no-underline ${collapsed ? 'flex-none gap-0' : 'flex-1 gap-[9px]'}`} to="/overview" onClick={onNavigate}>
+        <Link
+          aria-label="Gantry home"
+          className={`inline-flex min-h-7 min-w-0 items-center text-ink no-underline ${collapsed ? 'flex-none gap-0' : 'flex-1 gap-[9px]'}`}
+          to="/overview"
+          onClick={onNavigate}
+        >
           <GantryMark className="size-4" />
-          <span className={`overflow-hidden font-display text-[16px] font-bold tracking-[-0.04em] whitespace-nowrap transition-[max-width,opacity] duration-[180ms] ease-gantry ${collapsed ? 'max-w-0 opacity-0' : 'max-w-24 opacity-100'}`}>Gantry</span>
+          <span
+            className={`overflow-hidden font-display text-[16px] font-bold tracking-[-0.04em] whitespace-nowrap transition-[max-width,opacity] duration-[180ms] ease-gantry ${collapsed ? 'max-w-0 opacity-0' : 'max-w-24 opacity-100'}`}
+          >
+            Gantry
+          </span>
         </Link>
         <Button
           aria-controls="primary-navigation"
@@ -123,14 +112,18 @@ export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse 
         </Button>
       </div>
 
-      <div className={`grid gap-[13px] ${collapsed ? 'mt-[36px]' : 'mt-[14px]'}`}>
+      <div
+        className={`grid gap-[13px] ${collapsed ? 'mt-[36px]' : 'mt-[14px]'}`}
+      >
         {navigation.map((group) => (
           <nav
             aria-label={group.label}
             className="grid gap-1"
             key={group.label}
           >
-            <p className={`mt-0 mb-[3px] overflow-hidden px-[9px] font-mono text-micro font-medium tracking-[0.18em] whitespace-nowrap text-text-muted uppercase transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+            <p
+              className={`mt-0 mb-[3px] overflow-hidden px-[9px] font-mono text-micro font-medium tracking-[0.18em] whitespace-nowrap text-text-muted uppercase transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}
+            >
               {group.label}
             </p>
             {group.items.map(({ to, label, icon: Icon }) => (
@@ -142,8 +135,23 @@ export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse 
                 to={to}
                 onClick={onNavigate}
               >
-                {collapsed ? <Tooltip><TooltipTrigger asChild><span><Icon size={17} aria-hidden="true" /></span></TooltipTrigger><TooltipContent side="right">{label}</TooltipContent></Tooltip> : <Icon size={17} aria-hidden="true" />}
-                <span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>{label}</span>
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Icon size={17} aria-hidden="true" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Icon size={17} aria-hidden="true" />
+                )}
+                <span
+                  className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}
+                >
+                  {label}
+                </span>
                 <NavigationCount
                   item={to}
                   summary={summary.data}
@@ -166,7 +174,12 @@ export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse 
           to="/profile"
           onClick={onNavigate}
         >
-          <Settings2 size={17} aria-hidden="true" /><span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>Profile</span>
+          <Settings2 size={17} aria-hidden="true" />
+          <span
+            className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}
+          >
+            Profile
+          </span>
         </Link>
         <Link
           activeProps={{ className: NAV_ITEM_ACTIVE_CLASS_NAME }}
@@ -174,7 +187,12 @@ export function AppNavigation({ collapsed = false, onNavigate, onToggleCollapse 
           to="/settings/authentication-access"
           onClick={onNavigate}
         >
-          <ShieldCheck size={17} aria-hidden="true" /><span className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}>Authentication &amp; Access</span>
+          <ShieldCheck size={17} aria-hidden="true" />
+          <span
+            className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap transition-opacity duration-[180ms] ease-gantry ${collapsed ? 'opacity-0' : 'opacity-100'}`}
+          >
+            Authentication &amp; Access
+          </span>
         </Link>
       </nav>
     </div>
