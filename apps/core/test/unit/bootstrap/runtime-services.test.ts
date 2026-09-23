@@ -62,7 +62,7 @@ vi.mock(
       recoverStaleAsyncCommandTasks: async (
         ...args: Parameters<typeof actual.recoverStaleAsyncCommandTasks>
       ) => {
-        startupOrder.recoverAsyncTasks();
+        startupOrder.recoverAsyncTasks(...args);
         return actual.recoverStaleAsyncCommandTasks(...args);
       },
       startAsyncTaskRecoveryLoop: (
@@ -371,6 +371,7 @@ describe('startRuntimeServices', () => {
           createSessionAgentRun: vi.fn(async () => 'agent-run:live-1'),
         } as any,
         getToolRepository: vi.fn(() => ({}) as any),
+        getJobControl: vi.fn(() => ({}) as any),
         recoverPendingMessages: vi.fn(() => {
           order.push('recoverPendingMessages');
         }) as any,
@@ -400,6 +401,10 @@ describe('startRuntimeServices', () => {
     );
     expect(startupOrder.recoverAsyncTasks).toHaveBeenCalledBefore(
       startupOrder.startAsyncRecoveryLoop,
+    );
+    expect(startupOrder.recoverAsyncTasks).toHaveBeenCalledWith(
+      'default',
+      expect.objectContaining({ getJobControl: expect.any(Function) }),
     );
 
     expect((app.queue.setProcessMessagesFn as any).mock.calls).toHaveLength(1);

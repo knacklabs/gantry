@@ -41,6 +41,7 @@ import type {
 } from '../../domain/repositories/ops-repo.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { conversationBoundAgentRoute } from '../../application/core-tools/callable-agent-tools.js';
+import { settleAcknowledgedHostedTask } from './runtime-services-hosted-task-settlement.js';
 
 const GANTRY_HOSTED_CAPABILITY_RECOVERY_STALE_MS = 60_000;
 
@@ -54,6 +55,7 @@ interface AsyncTaskRecoveryDeps extends Partial<
     | 'getCapabilitySecretRepository'
     | 'getCredentialBroker'
     | 'getEgressSettings'
+    | 'getJobControl'
     | 'getMcpDnsValidationCache'
     | 'getMcpServerRepository'
     | 'getSkillArtifactStore'
@@ -200,9 +202,12 @@ export async function recoverPausedGantryHostedCapabilityJobs(
     );
     if (!match) continue;
     const task = await repository.getTask(match[1]!);
+    const owningAppId = job.session_id
+      ? (await deps.getJobControl?.()?.getAppSessionById(job.session_id))?.appId
+      : appId;
     if (
       !task ||
-      task.appId !== appId ||
+      task.appId !== owningAppId ||
       task.kind !== 'external_capability' ||
       task.parentJobId !== job.id
     ) {
@@ -222,6 +227,28 @@ export async function recoverPausedGantryHostedCapabilityJobs(
     // Do not terminalize it: doing so loses the only identity which can bind
     // reconciliation to the original immutable payload.
     if (hasUnsettledHostedCommit(task)) {
+      if (hostedCommitStatus(task) === 'acknowledged') {
+        let settled: boolean;
+        try {
+          settled = await settleAcknowledgedHostedTask(repository, task);
+        } catch (err) {
+          deps.logger.warn(
+            { err, taskId: task.id, jobId: job.id },
+            'Failed to settle acknowledged Gantry-hosted capability task',
+          );
+          continue;
+        }
+        if (!settled) continue;
+        const now = new Date().toISOString();
+        await ops.updateJob(job.id, {
+          status: 'active',
+          next_run: now,
+          pause_reason: null,
+        });
+        deps.onSchedulerChanged?.(job.id);
+        recovered += 1;
+        continue;
+      }
       if (task.status !== 'waiting_external' || !isHostedTaskStale(task)) {
         continue;
       }
@@ -347,6 +374,13 @@ function hasUnsettledHostedCommit(task: AsyncTaskRecord): boolean {
       String((state as Record<string, unknown>).status),
     ),
   );
+}
+
+function hostedCommitStatus(task: AsyncTaskRecord): string | undefined {
+  const state = task.privateCorrelationJson.hostedCommit;
+  return state && typeof state === 'object' && !Array.isArray(state)
+    ? String((state as Record<string, unknown>).status)
+    : undefined;
 }
 
 async function terminalizeInterruptedHostedTask(

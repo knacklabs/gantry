@@ -195,16 +195,36 @@ const fileArtifactHandler: TaskHandler = async (context) => {
         payload.content,
         payload.encoding,
       );
+      const contentType =
+        toTrimmedString(payload.contentType, { maxLen: 255 }) ||
+        (payload.encoding === 'base64'
+          ? 'application/octet-stream'
+          : 'text/plain; charset=utf-8');
+      const mediaType = contentType.split(';', 1)[0]?.trim().toLowerCase();
+      if (
+        mediaType &&
+        (mediaType === 'application/json' || mediaType.endsWith('+json'))
+      ) {
+        try {
+          JSON.parse(
+            typeof content === 'string'
+              ? content
+              : Buffer.from(content).toString('utf8'),
+          );
+        } catch (error) {
+          reject(
+            `FileArtifact content is not valid JSON: ${error instanceof Error ? error.message : 'parse failed'}`,
+            'invalid_request',
+          );
+          return;
+        }
+      }
       const artifact = await store.writeFileArtifact({
         ...owner,
         virtualScope,
         virtualPath,
         content,
-        contentType:
-          toTrimmedString(payload.contentType, { maxLen: 255 }) ||
-          (payload.encoding === 'base64'
-            ? 'application/octet-stream'
-            : 'text/plain; charset=utf-8'),
+        contentType,
         createdBy: `agent:${sourceAgentFolder}`,
       });
       acceptData('FileArtifact written.', {

@@ -162,6 +162,7 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   collectSessionMemory: SessionMemoryCollector;
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getJobControl?: IpcDeps['getJobControl'];
   getAgentRepository?: () => AgentRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;

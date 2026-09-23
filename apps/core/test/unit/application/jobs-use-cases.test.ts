@@ -142,7 +142,7 @@ describe('job application use cases', () => {
       updates.agent_task?.trustedCapabilityContext?.allowedMethodsByOrigin,
     ).toBeUndefined();
   });
-  it('extends exact trusted validation origins without changing identity or granting POST', () => {
+  it('extends exact trusted validation origins with only the explicitly approved methods', () => {
     const job = makeJob({
       status: 'paused',
       agent_task: {
@@ -151,12 +151,24 @@ describe('job application use cases', () => {
           requestId: 'request-1',
           attemptId: 'attempt-1',
           allowedOrigins: ['https://www.example.test'],
+          hostedValidationPolicy: {
+            requestId: 'request-1',
+            attemptId: 'attempt-1',
+            allowedOrigins: ['https://www.example.test'],
+          },
         },
       },
     });
     const updates = buildJobUpdates(
       job,
-      { addCapabilityAllowedOrigins: ['https://example.test'] } as never,
+      {
+        addCapabilityAllowedOrigins: [
+          {
+            origin: 'https://example.test',
+            methods: ['GET', 'HEAD', 'POST'],
+          },
+        ],
+      } as never,
       runtimeJobSchedulePlanner,
       { now: () => '2026-05-15T00:00:00.000Z' },
     );
@@ -164,7 +176,14 @@ describe('job application use cases', () => {
       requestId: 'request-1',
       attemptId: 'attempt-1',
       allowedOrigins: ['https://www.example.test', 'https://example.test'],
-      allowedMethodsByOrigin: { 'https://example.test': ['GET', 'HEAD'] },
+      allowedMethodsByOrigin: {
+        'https://example.test': ['GET', 'HEAD', 'POST'],
+      },
+      hostedValidationPolicy: {
+        requestId: 'request-1',
+        attemptId: 'attempt-1',
+        allowedOrigins: ['https://www.example.test', 'https://example.test'],
+      },
     });
     expect(() =>
       buildJobUpdates(
@@ -189,6 +208,106 @@ describe('job application use cases', () => {
         ),
       ).toThrow(/origin/);
     }
+  });
+  it('treats method expansion on an existing origin as an authority change', () => {
+    const job = makeJob({
+      status: 'paused',
+      agent_task: {
+        trustedCapabilityContext: {
+          requestId: 'request-1',
+          allowedOrigins: ['https://example.test'],
+          allowedMethodsByOrigin: {
+            'https://example.test': ['GET', 'HEAD'],
+          },
+        },
+      },
+    });
+
+    const updates = buildJobUpdates(
+      job,
+      {
+        addCapabilityAllowedOrigins: [
+          { origin: 'https://example.test', methods: ['POST'] },
+        ],
+      } as never,
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+
+    expect(
+      updates.agent_task?.trustedCapabilityContext?.allowedMethodsByOrigin,
+    ).toEqual({
+      'https://example.test': ['GET', 'HEAD', 'POST'],
+    });
+    expect(() =>
+      buildJobUpdates(
+        { ...job, status: 'active' },
+        {
+          addCapabilityAllowedOrigins: [
+            { origin: 'https://example.test', methods: ['POST'] },
+          ],
+        } as never,
+        runtimeJobSchedulePlanner,
+        { now: () => '2026-05-15T00:00:00.000Z' },
+      ),
+    ).toThrow(/paused/);
+  });
+  it('rejects typed method expansion on a cleartext origin', () => {
+    const job = makeJob({
+      status: 'paused',
+      agent_task: {
+        trustedCapabilityContext: {
+          requestId: 'request-1',
+          allowedOrigins: ['http://example.test'],
+        },
+      },
+    });
+
+    expect(() =>
+      buildJobUpdates(
+        job,
+        {
+          addCapabilityAllowedOrigins: [
+            { origin: 'http://example.test', methods: ['POST'] },
+          ],
+        } as never,
+        runtimeJobSchedulePlanner,
+        { now: () => '2026-05-15T00:00:00.000Z' },
+      ),
+    ).toThrow(/HTTPS/);
+  });
+  it('reconciles a previously approved origin into a stale hosted validation policy', () => {
+    const job = makeJob({
+      status: 'paused',
+      agent_task: {
+        trustedCapabilityContext: {
+          requestId: 'request-1',
+          attemptId: 'attempt-1',
+          allowedOrigins: ['https://www.example.test', 'https://example.test'],
+          allowedMethodsByOrigin: {
+            'https://example.test': ['GET', 'HEAD'],
+          },
+          hostedValidationPolicy: {
+            requestId: 'request-1',
+            attemptId: 'attempt-1',
+            allowedOrigins: ['https://www.example.test'],
+          },
+        },
+      },
+    });
+
+    const updates = buildJobUpdates(
+      job,
+      { addCapabilityAllowedOrigins: ['https://example.test'] } as never,
+      runtimeJobSchedulePlanner,
+      { now: () => '2026-05-15T00:00:00.000Z' },
+    );
+
+    expect(
+      updates.agent_task?.trustedCapabilityContext?.hostedValidationPolicy,
+    ).toMatchObject({
+      allowedOrigins: ['https://www.example.test', 'https://example.test'],
+    });
   });
   it('extends cumulative agent runtime monotonically and idempotently', () => {
     const job = makeJob({

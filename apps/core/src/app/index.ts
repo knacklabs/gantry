@@ -26,6 +26,7 @@ import {
 } from '../adapters/storage/postgres/runtime-store.js';
 import { startControlServer } from '../control/server/index.js';
 import { startSchedulerLoop, stopSchedulerLoop } from '../jobs/scheduler.js';
+import { adaptJobControl } from '../jobs/ipc-job-control.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
 import {
@@ -85,7 +86,8 @@ export interface StartGantryRuntimeOptions {
 export async function startGantryRuntime(
   options: StartGantryRuntimeOptions = {},
 ): Promise<void> {
-  const runtimeAppId = (process.env.GANTRY_APP_ID?.trim() || 'default') as AppId;
+  const runtimeAppId = (process.env.GANTRY_APP_ID?.trim() ||
+    'default') as AppId;
   const mcpHostnameLookup = options.mcpHostnameLookup ?? defaultHostnameLookup;
   const runtimeLease = { tryAcquire: tryAcquireRuntimeAdvisoryLease };
   registerBrowserProfileLockLeasePort(runtimeLease);
@@ -311,6 +313,7 @@ export async function startGantryRuntime(
         opsRepository: storage.ops,
         getAgentRepository: () => storage.repositories.agents,
         getToolRepository: () => storage.repositories.tools,
+        getJobControl: () => adaptJobControl(getRuntimeControlRepository()),
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,
         getJobSemanticCheckpointRepository: () =>

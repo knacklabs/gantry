@@ -264,7 +264,10 @@ describe('runner browser MCP gateway tools', () => {
   });
 
   it('does not let a model-requested short timeout make public navigation brittle', async () => {
-    requestBrowserAction.mockResolvedValueOnce({ ok: true, data: { ok: true } });
+    requestBrowserAction.mockResolvedValueOnce({
+      ok: true,
+      data: { ok: true },
+    });
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
@@ -401,6 +404,96 @@ describe('runner browser MCP gateway tools', () => {
       {},
       { timeoutMs: 120_000, publicToolName: 'browser_act' },
     );
+  });
+
+  it('surfaces the host-retained scroll-and-observe artifact without an agent file write', async () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-pagination-probe');
+    const evidence = {
+      schemaVersion: 'browser.pagination_probe@1',
+      capturedAt: '2026-09-23T10:00:00.000Z',
+      pageUrl: 'https://example.com/listing',
+      selectors: { row: 'tbody tr', identity: 'a.result' },
+      outcome: 'growth',
+      before: {
+        scroll: { x: 0, y: 0 },
+        viewport: { width: 1280, height: 720 },
+        document: { width: 1280, height: 2400 },
+        rows: { count: 1, uniqueCount: 1, identities: ['A'] },
+      },
+      after: {
+        scroll: { x: 0, y: 1680 },
+        viewport: { width: 1280, height: 720 },
+        document: { width: 1280, height: 3200 },
+        rows: { count: 2, uniqueCount: 2, identities: ['A', 'B'] },
+      },
+      observedRequests: [
+        {
+          method: 'GET',
+          url: 'https://example.com/list?page=%5BREDACTED%5D',
+          status: 200,
+        },
+      ],
+      elapsedMs: 1_000,
+    };
+    const retainedEvidence = {
+      ...evidence,
+      artifactId: 'file-artifact:00000000-0000-4000-8000-000000000001',
+    };
+    requestBrowserAction.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        content: [{ type: 'text', text: JSON.stringify(retainedEvidence) }],
+        structuredContent: retainedEvidence,
+      },
+    });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const result = await server.tools.get('browser_act')?.({
+      action: 'scroll_and_observe',
+      research_intent: 'paginate',
+      timeout_ms: 1_000,
+      payload: {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+      },
+    });
+
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'scroll_and_observe',
+      {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+        research_intent: 'paginate',
+      },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(handleFileToolAction).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      structuredContent: {
+        schemaVersion: 'browser.pagination_probe@1',
+        outcome: 'growth',
+        artifactId: 'file-artifact:00000000-0000-4000-8000-000000000001',
+      },
+    });
+  });
+
+  it('fails closed before scrolling when no job scope can retain the probe', async () => {
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const result = await server.tools.get('browser_act')?.({
+      action: 'scroll_and_observe',
+      research_intent: 'paginate',
+      payload: {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+      },
+    });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(requestBrowserAction).not.toHaveBeenCalled();
+    expect(handleFileToolAction).not.toHaveBeenCalled();
   });
 
   it('requires full profile and reason for full browser actions', async () => {
@@ -1116,12 +1209,12 @@ describe('runner browser MCP gateway tools', () => {
       success_text: 'Protected results loaded',
     })) as { content: Array<{ text?: string }> };
     expect(firstRealAttempt.content[0]?.text).toContain(
-      'All 4 automatic CAPTCHA attempts were inconclusive',
+      'All 3 automatic CAPTCHA attempts were inconclusive',
     );
     expect(firstRealAttempt.content[0]?.text).toMatch(
       /Fingerprint: sha256:[a-f0-9]{64}/u,
     );
-    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(4);
+    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(3);
     expect(handleFileToolAction).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.stringContaining(
@@ -1176,7 +1269,7 @@ describe('runner browser MCP gateway tools', () => {
     expect(requestBrowserAction).toHaveBeenCalledTimes(3);
   });
 
-  it('allows human settlement only after four inconclusive automatic attempts', async () => {
+  it('allows human settlement only after three inconclusive automatic attempts', async () => {
     vi.stubEnv('GANTRY_JOB_ID', 'job-2');
     vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-2');
     let omitNextSnapshotUrl = false;
@@ -1238,7 +1331,7 @@ describe('runner browser MCP gateway tools', () => {
       attemptNumber?: number;
       expiresAt?: number;
     };
-    expect(fallbackMetadata.attemptNumber).toBe(4);
+    expect(fallbackMetadata.attemptNumber).toBe(3);
     expect((fallbackMetadata.expiresAt ?? 0) - Date.now()).toBeGreaterThan(
       29 * 60_000,
     );
@@ -1281,7 +1374,7 @@ describe('runner browser MCP gateway tools', () => {
       submit_target: '#captcha-submit',
       success_text: 'Protected results loaded',
     });
-    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(4);
+    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(3);
   });
 
   it('does not submit a human answer after the live CAPTCHA changes', async () => {
@@ -1339,10 +1432,14 @@ describe('runner browser MCP gateway tools', () => {
       }),
       expect.anything(),
     );
-    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(8);
+    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(6);
     expect(JSON.stringify(settled)).toContain(
       'automatic CAPTCHA attempts were inconclusive',
     );
+    expect(JSON.stringify(settled)).toContain(
+      'humanInteraction.browserChallenge.challengeId',
+    );
+    expect(JSON.stringify(settled)).not.toContain('humanInteraction.type');
   });
 
   it('recovers a fresh automatic challenge when the browser session expired during human wait', async () => {
@@ -1543,7 +1640,7 @@ describe('runner browser MCP gateway tools', () => {
     await vi.advanceTimersByTimeAsync(80_000);
     const result = await resultPromise;
 
-    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(4);
+    expect(requestCaptchaVisionAction).toHaveBeenCalledTimes(3);
     expect(requestBrowserAction).toHaveBeenCalledWith(
       'open',
       { keep_alive_ms: 30 * 60_000 },
@@ -1552,6 +1649,10 @@ describe('runner browser MCP gateway tools', () => {
     expect(JSON.stringify(result)).toContain(
       'automatic attempts are exhausted',
     );
+    expect(JSON.stringify(result)).toContain(
+      'humanInteraction.browserChallenge.challengeId',
+    );
+    expect(JSON.stringify(result)).not.toContain('humanInteraction.type');
   });
 
   it('re-resolves snapshot refs to durable CAPTCHA controls before refreshed retries', async () => {

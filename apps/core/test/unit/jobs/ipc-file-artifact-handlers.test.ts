@@ -153,6 +153,38 @@ describe('file artifact IPC handlers', () => {
     );
   });
 
+  it('rejects malformed application/json before storing the artifact', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-file-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { fileArtifactTaskHandlers, taskData } =
+      await loadFileArtifactHandlers(runtimeHome);
+    const writeFileArtifact = vi.fn();
+
+    await fileArtifactTaskHandlers.file_artifact(
+      contextFor({
+        data: taskData('malformed-json-write', {
+          sourceRunKind: 'scheduled',
+          sourceJobId: 'job-123',
+          payload: {
+            action: 'write',
+            path: 'validation-arguments.json',
+            content: '{"candidateArtifactId":"file-artifact:test"',
+            contentType: 'application/json',
+          },
+        }),
+        writeFileArtifact,
+      }),
+    );
+
+    expect(writeFileArtifact).not.toHaveBeenCalled();
+    expect(readResponse(runtimeHome, 'malformed-json-write')).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+    });
+  });
+
   it('reads a retained artifact from a later run of the same durable job', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-file-ipc-'),

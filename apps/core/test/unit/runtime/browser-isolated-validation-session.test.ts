@@ -57,6 +57,80 @@ describe('isolated recipe-validation browser session', () => {
       context: contexts[0],
       allowedHosts: [],
       allowedOrigins: ['https://tenders.example.gov'],
+      onRequestDenied: expect.any(Function),
+    });
+  });
+
+  it('gives the hosted runner a distinct identity and absolute deadline', async () => {
+    const contexts = [createContext(), createContext()];
+    mocks.getBrowserConnection.mockResolvedValue({
+      browser: {
+        newContext: vi
+          .fn()
+          .mockResolvedValueOnce(contexts[0])
+          .mockResolvedValueOnce(contexts[1]),
+      },
+    });
+
+    const sessions = [];
+    for (let index = 0; index < contexts.length; index += 1) {
+      sessions.push(
+        await withIsolatedValidationBrowserSession({
+          profileName: 'recipe-validation',
+          port: 9222,
+          allowedOrigins: ['https://tenders.example.gov'],
+          timeoutMs: 1_000,
+          execute: async ({ id, deadlineAtMs }) => ({ id, deadlineAtMs }),
+        }),
+      );
+    }
+
+    expect(sessions[0]?.id).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(sessions[1]?.id).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(sessions[0]?.id).not.toBe(sessions[1]?.id);
+    expect(Number.isSafeInteger(sessions[0]?.deadlineAtMs)).toBe(true);
+    expect(sessions[0]?.deadlineAtMs).toBeGreaterThan(Date.now());
+  });
+
+  it('exposes bounded method-denial evidence to the hosted executor', async () => {
+    const context = createContext();
+    mocks.getBrowserConnection.mockResolvedValue({
+      browser: { newContext: vi.fn(async () => context) },
+    });
+    mocks.installBrowserContextNetworkPolicy.mockImplementation(
+      async (input: {
+        onRequestDenied?: (denial: Record<string, unknown>) => void;
+      }) => {
+        input.onRequestDenied?.({
+          origin: 'https://tenders.example.gov',
+          url: 'https://tenders.example.gov/search',
+          method: 'POST',
+          resourceType: 'xhr',
+          reason: 'method_not_allowed',
+        });
+      },
+    );
+
+    await expect(
+      withIsolatedValidationBrowserSession({
+        profileName: 'recipe-validation',
+        port: 9222,
+        allowedOrigins: ['https://tenders.example.gov'],
+        allowedMethodsByOrigin: {
+          'https://tenders.example.gov': ['GET', 'HEAD'],
+        },
+        timeoutMs: 1_000,
+        execute: async ({ networkEvidence }) => networkEvidence(),
+      }),
+    ).resolves.toEqual({
+      failures: [
+        {
+          origin: 'https://tenders.example.gov',
+          resourceType: 'xhr',
+          code: 'browser_method_not_approved',
+          method: 'POST',
+        },
+      ],
     });
   });
 

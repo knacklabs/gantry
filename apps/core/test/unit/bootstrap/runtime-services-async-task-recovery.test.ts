@@ -11,6 +11,7 @@ import {
   terminalizeOrphanedGantryHostedCapabilityTasks,
 } from '@core/app/bootstrap/runtime-services-async-task-recovery.js';
 import { recoverQueuedAsyncMcpTasks } from '@core/jobs/async-mcp-tool-task.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 
 describe('recoverStaleAsyncCommandTasks', () => {
   it.each(['submitted', 'acknowledged'])(
@@ -55,7 +56,173 @@ describe('recoverStaleAsyncCommandTasks', () => {
     },
   );
 
-  it.each(['submitted', 'acknowledged'])(
+  it('settles an acknowledged hosted result before resuming its paused parent', async () => {
+    const result = {
+      status: 'revision_required',
+      diagnostics: [{ code: 'listing_target_absent_no_blocker' }],
+    };
+    const task = {
+      id: 'task-acknowledged',
+      appId: 'default',
+      kind: 'external_capability',
+      status: 'waiting_external',
+      parentJobId: 'job-acknowledged',
+      leaseToken: 'task-lease',
+      fencingVersion: 3,
+      authoritySnapshotJson: { capabilityId: 'recipe@51' },
+      privateCorrelationJson: {
+        executionMode: 'gantry_hosted',
+        invocationRef: 'invocation:validation-1',
+        hostedCommit: {
+          status: 'acknowledged',
+          result,
+          resultSha256: stableSha256Json(result),
+        },
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      summary: 'recipe@51.validate_recipe',
+    };
+    const transitionTask = vi.fn(async (input) => ({
+      ...task,
+      status: input.status,
+      privateCorrelationJson: input.privateCorrelationJson,
+    }));
+    const updateJob = vi.fn(async () => undefined);
+
+    const recovered = await recoverPausedGantryHostedCapabilityJobs('default', {
+      getAsyncTaskRepository: () =>
+        ({ getTask: async () => task, transitionTask }) as never,
+      opsRepository: {
+        listJobs: async () => [
+          {
+            id: task.parentJobId,
+            status: 'paused',
+            pause_reason: `Waiting for external capability task ${task.id}.`,
+          },
+        ],
+        updateJob,
+      } as never,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(recovered).toBe(1);
+    expect(transitionTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        leaseToken: task.leaseToken,
+        fencingVersion: task.fencingVersion,
+        status: 'completed',
+        terminalAt: expect.any(String),
+        expectedUpdatedAt: task.updatedAt,
+        privateCorrelationJson: expect.objectContaining({
+          result,
+          progress: expect.objectContaining({ phase: 'completed' }),
+        }),
+      }),
+    );
+    expect(updateJob).toHaveBeenCalledWith(
+      task.parentJobId,
+      expect.objectContaining({ status: 'active', pause_reason: null }),
+    );
+  });
+
+  it('continues recovery after one acknowledged hosted result is malformed', async () => {
+    const validResult = { status: 'approved' };
+    const tasks = new Map(
+      [
+        {
+          id: 'task-malformed',
+          appId: 'default',
+          kind: 'external_capability',
+          status: 'waiting_external',
+          parentJobId: 'job-malformed',
+          leaseToken: 'lease-malformed',
+          fencingVersion: 1,
+          authoritySnapshotJson: { capabilityId: 'recipe@bad' },
+          privateCorrelationJson: {
+            executionMode: 'gantry_hosted',
+            hostedCommit: {
+              status: 'acknowledged',
+              result: { status: 'corrupt' },
+              resultSha256: 'sha256:not-the-result',
+            },
+          },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'task-valid',
+          appId: 'default',
+          kind: 'external_capability',
+          status: 'waiting_external',
+          parentJobId: 'job-valid',
+          leaseToken: 'lease-valid',
+          fencingVersion: 2,
+          authoritySnapshotJson: { capabilityId: 'recipe@good' },
+          privateCorrelationJson: {
+            executionMode: 'gantry_hosted',
+            hostedCommit: {
+              status: 'acknowledged',
+              result: validResult,
+              resultSha256: stableSha256Json(validResult),
+            },
+          },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ].map((task) => [task.id, task]),
+    );
+    const transitionTask = vi.fn(async (input) => ({
+      ...tasks.get(input.taskId),
+      status: input.status,
+      privateCorrelationJson: input.privateCorrelationJson,
+    }));
+    const updateJob = vi.fn(async () => undefined);
+    const warn = vi.fn();
+
+    const recovered = await recoverPausedGantryHostedCapabilityJobs('default', {
+      getAsyncTaskRepository: () =>
+        ({
+          getTask: async (taskId: string) => tasks.get(taskId),
+          transitionTask,
+        }) as never,
+      opsRepository: {
+        listJobs: async () =>
+          [...tasks.values()].map((task) => ({
+            id: task.parentJobId,
+            status: 'paused',
+            pause_reason: `Waiting for external capability task ${task.id}.`,
+          })),
+        updateJob,
+      } as never,
+      logger: { warn },
+    });
+
+    expect(recovered).toBe(1);
+    expect(transitionTask).toHaveBeenCalledTimes(1);
+    expect(transitionTask).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-valid', status: 'completed' }),
+    );
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-valid',
+      expect.objectContaining({ status: 'active', pause_reason: null }),
+    );
+    expect(updateJob).not.toHaveBeenCalledWith(
+      'job-malformed',
+      expect.anything(),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: 'task-malformed',
+        jobId: 'job-malformed',
+        err: expect.any(Error),
+      }),
+      'Failed to settle acknowledged Gantry-hosted capability task',
+    );
+  });
+
+  it.each(['submitted'])(
     'requeues a stale paused hosted task with a %s proof for same-task reconciliation',
     async (status) => {
       const task = {
@@ -76,19 +243,24 @@ describe('recoverStaleAsyncCommandTasks', () => {
       };
       const updateJob = vi.fn(async () => undefined);
       const transitionTask = vi.fn();
-      const recovered = await recoverPausedGantryHostedCapabilityJobs('default', {
-        getAsyncTaskRepository: () =>
-          ({ getTask: async () => task, transitionTask }) as never,
-        opsRepository: {
-          listJobs: async () => [{
-            id: task.parentJobId,
-            status: 'paused',
-            pause_reason: `Waiting for external capability task ${task.id}.`,
-          }],
-          updateJob,
-        } as never,
-        logger: { warn: vi.fn() },
-      });
+      const recovered = await recoverPausedGantryHostedCapabilityJobs(
+        'default',
+        {
+          getAsyncTaskRepository: () =>
+            ({ getTask: async () => task, transitionTask }) as never,
+          opsRepository: {
+            listJobs: async () => [
+              {
+                id: task.parentJobId,
+                status: 'paused',
+                pause_reason: `Waiting for external capability task ${task.id}.`,
+              },
+            ],
+            updateJob,
+          } as never,
+          logger: { warn: vi.fn() },
+        },
+      );
       expect(recovered).toBe(1);
       expect(updateJob).toHaveBeenCalledWith(
         task.parentJobId,
@@ -97,6 +269,56 @@ describe('recoverStaleAsyncCommandTasks', () => {
       expect(transitionTask).not.toHaveBeenCalled();
     },
   );
+
+  it('requeues a hosted task owned by the paused job app session when the recovery loop uses the control app', async () => {
+    const task = {
+      id: 'task-session-app',
+      appId: 'manipal-tender-copilot',
+      kind: 'external_capability',
+      status: 'waiting_external',
+      parentJobId: 'job-session-app',
+      leaseToken: 'task-lease',
+      fencingVersion: 1,
+      authoritySnapshotJson: { capabilityId: 'recipe@50' },
+      privateCorrelationJson: {
+        executionMode: 'gantry_hosted',
+        hostedCommit: { status: 'submitted' },
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const updateJob = vi.fn(async () => undefined);
+
+    const recovered = await recoverPausedGantryHostedCapabilityJobs('default', {
+      getAsyncTaskRepository: () =>
+        ({ getTask: async () => task, transitionTask: vi.fn() }) as never,
+      getJobControl: () =>
+        ({
+          getAppSessionById: async () => ({
+            sessionId: 'session-manipal',
+            appId: 'manipal-tender-copilot',
+          }),
+        }) as never,
+      opsRepository: {
+        listJobs: async () => [
+          {
+            id: task.parentJobId,
+            session_id: 'session-manipal',
+            status: 'paused',
+            pause_reason: `Waiting for external capability task ${task.id}.`,
+          },
+        ],
+        updateJob,
+      } as never,
+      logger: { warn: vi.fn() },
+    });
+
+    expect(recovered).toBe(1);
+    expect(updateJob).toHaveBeenCalledWith(
+      task.parentJobId,
+      expect.objectContaining({ status: 'active', pause_reason: null }),
+    );
+  });
   it.each(['active', 'paused'])(
     'does not interrupt a slow hosted validation with a live %s parent lease',
     async (status) => {

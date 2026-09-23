@@ -1263,6 +1263,33 @@ describe('McpToolProxy', () => {
     expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
   });
 
+  it('preflights Gantry-hosted capabilities from the reviewed contract without live MCP inventory', async () => {
+    const inputSchema = reviewedCreateIssueInputSchema();
+    const proxy = new McpToolProxy(mcpRepository(), {
+      tools: externalCapabilityToolRepository(inputSchema, 'gantry_hosted'),
+    });
+
+    await expect(
+      proxy.preflightExternalCapabilityCall({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        capabilityId: 'github.create_issue@1',
+        arguments: { title: 'Bug' },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      operation: {
+        executionMode: 'gantry_hosted',
+        requiresActiveJob: false,
+      },
+    });
+    expect(mcpSdkMocks.Client).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.client.callTool).not.toHaveBeenCalled();
+  });
+
   it('projects the trusted envelope idempotency key into a capability schema that declares it', async () => {
     vi.useFakeTimers();
     const inputSchema = {
@@ -2792,6 +2819,7 @@ function reviewedCreateIssueInputSchema() {
 
 function externalCapabilityToolRepository(
   inputSchema: ReturnType<typeof reviewedCreateIssueInputSchema>,
+  executionMode?: 'sync' | 'durable_async' | 'gantry_hosted',
 ) {
   const tool = {
     id: 'tool:github-create-issue',
@@ -2819,6 +2847,7 @@ function externalCapabilityToolRepository(
           schemaDialect: 'json-schema-draft-07',
           inputSchema,
           inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
+          ...(executionMode ? { executionMode } : {}),
         },
       ],
     }),

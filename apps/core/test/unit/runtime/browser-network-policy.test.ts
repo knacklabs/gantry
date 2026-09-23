@@ -14,6 +14,7 @@ import {
 describe('browser network policy', () => {
   it('enforces GET/HEAD-approved origins on browser subresources and form requests', async () => {
     let guard: ((route: Route) => Promise<void>) | undefined;
+    const onRequestDenied = vi.fn();
     await installBrowserContextNetworkPolicy({
       context: {
         route: async (_pattern, handler) => {
@@ -25,12 +26,14 @@ describe('browser network policy', () => {
       allowedMethodsByOrigin: {
         'https://method.example.test': ['GET', 'HEAD'],
       },
+      onRequestDenied,
     });
     for (const method of ['GET', 'HEAD', 'POST', 'DELETE']) {
       const route = {
         request: () => ({
           url: () => 'https://method.example.test/data',
           method: () => method,
+          resourceType: () => 'xhr',
           isNavigationRequest: () => false,
         }),
         abort: vi.fn(async () => undefined),
@@ -44,6 +47,61 @@ describe('browser network policy', () => {
         ['GET', 'HEAD'].includes(method) ? 0 : 1,
       );
     }
+    expect(onRequestDenied.mock.calls.map(([denial]) => denial)).toEqual([
+      {
+        origin: 'https://method.example.test',
+        url: 'https://method.example.test/data',
+        method: 'POST',
+        resourceType: 'xhr',
+        reason: 'method_not_allowed',
+      },
+      {
+        origin: 'https://method.example.test',
+        url: 'https://method.example.test/data',
+        method: 'DELETE',
+        resourceType: 'xhr',
+        reason: 'method_not_allowed',
+      },
+    ]);
+  });
+  it('defaults an admitted origin without a method entry to GET/HEAD', async () => {
+    let guard: ((route: Route) => Promise<void>) | undefined;
+    const onRequestDenied = vi.fn();
+    vi.mocked(resolvePublicEgressAddress).mockClear();
+    await installBrowserContextNetworkPolicy({
+      context: {
+        route: async (_pattern, handler) => {
+          guard = handler;
+        },
+      } as unknown as BrowserContext,
+      allowedHosts: [],
+      allowedOrigins: ['https://legacy.example.test'],
+      allowedMethodsByOrigin: {},
+      onRequestDenied,
+    });
+    const route = {
+      request: () => ({
+        url: () => 'https://legacy.example.test/data',
+        method: () => 'POST',
+        resourceType: () => 'xhr',
+        isNavigationRequest: () => false,
+      }),
+      abort: vi.fn(async () => undefined),
+      continue: vi.fn(async () => undefined),
+    };
+
+    await guard!(route as unknown as Route);
+
+    expect(route.abort).toHaveBeenCalledWith('blockedbyclient');
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(onRequestDenied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        origin: 'https://legacy.example.test',
+        method: 'POST',
+        reason: 'method_not_allowed',
+      }),
+    );
+    expect(resolvePublicEgressAddress).not.toHaveBeenCalled();
   });
   it('enforces exact validation origins on subresources as well as navigation', async () => {
     let guard: ((route: Route) => Promise<void>) | undefined;
@@ -76,6 +134,8 @@ describe('browser network policy', () => {
         const route = {
           request: () => ({
             url: () => url,
+            method: () => 'GET',
+            resourceType: () => 'document',
             isNavigationRequest: () => navigation,
           }),
           abort: vi.fn(async () => undefined),

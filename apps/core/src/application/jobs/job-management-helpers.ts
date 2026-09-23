@@ -15,6 +15,7 @@ import type {
   JobUpdatePatch,
   SchedulerJobAccess,
 } from './job-management-types.js';
+import { extendCapabilityAllowedOrigins } from './job-management-capability-origins.js';
 
 const MAX_QUERY_LIMIT = 1_000;
 
@@ -451,91 +452,19 @@ export function buildJobUpdates(
   }
   if (patch.addCapabilityAllowedOrigins !== undefined) {
     const agentTask = updates.agent_task ?? job.agent_task;
-    const context = agentTask?.trustedCapabilityContext;
-    if (
-      !agentTask ||
-      !context ||
-      !Array.isArray(context.allowedOrigins) ||
-      context.allowedOrigins.some((origin) => typeof origin !== 'string')
-    ) {
+    if (!agentTask) {
       throw new ApplicationError(
         'INVALID_REQUEST',
         'The retained task requires a trusted allowedOrigins context.',
       );
     }
-    const additions = patch.addCapabilityAllowedOrigins.map((origin) => {
-      let url: URL;
-      try {
-        url = new URL(origin);
-      } catch {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          'Invalid exact capability origin.',
-        );
-      }
-      if (
-        !['http:', 'https:'].includes(url.protocol) ||
-        url.username ||
-        url.password ||
-        url.origin !== origin
-      ) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          'Invalid exact capability origin.',
-        );
-      }
-      return origin;
+    const updatedAgentTask = extendCapabilityAllowedOrigins({
+      job,
+      agentTask,
+      approvals: patch.addCapabilityAllowedOrigins,
+      now: clock.now(),
     });
-    const priorOrigins = context.allowedOrigins as string[];
-    const newOrigins = additions.filter(
-      (origin) => !priorOrigins.includes(origin),
-    );
-    if (
-      newOrigins.length > 0 &&
-      (job.status !== 'paused' ||
-        (job.lease_run_id &&
-          (!job.lease_expires_at ||
-            !Number.isFinite(Date.parse(job.lease_expires_at)) ||
-            Date.parse(job.lease_expires_at) > Date.parse(clock.now()))))
-    ) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'Trusted capability origins may be extended only on a paused job without a live run.',
-      );
-    }
-    const allowedOrigins = [...new Set([...priorOrigins, ...additions])];
-    if (allowedOrigins.length > 50)
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'At most 50 capability origins may be admitted.',
-      );
-    const restrictions = context.allowedMethodsByOrigin;
-    if (
-      restrictions !== undefined &&
-      (!restrictions ||
-        typeof restrictions !== 'object' ||
-        Array.isArray(restrictions))
-    ) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'Invalid trusted origin method policy.',
-      );
-    }
-    // Replaying existing origins grants no authority and must not block recovery.
-    if (newOrigins.length > 0)
-      updates.agent_task = {
-        ...agentTask,
-        trustedCapabilityContext: {
-          ...context,
-          allowedOrigins,
-          allowedMethodsByOrigin: {
-            ...(restrictions as Record<string, unknown>),
-            ...Object.fromEntries(
-              newOrigins.map((origin) => [origin, ['GET', 'HEAD']]),
-            ),
-          },
-        },
-      };
+    if (updatedAgentTask) updates.agent_task = updatedAgentTask;
   }
   if (patch.callerResolvedTools !== undefined) {
     const agentTask = updates.agent_task ?? job.agent_task;

@@ -4,7 +4,11 @@ import http from 'node:http';
 import https from 'node:https';
 import type { LookupFunction } from 'node:net';
 
-import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
+import {
+  HOST_BROWSER_PAGINATION_PROBE_PROVENANCE,
+  isHostBrowserPaginationProbeArtifact,
+  type FileArtifactId,
+} from '../domain/file-artifacts/file-artifact.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import { jobArtifactScope } from '../domain/ports/job-semantic-checkpoints.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
@@ -97,6 +101,10 @@ interface HostedCapabilityModuleHost {
     artifactId: string;
     contentHash: string;
     value: unknown;
+    provenance?: {
+      origin: 'host';
+      kind: 'browser_pagination_probe';
+    };
   }>;
   withBrowserSession<T>(
     execute: (session: IsolatedValidationBrowserSession) => Promise<T>,
@@ -531,7 +539,10 @@ class SignedModuleCapabilityRunner implements GantryHostedCapabilityRunner {
         }),
       ),
     );
-    const status = requiredString(response.status, 'Hosted reconciliation status');
+    const status = requiredString(
+      response.status,
+      'Hosted reconciliation status',
+    );
     if (status === 'acknowledged') {
       return { status, result: boundedPreviousResult(response.result) };
     }
@@ -619,6 +630,9 @@ class SignedModuleCapabilityRunner implements GantryHostedCapabilityRunner {
           artifactId,
           contentHash: loaded.artifact.contentHash,
           value: JSON.parse(text) as unknown,
+          ...(isHostBrowserPaginationProbeArtifact(loaded.artifact)
+            ? { provenance: HOST_BROWSER_PAGINATION_PROBE_PROVENANCE }
+            : {}),
         };
       },
       writeBinaryArtifact: async ({ bodyBase64, contentType }) => {
@@ -865,11 +879,12 @@ class SignedModuleCapabilityRunner implements GantryHostedCapabilityRunner {
     // A durable task-store read is part of the validation operation. A stalled
     // database/network read must not let a hosted validation outlive its one
     // absolute deadline.
-    const task = expectedFence && enforceDeadline
-      ? await withinValidationDeadline(expectedFence.deadlineAtMs, () =>
-          this.validationRepository().getTask(taskId),
-        )
-      : await this.validationRepository().getTask(taskId);
+    const task =
+      expectedFence && enforceDeadline
+        ? await withinValidationDeadline(expectedFence.deadlineAtMs, () =>
+            this.validationRepository().getTask(taskId),
+          )
+        : await this.validationRepository().getTask(taskId);
     if (
       input.parentRunLease &&
       enforceDeadline &&
@@ -923,7 +938,8 @@ function validationOriginMethods(
         !origins.has(origin) ||
         !Array.isArray(methods) ||
         methods.length === 0 ||
-        methods.some((method) => !['GET', 'HEAD'].includes(method))
+        methods.some((method) => !['GET', 'HEAD', 'POST'].includes(method)) ||
+        (methods.includes('POST') && new URL(origin).protocol !== 'https:')
       ) {
         throw new Error('Invalid trusted origin method policy.');
       }
@@ -1113,9 +1129,13 @@ export async function fetchForValidation(input: {
         `Validation request origin is not allowed: ${url.origin}`,
       );
     }
+    const allowedMethods = input.allowedMethodsByOrigin?.[url.origin] ?? [
+      'GET',
+      'HEAD',
+    ];
     if (
-      input.allowedMethodsByOrigin?.[url.origin] &&
-      !input.allowedMethodsByOrigin[url.origin]!.includes(method)
+      !allowedMethods.includes(method) ||
+      (method === 'POST' && url.protocol !== 'https:')
     ) {
       throw new Error(
         `Validation request method is not allowed: ${url.origin}`,
@@ -1207,10 +1227,7 @@ async function withinValidationDeadline<T>(
       execute(),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
-          () =>
-            reject(
-              new HostedCapabilityExecutionDeadlineError(),
-            ),
+          () => reject(new HostedCapabilityExecutionDeadlineError()),
           remaining,
         );
       }),

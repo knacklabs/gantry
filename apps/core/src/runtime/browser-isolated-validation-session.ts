@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { BrowserContext, Page } from 'playwright-core';
 
 import {
@@ -13,9 +15,18 @@ import { nowMs } from '../shared/time/datetime.js';
 import { installBrowserContextNetworkPolicy } from './browser-network-policy.js';
 
 export interface IsolatedValidationBrowserSession {
+  readonly id: string;
   readonly context: BrowserContext;
   readonly page: Page;
   readonly deadlineAtMs: number;
+  readonly networkEvidence: () => {
+    readonly failures: readonly {
+      readonly origin: string;
+      readonly resourceType: string;
+      readonly code: 'browser_method_not_approved';
+      readonly method: string;
+    }[];
+  };
 }
 
 export async function withIsolatedValidationBrowserSession<T>(input: {
@@ -38,6 +49,12 @@ export async function withIsolatedValidationBrowserSession<T>(input: {
     withTimeout,
   });
   let context: BrowserContext | undefined;
+  const failures: Array<{
+    origin: string;
+    resourceType: string;
+    code: 'browser_method_not_approved';
+    method: string;
+  }> = [];
   try {
     context = await connection.browser.newContext({
       acceptDownloads: true,
@@ -48,11 +65,28 @@ export async function withIsolatedValidationBrowserSession<T>(input: {
       allowedHosts: [],
       allowedOrigins,
       allowedMethodsByOrigin: input.allowedMethodsByOrigin,
+      onRequestDenied: (denial) => {
+        failures.push({
+          origin: denial.origin,
+          resourceType: denial.resourceType,
+          code: 'browser_method_not_approved',
+          method: denial.method,
+        });
+        if (failures.length > 20) failures.splice(0, failures.length - 20);
+      },
     });
     const page = await context.newPage();
     observePage(page);
     return await withTimeout(
-      input.execute({ context, page, deadlineAtMs }),
+      input.execute({
+        id: randomUUID(),
+        context,
+        page,
+        deadlineAtMs,
+        networkEvidence: () => ({
+          failures: failures.map((failure) => ({ ...failure })),
+        }),
+      }),
       remainingBrowserActionTimeoutMs(deadlineAtMs),
       'Recipe validation browser session timed out.',
     );

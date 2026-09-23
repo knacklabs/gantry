@@ -104,6 +104,42 @@ describe('signed Gantry-hosted capability module runner', () => {
     ).rejects.toThrow(/method is not allowed/);
     expect(mocks.resolvePublicEgressAddress).not.toHaveBeenCalled();
   });
+  it('defaults an admitted origin without a method entry to GET/HEAD', async () => {
+    await expect(
+      fetchForValidation({
+        request: { url: 'https://legacy.example.test/data', method: 'POST' },
+        allowedOrigins: new Set(['https://legacy.example.test']),
+        allowedMethodsByOrigin: {},
+        deadlineAtMs: Date.now() + 1000,
+        maxResponseBytes: 1000,
+      }),
+    ).rejects.toThrow(/method is not allowed/);
+    expect(mocks.resolvePublicEgressAddress).not.toHaveBeenCalled();
+  });
+  it('admits POST at the method gate only for an explicitly approved HTTPS origin', async () => {
+    mocks.resolvePublicEgressAddress.mockResolvedValue({
+      ok: false,
+      reason: 'non_public_address',
+    });
+    await expect(
+      fetchForValidation({
+        request: {
+          url: 'https://tenders.example.test/search',
+          method: 'POST',
+          body: 'PageIndex=0',
+        },
+        allowedOrigins: new Set(['https://tenders.example.test']),
+        allowedMethodsByOrigin: {
+          'https://tenders.example.test': ['GET', 'HEAD', 'POST'],
+        },
+        deadlineAtMs: Date.now() + 1000,
+        maxResponseBytes: 1000,
+      }),
+    ).rejects.toThrow(/target is not public/);
+    expect(mocks.resolvePublicEgressAddress).toHaveBeenCalledWith(
+      'tenders.example.test',
+    );
+  });
   it.each(['valid', 'oversized', 'lease-lost'] as const)(
     'persists bounded task-owned binary artifacts: %s',
     async (scenario) => {
@@ -245,9 +281,9 @@ describe('signed Gantry-hosted capability module runner', () => {
       openBrowserSession: vi.fn(),
     });
 
-    await expect(runner?.execute({ ...runInput(), deadlineMs: 10 })).rejects.toBeInstanceOf(
-      HostedCapabilityExecutionDeadlineError,
-    );
+    await expect(
+      runner?.execute({ ...runInput(), deadlineMs: 10 }),
+    ).rejects.toBeInstanceOf(HostedCapabilityExecutionDeadlineError);
   }, 500);
   it('replays a legacy acknowledged result without inventing an attestation', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-hosted-'));
@@ -334,7 +370,10 @@ describe('signed Gantry-hosted capability module runner', () => {
           transitionTask: async (input: {
             privateCorrelationJson: Record<string, unknown>;
           }) => {
-            task = { ...task, privateCorrelationJson: input.privateCorrelationJson };
+            task = {
+              ...task,
+              privateCorrelationJson: input.privateCorrelationJson,
+            };
             return task;
           },
         }) as never,
@@ -1051,11 +1090,12 @@ describe('signed Gantry-hosted capability module runner', () => {
     const modulePath = path.join(directory, 'runner.mjs');
     const source = `export async function execute(input, host) {
       const artifact = await host.readJsonArtifact(input.arguments.candidateArtifactId);
+      const forgedArtifact = await host.readJsonArtifact(input.arguments.forgedArtifactId);
       await host.saveValidationCase({ caseId: 'listing', result: { status: 'passed' } });
       await host.saveValidationCase({ caseId: 'listing', result: { status: 'passed' } });
       const checkpoint = await host.readValidationCheckpoint();
       await host.throwIfCancelled();
-      return host.withBrowserSession(async ({ page }) => ({ status: 'proven', artifact, page, checkpoint }));
+      return host.withBrowserSession(async ({ page }) => ({ status: 'proven', artifact, forgedArtifact, page, checkpoint }));
     }`;
     fs.writeFileSync(modulePath, source);
     const sha256 = createHash('sha256').update(source).digest('hex');
@@ -1068,13 +1108,37 @@ describe('signed Gantry-hosted capability module runner', () => {
           },
         }),
     );
-    const readFileArtifact = vi.fn(async () => ({
-      artifact: {
-        virtualScope: jobArtifactScope('job-1'),
-        contentHash: 'sha256:candidate',
-      },
-      content: JSON.stringify({ recipe: { version: 2 } }),
-    }));
+    const readFileArtifact = vi.fn(async ({ id }: { id: string }) =>
+      id === 'file-artifact:11111111-1111-4111-8111-111111111111'
+        ? {
+            artifact: {
+              virtualScope: jobArtifactScope('job-1'),
+              contentHash: 'sha256:candidate',
+              createdBy: 'host:browser-pagination-probe',
+              metadata: {
+                provenance: {
+                  origin: 'host',
+                  kind: 'browser_pagination_probe',
+                },
+              },
+            },
+            content: JSON.stringify({ recipe: { version: 2 } }),
+          }
+        : {
+            artifact: {
+              virtualScope: jobArtifactScope('job-1'),
+              contentHash: 'sha256:forged',
+              createdBy: 'agent:test',
+              metadata: {},
+            },
+            content: JSON.stringify({
+              provenance: {
+                origin: 'host',
+                kind: 'browser_pagination_probe',
+              },
+            }),
+          },
+    );
     let task = validationTask();
     const getTask = vi.fn(async () => task);
     const transitionTask = vi.fn(async (input) => {
@@ -1106,17 +1170,38 @@ describe('signed Gantry-hosted capability module runner', () => {
       })),
     });
 
-    await expect(runner?.execute(runInput())).resolves.toMatchObject({
+    const result = await runner?.execute({
+      ...runInput(),
+      arguments: {
+        ...runInput().arguments,
+        forgedArtifactId: 'file-artifact:22222222-2222-4222-8222-222222222222',
+      },
+    });
+    expect(result).toMatchObject({
       status: 'proven',
       artifact: {
         contentHash: 'sha256:candidate',
         value: { recipe: { version: 2 } },
+        provenance: {
+          origin: 'host',
+          kind: 'browser_pagination_probe',
+        },
+      },
+      forgedArtifact: {
+        contentHash: 'sha256:forged',
+        value: {
+          provenance: {
+            origin: 'host',
+            kind: 'browser_pagination_probe',
+          },
+        },
       },
       page: 'fresh-page',
       checkpoint: {
         completedCases: { listing: { status: 'passed' } },
       },
     });
+    expect(result).not.toHaveProperty('forgedArtifact.provenance');
     expect(transitionTask).toHaveBeenCalledTimes(1);
     expect(mocks.withIsolatedValidationBrowserSession).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -30,6 +30,14 @@ export type BrowserNetworkPolicyDenialReason =
   | 'navigation_host_not_allowed'
   | 'non_public_address';
 
+export interface BrowserNetworkPolicyRequestDenial {
+  readonly origin: string;
+  readonly url: string;
+  readonly method: string;
+  readonly resourceType: string;
+  readonly reason: 'method_not_allowed';
+}
+
 export function lastBrowserNetworkPolicyNavigationDenial(
   port: number,
 ): { url: string; reason: BrowserNetworkPolicyDenialReason } | undefined {
@@ -99,12 +107,14 @@ export async function installBrowserContextNetworkPolicy(input: {
   allowedHosts: readonly string[];
   allowedOrigins?: readonly string[];
   allowedMethodsByOrigin?: Readonly<Record<string, readonly string[]>>;
+  onRequestDenied?: (denial: BrowserNetworkPolicyRequestDenial) => void;
   allowPublicNavigationDiscovery?: boolean;
 }): Promise<void> {
   const state = {
     allowedHosts: [...input.allowedHosts],
     allowedOrigins: input.allowedOrigins,
     allowedMethodsByOrigin: input.allowedMethodsByOrigin,
+    onRequestDenied: input.onRequestDenied,
     allowPublicNavigationDiscovery:
       input.allowPublicNavigationDiscovery === true,
   };
@@ -143,6 +153,7 @@ async function guardRoute(
     allowedHosts: readonly string[];
     allowedOrigins?: readonly string[];
     allowedMethodsByOrigin?: Readonly<Record<string, readonly string[]>>;
+    onRequestDenied?: (denial: BrowserNetworkPolicyRequestDenial) => void;
     allowPublicNavigationDiscovery: boolean;
   },
   port?: number,
@@ -180,10 +191,23 @@ async function guardRoute(
     return;
   }
   // Validation is exact-origin and all-request; authoring discovery is unchanged.
+  const configuredMethods = state.allowedMethodsByOrigin?.[url.origin];
+  const allowedMethods =
+    state.allowedOrigins !== undefined
+      ? (configuredMethods ?? ['GET', 'HEAD'])
+      : configuredMethods;
   if (
-    state.allowedMethodsByOrigin?.[url.origin] &&
-    !state.allowedMethodsByOrigin[url.origin]!.includes(request.method())
+    allowedMethods &&
+    (!allowedMethods.includes(request.method()) ||
+      (request.method() === 'POST' && url.protocol !== 'https:'))
   ) {
+    state.onRequestDenied?.({
+      origin: url.origin,
+      url: url.href,
+      method: request.method(),
+      resourceType: request.resourceType(),
+      reason: 'method_not_allowed',
+    });
     await route.abort('blockedbyclient');
     return;
   }

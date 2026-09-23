@@ -19,21 +19,45 @@ import {
   captchaEvidenceForChallenge,
   settleCaptchaChallenge,
 } from './browser.js';
+import {
+  callerResolvedToolConfig,
+  callerResolvedToolInputSchema,
+} from './caller-resolved.js';
 
 const CHECKPOINT_WAIT_MS = 30_000;
 const HUMAN_INTERACTION_WAIT_MS = 30 * 60_000 + 20_000;
 const CAPTCHA_SETTLE_WAIT_MS = 30_000;
 
-const humanInteractionSchema = z.object({
+const browserChallengeSchema = z.object({
+  challengeId: z.string().min(1).max(512),
+  answerResultField: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/u),
+});
+
+const opaqueHumanInteractionSchema = z.object({
   toolName: z.string().regex(/^[A-Za-z0-9_.-]{1,80}$/u),
   toolInput: z.record(z.string(), z.unknown()),
-  browserChallenge: z
-    .object({
-      challengeId: z.string().min(1).max(512),
-      answerResultField: z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/u),
-    })
-    .optional(),
+  browserChallenge: browserChallengeSchema.optional(),
 });
+
+type HumanInteraction = z.infer<typeof opaqueHumanInteractionSchema>;
+
+function humanInteractionSchema(): z.ZodType<HumanInteraction> {
+  const config = callerResolvedToolConfig();
+  if (!config) return opaqueHumanInteractionSchema;
+  const schemas = config.tools.map(
+    (definition) =>
+      z.object({
+        toolName: z.literal(definition.name),
+        toolInput: callerResolvedToolInputSchema(definition),
+        browserChallenge: browserChallengeSchema.optional(),
+      }) as z.ZodType<HumanInteraction>,
+  );
+  return schemas
+    .slice(1)
+    .reduce<
+      z.ZodType<HumanInteraction>
+    >((schema, next) => z.union([schema, next]), schemas[0]!);
+}
 
 export function registerJobCheckpointTools(server: McpServer): void {
   server.tool(
@@ -64,11 +88,23 @@ export function registerJobCheckpointTools(server: McpServer): void {
         .max(64),
       evaluatorInvocationRef: z.string().min(1).max(512).nullable().optional(),
       pendingInteractionRef: z.string().min(1).max(512).nullable().optional(),
-      humanInteraction: humanInteractionSchema.optional(),
+      humanInteraction: humanInteractionSchema().optional(),
       nextAction: z.string().min(1).max(2_000),
       cumulativeRuntimeMs: z.number().int().nonnegative(),
     },
     async (args) => {
+      if (args.humanInteraction && args.milestone !== 'human_wait') {
+        return repairableErrorResult(
+          'humanInteraction is valid only for a human_wait checkpoint.',
+        );
+      }
+      if (args.milestone === 'human_wait' && !args.humanInteraction) {
+        const replay = await verifiedPendingInteractionReplay(args);
+        if (replay) return replay;
+        return repairableErrorResult(
+          'human_wait requires humanInteraction so the checkpoint and administrator request remain atomic, or a verified pending interaction replay.',
+        );
+      }
       if (args.humanInteraction?.browserChallenge) {
         const evidence = captchaEvidenceForChallenge(
           args.humanInteraction.browserChallenge.challengeId,
@@ -122,7 +158,7 @@ export function registerJobCheckpointTools(server: McpServer): void {
 
 async function resolveHumanInteraction(
   checkpoint: Awaited<ReturnType<typeof requestCheckpoint>>,
-  interaction: z.infer<typeof humanInteractionSchema>,
+  interaction: HumanInteraction,
   interactionId: string,
   checkpointInput: {
     idempotencyKey: string;
@@ -382,6 +418,36 @@ function repairableErrorResult(message: string) {
       },
     ],
   };
+}
+
+async function verifiedPendingInteractionReplay(args: {
+  milestone: string;
+  pendingInteractionRef?: string | null;
+  expectedPreviousSequence: number;
+}): Promise<Awaited<ReturnType<typeof requestCheckpoint>> | null> {
+  const pendingInteractionRef = args.pendingInteractionRef;
+  if (
+    typeof pendingInteractionRef !== 'string' ||
+    !/^interaction_[0-9a-f-]{36}$/iu.test(pendingInteractionRef)
+  ) {
+    return null;
+  }
+  const status = await requestCheckpoint('job_checkpoint_status', {});
+  if ('isError' in status && status.isError) return null;
+  try {
+    const text = status.content.find((item) => item.type === 'text')?.text;
+    if (typeof text !== 'string') return null;
+    const checkpoint = record(record(JSON.parse(text)).checkpoint);
+    const payload = record(checkpoint.payload);
+    return checkpoint.milestone === 'human_wait' &&
+      payload.pendingInteractionRef === pendingInteractionRef &&
+      Number.isSafeInteger(checkpoint.sequence) &&
+      Number(checkpoint.sequence) > args.expectedPreviousSequence
+      ? status
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function record(value: unknown): Record<string, unknown> {

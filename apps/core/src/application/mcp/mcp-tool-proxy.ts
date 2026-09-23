@@ -638,6 +638,51 @@ export class McpToolProxy {
         false,
       );
     }
+    const preflightReviewedArguments =
+      (): ExternalCapabilityPreflightResult => {
+        const schema = z.fromJSONSchema(contract.inputSchema);
+        const capabilityArguments =
+          capabilityArgumentsWithEnvelopeIdempotencyKey({
+            schema: contract.inputSchema,
+            arguments: input.arguments ?? {},
+            envelopeIdempotencyKey: input.envelopeIdempotencyKey,
+          });
+        const validation = schema.safeParse(capabilityArguments);
+        if (!validation.success) {
+          return {
+            ...externalCapabilityPreflightFailure(
+              'CAPABILITY_INPUT_SCHEMA_INVALID',
+              'External capability arguments do not match the reviewed input schema.',
+              true,
+            ),
+            diagnostics: externalCapabilityDiagnostics(validation.error.issues),
+          };
+        }
+        return {
+          ok: true,
+          arguments: capabilityArguments,
+          operation: {
+            executionMode: contract.executionMode ?? 'sync',
+            requiresActiveJob: contract.requiresActiveJob ?? false,
+            ...(contract.deadlineMs !== undefined
+              ? { deadlineMs: contract.deadlineMs }
+              : {}),
+            ...(contract.resultEnvelopeSchema
+              ? { resultEnvelopeSchema: contract.resultEnvelopeSchema }
+              : {}),
+            ...(contract.suspensionCheckpoint
+              ? { suspensionCheckpoint: contract.suspensionCheckpoint }
+              : {}),
+          },
+        };
+      };
+    // Gantry-hosted operations execute a reviewed, digest-pinned local module.
+    // Their immutable catalog contract is the source of truth; requiring a
+    // live MCP server here would make the hosted runner depend on an unrelated
+    // source-inventory transport that is intentionally not mounted.
+    if (contract.executionMode === 'gantry_hosted') {
+      return preflightReviewedArguments();
+    }
     const client = await connectMcpToolProxyClient(
       reviewed.capability,
       this.options,
@@ -665,42 +710,7 @@ export class McpToolProxy {
           false,
         );
       }
-      const schema = z.fromJSONSchema(contract.inputSchema);
-      const capabilityArguments = capabilityArgumentsWithEnvelopeIdempotencyKey(
-        {
-          schema: contract.inputSchema,
-          arguments: input.arguments ?? {},
-          envelopeIdempotencyKey: input.envelopeIdempotencyKey,
-        },
-      );
-      const validation = schema.safeParse(capabilityArguments);
-      if (validation.success) {
-        return {
-          ok: true,
-          arguments: capabilityArguments,
-          operation: {
-            executionMode: contract.executionMode ?? 'sync',
-            requiresActiveJob: contract.requiresActiveJob ?? false,
-            ...(contract.deadlineMs !== undefined
-              ? { deadlineMs: contract.deadlineMs }
-              : {}),
-            ...(contract.resultEnvelopeSchema
-              ? { resultEnvelopeSchema: contract.resultEnvelopeSchema }
-              : {}),
-            ...(contract.suspensionCheckpoint
-              ? { suspensionCheckpoint: contract.suspensionCheckpoint }
-              : {}),
-          },
-        };
-      }
-      return {
-        ...externalCapabilityPreflightFailure(
-          'CAPABILITY_INPUT_SCHEMA_INVALID',
-          'External capability arguments do not match the reviewed input schema.',
-          true,
-        ),
-        diagnostics: externalCapabilityDiagnostics(validation.error.issues),
-      };
+      return preflightReviewedArguments();
     } finally {
       scheduleMcpClientIdleClose(reviewed.capability);
     }

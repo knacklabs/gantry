@@ -1211,6 +1211,33 @@ describe('contracts package', () => {
       ],
       status: 'paused',
     });
+    expect(
+      UpdateJobRequestSchema.parse({
+        addCapabilityAllowedOrigins: [
+          {
+            origin: 'https://tenders.example.test',
+            methods: ['GET', 'HEAD', 'POST'],
+          },
+        ],
+      }),
+    ).toEqual({
+      addCapabilityAllowedOrigins: [
+        {
+          origin: 'https://tenders.example.test',
+          methods: ['GET', 'HEAD', 'POST'],
+        },
+      ],
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      addCapabilityAllowedOrigins: [
+        { origin: 'https://tenders.example.test', methods: ['PUT'] },
+      ],
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      addCapabilityAllowedOrigins: [
+        { origin: 'http://tenders.example.test', methods: ['POST'] },
+      ],
+    });
     expectInvalid(UpdateJobRequestSchema, {
       modelAlias: 'sonnet',
       modelProfileId: 'anthropic:sonnet-4.6',

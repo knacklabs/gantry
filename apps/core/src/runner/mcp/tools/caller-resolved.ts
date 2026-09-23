@@ -12,6 +12,8 @@ type CallerToolConfig = {
   interactionTimeoutMs: number;
 };
 
+type CallerToolDefinition = CallerToolConfig['tools'][number];
+
 export function callerResolvedToolConfig(
   raw = process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
 ): CallerToolConfig | null {
@@ -33,12 +35,7 @@ export function registerCallerResolvedTools(server: McpServer): void {
   const config = callerResolvedToolConfig();
   if (!config) return;
   for (const definition of config.tools) {
-    const schema = z.fromJSONSchema(definition.inputSchema);
-    if (!(schema instanceof z.ZodObject)) {
-      throw new Error(
-        `Caller tool ${definition.name} inputSchema must describe an object.`,
-      );
-    }
+    const schema = callerResolvedToolInputSchema(definition);
     server.registerTool(
       definition.name,
       { description: definition.description, inputSchema: schema.shape },
@@ -52,4 +49,16 @@ export function registerCallerResolvedTools(server: McpServer): void {
         }),
     );
   }
+}
+
+export function callerResolvedToolInputSchema(
+  definition: CallerToolDefinition,
+): z.ZodObject {
+  const schema = z.fromJSONSchema(definition.inputSchema);
+  if (!(schema instanceof z.ZodObject)) {
+    throw new Error(
+      `Caller tool ${definition.name} inputSchema must describe an object.`,
+    );
+  }
+  return schema;
 }

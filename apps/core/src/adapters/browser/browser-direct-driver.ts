@@ -47,6 +47,7 @@ import {
   withTimeout,
 } from './browser-direct-timeout.js';
 import { nowMs } from '../../shared/time/datetime.js';
+import { runBrowserPaginationProbe } from './browser-pagination-probe.js';
 
 export { BROWSER_ACTION_TIMEOUT_MS };
 export {
@@ -225,6 +226,20 @@ async function dispatchBrowserToolInner(input: {
         writeOptionalTextOutput(
           JSON.stringify(pageState(page).network, null, 2),
           input.args,
+        ),
+      );
+    case 'scroll_and_observe':
+      return await runWithActivePage(input, async (page) =>
+        textResult(
+          JSON.stringify(
+            await runBrowserPaginationProbe({
+              page,
+              args: input.args,
+              network: pageState(page).network,
+            }),
+            null,
+            2,
+          ),
         ),
       );
     case 'click':

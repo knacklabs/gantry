@@ -21,6 +21,7 @@ import {
   formatBackendError,
   sanitizeBrowserTabsResult,
 } from '@core/adapters/browser/browser-direct-driver.js';
+import { pageState } from '@core/adapters/browser/browser-direct-session.js';
 import { normalizeBrowserToolResult } from '@core/adapters/browser/browser-result-hygiene.js';
 import {
   resolveTargetLocator,
@@ -289,6 +290,233 @@ describe('browser direct driver', () => {
     });
 
     expect(page.keyboard.press).toHaveBeenCalledWith(expected);
+  });
+
+  it('scrolls once and returns settled row growth with correlated redacted requests', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-23T10:00:00.000Z'));
+    const root = tempRoot();
+    const pageUrl = new URL('https://example.com/listing?token=secret');
+    pageUrl.username = 'user';
+    pageUrl.password = 'test-secret';
+    const { page } = createPage({
+      url: pageUrl.toString(),
+    });
+    const before = {
+      scroll: { x: 0, y: 0 },
+      viewport: { width: 1280, height: 720 },
+      document: { width: 1280, height: 2400 },
+      rows: { count: 1, uniqueCount: 1, identities: ['A'] },
+      observedTotal: {
+        text: 'Showing 1 to 15 of 1,512 results',
+        value: 1512,
+      },
+    };
+    const after = {
+      scroll: { x: 0, y: 1680 },
+      viewport: { width: 1280, height: 720 },
+      document: { width: 1280, height: 3200 },
+      rows: { count: 2, uniqueCount: 2, identities: ['A', 'B'] },
+      observedTotal: {
+        text: 'Showing 1 to 15 of 1,512 results',
+        value: 1512,
+      },
+    };
+    page.evaluate
+      .mockResolvedValueOnce({
+        ...before,
+        observedTotal: undefined,
+        observedTotalText: before.observedTotal.text,
+        totalFound: true,
+        invalidIdentityCount: 0,
+      })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        ...after,
+        observedTotal: undefined,
+        observedTotalText: after.observedTotal.text,
+        totalFound: true,
+        invalidIdentityCount: 0,
+      })
+      .mockResolvedValueOnce({
+        ...after,
+        observedTotal: undefined,
+        observedTotalText: after.observedTotal.text,
+        totalFound: true,
+        invalidIdentityCount: 0,
+      })
+      .mockResolvedValueOnce({
+        ...after,
+        observedTotal: undefined,
+        observedTotalText: after.observedTotal.text,
+        totalFound: true,
+        invalidIdentityCount: 0,
+      });
+    page.waitForTimeout.mockImplementation(async (milliseconds: number) => {
+      vi.advanceTimersByTime(milliseconds);
+      if (pageState(page as never).network.length === 0) {
+        const requestUrl = new URL(
+          'https://example.com/list?page=2&token=secret',
+        );
+        requestUrl.username = 'api-user';
+        requestUrl.password = 'test-secret';
+        pageState(page as never).network.push({
+          id: '1',
+          method: 'GET',
+          url: requestUrl.toString(),
+          resourceType: 'fetch',
+          timestamp: new Date().toISOString(),
+          status: 200,
+        });
+      }
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'scroll_and_observe',
+      arguments: {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+        total_selector: '.result-total',
+        settle_ms: 200,
+        poll_interval_ms: 100,
+        probe_timeout_ms: 2_000,
+      },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    const evidence = JSON.parse((result as any).content[0].text);
+    expect(evidence).toMatchObject({
+      schemaVersion: 'browser.pagination_probe@1',
+      pageUrl: 'https://example.com/listing?token=%5BREDACTED%5D',
+      selectors: {
+        row: 'tbody tr',
+        identity: 'a.result',
+        total: '.result-total',
+      },
+      outcome: 'growth',
+      before,
+      after,
+      observedRequests: [
+        {
+          method: 'GET',
+          url: 'https://example.com/list?page=%5BREDACTED%5D&token=%5BREDACTED%5D',
+          status: 200,
+        },
+      ],
+      elapsedMs: 300,
+    });
+    expect(page.evaluate).toHaveBeenCalledTimes(5);
+  });
+
+  it('observes no growth for at least one second by default', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-23T10:00:00.000Z'));
+    const root = tempRoot();
+    const { page } = createPage({ url: 'https://93.184.216.34/listing' });
+    const snapshot = {
+      scroll: { x: 0, y: 100 },
+      viewport: { width: 1280, height: 720 },
+      document: { width: 1280, height: 2400 },
+      rows: { count: 1, uniqueCount: 1, identities: ['A'] },
+      observedTotalText: '1 result',
+      totalFound: true,
+      invalidIdentityCount: 0,
+    };
+    page.evaluate
+      .mockResolvedValueOnce(snapshot)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue(snapshot);
+    page.waitForTimeout.mockImplementation(async (milliseconds: number) => {
+      vi.advanceTimersByTime(milliseconds);
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'scroll_and_observe',
+      arguments: {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+        total_selector: '.result-total',
+      },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    const evidence = JSON.parse((result as any).content[0].text);
+    expect(evidence.outcome).toBe('no_growth');
+    expect(evidence.elapsedMs).toBeGreaterThanOrEqual(1_000);
+  });
+
+  it('returns a blocked typed outcome when required selectors are missing', async () => {
+    const root = tempRoot();
+    const { page } = createPage({ url: 'https://93.184.216.34/listing' });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'scroll_and_observe',
+      arguments: { row_selector: 'tbody tr' },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(JSON.parse((result as any).content[0].text)).toMatchObject({
+      schemaVersion: 'browser.pagination_probe@1',
+      outcome: 'blocked',
+      before: null,
+      after: null,
+      blockReason: 'identity_selector is required',
+    });
+    expect(page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when row identities do not settle before the bounded timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-23T10:00:00.000Z'));
+    const root = tempRoot();
+    const { page } = createPage({ url: 'https://93.184.216.34/listing' });
+    const snapshot = (identity: string) => ({
+      scroll: { x: 0, y: 100 },
+      viewport: { width: 1280, height: 720 },
+      document: { width: 1280, height: 2400 },
+      rows: { count: 1, uniqueCount: 1, identities: [identity] },
+    });
+    page.evaluate
+      .mockResolvedValueOnce(snapshot('A'))
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(snapshot('B'))
+      .mockResolvedValueOnce(snapshot('C'))
+      .mockResolvedValueOnce(snapshot('D'));
+    page.waitForTimeout.mockImplementation(async (milliseconds: number) => {
+      vi.advanceTimersByTime(milliseconds);
+    });
+    const { browser } = createBrowser([page]);
+    browserMocks.connectOverCDP.mockResolvedValue(browser);
+
+    const result = await callBrowserTool({
+      toolName: 'scroll_and_observe',
+      arguments: {
+        row_selector: 'tbody tr',
+        identity_selector: 'a.result',
+        settle_ms: 200,
+        poll_interval_ms: 100,
+        probe_timeout_ms: 300,
+      },
+      session: session(),
+      fileAccessRoot: root,
+    });
+
+    expect(JSON.parse((result as any).content[0].text)).toMatchObject({
+      outcome: 'blocked',
+      before: snapshot('A'),
+      after: snapshot('D'),
+      elapsedMs: 300,
+      blockReason: 'row identities did not settle before probe_timeout_ms',
+    });
   });
 
   it('reuses one Playwright CDP connection across browser actions', async () => {

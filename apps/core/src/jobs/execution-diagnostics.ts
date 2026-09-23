@@ -441,6 +441,7 @@ const BROWSER_ACT_BACKEND_ACTIONS = new Set([
   'file_attach',
   'handle_dialog',
   'resize',
+  'scroll_and_observe',
 ]);
 
 function isBrowserGatewayActivity(

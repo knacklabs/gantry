@@ -4,6 +4,13 @@ export type FileArtifactId = BrandedId<'FileArtifactId'>;
 
 export type FileArtifactStorageType = 'local-filesystem';
 
+export const HOST_BROWSER_PAGINATION_PROBE_CREATED_BY =
+  'host:browser-pagination-probe';
+export const HOST_BROWSER_PAGINATION_PROBE_PROVENANCE = {
+  origin: 'host',
+  kind: 'browser_pagination_probe',
+} as const;
+
 export interface FileArtifact {
   id: FileArtifactId;
   appId: string;
@@ -72,4 +79,20 @@ export function describeFileArtifact(
       ? { promotedFromArtifactId: artifact.promotedFromArtifactId }
       : {}),
   };
+}
+
+export function isHostBrowserPaginationProbeArtifact(
+  artifact: Pick<FileArtifact, 'createdBy' | 'metadata'>,
+): boolean {
+  const provenance = artifact.metadata?.provenance;
+  return (
+    artifact.createdBy === HOST_BROWSER_PAGINATION_PROBE_CREATED_BY &&
+    !!provenance &&
+    typeof provenance === 'object' &&
+    !Array.isArray(provenance) &&
+    (provenance as Record<string, unknown>).origin ===
+      HOST_BROWSER_PAGINATION_PROBE_PROVENANCE.origin &&
+    (provenance as Record<string, unknown>).kind ===
+      HOST_BROWSER_PAGINATION_PROBE_PROVENANCE.kind
+  );
 }
