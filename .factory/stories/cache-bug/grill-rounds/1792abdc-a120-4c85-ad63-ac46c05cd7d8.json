@@ -1,0 +1,17 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "Which provider's API key, and what do you want to do with it?",
+      "options": [
+        "Anthropic \u2014 get a new key",
+        "OpenAI \u2014 get a new key",
+        "Find where the key is set",
+        "Rotate / replace an existing key"
+      ],
+      "chosen": "Anthropic \u2014 get a new key"
+    }
+  ],
+  "at": "2026-09-24T04:12:48.694078+00:00",
+  "session_id": "092f9d9f-950d-44c4-823c-13185748a8c6"
+}

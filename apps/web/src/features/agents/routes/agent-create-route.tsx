@@ -43,6 +43,7 @@ import {
 } from '../../channel-accounts/channel-account-queries';
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentModelSelect } from '../components/agent-model-select';
+import { agentModelLabel } from '../agent-model-label';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import {
   RoleEditorDialog,
@@ -1163,7 +1164,14 @@ function ReviewSummary({
         lines={[
           ['Name', agent.name],
           ['Role snapshot', agent.roleName ?? 'No role selected'],
-          ['Model', agent.modelAlias ?? 'Deployment default'],
+          [
+            'Model',
+            agentModelLabel(
+              agent.modelDisplayName,
+              agent.modelProviderId,
+              agent.modelProviderLabel,
+            ),
+          ],
           ['Instructions', 'Not configured'],
         ]}
       />

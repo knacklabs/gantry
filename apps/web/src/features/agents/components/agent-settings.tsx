@@ -21,6 +21,8 @@ export function AgentSettings({
   const offboarded = agent.status === 'offboarded';
   const [name, setName] = useState(agent.name);
   const [modelAlias, setModelAlias] = useState<string | null>(agent.modelAlias);
+  const unchanged =
+    name.trim() === agent.name && modelAlias === agent.modelAlias;
   useEffect(() => setName(agent.name), [agent.name]);
   useEffect(() => setModelAlias(agent.modelAlias), [agent.modelAlias]);
   const rename = useMutation({
@@ -37,7 +39,16 @@ export function AgentSettings({
           body: JSON.stringify({ name, modelAlias }),
         },
       );
-      if (!response.ok) throw new Error('AI employee name could not be saved.');
+      if (!response.ok) {
+        const error = (await response.json().catch(() => null)) as {
+          error?: { message?: unknown };
+        } | null;
+        throw new Error(
+          typeof error?.error?.message === 'string'
+            ? error.error.message
+            : 'AI employee settings could not be saved.',
+        );
+      }
     },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: agentQueryKeys.all }),
@@ -45,11 +56,7 @@ export function AgentSettings({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (
-      name.trim() &&
-      (name.trim() !== agent.name || modelAlias !== agent.modelAlias)
-    )
-      rename.mutate();
+    if (name.trim() && !unchanged) rename.mutate();
   }
 
   return (
@@ -59,12 +66,11 @@ export function AgentSettings({
         <p className="mt-1 mb-4 text-sm text-text-secondary">
           {offboarded
             ? 'Offboarded AI employees are retained for audit and cannot be changed.'
-            : 'Changes to the name are saved directly to this AI employee.'}
+            : 'Changes to the name and model are saved directly to this AI employee.'}
         </p>
         <form className="grid max-w-xl gap-3" onSubmit={submit}>
           <TextField
             disabled={offboarded}
-            error={rename.isError ? rename.error.message : undefined}
             id="agent-name"
             label="AI employee name"
             value={name}
@@ -75,19 +81,25 @@ export function AgentSettings({
             value={modelAlias}
             onValueChange={setModelAlias}
           />
+          {rename.isError ? (
+            <p className="m-0 text-xs text-danger" role="alert">
+              {rename.error.message}
+            </p>
+          ) : null}
           <div>
             <Button
               disabled={
-                offboarded ||
-                !name.trim() ||
-                (name.trim() === agent.name &&
-                  modelAlias === agent.modelAlias) ||
-                rename.isPending
+                offboarded || !name.trim() || unchanged || rename.isPending
               }
               type="submit"
             >
               {rename.isPending ? 'Saving…' : 'Save changes'}
             </Button>
+            {!offboarded && unchanged ? (
+              <p className="mt-2 text-xs text-text-secondary" role="status">
+                This model and name are already saved.
+              </p>
+            ) : null}
           </div>
         </form>
       </section>

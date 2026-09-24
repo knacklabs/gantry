@@ -18,14 +18,15 @@ import {
 } from '../../../ui/primitives/dialog';
 import { Input } from '../../../ui/primitives/input';
 import { Textarea } from '../../../ui/primitives/textarea';
+import { toast } from '../../../ui/primitives/toast';
 import { SelectField } from '../../../ui/compositions/select-field';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '../../../ui/primitives/tooltip';
-import { type ModelProvider, modelProviderQuery } from '../operations-queries';
-import { navigationSummaryQuery } from '../../navigation/navigation-summary-query';
+import { type ModelProvider } from '../operations-queries';
+import { invalidateProviderCredentialQueries } from '../provider-availability';
 
 type ProviderStatus = {
   description: string;
@@ -200,15 +201,20 @@ export function ProviderDialog({
     );
     setSaving(false);
     if (!response.ok) {
-      setError('Credential changes could not be saved.');
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: unknown };
+      } | null;
+      setError(
+        typeof body?.error?.message === 'string'
+          ? body.error.message
+          : 'Credential changes could not be saved.',
+      );
       return;
     }
-    await queryClient.invalidateQueries({
-      queryKey: modelProviderQuery.queryKey,
-    });
-    await queryClient.invalidateQueries({
-      queryKey: navigationSummaryQuery.queryKey,
-    });
+    await invalidateProviderCredentialQueries(queryClient);
+    toast.success(
+      `${provider.label} credential saved. Select one of its models in Roster.`,
+    );
     onOpenChange(false);
   }
 
@@ -259,12 +265,7 @@ export function ProviderDialog({
       setError('Credential could not be disabled.');
       return;
     }
-    await queryClient.invalidateQueries({
-      queryKey: modelProviderQuery.queryKey,
-    });
-    await queryClient.invalidateQueries({
-      queryKey: navigationSummaryQuery.queryKey,
-    });
+    await invalidateProviderCredentialQueries(queryClient);
     onOpenChange(false);
   }
 
@@ -285,12 +286,7 @@ export function ProviderDialog({
       setError('Credential could not be removed.');
       return;
     }
-    await queryClient.invalidateQueries({
-      queryKey: modelProviderQuery.queryKey,
-    });
-    await queryClient.invalidateQueries({
-      queryKey: navigationSummaryQuery.queryKey,
-    });
+    await invalidateProviderCredentialQueries(queryClient);
     setRemovalConfirmation('');
     setRemovalOpen(false);
     onOpenChange(false);

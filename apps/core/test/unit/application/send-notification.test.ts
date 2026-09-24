@@ -101,7 +101,6 @@ describe('send notification', () => {
       destination: '#missing-internal-channel',
       text: 'Claim CLM-1234 needs review.',
       review_claim_id: 'CLM-1234',
-      outcome_destination: '#gantry-test-channel',
     });
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result)).toContain(
@@ -206,10 +205,9 @@ describe('send notification', () => {
       text: 'Claim CLM-1234 needs internal review.',
       claimReview: {
         claimId: 'CLM-1234',
-        outcomeDestination: '#gantry-test-channel',
+        sourceJid: 'sl:C-TEST',
       },
       reviewChannelName: 'gantry-demo-insurance-sales',
-      outcomeChannelName: 'gantry-test-channel',
       reviewServiceUrl: 'http://127.0.0.1:14319',
       fetcher,
       destinations: [
@@ -246,6 +244,9 @@ describe('send notification', () => {
     expect(sendMessage.mock.calls[0]?.[1]).not.toContain(
       'Repair estimate not received',
     );
+    expect(
+      sendMessage.mock.calls[0]?.[2]?.actionAffordances?.[0]?.outcomeJid,
+    ).toBe('sl:C-TEST');
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
@@ -272,10 +273,9 @@ describe('send notification', () => {
       text: 'Claim CLM-1234 needs internal review.',
       claimReview: {
         claimId: 'CLM-1234',
-        outcomeDestination: '#gantry-test-channel',
+        sourceJid: 'sl:C-TEST',
       },
       reviewChannelName: 'gantry-demo-insurance-sales',
-      outcomeChannelName: 'gantry-test-channel',
       reviewServiceUrl: 'http://127.0.0.1:14319',
       fetcher,
       destinations: [
@@ -306,6 +306,79 @@ describe('send notification', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it('routes each review outcome to the channel that originated that claim', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/review-card-sent')
+            ? '{}'
+            : JSON.stringify({
+                claim: { status: 'submitted_for_review' },
+                evidence: [
+                  { documentType: 'damage_photo' },
+                  { documentType: 'repair_estimate' },
+                ],
+              }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    const destinations = [
+      {
+        name: 'gantry-demo-insurance-sales',
+        jid: 'sl:C-SALES',
+        providerAccountId: 'slack-account',
+      },
+      { name: 'client-a', jid: 'sl:C-A', providerAccountId: 'slack-account' },
+      { name: 'client-b', jid: 'sl:C-B', providerAccountId: 'slack-account' },
+    ];
+    for (const [claimId, sourceJid] of [
+      ['CLM-AAAA', 'sl:C-A'],
+      ['CLM-BBBB', 'sl:C-B'],
+    ]) {
+      await sendNotification({
+        destination: '#gantry-demo-insurance-sales',
+        text: `${claimId} needs review`,
+        claimReview: { claimId, sourceJid },
+        reviewChannelName: 'gantry-demo-insurance-sales',
+        reviewServiceUrl: 'http://127.0.0.1:14319',
+        fetcher,
+        destinations,
+        sendMessage,
+      });
+    }
+    expect(
+      sendMessage.mock.calls.map(
+        (call) => call[2].actionAffordances[0].outcomeJid,
+      ),
+    ).toEqual(['sl:C-A', 'sl:C-B']);
+  });
+
+  it('rejects an unbound origin before posting a review card', async () => {
+    const sendMessage = vi.fn();
+    const fetcher = vi.fn();
+    await expect(
+      sendNotification({
+        destination: '#gantry-demo-insurance-sales',
+        text: 'Claim CLM-AAAA needs review',
+        claimReview: { claimId: 'CLM-AAAA', sourceJid: 'sl:C-UNBOUND' },
+        reviewChannelName: 'gantry-demo-insurance-sales',
+        reviewServiceUrl: 'http://127.0.0.1:14319',
+        fetcher,
+        destinations: [
+          {
+            name: 'gantry-demo-insurance-sales',
+            jid: 'sl:C-SALES',
+            providerAccountId: 'slack-account',
+          },
+        ],
+        sendMessage,
+      }),
+    ).rejects.toThrow('unavailable or ambiguous');
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it.each([
     [{ documentType: 'damage_photo' }],
     [{ documentType: 'incident_report' }],
@@ -331,10 +404,9 @@ describe('send notification', () => {
           text: 'Claim CLM-1234 needs internal review.',
           claimReview: {
             claimId: 'CLM-1234',
-            outcomeDestination: '#gantry-test-channel',
+            sourceJid: 'sl:C-TEST',
           },
           reviewChannelName: 'gantry-demo-insurance-sales',
-          outcomeChannelName: 'gantry-test-channel',
           reviewServiceUrl: 'http://127.0.0.1:14319',
           fetcher,
           destinations: [

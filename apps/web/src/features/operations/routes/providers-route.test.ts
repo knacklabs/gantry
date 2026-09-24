@@ -35,6 +35,9 @@ it('keeps provider status and actions specific', () => {
   expect(dialogs).toContain('<Textarea');
   expect(dialogs).toContain("' (stored)'");
   expect(dialogs).toContain('Check configuration');
+  expect(
+    dialogs.match(/invalidateProviderCredentialQueries\(queryClient\)/g),
+  ).toHaveLength(3);
   expect(dialogs).not.toContain('Verify credential');
   expect(dialogs).toContain('aria-live="polite"');
   expect(app).toContain('<TooltipProvider>');

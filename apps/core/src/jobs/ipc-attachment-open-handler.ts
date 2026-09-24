@@ -175,6 +175,7 @@ const claimEvidenceStoreHandler: TaskHandler = async (context) => {
       return;
     }
     const evidence = output.evidence as Record<string, unknown> | undefined;
+    const claim = output.claim as Record<string, unknown> | undefined;
     acceptData('Claim evidence stored.', {
       evidenceId: evidence?.evidenceId,
       claimId,
@@ -182,6 +183,7 @@ const claimEvidenceStoreHandler: TaskHandler = async (context) => {
       mimeType,
       extractedFields,
       extractionStatus: evidence?.extractionStatus,
+      claimStatus: claim?.status,
       replayed: output.replayed === true,
     });
   } catch {

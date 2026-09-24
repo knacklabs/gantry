@@ -282,7 +282,6 @@ export function registerLiveStopMessageAction(input: {
         outcomeJid: action.outcomeJid,
         routes: input.conversationBindings?.() ?? {},
         reviewChannelName: claimConfig.reviewChannelName,
-        outcomeChannelName: claimConfig.outcomeChannelName,
         serviceUrl: claimConfig.reviewServiceUrl,
         sendMessage: async (jid, text, providerAccountId) => {
           await input.channelWiring.sendMessage(jid, text, {

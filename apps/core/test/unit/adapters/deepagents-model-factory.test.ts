@@ -113,9 +113,34 @@ describe('deepagents model factory', () => {
     expect(underlying.reasoning).toEqual({ effort: 'high' });
     expect(underlying.maxTokens).toBe(4096);
     expect(underlying.invocationParams({})).toMatchObject({
-      reasoning_effort: 'high',
-      max_completion_tokens: 4096,
+      reasoning: { effort: 'high' },
+      max_output_tokens: 4096,
     });
+  });
+
+  it('routes OpenAI reasoning with function tools through Responses', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'openai',
+      modelId: 'gpt-5.6-luna',
+      gatewayBaseUrl: loopbackBaseUrl,
+      gatewayToken,
+      effort: 'medium',
+    });
+    const underlying = await (
+      resolved.model as unknown as {
+        _getModelInstance: () => Promise<{
+          useResponsesApi: boolean;
+          _useResponsesApi(options: Record<string, unknown>): boolean;
+        }>;
+      }
+    )._getModelInstance();
+
+    expect(underlying.useResponsesApi).toBe(true);
+    expect(
+      underlying._useResponsesApi({
+        tools: [{ type: 'function', function: { name: 'check_policy' } }],
+      }),
+    ).toBe(true);
   });
 
   it.each([
@@ -139,7 +164,7 @@ describe('deepagents model factory', () => {
       }
     )._getModelInstance();
 
-    expect(underlying.invocationParams({}).reasoning_effort).toBe(effort);
+    expect(underlying.invocationParams({}).reasoning).toEqual({ effort });
   });
 
   it('does not inject reasoning or output controls when absent', async () => {
@@ -198,12 +223,14 @@ describe('deepagents model factory', () => {
             streamUsage?: boolean;
             clientConfig?: { baseURL?: string };
             apiKey?: string;
+            useResponsesApi: boolean;
           }>;
         }
       )._getModelInstance();
       expect(underlying.constructor.name).toBe('ChatOpenAI');
       expect(underlying.model).toBe(modelId);
       expect(underlying.streamUsage).toBe(true);
+      expect(underlying.useResponsesApi).toBe(false);
       expect(underlying.clientConfig?.baseURL).toBe(providerBaseUrl);
       expect(underlying.apiKey).toBe(gatewayToken);
       expect(resolved.modelId).toBe(modelId);

@@ -170,6 +170,13 @@ function evidenceForClaim(claimId) {
     (item) => item.claimId === claimId,
   );
 }
+function hasReviewEvidence(evidence) {
+  const types = new Set(evidence.map((item) => item.documentType));
+  return (
+    types.has('damage_photo') &&
+    (types.has('repair_estimate') || types.has('incident_report'))
+  );
+}
 function claim(claimId) {
   const found = state.claims.find((c) => c.claimId === claimId.toUpperCase());
   if (!found) throw new Error('CLAIM_NOT_FOUND');
@@ -418,7 +425,7 @@ function buildServer() {
   );
   tool(
     'register_motor_claim',
-    'WRITE: Create a local fictional claim after explicit user confirmation. Use one requestId per incident; retry with the same requestId. Never submits to a real insurer.',
+    'WRITE: Create a draft claim reference after explicit user confirmation. The claim awaits documents until a damage photo and supporting PDF are stored. Use one requestId per incident; retry with the same requestId.',
     {
       policyId: id,
       incidentType: incident,
@@ -461,7 +468,7 @@ function buildServer() {
         incidentDate: args.incidentDate,
         location: args.location,
         description: args.description,
-        status: 'submitted_for_review',
+        status: 'awaiting_documents',
         registrationAssessment: assessment.assessment,
         registrationReason: assessment.reason,
         requiredDocuments: [
@@ -482,14 +489,14 @@ function buildServer() {
       return {
         claim,
         replayed: false,
-        note: 'Saved only in this local demo. Registration is not approval.',
+        note: 'Draft saved. It is not submitted for review until the required evidence is stored.',
       };
     },
     true,
   );
   tool(
     'get_motor_claim',
-    'Read a fictional claim status and outstanding documents. Status does not progress automatically.',
+    'Read a claim status and stored evidence. A draft is submitted for review after the required evidence is stored.',
     { claimId: id },
     ({ claimId }) => {
       const found = claim(claimId);
@@ -745,7 +752,11 @@ app.post('/evidence', (req, res) => {
       return res.status(409).json({ error: 'IDEMPOTENCY_CONFLICT' });
     const { storagePath: ignored, ...publicEvidence } =
       state.evidence[previous.evidenceId];
-    return res.json({ evidence: publicEvidence, replayed: true });
+    return res.json({
+      evidence: publicEvidence,
+      claim: claim(linkedClaim.claimId),
+      replayed: true,
+    });
   }
   const evidenceId = `EVD-${randomUUID().slice(0, 8).toUpperCase()}`;
   const directory = join(evidenceRoot, linkedClaim.claimId);
@@ -773,8 +784,23 @@ app.post('/evidence', (req, res) => {
   try {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     writeFileSync(storagePath, bytes, { flag: 'wx', mode: 0o600 });
+    const ready = hasReviewEvidence([
+      ...evidenceForClaim(linkedClaim.claimId),
+      evidence,
+    ]);
+    const updatedClaim =
+      linkedClaim.status === 'awaiting_documents' && ready
+        ? {
+            ...linkedClaim,
+            status: 'submitted_for_review',
+            submittedAt: new Date().toISOString(),
+          }
+        : linkedClaim;
     persist({
       ...state,
+      claims: state.claims.map((item) =>
+        item.claimId === linkedClaim.claimId ? updatedClaim : item,
+      ),
       evidence: { ...state.evidence, [evidenceId]: evidence },
       requests: {
         ...state.requests,
@@ -788,7 +814,11 @@ app.post('/evidence', (req, res) => {
     return res.status(500).json({ error: 'EVIDENCE_STORE_FAILED' });
   }
   const { storagePath: ignored, ...publicEvidence } = evidence;
-  return res.status(201).json({ evidence: publicEvidence, replayed: false });
+  return res.status(201).json({
+    evidence: publicEvidence,
+    claim: claim(linkedClaim.claimId),
+    replayed: false,
+  });
 });
 const claimDecision = z.object({
   decision: z.enum(['approve', 'decline']),
@@ -900,14 +930,9 @@ app.post('/claims/:claimId/review-card-sent', (req, res) => {
   } catch {
     return res.status(404).json({ error: 'CLAIM_NOT_FOUND' });
   }
-  const evidenceTypes = new Set(
-    evidenceForClaim(found.claimId).map((item) => item.documentType),
-  );
   if (
     found.status !== 'submitted_for_review' ||
-    !evidenceTypes.has('damage_photo') ||
-    (!evidenceTypes.has('repair_estimate') &&
-      !evidenceTypes.has('incident_report'))
+    !hasReviewEvidence(evidenceForClaim(found.claimId))
   )
     return res.status(409).json({ error: 'CLAIM_EVIDENCE_INCOMPLETE' });
   if (!found.reviewCardPostedAt) {

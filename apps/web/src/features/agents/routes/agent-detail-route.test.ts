@@ -36,3 +36,13 @@ it('shows agent-specific, version-guarded SOUL.md and AGENTS.md editors', () => 
     'This profile changed elsewhere. Refresh it before saving.',
   );
 });
+
+it('explains why Save changes is disabled when the selected model is already saved', () => {
+  const settings = readFileSync(
+    'src/features/agents/components/agent-settings.tsx',
+    'utf8',
+  );
+  expect(settings).toContain('modelAlias === agent.modelAlias');
+  expect(settings).toContain('unchanged || rename.isPending');
+  expect(settings).toContain('This model and name are already saved.');
+});

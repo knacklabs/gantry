@@ -51,6 +51,7 @@ describe('claim evidence storage IPC', () => {
             evidenceId: 'EVD-1234',
             extractionStatus: 'extracted_unverified',
           },
+          claim: { status: 'submitted_for_review' },
           replayed: false,
         }),
         { status: 201 },
@@ -93,7 +94,10 @@ describe('claim evidence storage IPC', () => {
     const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
     expect(response).toMatchObject({
       ok: true,
-      data: { evidenceId: 'EVD-1234' },
+      data: {
+        evidenceId: 'EVD-1234',
+        claimStatus: 'submitted_for_review',
+      },
     });
     expect(JSON.stringify(response)).not.toContain(sent.dataBase64);
   });

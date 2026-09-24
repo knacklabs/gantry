@@ -260,11 +260,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     destination: data.destination,
                     text: data.text,
                     ...motorClaimIntegrationConfig(),
-                    ...(data.reviewClaimId && data.outcomeDestination
+                    ...(data.reviewClaimId
                       ? {
                           claimReview: {
                             claimId: data.reviewClaimId,
-                            outcomeDestination: data.outcomeDestination,
+                            sourceJid: data.chatJid,
                           },
                         }
                       : {}),

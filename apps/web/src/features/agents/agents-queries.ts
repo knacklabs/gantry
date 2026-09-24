@@ -17,6 +17,8 @@ export type AgentDirectoryItem = {
   configVersion: number | null;
   modelAlias: string | null;
   modelDisplayName?: string | null;
+  modelProviderId?: string | null;
+  modelProviderLabel?: string | null;
   conversationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -122,6 +124,7 @@ export type AgentModel = {
   displayName: string;
   providerId: string;
   providerLabel: string;
+  configured: boolean;
 };
 
 export const agentModelsQuery = queryOptions({

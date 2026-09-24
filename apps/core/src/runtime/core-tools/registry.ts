@@ -254,23 +254,17 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
             `Send one notification to an installed channel. Available destinations: ${(deps.notificationDestinations ?? []).map((destination) => destination.name).join(', ') || 'none'}.`,
             deps.schemas.send_notification,
             async (args) => {
-              if (
-                Boolean(args.review_claim_id) !==
-                Boolean(args.outcome_destination)
-              ) {
-                throw new Error(CLAIM_REVIEW_DELIVERY_FAILURE);
-              }
               let result: Awaited<ReturnType<typeof sendNotification>>;
               try {
                 result = await sendNotification({
                   destination: args.destination,
                   text: args.text,
                   ...motorClaimIntegrationConfig(),
-                  ...(args.review_claim_id && args.outcome_destination
+                  ...(args.review_claim_id
                     ? {
                         claimReview: {
                           claimId: args.review_claim_id,
-                          outcomeDestination: args.outcome_destination,
+                          sourceJid: deps.context.conversationId,
                         },
                       }
                     : {}),

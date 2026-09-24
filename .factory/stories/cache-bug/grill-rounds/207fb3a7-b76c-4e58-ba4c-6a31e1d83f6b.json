@@ -1,0 +1,17 @@
+{
+  "generated_by": "claude-code:plan-mode",
+  "questions": [
+    {
+      "question": "What kind of token do you need?",
+      "options": [
+        "GitHub / git auth",
+        "API key / provider token",
+        "Forge / session token",
+        "A JWT / app token to generate"
+      ],
+      "chosen": "API key / provider token"
+    }
+  ],
+  "at": "2026-09-24T04:12:31.271717+00:00",
+  "session_id": "092f9d9f-950d-44c4-823c-13185748a8c6"
+}

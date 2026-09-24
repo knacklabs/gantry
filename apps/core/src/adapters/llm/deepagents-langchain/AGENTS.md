@@ -28,9 +28,11 @@ provider string:
   The class prefix is **always** `openai:` (ChatOpenAI) — these hit OUR loopback
   gateway, not api.openai.com; the gateway routes to the real upstream by
   `pathSegment`. `baseURL` is the RAW loopback gateway base
-  (`http://127.0.0.1:<port>/<seg>`, no `/v1`); the OpenAI SDK posts
-  `<baseURL>/chat/completions`, and the gateway prepends each provider's real
-  `upstreamPathPrefix`: groq `/openai/v1`, fireworks `/inference/v1`,
+  (`http://127.0.0.1:<port>/<seg>`, no `/v1`); native OpenAI appends `/v1`
+  and uses the Responses API so function tools and reasoning effort work
+  together. Other compatible providers use `<baseURL>/chat/completions`, and
+  the gateway prepends each provider's real `upstreamPathPrefix`: groq
+  `/openai/v1`, fireworks `/inference/v1`,
   perplexity no extra prefix, gemini `/v1beta/openai`, and
   deepseek/xai/together/cerebras `/v1`. Bedrock resolves to the regional
   Bedrock Runtime `/v1` endpoint and authenticates host-side through AWS
@@ -41,8 +43,8 @@ provider string:
   ADC/workload identity, service-account JSON from Google Secret Manager, or
   encrypted service-account JSON. Regional/multi-region Vertex routing is
   deferred until explicitly implemented and verified. The gateway allowlist permits
-  `/chat/completions` and
-  `/v1/chat/completions` for the DeepAgents lane; upstream confinement is
+  `/chat/completions`, `/v1/chat/completions`, and native OpenAI
+  `/v1/responses` for the DeepAgents lane; upstream confinement is
   enforced by `upstreamPathPrefix`. Adding a provider requires the factory
   allowlist, provider registry, catalog entry, gateway auth/upstream behavior
   when credentials are not a plain bearer key, and official-doc-backed tests for

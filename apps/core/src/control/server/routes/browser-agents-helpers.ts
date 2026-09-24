@@ -65,6 +65,12 @@ export async function agentView(
     modelDisplayName: configuredModel?.ok
       ? configuredModel.entry.displayName
       : (config?.modelAliasSnapshot ?? null),
+    modelProviderId: configuredModel?.ok
+      ? configuredModel.entry.modelRoute.id
+      : null,
+    modelProviderLabel: configuredModel?.ok
+      ? configuredModel.entry.modelRoute.label
+      : null,
     conversationCount: installs.filter((install) => install.status === 'active')
       .length,
     createdAt: agent.createdAt,

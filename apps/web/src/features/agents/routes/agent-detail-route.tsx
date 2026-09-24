@@ -62,6 +62,7 @@ import {
 import { AgentRoleSelector } from '../components/agent-role-selector';
 import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
+import { agentModelLabel } from '../agent-model-label';
 import { AgentProfileEditor } from '../components/agent-persona-editor';
 import { AgentVersionHistory } from '../components/agent-version-history';
 import {
@@ -258,7 +259,11 @@ function Content({
       <div className="flex justify-end border-t border-border px-5 pt-4">
         <AgentVersionHistory agent={agent} />
       </div>
-      <AgentSettings agent={agent} onStatusRequest={onStatusRequest} />
+      <AgentSettings
+        key={agent.id}
+        agent={agent}
+        onStatusRequest={onStatusRequest}
+      />
     </>
   );
 }
@@ -828,7 +833,11 @@ function Overview({
             <Fact label="Role" value={agent.roleName ?? 'No role selected'} />
             <Fact
               label="Model"
-              value={agent.modelDisplayName ?? 'Deployment default'}
+              value={agentModelLabel(
+                agent.modelDisplayName,
+                agent.modelProviderId,
+                agent.modelProviderLabel,
+              )}
             />
             <Fact
               label="Sources"

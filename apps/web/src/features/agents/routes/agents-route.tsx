@@ -13,6 +13,7 @@ import {
   channelProvidersQuery,
 } from '../../channel-accounts/channel-account-queries';
 import { agentDirectoryQuery } from '../agents-queries';
+import { agentModelLabel } from '../agent-model-label';
 import { AgentCreateDialog } from './agent-create-route';
 
 export function AgentsRoute() {
@@ -73,11 +74,12 @@ export function AgentsRoute() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left">
+            <table className="w-full min-w-[900px] text-left">
               <thead className="border-b border-border bg-surface-muted font-mono text-[10px] font-medium tracking-[0.1em] text-text-muted uppercase">
                 <tr>
                   <th className="px-6 py-3">Employee</th>
-                  <th className="px-6 py-3">Works in</th>
+                  <th className="px-6 py-3">Channel</th>
+                  <th className="px-6 py-3">AI provider / model</th>
                   <th className="px-6 py-3">Status</th>
                   <th className="px-6 py-3 text-right">Today</th>
                 </tr>
@@ -119,8 +121,17 @@ export function AgentsRoute() {
                               account.providerId)
                             : 'Not assigned'}
                         </span>
-                        <span className="mt-1 block font-mono text-[11px] text-text-muted">
-                          {agent.modelAlias ?? 'Model not configured'}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="block text-[12px] font-medium text-text-secondary">
+                          {agent.modelProviderLabel ?? 'Deployment default'}
+                        </span>
+                        <span className="mt-1 block text-[11px] text-text-muted">
+                          {agentModelLabel(
+                            agent.modelDisplayName,
+                            agent.modelProviderId,
+                            agent.modelProviderLabel,
+                          )}
                         </span>
                       </td>
                       <td className="px-6 py-4">
@@ -141,7 +152,7 @@ export function AgentsRoute() {
                   <tr>
                     <td
                       className="px-6 py-16 text-center text-sm text-text-secondary"
-                      colSpan={4}
+                      colSpan={5}
                     >
                       No AI employees yet. Onboard one to start your roster.
                     </td>

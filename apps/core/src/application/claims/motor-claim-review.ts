@@ -24,7 +24,6 @@ export async function decideMotorClaimReview(input: {
   outcomeJid: string;
   routes: Record<string, ConversationRoute>;
   reviewChannelName: string;
-  outcomeChannelName: string;
   sendMessage: (
     jid: string,
     text: string,
@@ -34,7 +33,6 @@ export async function decideMotorClaimReview(input: {
   fetcher?: typeof fetch;
 }): Promise<MessageActionOutcome> {
   const reviewName = input.reviewChannelName.replace(/^#/, '').trim();
-  const outcomeName = input.outcomeChannelName.replace(/^#/, '').trim();
   const bound = (jid: string, name: string | undefined) =>
     Object.entries(input.routes).some(([key, route]) => {
       const parsed = parseAgentThreadQueueKey(key);
@@ -53,9 +51,9 @@ export async function decideMotorClaimReview(input: {
     });
   if (
     !reviewName ||
-    !outcomeName ||
     !bound(input.reviewJid, reviewName) ||
-    !bound(input.outcomeJid, outcomeName)
+    !bound(input.outcomeJid, undefined) ||
+    input.outcomeJid === input.reviewJid
   ) {
     return {
       state: 'denied',
@@ -97,11 +95,21 @@ export async function decideMotorClaimReview(input: {
   }
   const result = (await response.json().catch(() => ({}))) as DecisionResponse;
   if (!response.ok || !result.claim?.claimId || !result.decision?.decisionId) {
+    const conflictReceipt =
+      result.error === 'CLAIM_REVIEW_CARD_NOT_POSTED'
+        ? `Claim ${input.claimId} review request was not recorded. No decision was made; ask an operator to reconcile the review card.`
+        : result.error === 'CLAIM_EVIDENCE_INCOMPLETE'
+          ? `Claim ${input.claimId} is missing required evidence. No decision was made.`
+          : result.error === 'CLAIM_NOT_AWAITING_REVIEW'
+            ? `Claim ${input.claimId} is not awaiting review. Check its current status before deciding.`
+            : result.error === 'IDEMPOTENCY_CONFLICT'
+              ? `Claim ${input.claimId} decision conflicts with an earlier attempt. Check its current status before retrying.`
+              : `Claim ${input.claimId} could not be decided. Check its current status before retrying.`;
     return {
       state: response.status === 409 ? 'stale' : 'denied',
       receipt:
         response.status === 409
-          ? `Claim ${input.claimId} has already been decided.`
+          ? conflictReceipt
           : 'The claim decision could not be saved. Please retry.',
     };
   }

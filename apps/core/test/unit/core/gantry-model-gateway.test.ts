@@ -1679,45 +1679,48 @@ describe('GantryModelGatewayBroker', () => {
       }
     },
   );
-  it('proxies OpenAI chat-completions traffic for the DeepAgents lane', async () => {
-    const repo = new MutableModelCredentialRepository();
-    repo.set('openai', 'sk-openai-chat-upstream');
-    const upstreamFetch = vi.fn(async () => new Response('{"choices":[]}'));
-    vi.stubGlobal('fetch', upstreamFetch);
-    const broker = new GantryModelGatewayBroker(repo);
-    try {
-      const injection = await broker.getInjection({
-        binding: {
-          profile: 'gantry',
-          purpose: 'model_runtime',
-          appId,
-          modelCredentialProviderId: 'openai',
-        },
-      });
+  it.each(['/v1/chat/completions', '/v1/responses'])(
+    'proxies OpenAI %s traffic for the DeepAgents lane',
+    async (path) => {
+      const repo = new MutableModelCredentialRepository();
+      repo.set('openai', 'sk-openai-chat-upstream');
+      const upstreamFetch = vi.fn(async () => new Response('{"choices":[]}'));
+      vi.stubGlobal('fetch', upstreamFetch);
+      const broker = new GantryModelGatewayBroker(repo);
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_runtime',
+            appId,
+            modelCredentialProviderId: 'openai',
+          },
+        });
 
-      expect(injection.env.OPENAI_BASE_URL).toMatch(
-        /^http:\/\/127\.0\.0\.1:\d+\/openai$/,
-      );
-      expect(injection.env.OPENAI_API_KEY).toMatch(/^gtw_/);
+        expect(injection.env.OPENAI_BASE_URL).toMatch(
+          /^http:\/\/127\.0\.0\.1:\d+\/openai$/,
+        );
+        expect(injection.env.OPENAI_API_KEY).toMatch(/^gtw_/);
 
-      const response = await gatewayRequest({
-        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
-        token: injection.env.OPENAI_API_KEY!,
-      });
+        const response = await gatewayRequest({
+          url: `${injection.env.OPENAI_BASE_URL}${path}`,
+          token: injection.env.OPENAI_API_KEY!,
+        });
 
-      expect(response.status).toBe(200);
-      expect(upstreamFetch).toHaveBeenCalledWith(
-        new URL('https://api.openai.com/v1/chat/completions'),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            authorization: 'Bearer sk-openai-chat-upstream',
+        expect(response.status).toBe(200);
+        expect(upstreamFetch).toHaveBeenCalledWith(
+          new URL(`https://api.openai.com${path}`),
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              authorization: 'Bearer sk-openai-chat-upstream',
+            }),
           }),
-        }),
-      );
-    } finally {
-      await broker.close();
-    }
-  });
+        );
+      } finally {
+        await broker.close();
+      }
+    },
+  );
 
   it.each([
     ['POST', '/v1/files'],

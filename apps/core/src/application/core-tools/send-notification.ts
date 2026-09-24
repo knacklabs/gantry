@@ -46,10 +46,9 @@ export function notificationDestinations(input: {
 export async function sendNotification(input: {
   destination: string;
   text: string;
-  claimReview?: { claimId: string; outcomeDestination: string };
+  claimReview?: { claimId: string; sourceJid: string };
   reviewServiceUrl?: string;
   reviewChannelName?: string;
-  outcomeChannelName?: string;
   fetcher?: typeof fetch;
   destinations: readonly NotificationDestination[];
   sendMessage: (
@@ -80,7 +79,7 @@ export async function sendNotification(input: {
   };
   const destination = resolve(input.destination);
   const review = input.claimReview;
-  const outcome = review ? resolve(review.outcomeDestination) : undefined;
+  const outcome = review ? resolve(review.sourceJid) : undefined;
   if (review && !/^CLM-[A-Z0-9-]{4,32}$/.test(review.claimId)) {
     throw new Error('Claim review requires a valid claim ID.');
   }
@@ -92,14 +91,10 @@ export async function sendNotification(input: {
     const reviewChannel = (input.reviewChannelName ?? '')
       .replace(/^#/, '')
       .trim();
-    const outcomeChannel = (input.outcomeChannelName ?? '')
-      .replace(/^#/, '')
-      .trim();
     if (
       !reviewChannel ||
-      !outcomeChannel ||
       destination.name.toLowerCase() !== reviewChannel.toLowerCase() ||
-      outcome.name.toLowerCase() !== outcomeChannel.toLowerCase()
+      outcome.jid === destination.jid
     ) {
       throw new Error(
         'Claim review channels are not configured for this destination.',

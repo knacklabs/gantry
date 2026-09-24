@@ -52,7 +52,6 @@ export interface ParsedIpcMessage {
   text: string;
   destination?: string;
   reviewClaimId?: string;
-  outcomeDestination?: string;
   sender?: string;
   threadId?: string;
   files?: ReturnType<typeof parseIpcMessageFiles>;
@@ -262,13 +261,9 @@ export function parseIpcMessage(
     type === 'notification'
       ? toTrimmedString(raw.reviewClaimId, { maxLen: 64 })
       : undefined;
-  const outcomeDestination =
-    type === 'notification'
-      ? toTrimmedString(raw.outcomeDestination, { maxLen: 160 })
-      : undefined;
-  if (Boolean(reviewClaimId) !== Boolean(outcomeDestination))
+  if (type === 'notification' && raw.outcomeDestination !== undefined)
     throw new Error(
-      'Claim review notification requires a claim ID and outcome destination',
+      'Claim review outcome destination is derived from the source conversation',
     );
   const requestId =
     type === 'notification'
@@ -296,7 +291,6 @@ export function parseIpcMessage(
     text,
     ...(destination ? { destination } : {}),
     ...(reviewClaimId ? { reviewClaimId } : {}),
-    ...(outcomeDestination ? { outcomeDestination } : {}),
     ...(sender ? { sender } : {}),
     ...(threadId ? { threadId } : {}),
     ...(files.length > 0 ? { files } : {}),

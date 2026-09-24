@@ -268,6 +268,7 @@ try {
   incident.confirmed = true;
   const created = await call('register_motor_claim', incident);
   assert.equal(created.replayed, false);
+  assert.equal(created.claim.status, 'awaiting_documents');
   assert.equal(created.claim.registrationAssessment, 'potentially_covered');
   assert.equal(
     created.claim.registrationReason,
@@ -300,6 +301,7 @@ try {
   assert.equal((await post('/evidence', evidenceInput, false)).status, 401);
   const uploaded = await post('/evidence', evidenceInput);
   assert.equal(uploaded.status, 201);
+  assert.equal(uploaded.body.claim.status, 'awaiting_documents');
   assert.equal(uploaded.body.evidence.extractionStatus, 'extracted_unverified');
   assert.equal('storagePath' in uploaded.body.evidence, false);
   assert.equal((await post('/evidence', evidenceInput)).body.replayed, true);
@@ -361,21 +363,18 @@ try {
     409,
   );
   const estimatePdf = Buffer.from('%PDF-1.7\nEstimate total INR 10000\n');
-  assert.equal(
-    (
-      await post('/evidence', {
-        ...evidenceInput,
-        requestId: 'evidence-2',
-        documentType: 'repair_estimate',
-        fileName: 'estimate.pdf',
-        mimeType: 'application/pdf',
-        dataBase64: estimatePdf.toString('base64'),
-        extractedText: 'Estimate total INR 10000',
-        extractedFields: { total: 10000 },
-      })
-    ).status,
-    201,
-  );
+  const uploadedEstimate = await post('/evidence', {
+    ...evidenceInput,
+    requestId: 'evidence-2',
+    documentType: 'repair_estimate',
+    fileName: 'estimate.pdf',
+    mimeType: 'application/pdf',
+    dataBase64: estimatePdf.toString('base64'),
+    extractedText: 'Estimate total INR 10000',
+    extractedFields: { total: 10000 },
+  });
+  assert.equal(uploadedEstimate.status, 201);
+  assert.equal(uploadedEstimate.body.claim.status, 'submitted_for_review');
   assert.equal(
     (await post(`/claims/${created.claim.claimId}/review-card-sent`, {}))
       .status,
@@ -445,6 +444,7 @@ try {
     ...incident,
     requestId: 'smoke-form-claim',
   });
+  assert.equal(formClaim.claim.status, 'awaiting_documents');
   assert.equal(
     (
       await post('/evidence', {
@@ -454,6 +454,11 @@ try {
       })
     ).status,
     201,
+  );
+  assert.equal(
+    (await call('get_motor_claim', { claimId: formClaim.claim.claimId })).claim
+      .status,
+    'awaiting_documents',
   );
   const claimFormPdf = Buffer.from('%PDF-1.7\nFilled claim form for review\n');
   assert.equal(
@@ -470,6 +475,11 @@ try {
       })
     ).status,
     201,
+  );
+  assert.equal(
+    (await call('get_motor_claim', { claimId: formClaim.claim.claimId })).claim
+      .status,
+    'submitted_for_review',
   );
   assert.equal(
     (await post(`/claims/${formClaim.claim.claimId}/review-card-sent`, {}))

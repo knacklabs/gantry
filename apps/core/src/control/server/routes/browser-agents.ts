@@ -106,16 +106,13 @@ export async function handleBrowserAgentRoutes(
         await ctx.getActiveModelCredentialProviderIds(appId),
       );
       const models = listModelCatalogEntries()
-        .filter(
-          (entry) =>
-            entry.supportedWorkloads.includes('chat') &&
-            configured.has(entry.modelRoute.id),
-        )
+        .filter((entry) => entry.supportedWorkloads.includes('chat'))
         .map((entry) => ({
           alias: entry.recommendedAlias,
           displayName: entry.displayName,
           providerId: entry.modelRoute.id,
           providerLabel: entry.modelRoute.label,
+          configured: configured.has(entry.modelRoute.id),
         }));
       sendJson(res, 200, { models });
       return true;

@@ -13,6 +13,7 @@ const route = (name: string): ConversationRoute => ({
 const routes = {
   'sl:C-SALES': route('gantry-demo-insurance-sales'),
   'sl:C-TEST': route('gantry-test-channel'),
+  'sl:C-CLIENT-B': route('client-b'),
 };
 
 const input = {
@@ -25,7 +26,6 @@ const input = {
   outcomeJid: 'sl:C-TEST',
   routes,
   reviewChannelName: 'gantry-demo-insurance-sales',
-  outcomeChannelName: 'gantry-test-channel',
   serviceUrl: 'http://127.0.0.1:14319',
 };
 
@@ -61,6 +61,70 @@ describe('motor claim review', () => {
     );
   });
 
+  it('delivers a decline and its reason to the outcome channel', async () => {
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/decision')
+            ? JSON.stringify({
+                claim: { claimId: 'CLM-1234' },
+                decision: {
+                  decisionId: 'DEC-2',
+                  reason: 'Documents do not match this claim',
+                  notificationStatus: 'pending',
+                },
+              })
+            : '{}',
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const result = await decideMotorClaimReview({
+      ...input,
+      decision: 'decline',
+      reason: 'Documents do not match this claim',
+      fetcher,
+      sendMessage,
+    });
+    expect(result.state).toBe('applied');
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C-TEST',
+      expect.stringContaining(
+        'declined in internal review by <@U-APPROVER>. Reason: Documents do not match this claim.',
+      ),
+      'slack-account',
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('delivers a decision to another bound client channel from its card', async () => {
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/decision')
+            ? JSON.stringify({
+                claim: { claimId: 'CLM-1234' },
+                decision: { decisionId: 'DEC-3', notificationStatus: 'pending' },
+              })
+            : '{}',
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const result = await decideMotorClaimReview({
+      ...input,
+      outcomeJid: 'sl:C-CLIENT-B',
+      fetcher,
+      sendMessage,
+    });
+    expect(result.state).toBe('applied');
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C-CLIENT-B',
+      expect.stringContaining('accepted for further assessment'),
+      'slack-account',
+    );
+  });
+
   it('rejects an unbound destination before changing the claim', async () => {
     const fetcher = vi.fn();
     const sendMessage = vi.fn();
@@ -85,5 +149,28 @@ describe('motor claim review', () => {
     });
     expect(result.state).toBe('needs_input');
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not call an unrecorded review card an already-decided claim', async () => {
+    const sendMessage = vi.fn();
+    const result = await decideMotorClaimReview({
+      ...input,
+      decision: 'decline',
+      reason: 'Documents do not match this claim',
+      fetcher: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: 'CLAIM_REVIEW_CARD_NOT_POSTED' }),
+            {
+              status: 409,
+            },
+          ),
+      ) as unknown as typeof fetch,
+      sendMessage,
+    });
+    expect(result.state).toBe('stale');
+    expect(result.receipt).toContain('review request was not recorded');
+    expect(result.receipt).not.toContain('already been decided');
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

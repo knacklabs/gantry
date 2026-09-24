@@ -68,8 +68,15 @@ it('paginates app-scoped directory results and rejects cross-app access', () => 
   expect(agentRouteSource).toContain('roleSnapshotFor(');
   expect(agentRouteSource).toContain('requestedModelAlias(');
   expect(agentRouteSource).toContain('validateModelAlias(');
+  expect(agentRouteSource).toContain(
+    ".filter((entry) => entry.supportedWorkloads.includes('chat'))",
+  );
+  expect(agentRouteSource).toContain(
+    'configured: configured.has(entry.modelRoute.id)',
+  );
   expect(agentRouteSource).toContain('writeAgentModelSetting({');
   expect(agentRouteSource).toContain('modelAliasSnapshot');
+  expect(agentRouteSource).toContain('modelProviderLabel: configuredModel?.ok');
   expect(agentRouteSource).toContain('assertAvailableAgentName(');
   expect(agentRouteSource).toContain(
     "roleId =\n        typeof body.roleId === 'string'",

@@ -296,6 +296,41 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(rows[0]?.name).toBe('Main Agent');
   });
 
+  it('preserves a saved agent config when ensuring an existing agent', async () => {
+    const graph = new PostgresCanonicalGraphRepository(runtime.service.db);
+    const agentId = await graph.ensureAgent(
+      'configured_agent',
+      'Configured Agent',
+    );
+    const configId = 'config:agent:configured_agent:2';
+    await runtime.service.db
+      .insert(pgSchema.agentConfigVersionsPostgres)
+      .values({
+        id: configId,
+        appId: 'default',
+        agentId,
+        version: 2,
+        promptProfileRef: 'default',
+        llmProfileId: 'llm:default',
+        modelAliasSnapshot: 'bedrock-kimi',
+      });
+    await runtime.service.db
+      .update(pgSchema.agentsPostgres)
+      .set({ currentConfigVersionId: configId })
+      .where(eq(pgSchema.agentsPostgres.id, agentId));
+
+    await graph.ensureAgent('configured_agent', 'Configured Agent');
+    await graph.ensureAgentExists('configured_agent', 'Configured Agent');
+
+    const [agent] = await runtime.service.db
+      .select({
+        currentConfigVersionId: pgSchema.agentsPostgres.currentConfigVersionId,
+      })
+      .from(pgSchema.agentsPostgres)
+      .where(eq(pgSchema.agentsPostgres.id, agentId));
+    expect(agent?.currentConfigVersionId).toBe(configId);
+  });
+
   it('uses durable scheduler lifecycle notifications for scheduler runs', async () => {
     const harness = createRuntimeFlowHarness({
       runnerResult: {

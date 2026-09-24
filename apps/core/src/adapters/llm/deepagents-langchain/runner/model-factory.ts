@@ -20,9 +20,10 @@ import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 //   <id>", ...)` regardless of the real upstream provider, because we hit OUR
 //   loopback gateway (not api.openai.com); the gateway routes by pathSegment to
 //   the real upstream. `initChatModel` resolves ChatOpenAI and forwards `apiKey`
-//   + `configuration.baseURL` to it. The OpenAI SDK posts `<baseURL>/chat/
-//   completions` (baseURL is the raw loopback gateway base, no `/v1`), and the
-//   gateway prepends each provider's real upstreamPathPrefix.
+//   + `configuration.baseURL` to it. Native OpenAI uses `/v1/responses` so
+//   reasoning and function tools work together. Other compatible providers
+//   use `<baseURL>/chat/completions` (raw loopback base, no `/v1`); the gateway
+//   prepends each provider's real upstreamPathPrefix.
 // - `openrouter`: first-party `@langchain/openrouter` `ChatOpenRouter` (talks
 //   OpenRouter REST/chat-completions via fetch). `initChatModel` does NOT know
 //   `openrouter`, so it is constructed directly. Its `buildUrl()` appends
@@ -144,11 +145,15 @@ export async function buildRunnerModel(input: {
     // which already include `/v1` themselves, so that prefix can't just become
     // `/v1` without double-prefixing those. Append `/v1` here instead, exactly
     // like the openrouter branch above does for the same reason.
-    const chatCompletionsBaseUrl =
+    const openAiGatewayBaseUrl =
       provider === 'openai' ? `${trimTrailingSlash(baseURL)}/v1` : baseURL;
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
-      configuration: { baseURL: chatCompletionsBaseUrl },
+      configuration: { baseURL: openAiGatewayBaseUrl },
+      // Native OpenAI reasoning models reject function tools with
+      // reasoning_effort on Chat Completions. Keep OpenAI on Responses while
+      // other OpenAI-compatible providers retain their chat-completions route.
+      ...(provider === 'openai' ? { useResponsesApi: true } : {}),
       ...(input.promptCacheKey
         ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
         : {}),

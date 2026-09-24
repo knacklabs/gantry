@@ -410,28 +410,10 @@ export function registerMessagingTools(
         .trim()
         .optional()
         .describe(
-          'Claim ID for a two-button internal review card. Requires outcome_destination.',
-        ),
-      outcome_destination: z
-        .string()
-        .trim()
-        .optional()
-        .describe(
-          'Installed channel to notify after an approver decides the claim. Requires review_claim_id.',
+          'Claim ID for a two-button internal review card. The decision outcome returns to this conversation automatically.',
         ),
     },
     async (args) => {
-      if (Boolean(args.review_claim_id) !== Boolean(args.outcome_destination)) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text' as const,
-              text: CLAIM_REVIEW_DELIVERY_FAILURE,
-            },
-          ],
-        };
-      }
       if (jobId) {
         return {
           content: [
@@ -454,7 +436,6 @@ export function registerMessagingTools(
         ...(args.review_claim_id
           ? {
               reviewClaimId: args.review_claim_id,
-              outcomeDestination: args.outcome_destination,
             }
           : {}),
         providerAccountId,
