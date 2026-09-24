@@ -6,6 +6,7 @@ export type OnboardingDraft = {
   channel: 'slack' | 'teams' | 'discord' | 'telegram';
   conversationId: string;
   model: string;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh';
   name: string;
   provider: 'anthropic' | 'openai' | 'openrouter' | 'bedrock' | 'vertex';
   responsibilities: string;

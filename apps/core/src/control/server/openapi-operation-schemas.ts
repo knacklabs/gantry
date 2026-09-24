@@ -59,11 +59,23 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
         type: 'array',
         items: {
           type: 'object',
-          required: ['alias', 'displayName', 'providerId'],
+          required: [
+            'alias',
+            'displayName',
+            'providerId',
+            'supportedEffortLevels',
+          ],
           properties: {
             alias: { type: 'string' },
             displayName: { type: 'string' },
             providerId: { type: 'string' },
+            supportedEffortLevels: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['low', 'medium', 'high', 'xhigh', 'max'],
+              },
+            },
           },
         },
       },
@@ -276,7 +288,10 @@ export const openApiRequestSchemas: Record<string, JsonSchema> = {
   verifyBrowserOnboardingModelCandidate: {
     type: 'object',
     required: ['modelAlias'],
-    properties: { modelAlias: { type: 'string' } },
+    properties: {
+      modelAlias: { type: 'string' },
+      effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh'] },
+    },
     additionalProperties: false,
   },
   activateBrowserOnboardingModelCandidate: {
@@ -286,6 +301,7 @@ export const openApiRequestSchemas: Record<string, JsonSchema> = {
       name: { type: 'string' },
       title: { type: 'string' },
       responsibilities: { type: 'string' },
+      effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh'] },
     },
     additionalProperties: false,
   },

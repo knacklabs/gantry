@@ -34,6 +34,7 @@ export class OnboardingEmployeeActivationRepository {
     candidateId: string;
     name: string;
     title: string;
+    effort?: 'low' | 'medium' | 'high' | 'xhigh';
     responsibilities: string[];
   }) {
     const candidate = await this.candidates.getModelCredentialCandidate({
@@ -252,7 +253,11 @@ export class OnboardingEmployeeActivationRepository {
           ...prior,
           agents: {
             ...agents,
-            [folder]: { name: input.name.trim(), model: modelAlias },
+            [folder]: {
+              name: input.name.trim(),
+              model: modelAlias,
+              ...(input.effort ? { effort: input.effort } : {}),
+            },
           },
         },
         minReaderVersion: latest?.minReaderVersion ?? 0,

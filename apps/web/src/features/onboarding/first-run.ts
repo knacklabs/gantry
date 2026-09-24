@@ -62,7 +62,12 @@ export function onboardingCandidateModelsQuery(candidateId: string | null) {
     queryKey: ['onboarding', 'model-candidates', candidateId, 'models'],
     enabled: Boolean(candidateId),
     queryFn: async (): Promise<{
-      models: Array<{ alias: string; displayName: string; providerId: string }>;
+      models: Array<{
+        alias: string;
+        displayName: string;
+        providerId: string;
+        supportedEffortLevels: string[];
+      }>;
     }> => {
       const response = await browserFetch(
         `/ui/api/onboarding/model-candidates/${encodeURIComponent(candidateId!)}/models`,
@@ -75,6 +80,7 @@ export function onboardingCandidateModelsQuery(candidateId: string | null) {
           alias: string;
           displayName: string;
           providerId: string;
+          supportedEffortLevels: string[];
         }>;
       }>;
     },

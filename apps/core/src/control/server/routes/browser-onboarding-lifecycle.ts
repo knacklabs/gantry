@@ -13,6 +13,7 @@ import { DiscoverProviderConversationsService } from '../../../application/provi
 import {
   isModelCredentialRejectedError,
   verifyOnboardingModelCredential,
+  supportsOnboardingReasoningEffort,
 } from '../../../application/onboarding/model-credential-verification.js';
 import { validateSlackWorkspaceCandidate } from '../../../application/onboarding/slack-workspace-validation.js';
 import { ONBOARDING_VERIFICATION_TTL_MS } from '../../../application/onboarding/onboarding-state-machine.js';
@@ -161,6 +162,7 @@ export async function handleBrowserOnboardingRoutes(
           alias: entry.recommendedAlias,
           displayName: entry.displayName,
           providerId: entry.modelRoute.id,
+          supportedEffortLevels: entry.supportedEffortLevels,
         })),
     });
     return true;
@@ -424,12 +426,38 @@ export async function handleBrowserOnboardingRoutes(
               ),
             };
           }
+          const activationSelection = candidate.modelAlias
+            ? resolveModelSelectionForWorkload(candidate.modelAlias, 'chat')
+            : null;
+          const activationEffort = body.effort;
+          if (
+            activationEffort !== undefined &&
+            (!activationSelection?.ok ||
+              !supportsOnboardingReasoningEffort(
+                activationSelection.entry,
+                activationEffort,
+              ))
+          ) {
+            return {
+              statusCode: 400,
+              response: errorBody(
+                'INVALID_REQUEST',
+                'Reasoning effort is not supported by this model.',
+              ),
+            };
+          }
           const result = await onboarding.activateModelAndCreateEmployee({
             appId: session.appId,
             userId: session.userId,
             candidateId,
             name: body.name,
             title: body.title,
+            effort: activationEffort as
+              | 'low'
+              | 'medium'
+              | 'high'
+              | 'xhigh'
+              | undefined,
             responsibilities:
               typeof body.responsibilities === 'string'
                 ? body.responsibilities
@@ -498,6 +526,16 @@ export async function handleBrowserOnboardingRoutes(
             ),
           };
         }
+        const effort = body.effort;
+        if (!supportsOnboardingReasoningEffort(selection.entry, effort)) {
+          return {
+            statusCode: 400,
+            response: errorBody(
+              'INVALID_REQUEST',
+              'Reasoning effort is not supported by this model.',
+            ),
+          };
+        }
         const bound = await onboarding.bindModelSelectionForVerification({
           appId: session.appId,
           userId: session.userId,
@@ -519,6 +557,7 @@ export async function handleBrowserOnboardingRoutes(
             appId: session.appId as AppId,
             credential: candidateCredential(candidate),
             modelAlias: selection.entry.recommendedAlias,
+            effort,
           });
           const verifiedAt = nowIso();
           const verificationExpiresAt = new Date(

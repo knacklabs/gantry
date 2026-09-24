@@ -11,6 +11,11 @@ import {
 import { OnboardingShell } from './components/onboarding-shell';
 import { OnboardingSplash } from './components/onboarding-splash';
 import {
+  clearOnboardingEmployeeDraft,
+  readOnboardingEmployeeDraft,
+  saveOnboardingEmployeeDraft,
+} from './onboarding-draft-storage';
+import {
   defaultModelAliases,
   initialOnboardingDraft,
   type OnboardingDraft,
@@ -40,6 +45,7 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
     : initialOnboardingDraft.provider;
   const [draft, setDraft] = useState<OnboardingDraft>({
     ...initialOnboardingDraft,
+    ...readOnboardingEmployeeDraft(),
     provider: candidateProvider,
     model:
       modelCandidate?.modelAlias ??
@@ -64,7 +70,11 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
     [],
   );
   const updateDraft = (update: Partial<OnboardingDraft>) =>
-    setDraft((current) => ({ ...current, ...update }));
+    setDraft((current) => {
+      const next = { ...current, ...update };
+      saveOnboardingEmployeeDraft(next);
+      return next;
+    });
 
   if (!started)
     return (
@@ -90,7 +100,10 @@ function OnboardingPreview({ status }: { status: OnboardingStatus }) {
         return;
       }
       completion.mutate(status.deployment.version, {
-        onSuccess: () => void navigate({ to: '/overview' }),
+        onSuccess: () => {
+          clearOnboardingEmployeeDraft();
+          void navigate({ to: '/overview' });
+        },
         onError: () =>
           toast.error('Gantry could not save your onboarding progress.', {
             action: { label: 'Retry', onClick: next },

@@ -6,6 +6,7 @@ import type { AppId } from '../../domain/app/app.js';
 import type { AgentRunId } from '../../domain/events/events.js';
 import type { ModelCredential } from '../../domain/model-credentials/model-credentials.js';
 import type { ModelCredentialRepository } from '../../domain/ports/repositories.js';
+import type { AgentControlEffort } from '../../domain/types.js';
 import {
   resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
@@ -33,6 +34,19 @@ function strictProbeEnabled(): boolean {
 
 class ModelCredentialRejectedError extends Error {}
 
+export function supportsOnboardingReasoningEffort(
+  entry: ModelCatalogEntry,
+  value: unknown,
+): value is AgentControlEffort | undefined {
+  if (value === undefined) return true;
+  return (
+    typeof value === 'string' &&
+    entry.modelRoute.id === 'openai' &&
+    value !== 'max' &&
+    (entry.supportedEffortLevels as readonly string[]).includes(value)
+  );
+}
+
 export function isModelCredentialRejectedError(
   error: unknown,
 ): error is ModelCredentialRejectedError {
@@ -43,6 +57,7 @@ export async function verifyOnboardingModelCredential(input: {
   appId: AppId;
   credential: ModelCredential;
   modelAlias: string;
+  effort?: AgentControlEffort;
   timeoutMs?: number;
 }): Promise<{ routeId: string; modelId: string }> {
   const selection = resolveModelSelectionForWorkload(input.modelAlias, 'chat');
@@ -81,6 +96,7 @@ export async function verifyOnboardingModelCredential(input: {
       entry: selection.entry,
       providerLabel: provider.label,
       timeoutMs: input.timeoutMs ?? ONBOARDING_MODEL_PROBE_TIMEOUT_MS,
+      effort: input.effort,
     });
     return {
       routeId: selection.entry.modelRoute.id,
@@ -110,7 +126,12 @@ export async function invokeProbe(input: {
   entry: ModelCatalogEntry;
   providerLabel: string;
   timeoutMs: number;
+  effort?: AgentControlEffort;
 }): Promise<void> {
+  if (input.entry.modelRoute.id === 'openai') {
+    await runOpenAiResponsesProbe(input);
+    return;
+  }
   const anthropic = input.entry.responseFamily === 'anthropic';
   // The Anthropic SDK lane never runs through the production code path this
   // deep check targets (DeepAgents Claude turns are SDK-only, not built via
@@ -125,19 +146,68 @@ export async function invokeProbe(input: {
   await runDeepProbe(input);
 }
 
-// The OpenAI SDK (and this hand-rolled probe, mirroring it) posts to
-// `${baseUrl}/chat/completions` verbatim — no default `/v1` insertion for a
-// custom base URL. Every other provider's gateway path prefix already bakes
-// in `/v1` (or an equivalent) on the registry side, so the gateway combines
-// it correctly for them; native `openai` alone needs it appended here,
-// exactly like apps/core/src/adapters/llm/deepagents-langchain/runner/
-// model-factory.ts does for the same reason (that file's own production
-// callers hit the identical gap).
-function chatCompletionsUrl(baseUrl: string, modelRouteId: string): string {
-  const trimmed = baseUrl.replace(/\/$/, '');
-  return modelRouteId === 'openai'
-    ? `${trimmed}/v1/chat/completions`
-    : `${trimmed}/chat/completions`;
+async function runOpenAiResponsesProbe(input: {
+  baseUrl: string;
+  token: string;
+  entry: ModelCatalogEntry;
+  providerLabel: string;
+  timeoutMs: number;
+  effort?: AgentControlEffort;
+}): Promise<void> {
+  const useTools = input.entry.capabilities.toolUse;
+  const body = JSON.stringify({
+    model: input.entry.modelRoute.providerModelId,
+    input: useTools ? PROBE_TOOL_TEXT : PROBE_TEXT,
+    stream: true,
+    ...(input.effort ? { reasoning: { effort: input.effort } } : {}),
+    ...(useTools
+      ? {
+          tools: [
+            {
+              type: 'function',
+              name: PROBE_TOOL_NAME,
+              description: 'Echo the given value back.',
+              parameters: {
+                type: 'object',
+                properties: { value: { type: 'string' } },
+                required: ['value'],
+              },
+            },
+          ],
+          tool_choice: 'auto',
+        }
+      : {}),
+  });
+  const response = await fetchWithOneRetry(() =>
+    fetch(`${input.baseUrl.replace(/\/$/, '')}/v1/responses`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(input.timeoutMs),
+      headers: {
+        authorization: `Bearer ${input.token}`,
+        'content-type': 'application/json',
+      },
+      body,
+    }),
+  );
+  const errorBody = response.ok
+    ? null
+    : ((await response.json().catch(() => null)) as unknown);
+  raiseForUpstreamFailure(response, input.providerLabel, errorBody);
+  const stream = await readToolCallStream(response);
+  if (stream.chunkCount === 0)
+    throw new Error('Model probe stream produced no output.');
+  if (stream.failed || !stream.completed)
+    throw new Error('OpenAI model probe did not complete successfully.');
+  if (useTools && !stream.sawExpectedToolCall) {
+    const message = `${input.providerLabel} streamed a response but never called the requested tool (${PROBE_TOOL_NAME}).`;
+    throw new Error(message);
+  }
+}
+
+// The gateway binding for OpenAI-compatible providers already carries its
+// upstream API prefix; native OpenAI is probed through Responses above.
+function chatCompletionsUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/chat/completions`;
 }
 
 async function runPlainProbe(
@@ -153,7 +223,7 @@ async function runPlainProbe(
   const response = await fetch(
     anthropic
       ? `${input.baseUrl.replace(/\/$/, '')}/v1/messages`
-      : chatCompletionsUrl(input.baseUrl, input.entry.modelRoute.id),
+      : chatCompletionsUrl(input.baseUrl),
     {
       method: 'POST',
       signal: AbortSignal.timeout(input.timeoutMs),
@@ -233,7 +303,7 @@ async function runDeepProbe(input: {
       : {}),
   });
   const fetchOnce = () =>
-    fetch(chatCompletionsUrl(input.baseUrl, input.entry.modelRoute.id), {
+    fetch(chatCompletionsUrl(input.baseUrl), {
       method: 'POST',
       signal: AbortSignal.timeout(input.timeoutMs),
       headers: {
@@ -317,15 +387,26 @@ function upstreamErrorMessage(body: unknown): string {
   return JSON.stringify(body).slice(0, 500);
 }
 
-async function readToolCallStream(
-  response: Response,
-): Promise<{ chunkCount: number; sawExpectedToolCall: boolean }> {
+async function readToolCallStream(response: Response): Promise<{
+  chunkCount: number;
+  sawExpectedToolCall: boolean;
+  completed: boolean;
+  failed: boolean;
+}> {
   const reader = response.body?.getReader();
-  if (!reader) return { chunkCount: 0, sawExpectedToolCall: false };
+  if (!reader)
+    return {
+      chunkCount: 0,
+      sawExpectedToolCall: false,
+      completed: false,
+      failed: false,
+    };
   const decoder = new TextDecoder();
   let buffer = '';
   let chunkCount = 0;
   let sawExpectedToolCall = false;
+  let completed = false;
+  let failed = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -338,20 +419,43 @@ async function readToolCallStream(
       const payload = trimmed.slice('data:'.length).trim();
       if (!payload || payload === '[DONE]') continue;
       chunkCount += 1;
+      const eventType = responseEventType(payload);
+      completed ||= eventType === 'response.completed';
+      failed ||= eventType === 'response.failed' || eventType === 'error';
       if (sawExpectedToolCall) continue;
       sawExpectedToolCall = chunkContainsExpectedToolCall(payload);
     }
   }
-  return { chunkCount, sawExpectedToolCall };
+  return { chunkCount, sawExpectedToolCall, completed, failed };
+}
+
+function responseEventType(payload: string): string | undefined {
+  try {
+    const event: unknown = JSON.parse(payload);
+    return event &&
+      typeof event === 'object' &&
+      'type' in event &&
+      typeof event.type === 'string'
+      ? event.type
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function chunkContainsExpectedToolCall(payload: string): boolean {
   try {
     const parsed = JSON.parse(payload) as {
+      item?: { type?: string; name?: string };
       choices?: Array<{
         delta?: { tool_calls?: Array<{ function?: { name?: string } }> };
       }>;
     };
+    if (
+      parsed.item?.type === 'function_call' &&
+      parsed.item.name === PROBE_TOOL_NAME
+    )
+      return true;
     const toolCalls = parsed.choices?.[0]?.delta?.tool_calls ?? [];
     return toolCalls.some((call) => call.function?.name === PROBE_TOOL_NAME);
     // Intentional catch-all: a malformed/unexpected SSE data line should not

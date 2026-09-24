@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { rootRoute } from '../../../app/root-route';
 import {
   Link,
   useNavigate,
@@ -64,6 +65,7 @@ import { AgentSetupManager } from '../components/agent-setup-manager';
 import { AgentSettings } from '../components/agent-settings';
 import { agentModelLabel } from '../agent-model-label';
 import { AgentProfileEditor } from '../components/agent-persona-editor';
+import { ConversationApproverEditor } from '../components/conversation-approver-editor';
 import { AgentVersionHistory } from '../components/agent-version-history';
 import {
   RoleEditorDialog,
@@ -251,7 +253,7 @@ function Content({
     );
   if (tab === 'access') return <Access agent={agent} />;
   if (tab === 'audit') return <Audit key={agent.id} agent={agent} />;
-  if (tab === 'approvals') return <Approvals agent={agent} map={map} />;
+  if (tab === 'approvals') return <Approvals agent={agent} />;
   if (tab === 'usage') return <Usage agent={agent} />;
   return (
     <>
@@ -360,23 +362,11 @@ function Audit({ agent }: { agent: AgentDirectoryItem }) {
   );
 }
 
-function Approvals({
-  agent,
-  map,
-}: {
-  agent: AgentDirectoryItem;
-  map?: AgentWorkflowMap;
-}) {
+function Approvals({ agent }: { agent: AgentDirectoryItem }) {
+  const { session } = rootRoute.useRouteContext();
+  const canManage = session?.principal.role === 'administrator';
   const installs = useQuery(agentConversationInstallsQuery(agent.id));
   const conversations = useQuery(channelConversationsQuery());
-  const approverNameByConversation = new Map(
-    (map?.relationships ?? [])
-      .filter((relationship) => relationship.kind === 'approver')
-      .map((relationship) => [
-        relationship.conversationId,
-        relationship.displayName,
-      ]),
-  );
   const conversationById = new Map(
     (conversations.data?.conversations ?? []).map((conversation) => [
       conversation.id,
@@ -413,9 +403,8 @@ function Approvals({
           <ul className="m-0 grid list-none divide-y divide-border p-0">
             {installs.data.installs.map((install) => (
               <ApproverRow
-                approverName={approverNameByConversation.get(
-                  install.conversationId,
-                )}
+                agentId={agent.id}
+                canManage={canManage}
                 conversationId={install.conversationId}
                 key={install.id}
                 name={
@@ -437,15 +426,18 @@ function Approvals({
 }
 
 function ApproverRow({
-  approverName,
+  agentId,
+  canManage,
   conversationId,
   name,
 }: {
-  approverName?: string;
+  agentId: string;
+  canManage: boolean;
   conversationId: string;
   name: string;
 }) {
   const approvers = useQuery(conversationApproversQuery(conversationId));
+  const [editing, setEditing] = useState(false);
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
       <strong className="text-sm">{name}</strong>
@@ -464,14 +456,35 @@ function ApproverRow({
           </Button>
         </div>
       ) : (
-        <span className="text-xs text-text-secondary">
-          {approvers.isLoading
-            ? 'Loading approvers…'
-            : approvers.data?.approvers.length
-              ? (approverName ?? approvers.data.approvers.join(', '))
-              : 'No approver assigned'}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-text-secondary">
+            {approvers.isLoading
+              ? 'Loading approvers…'
+              : approvers.data?.approvers.length
+                ? approvers.data.approvers.join(', ')
+                : 'No approver assigned'}
+          </span>
+          {canManage && approvers.data ? (
+            <Button
+              onClick={() => setEditing(true)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Edit
+            </Button>
+          ) : null}
+        </div>
       )}
+      {editing && approvers.data ? (
+        <ConversationApproverEditor
+          agentId={agentId}
+          conversationId={conversationId}
+          conversationName={name}
+          initialApprovers={approvers.data.approvers}
+          onClose={() => setEditing(false)}
+        />
+      ) : null}
     </li>
   );
 }

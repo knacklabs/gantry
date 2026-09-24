@@ -21,6 +21,7 @@ const recordSlackWorkAssignment = vi.hoisted(() => vi.fn());
 const getSlackWorkspaceCandidate = vi.hoisted(() => vi.fn());
 const recordSlackWorkspaceActivation = vi.hoisted(() => vi.fn());
 const verifyOnboardingModelCredential = vi.hoisted(() => vi.fn());
+const supportsOnboardingReasoningEffort = vi.hoisted(() => vi.fn());
 const isModelCredentialRejectedError = vi.hoisted(() => vi.fn());
 const sendBrowserJoinConversation = vi.hoisted(() => vi.fn());
 const listConversationMembers = vi.hoisted(() => vi.fn());
@@ -68,6 +69,7 @@ vi.mock(
   () => ({
     isModelCredentialRejectedError,
     verifyOnboardingModelCredential,
+    supportsOnboardingReasoningEffort,
   }),
 );
 vi.mock('@core/control/server/routes/browser-conversation-members.js', () => ({
@@ -148,6 +150,7 @@ function response() {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  supportsOnboardingReasoningEffort.mockReturnValue(true);
   operationReplay.mockResolvedValue(null);
   onboardingStatus.mockResolvedValue({ completed: false, deployment: null });
   stageModelCredentialCandidate.mockResolvedValue({
@@ -548,6 +551,29 @@ it('binds the selected model immediately before live verification', async () => 
   expect(JSON.stringify(JSON.parse(res.body))).not.toContain('secret');
 });
 
+it('passes the selected OpenAI reasoning effort to verification', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue({
+    ...modelCandidate(),
+    providerId: 'openai',
+  });
+  const res = response();
+  await handleBrowserOnboardingRoutes(
+    request('POST', { modelAlias: 'gpt', effort: 'high' }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/verify',
+    settings,
+  );
+  expect(res.statusCode).toBe(200);
+  expect(verifyOnboardingModelCredential).toHaveBeenCalledWith(
+    expect.objectContaining({ effort: 'high' }),
+  );
+});
+
 it('lists canonical model aliases for the authenticated candidate provider', async () => {
   activeSession.mockResolvedValue({ ...session, role: 'administrator' });
   getModelCredentialCandidate.mockResolvedValue(modelCandidate());
@@ -638,6 +664,33 @@ it('projects the revision committed by employee activation', async () => {
     revision: 2,
     status: 'applied',
   });
+});
+
+it('activates with the entered employee name and OpenAI effort', async () => {
+  requireBrowserMutationSession.mockResolvedValue({
+    ...session,
+    role: 'administrator',
+  });
+  getModelCredentialCandidate.mockResolvedValue({
+    ...modelCandidate(),
+    providerId: 'openai',
+    state: 'verified',
+    modelAlias: 'gpt',
+    routeId: 'openai',
+    verificationExpiresAt: '2099-01-01T00:00:00.000Z',
+  });
+  const res = response();
+  await handleBrowserOnboardingRoutes(
+    request('POST', { name: 'MIA', title: 'Claims assistant', effort: 'high' }),
+    res,
+    ctx,
+    '/ui/api/onboarding/model-candidates/00000000-0000-4000-8000-000000000001/activate',
+    settings,
+  );
+  expect(res.statusCode).toBe(201);
+  expect(activateModelAndCreateEmployee).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'MIA', effort: 'high' }),
+  );
 });
 
 it('reports a rejected provider credential without exposing it', async () => {

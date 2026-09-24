@@ -104,7 +104,10 @@ describe('motor claim review', () => {
           url.endsWith('/decision')
             ? JSON.stringify({
                 claim: { claimId: 'CLM-1234' },
-                decision: { decisionId: 'DEC-3', notificationStatus: 'pending' },
+                decision: {
+                  decisionId: 'DEC-3',
+                  notificationStatus: 'pending',
+                },
               })
             : '{}',
           { status: 200 },

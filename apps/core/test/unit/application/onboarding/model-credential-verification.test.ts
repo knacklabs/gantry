@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { invokeProbe } from '@core/application/onboarding/model-credential-verification.js';
+import {
+  invokeProbe,
+  supportsOnboardingReasoningEffort,
+} from '@core/application/onboarding/model-credential-verification.js';
 import type { ModelCatalogEntry } from '@core/shared/model-catalog.js';
 
 function toolCapableEntry(
@@ -92,8 +95,13 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
     expect(sentBody.tool_choice).toBe('auto');
   });
 
-  it('posts to /v1/chat/completions (not bare /chat/completions) for the native openai route', async () => {
-    fetchSpy.mockResolvedValue(sseResponse(200, TOOL_CALL_LINES));
+  it('posts to /v1/responses for the native OpenAI route', async () => {
+    fetchSpy.mockResolvedValue(
+      sseResponse(200, [
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"gantry_probe_echo"}}\n\n',
+        'data: {"type":"response.completed"}\n\n',
+      ]),
+    );
 
     await invokeProbe({
       ...baseInput,
@@ -108,7 +116,36 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
     });
 
     const [requestUrl] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(requestUrl).toBe(`${baseInput.baseUrl}/v1/chat/completions`);
+    expect(requestUrl).toBe(`${baseInput.baseUrl}/v1/responses`);
+  });
+
+  it('probes OpenAI with the selected reasoning effort on Responses', async () => {
+    fetchSpy.mockResolvedValue(
+      sseResponse(200, [
+        'event: response.output_item.added\n',
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","name":"gantry_probe_echo"}}\n\n',
+        'data: {"type":"response.completed"}\n\n',
+      ]),
+    );
+    await invokeProbe({
+      ...baseInput,
+      entry: toolCapableEntry(
+        {},
+        {
+          id: 'openai',
+          label: 'OpenAI',
+          providerModelId: 'gpt-5.6-luna',
+        },
+      ),
+      effort: 'high',
+    });
+    const [, requestInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.reasoning).toEqual({ effort: 'high' });
+    expect(body.tools[0]).toMatchObject({
+      type: 'function',
+      name: 'gantry_probe_echo',
+    });
   });
 
   it('posts to bare /chat/completions for non-openai routes (gateway prefix already carries /v1)', async () => {
@@ -200,5 +237,27 @@ describe('invokeProbe deep (streaming + tool-call) check', () => {
     await expect(
       invokeProbe({ ...baseInput, entry: toolCapableEntry() }),
     ).rejects.toThrow('rejected the credentials');
+  });
+});
+
+describe('onboarding reasoning effort', () => {
+  it('accepts only catalog-supported OpenAI effort levels', () => {
+    const openai = {
+      ...toolCapableEntry(
+        {},
+        {
+          id: 'openai',
+          label: 'OpenAI',
+          providerModelId: 'gpt-5.5',
+        },
+      ),
+      supportedEffortLevels: ['low', 'medium', 'high'],
+    } as ModelCatalogEntry;
+    expect(supportsOnboardingReasoningEffort(openai, 'high')).toBe(true);
+    expect(supportsOnboardingReasoningEffort(openai, 'xhigh')).toBe(false);
+    expect(supportsOnboardingReasoningEffort(openai, 'max')).toBe(false);
+    expect(supportsOnboardingReasoningEffort(toolCapableEntry(), 'high')).toBe(
+      false,
+    );
   });
 });

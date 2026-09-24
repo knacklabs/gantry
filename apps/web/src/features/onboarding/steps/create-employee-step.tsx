@@ -16,10 +16,7 @@ import {
   onboardingStatusQuery,
   type OnboardingStatus,
 } from '../first-run';
-import {
-  defaultModelAliases,
-  type OnboardingDraft,
-} from '../onboarding-state';
+import { defaultModelAliases, type OnboardingDraft } from '../onboarding-state';
 
 const providers = [
   ['anthropic', 'Anthropic', siAnthropic],
@@ -69,14 +66,18 @@ export function CreateEmployeeStep({
   const [verificationExpiresAt, setVerificationExpiresAt] = useState<
     string | null
   >(resumableCandidate?.verificationExpiresAt ?? null);
-  const candidateModels = useQuery(
-    onboardingCandidateModelsQuery(candidateId),
-  );
+  const candidateModels = useQuery(onboardingCandidateModelsQuery(candidateId));
   const setup = registryProviders.find(
     (provider) => provider.providerId === draft.provider,
   );
   const mode = setup?.credentialModes[modeIndex] ?? setup?.credentialModes[0];
   const selectedProvider = providers.find(([id]) => id === draft.provider);
+  const selectedModel = candidateModels.data?.models.find(
+    (model) => model.alias === draft.model,
+  );
+  const availableEfforts = (selectedModel?.supportedEffortLevels ?? []).filter(
+    (effort) => ['low', 'medium', 'high', 'xhigh'].includes(effort),
+  );
   const pending =
     phase === 'checking' || phase === 'verifying' || phase === 'activating';
   const credentialsChecked =
@@ -130,7 +131,11 @@ export function CreateEmployeeStep({
     setModeIndex(0);
     setValues({});
     setFieldError(null);
-    onChange({ model: defaultModelAliases[provider], provider });
+    onChange({
+      model: defaultModelAliases[provider],
+      provider,
+      effort: undefined,
+    });
   }
 
   function changeMode(index: number) {
@@ -152,7 +157,7 @@ export function CreateEmployeeStep({
 
   function changeModel(model: string) {
     if (pending) return;
-    onChange({ model });
+    onChange({ model, effort: undefined });
     if (phase === 'verified') {
       setPhase('checked');
       setVerificationExpiresAt(null);
@@ -167,6 +172,7 @@ export function CreateEmployeeStep({
         name: draft.name,
         title: draft.title,
         responsibilities: draft.responsibilities,
+        effort: draft.effort,
       });
       setValues({});
       await queryClient.invalidateQueries({
@@ -180,6 +186,7 @@ export function CreateEmployeeStep({
   }, [
     candidateId,
     draft.name,
+    draft.effort,
     draft.responsibilities,
     draft.title,
     phase,
@@ -239,6 +246,7 @@ export function CreateEmployeeStep({
         candidate: { verificationExpiresAt: string };
       }>(`/model-candidates/${candidateId}/verify`, {
         modelAlias: draft.model,
+        effort: draft.effort,
       });
       setVerificationExpiresAt(verified.candidate.verificationExpiresAt);
       setPhase('verified');
@@ -437,6 +445,35 @@ export function CreateEmployeeStep({
                       : 'Test model'}
                 </button>
               </div>
+              {draft.provider === 'openai' && availableEfforts.length > 0 ? (
+                <label className="onboarding-field">
+                  <span>Reasoning effort</span>
+                  <span className="onboarding-select-wrap">
+                    <select
+                      disabled={!credentialsChecked || pending}
+                      onChange={(event) => {
+                        onChange({
+                          effort: (event.target.value ||
+                            undefined) as OnboardingDraft['effort'],
+                        });
+                        if (phase === 'verified') {
+                          setPhase('checked');
+                          setVerificationExpiresAt(null);
+                        }
+                      }}
+                      value={draft.effort ?? ''}
+                    >
+                      <option value="">Model default</option>
+                      {availableEfforts.map((effort) => (
+                        <option key={effort} value={effort}>
+                          {effort}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown aria-hidden="true" />
+                  </span>
+                </label>
+              ) : null}
               <small className="onboarding-model-guidance">
                 {candidateModels.isError
                   ? 'Models could not be loaded. Check the credentials again to retry.'
