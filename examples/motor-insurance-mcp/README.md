@@ -2,6 +2,8 @@
 
 A standalone MCP server with sample Indian motor-insurance records, a MIA skill, and agent prompt snapshots. It does not connect to an insurer, Gantry Postgres, payments, or real customer records. The Gantry-side notification, evidence-copy, and Slack approval code is in `apps/core` on this branch—not in this server.
 
+For the included policy fixtures, persistence paths, and checks to run before connecting a separate Postgres-backed server, see [DATA_POPULATION.md](DATA_POPULATION.md).
+
 ## Run from a fresh checkout
 
 Use Node 20 or newer. From this directory:

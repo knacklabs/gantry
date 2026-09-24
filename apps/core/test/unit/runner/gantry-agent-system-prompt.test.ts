@@ -174,7 +174,37 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.dynamicPrompt).toContain(
       '2026-06-17T00:00:00.000Z (timezone: Asia/Kolkata). As of turn start; use the date tool when precision matters.',
     );
+    expect(prompt.dynamicPrompt).toContain(
+      'Local time: Jun 17, 2026, 5:30 AM. Time-of-day greeting: Good morning.',
+    );
     expect(prompt.staticPrompt).not.toContain('## Current Date & Time');
+  });
+
+  it.each([
+    ['2026-06-17T06:29:00.000Z', 'Good morning'],
+    ['2026-06-17T06:30:00.000Z', 'Good afternoon'],
+    ['2026-06-17T11:29:00.000Z', 'Good afternoon'],
+    ['2026-06-17T11:30:00.000Z', 'Good evening'],
+    ['2026-06-17T23:29:00.000Z', 'Good evening'],
+    ['2026-06-17T23:30:00.000Z', 'Good morning'],
+  ])('computes the local greeting for %s in Asia/Kolkata', (iso, greeting) => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      currentDateTimeIso: iso,
+      timezone: 'Asia/Kolkata',
+    });
+    expect(prompt.dynamicPrompt).toContain(
+      `Time-of-day greeting: ${greeting}.`,
+    );
+  });
+
+  it('does not invent a greeting for an invalid timestamp', () => {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      currentDateTimeIso: 'not-a-date',
+      timezone: 'Asia/Kolkata',
+    });
+    expect(prompt.dynamicPrompt).not.toContain('Time-of-day greeting:');
   });
 
   it('renders the timezone next to the timestamp in full mode', () => {

@@ -602,6 +602,11 @@ function Conversations({
         title="Conversations"
         description="Each installation assigns this AI employee to one provider conversation with its own memory scope and approvers."
       >
+        <div className="mb-4 flex justify-end">
+          <Button size="sm" type="button" onClick={onDeployRequest}>
+            Add conversation
+          </Button>
+        </div>
         {installs.isError || accounts.isError || conversations.isError ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="m-0 text-sm text-danger">
@@ -672,9 +677,6 @@ function Conversations({
             <p className="m-0 text-sm text-text-secondary">
               This AI employee is not installed in a conversation yet.
             </p>
-            <Button type="button" onClick={onDeployRequest}>
-              Connect a channel account
-            </Button>
           </div>
         )}
       </InfoCard>

@@ -12,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PlugZap,
+  Radio,
   Settings2,
   ShieldCheck,
 } from 'lucide-react';
@@ -49,6 +50,7 @@ const navigation = [
     items: [
       { to: '/people', label: 'People', icon: Bot },
       { to: '/providers', label: 'Model providers', icon: PlugZap },
+      { to: '/channel-accounts', label: 'Channel accounts', icon: Radio },
       { to: '/mcp-servers', label: 'Tools', icon: Boxes },
     ],
   },

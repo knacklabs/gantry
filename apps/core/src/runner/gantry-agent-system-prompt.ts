@@ -5,6 +5,7 @@ import {
 } from '../shared/agent-persona.js';
 import { STRUCTURED_LOCAL_CLI_GUIDANCE } from '../shared/capability-guidance.js';
 import { publicGantryToolNameForSdkTool } from '../shared/gantry-tool-facades.js';
+import { formatLocalTime, resolveTimezone } from '../shared/timezone.js';
 
 export type GantryAgentPromptMode = 'full' | 'minimal' | 'none';
 export type GantryAgentRuntimeProjection =
@@ -247,13 +248,38 @@ function sandboxSection(input: GantryAgentSystemPromptInput): string {
 
 function currentDateTimeSection(input: GantryAgentSystemPromptInput): string {
   const iso = input.currentDateTimeIso?.trim();
-  const timezone =
-    input.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const timezone = resolveTimezone(
+    input.timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  const timestamp = iso ? new Date(iso) : null;
+  const hasValidTimestamp = timestamp && !Number.isNaN(timestamp.getTime());
+  const localTime =
+    hasValidTimestamp && iso ? formatLocalTime(iso, timezone) : null;
+  const localHour = hasValidTimestamp
+    ? Number(
+        new Intl.DateTimeFormat('en-GB', {
+          timeZone: timezone,
+          hour: '2-digit',
+          hourCycle: 'h23',
+        }).format(timestamp),
+      )
+    : null;
+  const greeting =
+    localHour === null
+      ? null
+      : localHour >= 5 && localHour < 12
+        ? 'Good morning'
+        : localHour >= 12 && localHour < 17
+          ? 'Good afternoon'
+          : 'Good evening';
   return [
     '## Current Date & Time',
     iso
       ? `${iso} (timezone: ${timezone}). As of turn start; use the date tool when precision matters.`
       : 'Runtime did not provide a timestamp.',
+    ...(localTime && greeting
+      ? [`Local time: ${localTime}. Time-of-day greeting: ${greeting}.`]
+      : []),
   ].join('\n');
 }
 

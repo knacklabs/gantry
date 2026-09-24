@@ -33,6 +33,7 @@ import {
   channelAccountsQuery,
   channelConversationsQuery,
   channelProvidersQuery,
+  agentConversationInstallsQuery,
   conversationApproversQuery,
   createChannelAccount,
   discoverChannelConversations,
@@ -78,12 +79,14 @@ export function AgentCreateRoute() {
 type AgentCreateDialogProps = {
   existingAgent?: AgentDirectoryItem;
   onClose: () => void;
+  setupPurpose?: 'account' | 'conversation';
   startAt?: 'base' | 'account';
 };
 
 export function AgentCreateDialog({
   existingAgent,
   onClose,
+  setupPurpose = 'conversation',
   startAt = 'base',
 }: AgentCreateDialogProps) {
   const navigate = useNavigate();
@@ -118,6 +121,7 @@ export function AgentCreateDialog({
   const [accountLabel, setAccountLabel] = useState('');
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [conversationId, setConversationId] = useState('');
+  const [conversationSearch, setConversationSearch] = useState('');
   const [memoryScope, setMemoryScope] = useState<
     'conversation' | 'agent' | 'app'
   >('conversation');
@@ -126,6 +130,10 @@ export function AgentCreateDialog({
   const accounts = useQuery(channelAccountsQuery());
   const providers = useQuery(channelProvidersQuery());
   const conversations = useQuery(channelConversationsQuery());
+  const installs = useQuery({
+    ...agentConversationInstallsQuery(agentId ?? ''),
+    enabled: Boolean(existingAgent && agentId),
+  });
   const approvers = useQuery(conversationApproversQuery(conversationId));
   const savedAgent = useQuery({
     ...agentDetailQuery(agentId ?? ''),
@@ -266,7 +274,14 @@ export function AgentCreateDialog({
     (provider) => provider.id === selectedAccount?.providerId,
   );
   const accountConversations = (conversations.data?.conversations ?? []).filter(
-    (conversation) => conversation.providerAccountId === providerAccountId,
+    (conversation) =>
+      conversation.providerAccountId === providerAccountId &&
+      `${conversation.title ?? ''} ${conversation.id}`
+        .toLowerCase()
+        .includes(conversationSearch.trim().toLowerCase()),
+  );
+  const installedConversationIds = new Set(
+    (installs.data?.installs ?? []).map((install) => install.conversationId),
   );
   const isSlackConversation =
     selectedAccount?.providerId === 'slack' && Boolean(conversationId);
@@ -312,6 +327,10 @@ export function AgentCreateDialog({
   }
 
   function deferChannelSetup() {
+    if (existingAgent) {
+      onClose();
+      return;
+    }
     setChannelDeferred(true);
     setStep('review');
   }
@@ -329,7 +348,11 @@ export function AgentCreateDialog({
         <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="grid gap-1">
             <DialogTitle className="text-lg font-semibold">
-              Onboard an AI employee
+              {existingAgent
+                ? setupPurpose === 'account'
+                  ? 'Connect channel account'
+                  : 'Add conversation'
+                : 'Onboard an AI employee'}
             </DialogTitle>
             <DialogDescription className="text-sm text-text-secondary">
               {agentId
@@ -339,7 +362,13 @@ export function AgentCreateDialog({
           </div>
           <DialogClose asChild>
             <Button
-              aria-label="Close onboarding"
+              aria-label={
+                existingAgent
+                  ? setupPurpose === 'account'
+                    ? 'Close channel account setup'
+                    : 'Close add conversation'
+                  : 'Close onboarding'
+              }
               size="icon-sm"
               variant="ghost"
             >
@@ -349,7 +378,9 @@ export function AgentCreateDialog({
         </header>
         <ol
           className="grid grid-cols-7 overflow-x-auto border-b border-border bg-surface-muted text-[11px] font-semibold text-text-secondary"
-          aria-label="Onboarding steps"
+          aria-label={
+            existingAgent ? 'Conversation setup steps' : 'Onboarding steps'
+          }
         >
           {(
             [
@@ -656,16 +687,46 @@ export function AgentCreateDialog({
                       {discoverConversations.error.message}
                     </p>
                   ) : null}
+                  {installs.isError ? (
+                    <p className="m-0 text-xs text-danger" role="alert">
+                      Existing installations couldn’t be loaded. Retry before
+                      adding a conversation.
+                      <Button
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                        onClick={() => void installs.refetch()}
+                      >
+                        Retry
+                      </Button>
+                    </p>
+                  ) : null}
+                  <TextField
+                    id="conversation-search"
+                    label="Find conversation"
+                    placeholder="Search by name or ID"
+                    value={conversationSearch}
+                    onChange={(event) =>
+                      setConversationSearch(event.target.value)
+                    }
+                  />
                   <div className="grid gap-2">
                     {accountConversations.length ? (
                       accountConversations.map((conversation) => (
                         <button
-                          className={`grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                          className={`grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-lg border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                             conversationId === conversation.id
                               ? 'border-text bg-surface-muted shadow-[inset_0_0_0_1px_var(--text)]'
                               : 'border-border bg-surface hover:bg-surface-muted'
                           }`}
                           key={conversation.id}
+                          disabled={
+                            installedConversationIds.has(conversation.id) ||
+                            Boolean(
+                              existingAgent &&
+                              (installs.isLoading || installs.isError),
+                            )
+                          }
                           type="button"
                           onClick={() => {
                             setConversationId(conversation.id);
@@ -680,6 +741,9 @@ export function AgentCreateDialog({
                             </strong>
                             <span className="block text-xs text-text-secondary">
                               {conversation.kind}
+                              {installedConversationIds.has(conversation.id)
+                                ? ' · Already installed'
+                                : ''}
                             </span>
                           </span>
                           <span className="font-mono text-[10px] text-text-muted">
@@ -689,8 +753,9 @@ export function AgentCreateDialog({
                       ))
                     ) : (
                       <p className="m-0 rounded-md border border-border bg-surface p-3 text-sm text-text-secondary">
-                        No conversations are stored for this account. Invite the
-                        bot to a channel, then discover again.
+                        {conversationSearch.trim()
+                          ? 'No conversations match your search.'
+                          : 'No conversations are stored for this account. Invite the bot to a channel, then discover again.'}
                       </p>
                     )}
                   </div>
@@ -1023,9 +1088,11 @@ export function AgentCreateDialog({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setStep('capabilities')}
+                onClick={() =>
+                  existingAgent ? onClose() : setStep('capabilities')
+                }
               >
-                Back
+                {existingAgent ? 'Cancel' : 'Back'}
               </Button>
               <Button type="button" variant="ghost" onClick={deferChannelSetup}>
                 Set up channels later

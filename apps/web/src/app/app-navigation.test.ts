@@ -21,7 +21,6 @@ it('keeps deferred areas out of the sidebar without removing their routes', () =
   );
 
   for (const path of [
-    '/channel-accounts',
     '/runtime/memory',
     '/runtime/capacity',
     '/activity',
@@ -35,6 +34,9 @@ it('keeps deferred areas out of the sidebar without removing their routes', () =
   expect(navigation).not.toMatch(/label: 'Conversations',\s*items:/);
   expect(navigation).toContain(
     "{ to: '/conversations', label: 'Conversations'",
+  );
+  expect(navigation).toContain(
+    "{ to: '/channel-accounts', label: 'Channel accounts'",
   );
   expect(runtimeRoutes).toContain("path: 'runtime/memory'");
   expect(runtimeRoutes).toContain("path: 'runtime/capacity'");

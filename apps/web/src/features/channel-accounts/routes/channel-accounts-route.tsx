@@ -1,13 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Link2, RefreshCw } from 'lucide-react';
+import { Link2, Plus, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
+import { rootRoute } from '../../../app/root-route';
 import { PageHeader } from '../../../ui/compositions/page-header';
 import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../ui/primitives/dialog';
 import { agentDirectoryQuery } from '../../agents/agents-queries';
+import { AgentCreateDialog } from '../../agents/routes/agent-create-route';
 import {
   channelAccountsQuery,
   channelProvidersQuery,
@@ -24,6 +33,11 @@ const agentSearch = {
 };
 
 export function ChannelAccountsRoute() {
+  const { session } = rootRoute.useRouteContext();
+  const canManage = session?.principal.role === 'administrator';
+  const [chooseAgentOpen, setChooseAgentOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [setupAgentId, setSetupAgentId] = useState('');
   const accounts = useQuery(channelAccountsQuery());
   const providers = useQuery(channelProvidersQuery());
   const agents = useQuery(agentDirectoryQuery(agentSearch));
@@ -38,6 +52,7 @@ export function ChannelAccountsRoute() {
   const agentById = new Map(
     (agents.data?.data ?? []).map((agent) => [agent.id, agent]),
   );
+  const setupAgent = agentById.get(setupAgentId);
 
   return (
     <div className="mx-auto grid w-full max-w-[1240px] gap-5">
@@ -45,7 +60,71 @@ export function ChannelAccountsRoute() {
         eyebrow="Configure"
         title="Channel accounts"
         description="Bot identities owned by AI employees. An account can connect its owner to several conversations."
+        action={
+          canManage ? (
+            <Button
+              disabled={!agents.data}
+              type="button"
+              onClick={() => setChooseAgentOpen(true)}
+            >
+              <Plus size={15} aria-hidden="true" /> Connect account
+            </Button>
+          ) : null
+        }
       />
+      <Dialog open={chooseAgentOpen} onOpenChange={setChooseAgentOpen}>
+        <DialogContent>
+          <DialogTitle>Choose an AI employee</DialogTitle>
+          <DialogDescription>
+            The Telegram or Teams account will belong to this employee. You can
+            assign conversations after connecting the account.
+          </DialogDescription>
+          <label className="grid gap-1.5 text-xs font-semibold text-text">
+            AI employee
+            <select
+              className="h-9 rounded-md border border-border bg-surface px-3 text-[13px] text-text"
+              value={selectedAgentId}
+              onChange={(event) => setSelectedAgentId(event.target.value)}
+            >
+              <option value="">Choose an employee</option>
+              {(agents.data?.data ?? [])
+                .filter((agent) => agent.status !== 'offboarded')
+                .map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setChooseAgentOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!selectedAgentId}
+              type="button"
+              onClick={() => {
+                setChooseAgentOpen(false);
+                setSetupAgentId(selectedAgentId);
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {setupAgent ? (
+        <AgentCreateDialog
+          existingAgent={setupAgent}
+          setupPurpose="account"
+          startAt="account"
+          onClose={() => setSetupAgentId('')}
+        />
+      ) : null}
       {loading ? (
         <PageState
           description="Loading configured channel accounts."
