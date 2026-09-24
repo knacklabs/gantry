@@ -29,6 +29,7 @@ type ExecutableModelEntryFn = (input: {
   supportsThinking?: boolean;
   supportsTools?: boolean;
   imageInput?: boolean;
+  imageToolResults?: boolean;
   pdfInput?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
@@ -87,6 +88,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
@@ -108,6 +110,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
@@ -130,6 +133,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
@@ -156,6 +160,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
@@ -179,6 +184,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,
@@ -202,6 +208,7 @@ export function buildOpenAiCatalog(deps: {
       supportsThinking: true,
       supportsTools: true,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       supportedWorkloads: OPENAI_MODEL_WORKLOADS,
       experimental: true,

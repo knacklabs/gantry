@@ -122,6 +122,7 @@ const claimEvidenceStoreHandler: TaskHandler = async (context) => {
       conversationJid: data.chatJid,
       ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
       mode: 'view',
+      workspaceRoot: resolveWorkspaceFolderPath(context.sourceAgentFolder),
     });
   } catch {
     reject('The original attachment could not be opened.', 'preflight_failed');
@@ -248,13 +249,7 @@ async function handleAttachment(
       conversationJid: data.chatJid,
       ...(data.authThreadId ? { threadId: data.authThreadId } : {}),
       mode,
-      ...(mode === 'materialize'
-        ? {
-            workspaceRoot: resolveWorkspaceFolderPath(
-              context.sourceAgentFolder,
-            ),
-          }
-        : {}),
+      workspaceRoot: resolveWorkspaceFolderPath(context.sourceAgentFolder),
     });
   } catch {
     const failure = classifyHandlerFailure(

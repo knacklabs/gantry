@@ -30,6 +30,43 @@ afterEach(() => {
 });
 
 describe('attachment open IPC handler', () => {
+  it('passes the agent workspace to view-mode attachment opens', async () => {
+    const envelope = createIpcAuthEnvelope(sourceAgentFolder);
+    responseKeyId = envelope.responseKeyId;
+    const openAttachment = vi.fn(async () => ({
+      status: 'opened' as const,
+      content: 'opened',
+      materializedPath: '/unused/photo.png',
+      storageRef: 'attachments/photo.png',
+      fileName: 'photo.png',
+    }));
+
+    await attachmentOpenTaskHandlers.attachment_open!({
+      data: {
+        type: 'attachment_open',
+        taskId,
+        appId: 'app-1',
+        providerAccountId: 'telegram-default',
+        chatJid: 'tg:123',
+        targetJid: 'tg:123',
+        responseKeyId,
+        payload: { attachmentId: 'telegram-photo-1' },
+      },
+      sourceAgentFolder,
+      sourceAgentFolderJids: ['tg:123'],
+      conversationBindings: {},
+      deps: { openAttachment } as never,
+    });
+
+    expect(openAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachmentId: 'telegram-photo-1',
+        mode: 'view',
+        workspaceRoot: resolveWorkspaceFolderPath(sourceAgentFolder),
+      }),
+    );
+  });
+
   it('refuses to materialize when the CAS source is a symlink', async () => {
     const { openMaterializedAttachmentReadOnly } =
       await import('@core/shared/provider-attachment-materialization.js');

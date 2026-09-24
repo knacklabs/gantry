@@ -63,6 +63,16 @@ describe('model catalog resolution', () => {
     ]);
     expect(modelInputModalities('moonshotai/kimi-k2.6')).toEqual(['image']);
     expect(modelInputModalities('unknown-model')).toEqual([]);
+    expect(modelInputModalities('gpt-5.6-luna')).toEqual([
+      'image',
+      'image-tool-results',
+      'pdf',
+    ]);
+    expect(modelInputModalities('gpt-5.4-mini')).toEqual([
+      'image',
+      'image-tool-results',
+      'pdf',
+    ]);
   });
 
   it('keeps versioned aliases pinned while short aliases stay recommended', () => {
@@ -329,10 +339,12 @@ describe('model catalog resolution', () => {
       cacheAccounting: true,
       structuredOutput: false,
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
     };
     const shared = {
       imageInput: true,
+      imageToolResults: true,
       pdfInput: true,
       responseFamily: 'openai',
       credentialProfileRef: 'gantry-model-access',

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { ToolMessage } from '@langchain/core/messages';
+import { convertMessagesToResponsesInput } from '@langchain/openai';
 
 import {
   connectGantryAndThirdPartyMcpTools,
@@ -119,6 +121,143 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     mcpState.serverTools = {};
     mcpState.clientConfigs = [];
   });
+
+  it.each([false, true])(
+    'converts mixed MCP text/image output to OpenAI Responses blocks (rules=%s)',
+    async (withRules) => {
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+      vi.stubEnv('GANTRY_DEEPAGENTS_MODEL_PROVIDER', 'openai');
+      const original = new ToolMessage({
+        tool_call_id: 'call-image',
+        content: [
+          { type: 'text', source_type: 'text', text: 'Damage photo' },
+          {
+            type: 'image',
+            source_type: 'base64',
+            data: 'aGVsbG8=',
+            mime_type: 'image/png',
+          },
+        ] as never,
+      });
+      mcpState.serverTools = {
+        gantry: [
+          structuredTool(
+            'attachment_open',
+            'Open attachment.',
+            async () => original,
+          ),
+        ],
+      };
+      const connected = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: [],
+        ...(withRules
+          ? {
+              toolRules: [
+                { tool: 'Bash', action: 'block', reason: 'blocked' },
+              ] as const,
+            }
+          : {}),
+        hideAuthorityTools: false,
+        gate: {
+          workspaceFolder: 'group',
+          memoryBlock: '',
+          gateContext: { conversationId: 'sl:channel' },
+          permissionEnv: {},
+          capabilityRequestToolsHidden: true,
+        } as never,
+      });
+      const projected = connected.tools.find(
+        (item) => item.name === 'attachment_open',
+      );
+      const result = await projected?.invoke({
+        type: 'tool_call',
+        id: 'call-image',
+        name: 'attachment_open',
+        args: {},
+      } as never);
+      expect(result).toBeInstanceOf(ToolMessage);
+      expect((result as ToolMessage).content).toEqual([
+        { type: 'input_text', text: 'Damage photo' },
+        { type: 'input_image', image_url: 'data:image/png;base64,aGVsbG8=' },
+      ]);
+      expect((result as ToolMessage).tool_call_id).toBe('call-image');
+      expect(
+        convertMessagesToResponsesInput({
+          messages: [result as ToolMessage],
+          zdrEnabled: false,
+          model: 'gpt-5.6-luna',
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          type: 'function_call_output',
+          call_id: 'call-image',
+          output: [
+            { type: 'input_text', text: 'Damage photo' },
+            {
+              type: 'input_image',
+              image_url: 'data:image/png;base64,aGVsbG8=',
+            },
+          ],
+        }),
+      ]);
+      await connected.close();
+    },
+  );
+
+  it.each(['openai', 'bedrock'])(
+    'keeps text-only and non-OpenAI MCP output unchanged for %s',
+    async (provider) => {
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+      vi.stubEnv('GANTRY_DEEPAGENTS_MODEL_PROVIDER', provider);
+      const content =
+        provider === 'openai'
+          ? [{ type: 'text', source_type: 'text', text: 'Policy found' }]
+          : [
+              { type: 'text', source_type: 'text', text: 'Damage photo' },
+              {
+                type: 'image',
+                source_type: 'base64',
+                data: 'aGVsbG8=',
+                mime_type: 'image/png',
+              },
+            ];
+      const original = new ToolMessage({
+        tool_call_id: 'call-plain',
+        content: content as never,
+      });
+      mcpState.serverTools = {
+        gantry: [
+          structuredTool(
+            'attachment_open',
+            'Open attachment.',
+            async () => original,
+          ),
+        ],
+      };
+      const connected = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: [],
+        hideAuthorityTools: false,
+        gate: {
+          workspaceFolder: 'group',
+          memoryBlock: '',
+          gateContext: { conversationId: 'app:chat' },
+          permissionEnv: {},
+          capabilityRequestToolsHidden: true,
+        } as never,
+      });
+      const result = await connected.tools
+        .find((item) => item.name === 'attachment_open')
+        ?.invoke({
+          type: 'tool_call',
+          id: 'call-plain',
+          name: 'attachment_open',
+          args: {},
+        } as never);
+      expect(result).toBe(original);
+      expect((result as ToolMessage).content).toEqual(content);
+      await connected.close();
+    },
+  );
 
   it('does not cap every Gantry MCP tool at the callable-agent deadline', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');

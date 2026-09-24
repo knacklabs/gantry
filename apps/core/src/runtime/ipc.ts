@@ -3,6 +3,7 @@ import path from 'path';
 import { sendCoreMessage } from '../application/core-tools/send-message.js';
 import {
   notificationDestinations,
+  notificationOrigin,
   sendNotification,
 } from '../application/core-tools/send-notification.js';
 import {
@@ -264,7 +265,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       ? {
                           claimReview: {
                             claimId: data.reviewClaimId,
-                            sourceJid: data.chatJid,
+                            origin: notificationOrigin({
+                              routes: groupRegistry,
+                              sourceAgentFolder,
+                              sourceJid: data.chatJid,
+                              providerAccountId: data.providerAccountId,
+                            }),
                           },
                         }
                       : {}),

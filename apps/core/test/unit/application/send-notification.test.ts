@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import {
+  notificationAccessForAgent,
   notificationDestinations,
+  notificationOrigin,
   sendNotification,
 } from '@core/application/core-tools/send-notification.js';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -143,6 +145,59 @@ describe('send notification', () => {
     ]);
   });
 
+  it('resolves a Telegram origin only from the same agent and account', () => {
+    const telegramRoute = {
+      ...route('vishwa', 'mia'),
+      providerAccountId: 'telegram-account',
+      conversationKind: 'direct' as const,
+    };
+    const routes = {
+      'tg:123': telegramRoute,
+      'tg:999': { ...telegramRoute, folder: 'another-agent' },
+    };
+    expect(
+      notificationOrigin({
+        routes,
+        sourceAgentFolder: 'mia',
+        sourceJid: 'tg:123',
+        providerAccountId: 'telegram-account',
+      }),
+    ).toEqual({ jid: 'tg:123', providerAccountId: 'telegram-account' });
+    expect(
+      notificationOrigin({
+        routes,
+        sourceAgentFolder: 'mia',
+        sourceJid: 'tg:999',
+        providerAccountId: 'telegram-account',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('gives each Telegram bot only its own installed Slack notification destinations', () => {
+    const routes = {
+      'tg:123': {
+        ...route('customer', 'mia'),
+        providerAccountId: 'telegram-account',
+        conversationKind: 'direct' as const,
+      },
+      'sl:C-SALES': route('gantry-demo-insurance-sales', 'mia'),
+      'sl:C-OTHER': route('private', 'another-agent'),
+    };
+    const access = notificationAccessForAgent({
+      routes,
+      sourceAgentFolder: 'mia',
+      sourceJid: 'tg:123',
+      providerAccountId: 'telegram-account',
+    });
+    expect(access.notificationOrigin).toEqual({
+      jid: 'tg:123',
+      providerAccountId: 'telegram-account',
+    });
+    expect(access.notificationDestinations.map((item) => item.jid)).toEqual([
+      'sl:C-SALES',
+    ]);
+  });
+
   it('sends only to an allowed destination', async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     const destinations = [
@@ -205,7 +260,7 @@ describe('send notification', () => {
       text: 'Claim CLM-1234 needs internal review.',
       claimReview: {
         claimId: 'CLM-1234',
-        sourceJid: 'sl:C-TEST',
+        origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },
       },
       reviewChannelName: 'gantry-demo-insurance-sales',
       reviewServiceUrl: 'http://127.0.0.1:14319',
@@ -250,6 +305,57 @@ describe('send notification', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it('posts a Slack review card for a Telegram-origin claim without changing the outcome route', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/review-card-sent')
+            ? '{}'
+            : JSON.stringify({
+                claim: { status: 'submitted_for_review' },
+                evidence: [
+                  { documentType: 'damage_photo' },
+                  { documentType: 'repair_estimate' },
+                ],
+              }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+
+    await sendNotification({
+      destination: '#gantry-demo-insurance-sales',
+      text: 'Claim CLM-1234 needs internal review.',
+      claimReview: {
+        claimId: 'CLM-1234',
+        origin: { jid: 'tg:123', providerAccountId: 'telegram-account' },
+      },
+      reviewChannelName: 'gantry-demo-insurance-sales',
+      reviewServiceUrl: 'http://127.0.0.1:14319',
+      fetcher,
+      destinations: [
+        {
+          name: 'gantry-demo-insurance-sales',
+          jid: 'sl:C-SALES',
+          providerAccountId: 'slack-account',
+        },
+      ],
+      sendMessage,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C-SALES',
+      expect.any(String),
+      expect.objectContaining({
+        providerAccountId: 'slack-account',
+        actionAffordances: expect.arrayContaining([
+          expect.objectContaining({ outcomeJid: 'tg:123' }),
+        ]),
+      }),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it('sends a review card for a damage photo and claim form while flagging the missing estimate', async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     const fetcher = vi.fn(
@@ -273,7 +379,7 @@ describe('send notification', () => {
       text: 'Claim CLM-1234 needs internal review.',
       claimReview: {
         claimId: 'CLM-1234',
-        sourceJid: 'sl:C-TEST',
+        origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },
       },
       reviewChannelName: 'gantry-demo-insurance-sales',
       reviewServiceUrl: 'http://127.0.0.1:14319',
@@ -339,7 +445,10 @@ describe('send notification', () => {
       await sendNotification({
         destination: '#gantry-demo-insurance-sales',
         text: `${claimId} needs review`,
-        claimReview: { claimId, sourceJid },
+        claimReview: {
+          claimId,
+          origin: { jid: sourceJid, providerAccountId: 'slack-account' },
+        },
         reviewChannelName: 'gantry-demo-insurance-sales',
         reviewServiceUrl: 'http://127.0.0.1:14319',
         fetcher,
@@ -361,7 +470,7 @@ describe('send notification', () => {
       sendNotification({
         destination: '#gantry-demo-insurance-sales',
         text: 'Claim CLM-AAAA needs review',
-        claimReview: { claimId: 'CLM-AAAA', sourceJid: 'sl:C-UNBOUND' },
+        claimReview: { claimId: 'CLM-AAAA' },
         reviewChannelName: 'gantry-demo-insurance-sales',
         reviewServiceUrl: 'http://127.0.0.1:14319',
         fetcher,
@@ -374,7 +483,7 @@ describe('send notification', () => {
         ],
         sendMessage,
       }),
-    ).rejects.toThrow('unavailable or ambiguous');
+    ).rejects.toThrow('bound originating conversation');
     expect(sendMessage).not.toHaveBeenCalled();
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -404,7 +513,7 @@ describe('send notification', () => {
           text: 'Claim CLM-1234 needs internal review.',
           claimReview: {
             claimId: 'CLM-1234',
-            sourceJid: 'sl:C-TEST',
+            origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },
           },
           reviewChannelName: 'gantry-demo-insurance-sales',
           reviewServiceUrl: 'http://127.0.0.1:14319',

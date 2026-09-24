@@ -5,12 +5,12 @@ import type {
 } from '../../domain/ports/message-attachment-repository.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
-  workspaceLocalRegularFile,
   createProviderAttachmentStorageRef,
   isProviderAttachmentStorageRef,
   materializeProviderAttachment,
   providerAttachmentWriter,
   readProviderAttachment,
+  readWorkspaceLocalAttachment,
   removeProviderAttachment,
   type AttachmentImagePayload,
   type ProviderAttachmentWriter,
@@ -199,30 +199,40 @@ export class AttachmentResolver {
       return { status: 'deleted', content: ATTACHMENT_DELETED_COPY };
     }
     if (
-      input.mode === 'materialize' &&
       attachment.storageRef &&
       isWorkspaceLocalAttachmentStorageRef(attachment.storageRef)
     ) {
-      // Short-circuit only when the workspace file actually exists; a stale
-      // or relocated local ref must fall through to provider-fetch recovery
-      // (rows carrying provider_fetch metadata can re-materialize).
-      const existing = input.workspaceRoot
-        ? await workspaceLocalRegularFile(
-            input.workspaceRoot,
-            attachment.storageRef,
-          )
-        : false;
-      if (existing) {
-        return {
-          status: 'already_in_workspace',
-          content: 'Attachment is already in the workspace.',
-          workspaceRelativePath: attachment.storageRef,
-          fileName:
-            attachment.fileName?.trim() ||
-            attachment.storageRef.split('/').at(-1) ||
-            'attachment.bin',
-        };
+      if (input.workspaceRoot) {
+        const opened = await readWorkspaceLocalAttachment({
+          workspaceRoot: input.workspaceRoot,
+          storageRef: attachment.storageRef,
+          attachment,
+          mode: input.mode,
+        });
+        if (opened.status === 'opened') {
+          if (input.mode === 'materialize') {
+            return {
+              status: 'already_in_workspace',
+              content: 'Attachment is already in the workspace.',
+              workspaceRelativePath: attachment.storageRef,
+              fileName:
+                attachment.fileName?.trim() ||
+                attachment.storageRef.split('/').at(-1) ||
+                'attachment.bin',
+            };
+          }
+          return {
+            ...opened,
+            storageRef: attachment.storageRef,
+            fileName:
+              attachment.fileName?.trim() ||
+              attachment.storageRef.split('/').at(-1) ||
+              'attachment.bin',
+          };
+        }
       }
+      // A stale or relocated local ref falls through to provider-fetch
+      // recovery when the row has provider-fetch metadata.
       logger.info(
         {
           attachmentId: attachment.id,

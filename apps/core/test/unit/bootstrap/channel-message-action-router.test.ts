@@ -94,6 +94,24 @@ describe('createChannelMessageActionRouter', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('routes a Slack claim decision card whose outcome is a Telegram chat', async () => {
+    const router = createChannelMessageActionRouter();
+    const handler = vi.fn();
+    router.set(handler);
+    const action = {
+      kind: 'claim_review_decision' as const,
+      conversationJid: 'sl:C-SALES',
+      userId: 'U-APPROVER',
+      claimId: 'CLM-1234',
+      outcomeJid: 'tg:123',
+      decision: 'approve' as const,
+    };
+
+    await router.handle(action);
+
+    expect(handler).toHaveBeenCalledWith(action);
+  });
+
   it('ignores callbacks when no handler is registered', async () => {
     const router = createChannelMessageActionRouter();
     const handler = vi.fn();

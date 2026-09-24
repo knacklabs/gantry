@@ -153,6 +153,7 @@ export interface IpcDeps {
     conversationJid: string;
     threadId?: string;
     mode?: 'view' | 'materialize';
+    workspaceRoot?: string;
   }) => Promise<AttachmentOpenResult>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];

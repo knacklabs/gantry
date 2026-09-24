@@ -10,6 +10,11 @@ export interface NotificationDestination {
   providerAccountId: string;
 }
 
+export interface NotificationOrigin {
+  jid: string;
+  providerAccountId: string;
+}
+
 export const CLAIM_REVIEW_DELIVERY_FAILURE =
   'The claim review request could not be confirmed. Check the claim and evidence status before replying. Do not say that the claims team received it.';
 
@@ -43,10 +48,60 @@ export function notificationDestinations(input: {
   return [...destinations.values()];
 }
 
+export function notificationOrigin(input: {
+  routes: Record<string, ConversationRoute>;
+  sourceAgentFolder: string;
+  sourceJid: string;
+  providerAccountId?: string;
+}): NotificationOrigin | undefined {
+  const origins = new Map<string, NotificationOrigin>();
+  for (const [key, route] of Object.entries(input.routes)) {
+    const parsed = parseAgentThreadQueueKey(key);
+    const providerAccountId =
+      parsed.providerAccountId ?? route.providerAccountId;
+    if (
+      parsed.chatJid !== input.sourceJid ||
+      parsed.threadId ||
+      route.folder !== input.sourceAgentFolder ||
+      !providerAccountId ||
+      (input.providerAccountId !== undefined &&
+        providerAccountId !== input.providerAccountId)
+    ) {
+      continue;
+    }
+    origins.set(providerAccountId, {
+      jid: parsed.chatJid,
+      providerAccountId,
+    });
+  }
+  return origins.size === 1 ? origins.values().next().value : undefined;
+}
+
+export function notificationAccessForAgent(input: {
+  routes: Record<string, ConversationRoute>;
+  sourceAgentFolder: string;
+  sourceJid: string;
+  providerAccountId?: string;
+}): {
+  notificationDestinations: NotificationDestination[];
+  notificationOrigin: NotificationOrigin | undefined;
+} {
+  return {
+    notificationDestinations: notificationDestinations({
+      routes: input.routes,
+      sourceAgentFolder: input.sourceAgentFolder,
+      ...(input.sourceJid.startsWith('sl:') && input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+    }),
+    notificationOrigin: notificationOrigin(input),
+  };
+}
+
 export async function sendNotification(input: {
   destination: string;
   text: string;
-  claimReview?: { claimId: string; sourceJid: string };
+  claimReview?: { claimId: string; origin?: NotificationOrigin };
   reviewServiceUrl?: string;
   reviewChannelName?: string;
   fetcher?: typeof fetch;
@@ -79,12 +134,12 @@ export async function sendNotification(input: {
   };
   const destination = resolve(input.destination);
   const review = input.claimReview;
-  const outcome = review ? resolve(review.sourceJid) : undefined;
+  const outcome = review?.origin;
   if (review && !/^CLM-[A-Z0-9-]{4,32}$/.test(review.claimId)) {
     throw new Error('Claim review requires a valid claim ID.');
   }
-  if (outcome && outcome.providerAccountId !== destination.providerAccountId) {
-    throw new Error('Claim review outcome must use the same channel account.');
+  if (review && (!outcome?.jid || !outcome.providerAccountId)) {
+    throw new Error('Claim review requires a bound originating conversation.');
   }
   let reviewEvidenceNotice = '';
   if (review && outcome) {

@@ -29,6 +29,7 @@ import {
   CLAIM_REVIEW_DELIVERY_FAILURE,
   sendNotification,
   type NotificationDestination,
+  type NotificationOrigin,
 } from '../../application/core-tools/send-notification.js';
 import {
   type CoreTaskLifecycleBackend,
@@ -138,6 +139,7 @@ export interface CoreToolRunContext {
 export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   context: CoreToolRunContext;
   notificationDestinations?: readonly NotificationDestination[];
+  notificationOrigin?: NotificationOrigin;
   requestUserAnswer: (request: UserQuestionRequest) => Promise<{
     requestId: string;
     answers: Record<string, string | string[]>;
@@ -264,7 +266,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
                     ? {
                         claimReview: {
                           claimId: args.review_claim_id,
-                          sourceJid: deps.context.conversationId,
+                          origin: deps.notificationOrigin,
                         },
                       }
                     : {}),

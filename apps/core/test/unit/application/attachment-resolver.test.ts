@@ -589,6 +589,47 @@ describe('AttachmentResolver', () => {
     await fsp.rm(workspaceRoot, { recursive: true, force: true });
   });
 
+  it('opens a Telegram workspace-local image without a provider fetch', async () => {
+    const repository = new MemoryAttachmentRepository();
+    const workspaceRoot = tempRoot('gantry-telegram-workspace');
+    const storageRef = 'attachments/photo_49.png';
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    fs.mkdirSync(path.join(workspaceRoot, 'attachments'));
+    fs.writeFileSync(path.join(workspaceRoot, storageRef), image);
+    repository.attachments.set(
+      'attachment-1',
+      attachment({
+        conversationJid: 'tg:1062956642',
+        storageRef,
+        providerFetch: undefined,
+        fileName: 'photo_49',
+        contentType: undefined,
+      }),
+    );
+    const provider = fetcher(() => {
+      throw new Error('Telegram photo is already saved locally');
+    });
+    const resolver = createResolver({
+      repository,
+      fetcher: provider,
+      workspaceRoots: [workspaceRoot],
+    });
+
+    await expect(
+      resolver.open(
+        openRequest({ conversationJid: 'tg:1062956642', workspaceRoot }),
+      ),
+    ).resolves.toMatchObject({
+      status: 'opened',
+      image: { mimeType: 'image/png', base64: image.toString('base64') },
+      storageRef,
+    });
+    expect(provider.calls).toBe(0);
+  });
+
   it('falls through to provider recovery when the workspace-local file is stale', async () => {
     const os = await import('node:os');
     const fsp = await import('node:fs/promises');

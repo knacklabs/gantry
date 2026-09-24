@@ -15,8 +15,10 @@ import { registerTelegramMediaHandlers } from './media-ingestion.js';
 import { clearRestoredTelegramProgressActions } from './extracted-helpers.js';
 import { handleTelegramTextMessage } from './text-message-handler.js';
 import { handleTelegramGroupMembershipUpdate } from './group-join-onboarding.js';
+import { TelegramRichFormSessions } from './rich-form-session.js';
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
+  protected readonly richFormSessions = new TelegramRichFormSessions();
   private async clearRestoredProgressActions(): Promise<void> {
     this.loadPersistedProgressMessages();
     await clearRestoredTelegramProgressActions({
@@ -86,6 +88,20 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         opts: this.opts,
         assistantName: ASSISTANT_NAME,
         triggerPattern: TRIGGER_PATTERN,
+        tryResolveForm: (input) =>
+          this.richFormSessions.answer({
+            ...input,
+            sendPrompt: async (text, placeholder) => {
+              const sent = await this.bot!.api.sendMessage(input.chatId, text, {
+                reply_markup: {
+                  force_reply: true,
+                  input_field_placeholder: placeholder,
+                },
+              });
+              return sent.message_id;
+            },
+          }),
+        clearForm: (chatId) => this.richFormSessions.clearChat(chatId),
         tryResolveOther: (input) =>
           this.tryResolveUserQuestionOtherReply(input),
       }),

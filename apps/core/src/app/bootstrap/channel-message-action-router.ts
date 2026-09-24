@@ -65,7 +65,7 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
   if (input.kind === 'claim_review_decision') {
     return (
       /^CLM-[A-Z0-9-]{4,32}$/.test(input.claimId) &&
-      input.outcomeJid.startsWith('sl:') &&
+      input.outcomeJid.includes(':') &&
       (input.decision === 'approve' || input.decision === 'decline')
     );
   }

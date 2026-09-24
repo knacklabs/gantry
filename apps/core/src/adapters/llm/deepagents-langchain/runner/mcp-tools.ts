@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { isToolMessage, type ToolMessage } from '@langchain/core/messages';
 import { tool, type StructuredToolInterface } from '@langchain/core/tools';
 
 import { buildGantryMcpProjection } from './gantry-mcp-env.js';
@@ -187,6 +188,8 @@ export async function connectGantryAndThirdPartyMcpTools(
     ...selectedGantrySet,
     ...DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
   ]);
+  const openAiResponsesMcpResult =
+    process.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER === 'openai';
 
   const thirdPartyToolEntries: DeclarativeToolEntry[] = [];
   for (const [name, tools] of Object.entries(serverTools)) {
@@ -202,6 +205,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     thirdPartyToolEntries.push(
       ...gated.map((tool) => ({
         tool,
+        openAiResponsesMcpResult,
         canonicalName: () => canonicalThirdPartyMcpToolName(name, tool.name),
       })),
     );
@@ -218,6 +222,7 @@ export async function connectGantryAndThirdPartyMcpTools(
   const toolEntries: DeclarativeToolEntry[] = [
     ...gantryTools.map((tool) => ({
       tool,
+      openAiResponsesMcpResult,
       canonicalName: () =>
         canonicalGantryToolRuleName(tool.name, {
           callableAgentToolNames,
@@ -267,6 +272,7 @@ function withCallableAgentTimeout(
 interface DeclarativeToolEntry {
   tool: StructuredToolInterface;
   canonicalName: (input: unknown) => string;
+  openAiResponsesMcpResult?: boolean;
 }
 
 function wrapWithDeclarativeToolRules(
@@ -283,21 +289,28 @@ function wrapWithDeclarativeToolRules(
     // "content_and_artifact" — keep working exactly as the unwrapped tool
     // did, while still gaining exception safety (see invokeUnderlyingTool
     // below).
-    return entries.map(({ tool: underlying, canonicalName }) => {
-      const boundInvoke = underlying.invoke.bind(underlying);
-      underlying.invoke = (async (input: unknown, config: unknown) => {
-        const toolName = canonicalName(input);
-        const result = await invokeUnderlyingTool(boundInvoke, input, config);
-        if (!toolResultIsError(result)) {
-          successLedger?.recordSuccess(toolName);
-        }
-        return result;
-      }) as StructuredToolInterface['invoke'];
-      return underlying;
-    });
+    return entries.map(
+      ({ tool: underlying, canonicalName, openAiResponsesMcpResult }) => {
+        const boundInvoke = underlying.invoke.bind(underlying);
+        underlying.invoke = (async (input: unknown, config: unknown) => {
+          const toolName = canonicalName(input);
+          const result = await invokeUnderlyingTool(
+            boundInvoke,
+            input,
+            config,
+            openAiResponsesMcpResult,
+          );
+          if (!toolResultIsError(result)) {
+            successLedger?.recordSuccess(toolName);
+          }
+          return result;
+        }) as StructuredToolInterface['invoke'];
+        return underlying;
+      },
+    );
   }
   return entries.map(
-    ({ tool: underlying, canonicalName }) =>
+    ({ tool: underlying, canonicalName, openAiResponsesMcpResult }) =>
       tool(
         async (input, config) => {
           const toolName = canonicalName(input);
@@ -323,11 +336,16 @@ function wrapWithDeclarativeToolRules(
             boundInvoke,
             input,
             innerConfig,
+            openAiResponsesMcpResult,
           );
           if (!toolResultIsError(result)) {
             successLedger?.recordSuccess(toolName);
           }
-          return result;
+          // The outer LangChain tool must receive the native content array,
+          // otherwise it stringifies the inner ToolMessage (and its image).
+          return openAiResponsesMcpResult && isNativeImageToolMessage(result)
+            ? result.content
+            : result;
         },
         {
           name: underlying.name,
@@ -347,9 +365,13 @@ async function invokeUnderlyingTool(
   boundInvoke: StructuredToolInterface['invoke'],
   input: unknown,
   config: unknown,
+  openAiResponsesMcpResult = false,
 ): Promise<unknown> {
   try {
-    return await boundInvoke(input as never, config as never);
+    const result = await boundInvoke(input as never, config as never);
+    return openAiResponsesMcpResult
+      ? convertMcpImageToolMessageForOpenAi(result)
+      : result;
     // Any tool-call failure (ToolException or otherwise) must become a
     // normal tool result, never an uncaught exception that ends the run.
     // eslint-disable-next-line no-catch-all/no-catch-all
@@ -364,6 +386,71 @@ async function invokeUnderlyingTool(
       isError: true,
     };
   }
+}
+
+function isNativeImageToolMessage(result: unknown): result is ToolMessage {
+  return (
+    isToolMessage(result) &&
+    Array.isArray(result.content) &&
+    result.content.some(
+      (block) =>
+        typeof block === 'object' &&
+        block !== null &&
+        block.type === 'input_image',
+    )
+  );
+}
+
+function convertMcpImageToolMessageForOpenAi(result: unknown): unknown {
+  if (
+    !isToolMessage(result) ||
+    result.status === 'error' ||
+    !Array.isArray(result.content)
+  ) {
+    return result;
+  }
+  const blocks = result.content as unknown[];
+  if (
+    !blocks.some(
+      (block) =>
+        isRecord(block) &&
+        (block.type === 'image' || block.type === 'image_url'),
+    )
+  ) {
+    return result;
+  }
+  const converted = blocks.map((block) => {
+    if (!isRecord(block)) return null;
+    if (block.type === 'text' && typeof block.text === 'string') {
+      return { type: 'input_text' as const, text: block.text };
+    }
+    if (
+      block.type === 'image' &&
+      typeof block.data === 'string' &&
+      typeof block.mime_type === 'string' &&
+      /^image\/(png|jpeg|gif|webp)$/.test(block.mime_type)
+    ) {
+      return {
+        type: 'input_image' as const,
+        image_url: `data:${block.mime_type};base64,${block.data}`,
+      };
+    }
+    if (block.type === 'image_url' && isRecord(block.image_url)) {
+      const url = block.image_url.url;
+      if (typeof url === 'string' && /^(https:\/\/|data:image\/)/.test(url)) {
+        return { type: 'input_image' as const, image_url: url };
+      }
+    }
+    return null;
+  });
+  // Do not silently drop unfamiliar MCP blocks from the model's tool result.
+  if (converted.some((block) => block === null)) return result;
+  result.content = converted as typeof result.content;
+  return result;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function toolResultIsError(result: unknown): boolean {

@@ -90,7 +90,7 @@ describe('motor claim review', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:C-TEST',
       expect.stringContaining(
-        'declined in internal review by <@U-APPROVER>. Reason: Documents do not match this claim.',
+        'declined in internal review. Reason: Documents do not match this claim.',
       ),
       'slack-account',
     );
@@ -126,6 +126,70 @@ describe('motor claim review', () => {
       expect.stringContaining('accepted for further assessment'),
       'slack-account',
     );
+  });
+
+  it('delivers a Slack approval decision to the bound Telegram origin using its own account', async () => {
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/decision')
+            ? JSON.stringify({
+                claim: { claimId: 'CLM-1234' },
+                decision: {
+                  decisionId: 'DEC-TG',
+                  notificationStatus: 'pending',
+                },
+              })
+            : '{}',
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const result = await decideMotorClaimReview({
+      ...input,
+      outcomeJid: 'tg:123',
+      routes: {
+        ...routes,
+        'tg:123': {
+          ...route('vishwa'),
+          providerAccountId: 'telegram-account',
+          conversationKind: 'direct',
+        },
+      },
+      fetcher,
+      sendMessage,
+    });
+
+    expect(result.state).toBe('applied');
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:123',
+      expect.stringContaining('accepted for further assessment'),
+      'telegram-account',
+    );
+    expect(sendMessage.mock.calls[0]?.[1]).not.toContain('<@U-APPROVER>');
+  });
+
+  it("refuses to send a decision to another agent's Telegram conversation", async () => {
+    const fetcher = vi.fn();
+    const sendMessage = vi.fn();
+    const result = await decideMotorClaimReview({
+      ...input,
+      outcomeJid: 'tg:999',
+      routes: {
+        ...routes,
+        'tg:999': {
+          ...route('other'),
+          folder: 'other-agent',
+          providerAccountId: 'telegram-account',
+          conversationKind: 'direct',
+        },
+      },
+      fetcher,
+      sendMessage,
+    });
+    expect(result.state).toBe('denied');
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('rejects an unbound destination before changing the claim', async () => {

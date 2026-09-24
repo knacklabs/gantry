@@ -9,11 +9,25 @@ import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js'
 
 const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
 
+export function normalizeTelegramPrivateCommand(
+  content: string,
+  isPrivate: boolean,
+): string {
+  return isPrivate && content.trim() === '!new' ? '/new' : content;
+}
+
 export async function handleTelegramTextMessage(input: {
   ctx: Filter<TelegramContext, 'message:text'>;
   opts: ChannelOpts;
   assistantName: string;
   triggerPattern: RegExp;
+  tryResolveForm?: (input: {
+    chatId: string;
+    replyToMessageId: number;
+    userId: string;
+    text: string;
+  }) => Promise<{ handled: boolean; submission?: string }>;
+  clearForm?: (chatId: string) => void;
   tryResolveOther: (input: {
     chatId: string;
     replyToMessageId: number;
@@ -29,7 +43,13 @@ export async function handleTelegramTextMessage(input: {
   }
 
   const chatJid = `tg:${ctx.chat.id}`;
-  let content = ctx.message.text;
+  let content = normalizeTelegramPrivateCommand(
+    ctx.message.text,
+    ctx.chat.type === 'private',
+  );
+  if (content.trim() === '/new') {
+    input.clearForm?.(String(ctx.chat.id));
+  }
   const timestamp = new Date(ctx.message.date * 1000).toISOString();
   const senderName =
     ctx.from?.first_name ||
@@ -51,6 +71,16 @@ export async function handleTelegramTextMessage(input: {
     : undefined;
 
   if (typeof replyTo?.message_id === 'number') {
+    if (ctx.chat.type === 'private' && input.tryResolveForm) {
+      const form = await input.tryResolveForm({
+        chatId: String(ctx.chat.id),
+        replyToMessageId: replyTo.message_id,
+        userId: sender,
+        text: ctx.message.text,
+      });
+      if (form.handled && !form.submission) return;
+      if (form.submission) content = form.submission;
+    }
     const handledOther = await input.tryResolveOther({
       chatId: ctx.chat.id.toString(),
       replyToMessageId: replyTo.message_id,

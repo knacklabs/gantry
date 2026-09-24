@@ -212,6 +212,53 @@ export async function readProviderAttachment(input: {
   }
 }
 
+export async function readWorkspaceLocalAttachment(input: {
+  workspaceRoot: string;
+  storageRef: string;
+  attachment: ReadableAttachmentMetadata;
+  mode?: 'view' | 'materialize';
+}): Promise<
+  | {
+      status: 'opened';
+      content: string;
+      image?: AttachmentImagePayload;
+      materializedPath: string;
+    }
+  | { status: 'missing' }
+> {
+  const root = await fs.realpath(input.workspaceRoot);
+  const candidate = path.resolve(root, input.storageRef);
+  if (!isPathWithin(root, candidate) || candidate === root) {
+    return { status: 'missing' };
+  }
+  try {
+    const parent = await fs.realpath(path.dirname(candidate));
+    if (!isPathWithin(root, parent)) return { status: 'missing' };
+    const filePath = path.join(parent, path.basename(candidate));
+    const stat = await fs.lstat(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      return { status: 'missing' };
+    }
+    if (input.mode === 'materialize') {
+      return { status: 'opened', content: '', materializedPath: filePath };
+    }
+    const read = await readAttachmentContent(
+      filePath,
+      input.attachment,
+      extractDocumentText,
+    );
+    return {
+      status: 'opened',
+      content: read.content,
+      ...(read.image ? { image: read.image } : {}),
+      materializedPath: filePath,
+    };
+  } catch (error) {
+    if (isNotFoundError(error)) return { status: 'missing' };
+    throw error;
+  }
+}
+
 async function prepareMaterializationRoot(
   materializationRoot: string,
   workspaceRoots: readonly string[],

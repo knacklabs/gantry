@@ -6,10 +6,8 @@ import { TelegramChannelReactions } from './channel-reactions.js';
 import {
   TELEGRAM_MESSAGE_MAX_LENGTH,
   TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
-  TELEGRAM_USER_QUESTION_TIMEOUT_MS,
   ActiveDraftStreamState,
   createPendingTelegramUserQuestion,
-  editTelegramMessage,
   escapeTelegramMarkdownV2,
   sendTelegramMessageWithResult,
   splitTelegramDeliveryText,
@@ -225,6 +223,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       bot: this.bot,
       jid,
       render,
+      formSessions: this.richFormSessions,
       sendFallback: (text, options) => this.sendMessage(jid, text, options),
     });
   }
@@ -748,6 +747,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     this.isStopping = true;
     this.clearPollingRetryTimer();
     this.streamResetEpochs.clear();
+    this.richFormSessions.clear();
     const disconnected = await disconnectTelegramDelivery({
       bot: this.bot,
       activeDraftStreams: this.activeDraftStreams,

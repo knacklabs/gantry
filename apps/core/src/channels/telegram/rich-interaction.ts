@@ -2,12 +2,14 @@ import type { RichInteractionRequest } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { telegramThreadOptionsFromString } from './channel-shared.js';
 import {
+  isRichForm,
   richDescriptor,
   RICH_INTERACTION_FALLBACK_COPY,
   richFallbackText,
   richHtmlEscape,
   richTextLines,
 } from '../rich-interaction.js';
+import type { TelegramRichFormSessions } from './rich-form-session.js';
 
 export function renderTelegramRichInteractionHtml(
   input: RichInteractionRequest,
@@ -34,13 +36,35 @@ export async function renderTelegramRichInteraction(input: {
   bot: any;
   jid: string;
   render: RichInteractionRequest;
+  formSessions: TelegramRichFormSessions;
   sendFallback: (
     text: string,
     options: { threadId?: string },
   ) => Promise<unknown>;
 }): Promise<boolean> {
-  const { bot, jid, render, sendFallback } = input;
+  const { bot, jid, render, sendFallback, formSessions } = input;
   const numericId = jid.replace(/^tg:/, '');
+  if (isRichForm(render) && Number(numericId) > 0) {
+    try {
+      const started = await formSessions.start({
+        request: render,
+        chatId: numericId,
+        sendPrompt: async (text, placeholder) => {
+          const sent = await bot.api.sendMessage(numericId, text, {
+            ...telegramThreadOptionsFromString(render.threadId),
+            reply_markup: {
+              force_reply: true,
+              input_field_placeholder: placeholder,
+            },
+          });
+          return sent.message_id;
+        },
+      });
+      if (started) return true;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Telegram guided form prompt failed');
+    }
+  }
   const payload = renderTelegramRichInteractionHtml(render);
   try {
     await bot.api.sendMessage(numericId, payload.text, {

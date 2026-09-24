@@ -33,26 +33,45 @@ export async function decideMotorClaimReview(input: {
   fetcher?: typeof fetch;
 }): Promise<MessageActionOutcome> {
   const reviewName = input.reviewChannelName.replace(/^#/, '').trim();
-  const bound = (jid: string, name: string | undefined) =>
-    Object.entries(input.routes).some(([key, route]) => {
+  const bound = (
+    jid: string,
+    name: string | undefined,
+    providerAccountId?: string,
+    channelOnly = false,
+  ) =>
+    Object.entries(input.routes).filter(([key, route]) => {
       const parsed = parseAgentThreadQueueKey(key);
       return (
         parsed.chatJid === jid &&
         !parsed.threadId &&
         route.folder === input.sourceAgentFolder &&
-        route.conversationKind === 'channel' &&
-        (!input.providerAccountId ||
+        (!channelOnly || route.conversationKind === 'channel') &&
+        (!providerAccountId ||
           (parsed.providerAccountId ?? route.providerAccountId) ===
-            input.providerAccountId) &&
+            providerAccountId) &&
         (!name ||
           (route.conversationDisplayName ?? route.name).toLowerCase() ===
             name.toLowerCase())
       );
     });
+  const outcomeAccounts = new Set(
+    bound(input.outcomeJid, undefined)
+      .map(
+        ([key, route]) =>
+          parseAgentThreadQueueKey(key).providerAccountId ??
+          route.providerAccountId,
+      )
+      .filter((account): account is string => Boolean(account)),
+  );
+  const outcomeProviderAccountId =
+    outcomeAccounts.size === 1
+      ? outcomeAccounts.values().next().value
+      : undefined;
   if (
     !reviewName ||
-    !bound(input.reviewJid, reviewName) ||
-    !bound(input.outcomeJid, undefined) ||
+    bound(input.reviewJid, reviewName, input.providerAccountId, true).length ===
+      0 ||
+    !outcomeProviderAccountId ||
     input.outcomeJid === input.reviewJid
   ) {
     return {
@@ -124,8 +143,8 @@ export async function decideMotorClaimReview(input: {
     try {
       await input.sendMessage(
         input.outcomeJid,
-        `${receipt} This is an internal review decision, not a payout confirmation.`,
-        input.providerAccountId,
+        `Claim ${input.claimId} ${label}.${reason} This is an internal review decision, not a payout confirmation.`,
+        outcomeProviderAccountId,
       );
       const mark = await fetcher(
         `${serviceUrl}/decisions/${encodeURIComponent(result.decision.decisionId)}/notification-sent`,
