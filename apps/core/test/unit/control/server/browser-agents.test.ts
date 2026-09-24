@@ -34,6 +34,19 @@ const workflowMap = fs.readFileSync(
 );
 const agentRouteSource = `${source}\n${helpers}\n${observability}\n${workflowMap}`;
 
+it('allows up to 10,000 characters for AGENTS.md while retaining the SOUL.md limit', () => {
+  const editor = fs.readFileSync(
+    path.join(
+      repoRoot,
+      'apps/web/src/features/agents/components/agent-persona-editor.tsx',
+    ),
+    'utf8',
+  );
+  expect(source).toContain('const maxChars = personaMatch ? 3000 : 10000;');
+  expect(editor).toMatch(/instructions: \{[\s\S]*?maxChars: 10000,/);
+  expect(editor).toMatch(/persona: \{[\s\S]*?maxChars: 3000,/);
+});
+
 it('paginates app-scoped directory results and rejects cross-app access', () => {
   expect(isBrowserAgentsPath('/ui/api/agents')).toBe(true);
   expect(isBrowserAgentsPath('/ui/api/agents/agent%3Aone')).toBe(true);

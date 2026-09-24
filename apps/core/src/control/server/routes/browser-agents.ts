@@ -635,7 +635,7 @@ export async function handleBrowserAgentRoutes(
       ) as AgentId;
       const responseKey = personaMatch ? 'persona' : 'instructions';
       const kind = personaMatch ? 'soul' : 'agents';
-      const maxChars = personaMatch ? 3000 : 4500;
+      const maxChars = personaMatch ? 3000 : 10000;
       const agent = await storage.repositories.agents.getAgent(agentId);
       if (!agent || agent.appId !== appId)
         return (sendError(res, 404, 'NOT_FOUND', 'Agent not found.'), true);

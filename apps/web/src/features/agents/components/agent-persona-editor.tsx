@@ -30,7 +30,7 @@ const profileCopy = {
     edit: 'Edit AGENTS.md',
     save: 'Save AGENTS.md',
     label: 'Working instructions',
-    maxChars: 4500,
+    maxChars: 10000,
   },
 } as const;
 
