@@ -13,6 +13,7 @@
     ],
     "PreCompact": [
       {
+        
         "hooks": [
           {
             "type": "command",
