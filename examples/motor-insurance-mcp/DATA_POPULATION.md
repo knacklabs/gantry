@@ -11,11 +11,13 @@ the insurance policies served by `get_motor_policy`.
 `server.mjs` already defines these policy fixtures in its `policies` array. No
 SQL import or first-run seed command is needed for policy lookup:
 
-| Policy | Customer | Vehicle | Plan | Validity | Deductible |
-| --- | --- | --- | --- | --- | --- |
-| `MOTOR-1001` | Aarav Demo | Maruti Baleno | Comprehensive | 2026-01-01 through 2026-12-31 | ₹1,000 |
-| `MOTOR-1002` | Meera Demo | Hyundai i20 | Third-party only | 2026-04-01 through 2027-03-31 | Not applicable |
-| `MOTOR-1003` | Kabir Demo | Tata Nexon | Comprehensive | 2025-09-01 through 2026-08-31 | ₹1,000 |
+| Policy       | Customer    | Vehicle       | Plan             | Validity                      | Deductible     |
+| ------------ | ----------- | ------------- | ---------------- | ----------------------------- | -------------- |
+| `MOTOR-1001` | Aarav Demo  | Maruti Baleno | Comprehensive    | 2026-01-01 through 2026-12-31 | ₹1,000         |
+| `MOTOR-1002` | Meera Demo  | Hyundai i20   | Third-party only | 2026-04-01 through 2027-03-31 | Not applicable |
+| `MOTOR-1003` | Kabir Demo  | Tata Nexon    | Comprehensive    | 2025-09-01 through 2026-08-31 | ₹1,000         |
+| `MOTOR-1004` | Nisha Demo  | Honda City    | Comprehensive    | 2026-07-01 through 2027-06-30 | ₹2,000         |
+| `MOTOR-1005` | Vikram Demo | Toyota Glanza | Comprehensive    | 2026-03-15 through 2027-03-14 | ₹1,000         |
 
 The server also defines four garage fixtures. On a fresh start, it creates a
 sample claim `CLM-DEMO-001` in memory. New claims, evidence metadata and review
@@ -33,9 +35,9 @@ npm test
 npm start
 ```
 
-`npm test` uses isolated temporary state. It verifies that `MOTOR-1001` can be
-retrieved and that a 2026 collision can be assessed; it does not write to a live
-claim store. With the server running, `curl http://127.0.0.1:14319/health`
+`npm test` uses isolated temporary state. It verifies all five policy fixtures
+are listed, retrieves the added policies, and checks their distinct cover; it
+does not write to a live claim store. With the server running, `curl http://127.0.0.1:14319/health`
 checks HTTP health. The MCP endpoint is `http://127.0.0.1:14319/mcp`.
 
 ## If MotoBuddy uses a different, Postgres-backed MCP server
@@ -64,11 +66,11 @@ running that server:
 
 Interpret the result before changing data:
 
-| Observation | What to check |
-| --- | --- |
-| `POLICY_NOT_FOUND` from `get_motor_policy` | Policy ID, seed rows, and the server's active database URL. |
+| Observation                                                       | What to check                                                                                                  |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `POLICY_NOT_FOUND` from `get_motor_policy`                        | Policy ID, seed rows, and the server's active database URL.                                                    |
 | Tool unavailable, connection error, or zero connected MCP sources | Server reachability and MotoBuddy's MCP attachment/capability selection; adding policy rows will not fix this. |
-| Policy lookup succeeds but coverage fails | Incident argument names, incident type/date rules, and the coverage tool result. |
+| Policy lookup succeeds but coverage fails                         | Incident argument names, incident type/date rules, and the coverage tool result.                               |
 
 The quoted MotoBuddy reply (“I can’t verify your coverage right now”) is a
 customer-facing fallback, not proof that the policy row is absent. The earlier

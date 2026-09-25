@@ -94,7 +94,7 @@ try {
       .readOnlyHint,
     false,
   );
-  assert.equal((await call('list_demo_scenarios')).policies.length, 3);
+  assert.equal((await call('list_demo_scenarios')).policies.length, 5);
   assert.equal(
     (await call('get_motor_policy', { policyId: 'MOTOR-1001' })).policy
       .zeroDepreciation,
@@ -109,6 +109,16 @@ try {
     (await call('get_motor_policy', { policy_number: 'MOTOR-1001' })).policy
       .policyId,
     'MOTOR-1001',
+  );
+  assert.equal(
+    (await call('get_motor_policy', { policyId: 'MOTOR-1004' })).policy
+      .engineProtection,
+    true,
+  );
+  assert.equal(
+    (await call('get_motor_policy', { policyId: 'MOTOR-1005' })).policy
+      .zeroDepreciation,
+    true,
   );
   assert.equal((await call('get_motor_policy')).error, 'POLICY_ID_REQUIRED');
   assert.equal(
@@ -144,6 +154,8 @@ try {
     'MOTOR-1001',
     'MOTOR-1002',
     'MOTOR-1003',
+    'MOTOR-1004',
+    'MOTOR-1005',
   ]);
   const missingAssessment = await call('assess_claim_eligibility', {
     policyId: 'MOTOR-001',
@@ -156,6 +168,8 @@ try {
     ['MOTOR-1001', 'engine_water_damage', 'not_included'],
     ['MOTOR-1002', 'collision', 'not_included'],
     ['MOTOR-1003', 'collision', 'outside_policy_period'],
+    ['MOTOR-1004', 'engine_water_damage', 'potentially_covered'],
+    ['MOTOR-1005', 'breakdown', 'assistance_available'],
   ])
     assert.equal(
       (

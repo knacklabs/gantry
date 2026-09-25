@@ -1,0 +1,14 @@
+{
+  "event": "done",
+  "id": "Q-0253-e767",
+  "profile": "quickfix",
+  "reason": "Add and verify two fictional motor-insurance MCP policy fixtures requested during supervised Live Share testing",
+  "started_at": "2026-09-25T12:45:07+00:00",
+  "completed_at": "2026-09-25T12:46:28+00:00",
+  "files": [
+    "examples/motor-insurance-mcp/server.mjs",
+    "examples/motor-insurance-mcp/smoke-test.mjs",
+    "examples/motor-insurance-mcp/README.md",
+    "examples/motor-insurance-mcp/DATA_POPULATION.md"
+  ]
+}

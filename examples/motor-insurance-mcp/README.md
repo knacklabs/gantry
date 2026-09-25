@@ -41,11 +41,13 @@ The loopback URL works only when Gantry runs on the same host. A container or re
 
 Simulation clock: **2026-09-23**, independent of your real calendar.
 
-| Policy     | Customer / vehicle  | Scenario                                                                           |
-| ---------- | ------------------- | ---------------------------------------------------------------------------------- |
-| MOTOR-1001 | Aarav Demo / Baleno | Active comprehensive, zero depreciation, roadside assistance, no engine protection |
-| MOTOR-1002 | Meera Demo / i20    | Active third-party only; own vehicle damage excluded                               |
-| MOTOR-1003 | Kabir Demo / Nexon  | Expired 2026-08-31                                                                 |
+| Policy     | Customer / vehicle   | Scenario                                                                           |
+| ---------- | -------------------- | ---------------------------------------------------------------------------------- |
+| MOTOR-1001 | Aarav Demo / Baleno  | Active comprehensive, zero depreciation, roadside assistance, no engine protection |
+| MOTOR-1002 | Meera Demo / i20     | Active third-party only; own vehicle damage excluded                               |
+| MOTOR-1003 | Kabir Demo / Nexon   | Expired 2026-08-31                                                                 |
+| MOTOR-1004 | Nisha Demo / City    | Active comprehensive with engine protection and roadside assistance                |
+| MOTOR-1005 | Vikram Demo / Glanza | Active comprehensive with zero depreciation and engine protection                  |
 
 Try these prompts:
 
@@ -53,6 +55,8 @@ Try these prompts:
 - “Does MOTOR-1001 cover engine water damage from yesterday's flood?”
 - “I scratched my car yesterday. My policy is MOTOR-1002. Is it covered?”
 - “Can I claim for an accident on 20 September under MOTOR-1003?”
+- “Does MOTOR-1004 cover engine water damage from yesterday's flood?”
+- “Can MOTOR-1005 get roadside help after a breakdown?”
 - “Find cashless garages in Bengaluru.”
 - “Find a garage in Chennai.” (No matches; the agent should not invent one.)
 - “Compare MOTOR-1001 renewal with and without engine protection.”
