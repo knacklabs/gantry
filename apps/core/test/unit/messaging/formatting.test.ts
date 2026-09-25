@@ -139,6 +139,52 @@ describe('formatMessages', () => {
     expect(result).toContain('Yes, on my way!</message>');
   });
 
+  it('keeps Telegram attachment handles in live-turn continuation messages', () => {
+    const result = formatMessages(
+      [
+        makeMsg({
+          provider: 'telegram',
+          content: '[Document: estimate.pdf] (attachments/estimate.pdf)',
+          attachments: [
+            {
+              id: 'telegram-attachment:tg:1355991233:375',
+              kind: 'file',
+              contentType: 'application/pdf',
+              storageRef: 'attachments/estimate.pdf',
+            },
+          ],
+        }),
+      ],
+      TZ,
+    );
+
+    expect(result).toContain(
+      '<attachment kind="file" content_type="application/pdf" gantry_attachment="telegram-attachment:tg:1355991233:375" gantry_ref="attachments/estimate.pdf" />',
+    );
+  });
+
+  it('keeps attachment handles in every live-turn continuation message', () => {
+    const result = formatMessages(
+      [
+        makeMsg({
+          provider: 'slack',
+          attachments: [
+            {
+              id: 'slack-attachment:1',
+              kind: 'file',
+              storageRef: 'attachments/report.pdf',
+            },
+          ],
+        }),
+      ],
+      TZ,
+    );
+
+    expect(result).toContain(
+      '<attachment kind="file" gantry_attachment="slack-attachment:1" gantry_ref="attachments/report.pdf" />',
+    );
+  });
+
   it('omits reply attributes when no reply context', () => {
     const result = formatMessages([makeMsg()], TZ);
     expect(result).not.toContain('reply_to');
@@ -654,6 +700,24 @@ describe('parseTextStyles — passthrough channels', () => {
 });
 
 describe('parseTextStyles — bold and italic', () => {
+  it('removes raw HTML presentation tags from Telegram MarkdownV2 text', () => {
+    expect(
+      parseTextStyles(
+        'Claim draft created: <b>CLM-1C5B2C67</b>.<br>Please upload evidence.',
+        'telegram-markdown-v2',
+      ),
+    ).toBe('Claim draft created: CLM-1C5B2C67.\nPlease upload evidence.');
+  });
+
+  it('preserves raw HTML examples inside Telegram code spans', () => {
+    expect(
+      parseTextStyles(
+        'Use `<b>claim</b>` but remove <strong>live tags</strong>.',
+        'telegram-markdown-v2',
+      ),
+    ).toBe('Use `<b>claim</b>` but remove live tags.');
+  });
+
   it('converts **bold** to *bold* on telegram-html', () => {
     expect(parseTextStyles('**hello**', 'telegram-html')).toBe('*hello*');
   });

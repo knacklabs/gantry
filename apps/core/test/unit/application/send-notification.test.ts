@@ -24,6 +24,13 @@ const route = (name: string, folder: string): ConversationRoute => ({
   conversationKind: 'channel',
 });
 
+const claimReviewText = (claimId = 'CLM-1234') => `${claimId} needs review.
+
+MotoBuddy's view: Needs manual review
+Reason: The evidence must be checked by an authorized reviewer.
+Confidence: Medium
+Attention needed: Verify the evidence against the registered incident.`;
+
 describe('send notification', () => {
   it('uses the conversation title when an install is named after the agent', () => {
     const binding = bindingRowToGroup({
@@ -101,7 +108,7 @@ describe('send notification', () => {
     const selected = registry(['mcp__gantry__send_notification']);
     const result = await selected.execute('send_notification', {
       destination: '#missing-internal-channel',
-      text: 'Claim CLM-1234 needs review.',
+      text: claimReviewText(),
       review_claim_id: 'CLM-1234',
     });
     expect(result.isError).toBe(true);
@@ -257,7 +264,7 @@ describe('send notification', () => {
     ) as unknown as typeof fetch;
     await sendNotification({
       destination: '#gantry-demo-insurance-sales',
-      text: 'Claim CLM-1234 needs internal review.',
+      text: claimReviewText(),
       claimReview: {
         claimId: 'CLM-1234',
         origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },
@@ -281,7 +288,7 @@ describe('send notification', () => {
     });
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:C-SALES',
-      expect.stringContaining('not final claim approval or a payout decision'),
+      expect.stringContaining('**View:** **Accept for assessment**'),
       expect.objectContaining({
         actionAffordances: [
           expect.objectContaining({
@@ -325,7 +332,7 @@ describe('send notification', () => {
 
     await sendNotification({
       destination: '#gantry-demo-insurance-sales',
-      text: 'Claim CLM-1234 needs internal review.',
+      text: claimReviewText(),
       claimReview: {
         claimId: 'CLM-1234',
         origin: { jid: 'tg:123', providerAccountId: 'telegram-account' },
@@ -356,6 +363,127 @@ describe('send notification', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("renders MotoBuddy's advisory as a concise two-line review", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/review-card-sent')
+            ? '{}'
+            : JSON.stringify({
+                claim: { status: 'submitted_for_review' },
+                evidence: [
+                  { documentType: 'damage_photo' },
+                  { documentType: 'repair_estimate' },
+                ],
+              }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+
+    await sendNotification({
+      destination: '#gantry-demo-insurance-sales',
+      text: `Claim ID: CLM-1234
+Policy ID: MOTOR-1001
+Incident: Collision in Hyderabad
+Evidence count: 2
+Unverified provisional estimate total: INR 21,500
+Review reason: The photo and estimate have a damage mismatch.`,
+      claimReview: {
+        claimId: 'CLM-1234',
+        origin: { jid: 'tg:123', providerAccountId: 'telegram-account' },
+      },
+      reviewChannelName: 'gantry-demo-insurance-sales',
+      reviewServiceUrl: 'http://127.0.0.1:14319',
+      fetcher,
+      destinations: [
+        {
+          name: 'gantry-demo-insurance-sales',
+          jid: 'sl:C-SALES',
+          providerAccountId: 'slack-account',
+        },
+      ],
+      sendMessage,
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'sl:C-SALES',
+      expect.stringContaining(
+        '**View:** **Decline claim** — **Medium confidence.**',
+      ),
+      expect.objectContaining({
+        providerAccountId: 'slack-account',
+        actionAffordances: expect.any(Array),
+      }),
+    );
+    const delivered = sendMessage.mock.calls[0]?.[1] as string;
+    expect(delivered).toContain(':clipboard: **Motor Claim Review**');
+    expect(delivered).toContain('• **Claim:** `CLM-1234`');
+    expect(delivered).toContain('• **Policy:** `MOTOR-1001`');
+    expect(delivered).toContain('• **Estimate:** INR 21,500 (unverified)');
+    expect(delivered).toContain('**Reason:**');
+    expect(delivered).not.toContain('Why this reached human review');
+    expect(delivered).not.toContain('**Attention needed:**');
+    expect(delivered).not.toContain(':handshake: **Human decision**');
+    expect(delivered).not.toContain(
+      "This is MotoBuddy's non-binding view. The final decision belongs to the human reviewer.",
+    );
+    expect(delivered).toContain(
+      'I will store your response for future decisions.',
+    );
+    expect(
+      delivered
+        .trim()
+        .endsWith('I will store your response for future decisions.'),
+    ).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('normalizes a non-binary model view to accept or decline', async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const fetcher = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.endsWith('/review-card-sent')
+            ? '{}'
+            : JSON.stringify({
+                claim: { status: 'submitted_for_review' },
+                evidence: [
+                  { documentType: 'damage_photo' },
+                  { documentType: 'repair_estimate' },
+                ],
+              }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof fetch;
+
+    await sendNotification({
+      destination: '#gantry-demo-insurance-sales',
+      text: `${claimReviewText()}\nMismatch between the damage photo and estimate.`,
+      claimReview: {
+        claimId: 'CLM-1234',
+        origin: { jid: 'tg:123', providerAccountId: 'telegram-account' },
+      },
+      reviewChannelName: 'gantry-demo-insurance-sales',
+      reviewServiceUrl: 'http://127.0.0.1:14319',
+      fetcher,
+      destinations: [
+        {
+          name: 'gantry-demo-insurance-sales',
+          jid: 'sl:C-SALES',
+          providerAccountId: 'slack-account',
+        },
+      ],
+      sendMessage,
+    });
+
+    const delivered = sendMessage.mock.calls[0]?.[1] as string;
+    expect(delivered).toContain(
+      '**View:** **Decline claim** — **Medium confidence.**',
+    );
+    expect(delivered).not.toContain('**View:** **Needs manual review**');
+  });
+
   it('sends a review card for a damage photo and claim form while flagging the missing estimate', async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     const fetcher = vi.fn(
@@ -376,7 +504,7 @@ describe('send notification', () => {
 
     await sendNotification({
       destination: '#gantry-demo-insurance-sales',
-      text: 'Claim CLM-1234 needs internal review.',
+      text: claimReviewText(),
       claimReview: {
         claimId: 'CLM-1234',
         origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },
@@ -444,7 +572,7 @@ describe('send notification', () => {
     ]) {
       await sendNotification({
         destination: '#gantry-demo-insurance-sales',
-        text: `${claimId} needs review`,
+        text: claimReviewText(claimId),
         claimReview: {
           claimId,
           origin: { jid: sourceJid, providerAccountId: 'slack-account' },
@@ -510,7 +638,7 @@ describe('send notification', () => {
       await expect(
         sendNotification({
           destination: '#gantry-demo-insurance-sales',
-          text: 'Claim CLM-1234 needs internal review.',
+          text: claimReviewText(),
           claimReview: {
             claimId: 'CLM-1234',
             origin: { jid: 'sl:C-TEST', providerAccountId: 'slack-account' },

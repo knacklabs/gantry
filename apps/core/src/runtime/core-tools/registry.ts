@@ -253,7 +253,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
       ? [
           define(
             'send_notification',
-            `Send one notification to an installed channel. Available destinations: ${(deps.notificationDestinations ?? []).map((destination) => destination.name).join(', ') || 'none'}.`,
+            `Send one notification to an installed channel. Available destinations: ${(deps.notificationDestinations ?? []).map((destination) => destination.name).join(', ') || 'none'}. When review_claim_id is supplied, text must contain labeled lines for MotoBuddy's view, Reason, Confidence, and Attention needed.`,
             deps.schemas.send_notification,
             async (args) => {
               let result: Awaited<ReturnType<typeof sendNotification>>;

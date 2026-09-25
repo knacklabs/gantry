@@ -23,7 +23,7 @@ export async function handleTelegramTextMessage(input: {
   triggerPattern: RegExp;
   tryResolveForm?: (input: {
     chatId: string;
-    replyToMessageId: number;
+    replyToMessageId?: number;
     userId: string;
     text: string;
   }) => Promise<{ handled: boolean; submission?: string }>;
@@ -70,17 +70,20 @@ export async function handleTelegramTextMessage(input: {
       'Unknown'
     : undefined;
 
+  if (ctx.chat.type === 'private' && input.tryResolveForm) {
+    const form = await input.tryResolveForm({
+      chatId: String(ctx.chat.id),
+      ...(typeof replyTo?.message_id === 'number'
+        ? { replyToMessageId: replyTo.message_id }
+        : {}),
+      userId: sender,
+      text: ctx.message.text,
+    });
+    if (form.handled && !form.submission) return;
+    if (form.submission) content = form.submission;
+  }
+
   if (typeof replyTo?.message_id === 'number') {
-    if (ctx.chat.type === 'private' && input.tryResolveForm) {
-      const form = await input.tryResolveForm({
-        chatId: String(ctx.chat.id),
-        replyToMessageId: replyTo.message_id,
-        userId: sender,
-        text: ctx.message.text,
-      });
-      if (form.handled && !form.submission) return;
-      if (form.submission) content = form.submission;
-    }
     const handledOther = await input.tryResolveOther({
       chatId: ctx.chat.id.toString(),
       replyToMessageId: replyTo.message_id,

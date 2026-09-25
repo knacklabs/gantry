@@ -4,6 +4,7 @@ import {
   type CatalogEntry,
 } from './agent-prompt-capability-catalog.js';
 import {
+  DEEPAGENTS_ENGINE,
   DEFAULT_AGENT_ENGINE,
   type AgentEngine,
 } from '../../shared/agent-engine.js';
@@ -346,9 +347,9 @@ function resolveLaneToolName(
   toolRef: 'capability_run' | 'mcp_call_tool',
   agentEngine: AgentEngine | undefined,
 ): string | undefined {
-  return agentEngine === DEFAULT_AGENT_ENGINE
-    ? `mcp__gantry__${toolRef}`
-    : undefined;
+  if (agentEngine === DEFAULT_AGENT_ENGINE) return `mcp__gantry__${toolRef}`;
+  if (agentEngine === DEEPAGENTS_ENGINE) return toolRef;
+  return undefined;
 }
 
 function sortedCatalogEntries(

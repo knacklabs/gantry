@@ -111,6 +111,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
 
     try {
       const numericId = jid.replace(/^tg:/, '');
+      if (this.richFormSessions.shouldSuppress(numericId, text, options)) {
+        return { deliveredParts: 0, totalParts: 0 };
+      }
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
       // Zero-action affordances are the retire/replace revisions: they edit
       // the existing card into a buttonless notice via the generic path.

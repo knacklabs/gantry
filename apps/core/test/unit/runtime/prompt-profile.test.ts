@@ -24,7 +24,10 @@ import {
   composePromptWithRequiredCapabilityCatalog,
   renderCapabilityGuidancePrompt,
 } from '@core/application/agents/agent-prompt-capability-guidance.js';
-import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
+import {
+  DEEPAGENTS_ENGINE,
+  DEFAULT_AGENT_ENGINE,
+} from '@core/shared/agent-engine.js';
 import '@core/channels/register-builtins.js';
 
 const loggerSpies = vi.hoisted(() => ({
@@ -437,6 +440,45 @@ describe('PromptProfileService', () => {
 
     expect(prompt).toContain(
       '- Sheets · Read sheet values [id: google.sheets.values.get] — Read reviewed spreadsheet ranges.\n  invoke: mcp__gantry__capability_run with capabilityId="google.sheets.values.get" and args ["sheets","values","get","--range","*"]\n  info: adapter binding is informational only',
+    );
+  });
+
+  it('renders the exact reviewed MCP invocation for DeepAgents', async () => {
+    const catalog: AgentPromptCapabilityCatalog = {
+      schemaVersion: 1,
+      digest: 'catalog:deepagents-mcp',
+      readyActions: [
+        {
+          kind: 'reviewed_capability',
+          stableRef: 'mcp.motor-insurance-demo',
+          displayName: 'Motor Insurance Demo',
+          description: 'Read policy and coverage details.',
+          category: 'MCP',
+          invocations: [
+            {
+              kind: 'mcp_pattern',
+              toolRef: 'mcp_call_tool',
+              serverName: 'motor-insurance-demo',
+              toolPatterns: ['get_motor_policy', 'check_motor_coverage'],
+            },
+          ],
+        },
+      ],
+      installedSkills: [],
+      connectedMcpSources: [],
+    };
+
+    const prompt = await createService().service.compileSystemPrompt({
+      agentFolder: 'team',
+      capabilityCatalog: catalog,
+      agentEngine: DEEPAGENTS_ENGINE,
+    });
+
+    expect(prompt).toContain(
+      'invoke: mcp_call_tool with serverName="motor-insurance-demo" and toolName matching "get_motor_policy" or "check_motor_coverage"',
+    );
+    expect(prompt).not.toContain(
+      'mcp__gantry__mcp_call_tool with serverName="motor-insurance-demo"',
     );
   });
 

@@ -401,7 +401,7 @@ export function registerMessagingTools(
 ): void {
   server.tool(
     'send_notification',
-    'Send one notification to a Slack channel where you are installed. Copy the exact channel name or ID from the user request into destination; never substitute a remembered or guessed channel. If the destination is rejected, read the available channels in the error and retry only when one exactly matches the user request. This posts a new channel message, not a reply in the current thread.',
+    "Send one notification to a Slack channel where you are installed. Copy the exact channel name or ID from the user request into destination; never substitute a remembered or guessed channel. If the destination is rejected, read the available channels in the error and retry only when one exactly matches the user request. This posts a new channel message, not a reply in the current thread. When review_claim_id is supplied, text must contain labeled lines for MotoBuddy's view, Reason, Confidence, and Attention needed.",
     {
       destination: z.string().trim().min(1).max(160),
       text: z.string().trim().min(1).max(4000),

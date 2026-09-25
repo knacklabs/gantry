@@ -66,6 +66,11 @@ function transformSegment(text: string, channel: FormattingDialect): string {
   let t = text;
 
   if (channel === CHANNEL_MARKDOWN_V2) {
+    // Agent output occasionally contains HTML presentation tags even though
+    // this delivery lane renders MarkdownV2. Remove those tags outside
+    // protected code regions so customers never see raw `<b>` markup.
+    t = t.replace(/<\/?(?:b|strong|i|em|u|s)\s*>/gi, '');
+    t = t.replace(/<br\s*\/?>/gi, '\n');
     t = t.replace(/___(?=[^\s_])([^_]+?)(?<=[^\s_])___/g, '*_$1_*');
     t = t.replace(/\*\*\*(?=[^\s*])([^*]+?)(?<=[^\s*])\*\*\*/g, '*_$1_*');
   }

@@ -18,6 +18,145 @@ export interface NotificationOrigin {
 export const CLAIM_REVIEW_DELIVERY_FAILURE =
   'The claim review request could not be confirmed. Check the claim and evidence status before replying. Do not say that the claims team received it.';
 
+const CLAIM_REVIEW_ADVISORY_LABELS = [
+  'Why this was sent for human review',
+  "MotoBuddy's view",
+  'Reason',
+  'Confidence',
+  'Attention needed',
+] as const;
+
+function ensureClaimReviewAdvisory(text: string): string {
+  const concernPattern =
+    /mismatch|inconsisten|unreadable|missing|uncertain|discrepanc|could not|not received|sample|invalid/i;
+  const hasEvidenceConcern = concernPattern.test(text);
+  const fallbackView = hasEvidenceConcern
+    ? 'Decline claim'
+    : 'Accept for assessment';
+  const normalizedLines = text.trim().split(/\r?\n/);
+  const existingViewIndex = normalizedLines.findIndex((line) =>
+    line.trimStart().toLowerCase().startsWith("motobuddy's view:"),
+  );
+  if (existingViewIndex >= 0) {
+    const currentView = normalizedLines[existingViewIndex]!.toLowerCase();
+    if (
+      !currentView.includes('accept for assessment') &&
+      !currentView.includes('decline claim')
+    ) {
+      normalizedLines[existingViewIndex] = `MotoBuddy's view: ${fallbackView}`;
+    }
+  }
+  const normalizedText = normalizedLines.join('\n');
+  const lines = normalizedLines.map((line) => line.trimStart().toLowerCase());
+  const hasLabel = (label: (typeof CLAIM_REVIEW_ADVISORY_LABELS)[number]) =>
+    lines.some((line) => line.startsWith(`${label.toLowerCase()}:`));
+  const defaults: Record<
+    (typeof CLAIM_REVIEW_ADVISORY_LABELS)[number],
+    string
+  > = {
+    'Why this was sent for human review': hasEvidenceConcern
+      ? 'The claim reached submitted-for-review after the required evidence was stored. It is complete enough for a human decision, but the evidence inconsistency requires human judgment.'
+      : 'The claim reached submitted-for-review after the required evidence was stored, making it ready for a human decision.',
+    "MotoBuddy's view": fallbackView,
+    Reason: hasEvidenceConcern
+      ? 'The evidence contains a material inconsistency, so I would not accept the claim for assessment without the reviewer resolving it.'
+      : 'The registered policy and required evidence support continued assessment, subject to human review.',
+    Confidence: 'Medium',
+    'Attention needed': hasEvidenceConcern
+      ? 'Compare the evidence with the registered policy, vehicle, incident, and damage details.'
+      : 'Verify coverage, exclusions, and evidence before deciding.',
+  };
+  const missingLines = CLAIM_REVIEW_ADVISORY_LABELS.filter(
+    (label) => !hasLabel(label),
+  ).map((label) => `${label}: ${defaults[label]}`);
+  const disclaimer =
+    "This is MotoBuddy's non-binding view. The final decision belongs to the human reviewer.";
+  const futureDecisionNotice =
+    'I will store your response for future decisions.';
+  const additions = [...missingLines];
+  if (!normalizedText.toLowerCase().includes(disclaimer.toLowerCase())) {
+    additions.push(disclaimer);
+  }
+  if (
+    !normalizedText.toLowerCase().includes(futureDecisionNotice.toLowerCase())
+  ) {
+    additions.push(futureDecisionNotice);
+  }
+  return additions.length > 0
+    ? `${normalizedText}\n\n${additions.join('\n')}`
+    : normalizedText;
+}
+
+function formatClaimReviewMessage(input: {
+  text: string;
+  evidenceNotice: string;
+}): string {
+  const futureDecisionNotice =
+    'I will store your response for future decisions.';
+  const nonBindingNotice =
+    "This is MotoBuddy's non-binding view. The final decision belongs to the human reviewer.";
+  const lines = input.text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        Boolean(line) &&
+        line.toLowerCase() !== futureDecisionNotice.toLowerCase() &&
+        line.toLowerCase() !== nonBindingNotice.toLowerCase(),
+    );
+  const take = (...labels: string[]): string | undefined => {
+    const index = lines.findIndex((line) =>
+      labels.some((label) =>
+        line.toLowerCase().startsWith(`${label.toLowerCase()}:`),
+      ),
+    );
+    if (index < 0) return undefined;
+    const [line] = lines.splice(index, 1);
+    return line?.slice(line.indexOf(':') + 1).trim() || undefined;
+  };
+  const claim = take('Claim', 'Claim ID');
+  const policy = take('Policy', 'Policy ID');
+  const incident = take('Incident');
+  const evidence = take('Evidence count', 'Evidence');
+  const estimate = take(
+    'Unverified estimate total',
+    'Unverified provisional estimate total',
+  );
+  take('Why this was sent for human review');
+  const view = take("MotoBuddy's view");
+  const reason = take('Reason', 'Review reason');
+  const confidence = take('Confidence');
+  take('Attention needed');
+  const sections = [':clipboard: **Motor Claim Review**'];
+  const facts = [
+    claim ? `• **Claim:** \`${claim}\`` : undefined,
+    policy ? `• **Policy:** \`${policy}\`` : undefined,
+    incident ? `• **Incident:** ${incident}` : undefined,
+    evidence ? `• **Evidence:** ${evidence}` : undefined,
+    estimate ? `• **Estimate:** ${estimate} (unverified)` : undefined,
+  ].filter((line): line is string => Boolean(line));
+  if (facts.length > 0)
+    sections.push(`:page_facing_up: **Claim details**\n${facts.join('\n')}`);
+  const advisory = [
+    view
+      ? `**View:** **${view}**${confidence ? ` — **${confidence} confidence.**` : ''}`
+      : undefined,
+    reason ? `**Reason:** ${reason}` : undefined,
+  ].filter((line): line is string => Boolean(line));
+  if (advisory.length > 0) {
+    sections.push(
+      `:robot_face: **MotoBuddy advisory**\n${advisory.join('\n')}`,
+    );
+  }
+  const evidenceNotice = input.evidenceNotice
+    .trim()
+    .replace(/^Evidence note:\s*/i, '');
+  if (evidenceNotice)
+    sections.push(`:warning: **Evidence note**\n${evidenceNotice}`);
+  sections.push(futureDecisionNotice);
+  return sections.join('\n\n');
+}
+
 export function notificationDestinations(input: {
   routes: Record<string, ConversationRoute>;
   sourceAgentFolder: string;
@@ -141,6 +280,9 @@ export async function sendNotification(input: {
   if (review && (!outcome?.jid || !outcome.providerAccountId)) {
     throw new Error('Claim review requires a bound originating conversation.');
   }
+  const notificationText = review
+    ? ensureClaimReviewAdvisory(input.text)
+    : input.text;
   let reviewEvidenceNotice = '';
   if (review && outcome) {
     const reviewChannel = (input.reviewChannelName ?? '')
@@ -193,8 +335,11 @@ export async function sendNotification(input: {
     }
   }
   const message = review
-    ? `${input.text.trim()}${reviewEvidenceNotice}\n\nInternal review: “Accept for assessment” means the claim can proceed to further assessment. It is not final claim approval or a payout decision.`
-    : input.text;
+    ? formatClaimReviewMessage({
+        text: notificationText,
+        evidenceNotice: reviewEvidenceNotice,
+      })
+    : notificationText;
   await input.sendMessage(destination.jid, message, {
     providerAccountId: destination.providerAccountId,
     ...(review && outcome

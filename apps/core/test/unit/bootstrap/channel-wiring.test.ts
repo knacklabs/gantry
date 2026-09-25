@@ -65,6 +65,7 @@ import { DurableInteractionPersistenceError } from '@core/application/interactio
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '@core/domain/messages/durable-delivery.js';
+import { formatOutboundForChannel } from '@core/messaging/router.js';
 import {
   RICH_INTERACTION_NATIVE_FALLBACK_TEXT,
   type PermissionApprovalRequest,
@@ -2807,6 +2808,36 @@ describe('createChannelWiring', () => {
       durability: 'best_effort',
     });
     expect(outbound.sendMessage).toHaveBeenCalledWith('tg:123', '*done*');
+  });
+
+  it('formats Slack bold exactly once before provider delivery', async () => {
+    const app = makeApp();
+    const deliveredSlackText = vi.fn();
+    const outbound = makeChannel({
+      name: 'slack',
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async (_jid: string, text: string) => {
+        deliveredSlackText(formatOutboundForChannel(text, 'slack'));
+      }),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await wiring.sendMessage('sl:C123', '**Motor Claim Review**', {
+      durability: 'best_effort',
+    });
+
+    expect(deliveredSlackText).toHaveBeenCalledWith('*Motor Claim Review*');
   });
 
   it('does not fall back across Provider Accounts for outbound delivery', async () => {

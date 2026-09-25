@@ -1,4 +1,7 @@
-import type { RichInteractionRequest } from '../../domain/types.js';
+import type {
+  MessageSendOptions,
+  RichInteractionRequest,
+} from '../../domain/types.js';
 import { richArrayItems } from '../rich-interaction.js';
 
 const FORM_TTL_MS = 30 * 60 * 1000;
@@ -24,6 +27,34 @@ export class TelegramRichFormSessions {
     this.pending.delete(chatId);
   }
 
+  shouldSuppress(
+    chatId: string,
+    text: string,
+    options: MessageSendOptions,
+  ): boolean {
+    const session = this.pending.get(chatId);
+    if (!session || session.expiresAt < Date.now()) return false;
+    if (
+      options.files?.length ||
+      options.actionAffordances?.length ||
+      options.replaceMessageId ||
+      options.deleteMessageId ||
+      options.permissionCardView
+    ) {
+      return false;
+    }
+    const normalized = text.toLowerCase();
+    const asksForInput = /\b(provide|enter|reply|complete|required)\b/.test(
+      normalized,
+    );
+    return (
+      asksForInput &&
+      session.fields.some((field) =>
+        normalized.includes(field.label.toLowerCase()),
+      )
+    );
+  }
+
   async start(input: {
     request: RichInteractionRequest;
     chatId: string;
@@ -38,7 +69,7 @@ export class TelegramRichFormSessions {
     if (!fields.length) return false;
     const title = input.request.descriptor.title;
     const promptMessageId = await input.sendPrompt(
-      promptText(title, fields, 0),
+      promptText(fields, 0),
       fields[0]!.label.slice(0, 64),
     );
     this.pending.set(input.chatId, {
@@ -53,13 +84,17 @@ export class TelegramRichFormSessions {
 
   async answer(input: {
     chatId: string;
-    replyToMessageId: number;
+    replyToMessageId?: number;
     userId: string;
     text: string;
     sendPrompt: (text: string, placeholder: string) => Promise<number>;
   }): Promise<{ handled: boolean; submission?: string }> {
     const session = this.pending.get(input.chatId);
-    if (!session || session.promptMessageId !== input.replyToMessageId)
+    if (
+      !session ||
+      (input.replyToMessageId !== undefined &&
+        session.promptMessageId !== input.replyToMessageId)
+    )
       return { handled: false };
     if (session.expiresAt < Date.now()) {
       this.pending.delete(input.chatId);
@@ -72,18 +107,20 @@ export class TelegramRichFormSessions {
     const value = input.text.trim();
     if (!value && field.required) {
       session.promptMessageId = await input.sendPrompt(
-        `${field.label} is required. ${promptText(session.title, session.fields, fieldIndex)}`,
+        `I still need this information. ${promptText(session.fields, fieldIndex)}`,
         field.label.slice(0, 64),
       );
       return { handled: true };
     }
     session.ownerId = input.userId;
-    session.answers.push(value);
+    const remainingFields = session.fields.slice(fieldIndex);
+    const values = replyValues(value, remainingFields);
+    session.answers.push(...values);
     session.expiresAt = Date.now() + FORM_TTL_MS;
     if (session.answers.length < session.fields.length) {
       const next = session.answers.length;
       session.promptMessageId = await input.sendPrompt(
-        promptText(session.title, session.fields, next),
+        promptText(session.fields, next),
         session.fields[next]!.label.slice(0, 64),
       );
       return { handled: true };
@@ -103,6 +140,28 @@ export class TelegramRichFormSessions {
   }
 }
 
-function promptText(title: string, fields: FormField[], index: number): string {
-  return `${title} (${index + 1}/${fields.length})\n${fields[index]!.label}${fields[index]!.required ? ' (required)' : ' (optional)'}\nReply to this message with your answer.`;
+function replyValues(value: string, remainingFields: FormField[]): string[] {
+  if (remainingFields.length <= 1) return [value];
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length <= 1) return [value];
+  if (lines.length <= remainingFields.length) return lines;
+  return [
+    ...lines.slice(0, remainingFields.length - 1),
+    lines.slice(remainingFields.length - 1).join('\n'),
+  ];
+}
+
+function promptText(fields: FormField[], index: number): string {
+  const label = fields[index]!.label.trim().toLowerCase();
+  if (label === 'policy id') return 'What is your policy ID?';
+  if (label === 'incident type') return 'What type of incident happened?';
+  if (label === 'incident date') return 'When did the incident happen?';
+  if (label === 'city or location') return 'Where did the incident happen?';
+  if (label === 'short description of what happened') {
+    return 'Please briefly describe what happened.';
+  }
+  return `Please provide ${fields[index]!.label}.`;
 }
