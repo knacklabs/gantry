@@ -42,6 +42,13 @@ fact gets neutral choices.
 The human never edits `forge.toml`; you keep it. When a setting must change, ask first with
 options, then make the change yourself in a fix: `forge fix start`, the edit, then `forge close`.
 
+## New directions
+
+When the human states a new direction, principle or value, grill how it applies before changing
+anything. Ask one question at a time with your recommended answer and why; look up facts in the
+repo instead of asking the human. Continue until the plan for applying it is agreed, then make
+the changes.
+
 ## Discovery
 
 Every ask is a guess about a problem: find the problem before anything is planned. The worked
