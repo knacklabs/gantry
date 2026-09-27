@@ -12,7 +12,7 @@
     "status": "clean",
     "tree": "5bb7a20098db2f933cd9e09187a47f5afe3199a9c7f43f04f7af09c70737dc9b"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-27T04:17:38+00:00",
