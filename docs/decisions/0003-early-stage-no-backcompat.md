@@ -9,7 +9,7 @@ date: 2026-07-22
 ## Context
 
 Gantry is early-stage with no live users. The pre-adopt working contract
-(`docs/context/migrated-AGENTS.md`, Coding Rules) established this as a
+(docs/context/migrated-AGENTS.md (removed), Coding Rules) established this as a
 standing choice rather than a per-PR judgement call.
 
 ## Decision

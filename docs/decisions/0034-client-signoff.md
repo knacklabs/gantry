@@ -19,7 +19,7 @@ scope ledgered as deferrals D-0001/D-0002.
 
 The client signs off on `docs/product/BRIEF.md`, `docs/product/DISCOVERY.md`,
 and the decision corpus as the handover for harness-run delivery, with the
-goals index (`docs/architecture/goals-index.md`) as the roadmap source.
+goals index (docs/architecture/goals-index.md (removed)) as the roadmap source.
 
 ## Consequences
 

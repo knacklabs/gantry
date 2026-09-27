@@ -9,7 +9,7 @@ date: 2026-07-22
 ## Context
 
 The product was renamed to Gantry and the public repository moved. The
-pre-adopt working contract (`docs/context/migrated-AGENTS.md`, Docs Rules)
+pre-adopt working contract (docs/context/migrated-AGENTS.md (removed), Docs Rules)
 fixed the naming policy so docs and metadata do not drift back to legacy
 branding or moved URLs.
 

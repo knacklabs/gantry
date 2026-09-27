@@ -60,7 +60,7 @@ thinks is a read." Flag this to the user if they expected every read to be silen
 2. **Codex does ALL code changes.** You (orchestrator) write goal prompts, verify, commit,
    triage. Codex never commits, never runs autoreview by itself, no background gates.
 3. **Codex effort: `--effort high` for implementation AND exploration; `--thinking xhigh`
-   for autoreview.** (Codified in `.claude/skills/gantry-goal-pipeline/SKILL.md`.)
+   for autoreview.** (Codified in .claude/skills/gantry-goal-pipeline/SKILL.md (removed).)
 4. **Autoreview per stage on the LOCAL uncommitted diff BEFORE committing**
    (`autoreview --mode local --thinking xhigh` via a codex plain-command handoff), fix
    findings while still uncommitted, re-review until clean, THEN commit. Run the
