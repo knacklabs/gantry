@@ -201,13 +201,13 @@ and exact token counts. The checker fails when a new token appears outside
 changes, or when broad config, memory, or shared paths are approved for this
 gate.
 
-## Factory And Release Gates
+## Architecture And Refactor Gates
+
+The full gate every task and fix must pass is the `test` command in
+`forge.toml`. The architecture check alone:
 
 ```bash
-python3 .agents/scripts/check_agents_hygiene.py
 python3 scripts/check_architecture.py
-python3 .agents/scripts/verify.py
-python3 .agents/scripts/pr_ready.py
 ```
 
 LOCAL-35 refactor phase progress uses the recorded T0 baseline:
@@ -225,20 +225,6 @@ The final PR or overall refactor deletion target remains a branch-base check:
 
 ```bash
 python3 scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
-```
-
-`python3 .agents/scripts/verify.py` runs the deterministic gate as three
-phases — structural, typecheck, tests — and records the evidence in
-`.factory/verify.json`. This repo pins the phase commands via `.envrc`:
-`FACTORY_STRUCTURAL_CMD` (`npm run format:check && npm run check:architecture`),
-`FACTORY_TYPECHECK_CMD` (`npm run typecheck`), and `FACTORY_TEST_CMD`
-(`npm test`). Postgres-backed and e2e lanes remain explicit per the sections
-above.
-
-Use this command to inspect the deterministic verification contract without running every phase:
-
-```bash
-python3 .agents/scripts/verify.py --print-only
 ```
 
 ## Missing Or Currently Failing Commands

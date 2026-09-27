@@ -52,11 +52,10 @@ jobs:
       # architecture budget, or a type error is already broken.
       #
       # Format, Architecture, and changed-file lint checks stay adjacent because
-      # together they mirror verify.py's structural phase. Full lint remains
-      # advisory until the recorded debt is paid down.
+      # together they mirror the structural part of forge.toml's test command.
+      # Full lint remains advisory until the recorded debt is paid down.
       # Without the architecture step a PR can merge green while leaving main
-      # failing that gate, and because verify.py aborts at its first failing phase,
-      # one over-budget file then masks typecheck and tests for every branch.
+      # failing that gate.
       - name: Format check
         run: npm run format:check
 

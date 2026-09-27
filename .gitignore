@@ -14,7 +14,6 @@ logs/
 .claude/*
 !.claude/skills/
 !.claude/skills/**
-!.claude/CLAUDE.md
 !.claude/settings.json
 .codex/goals/*
 .codex/sessions/*
@@ -42,14 +41,6 @@ __pycache__/
 *.pyd
 cov-tmp/
 tmp-coverage/
-.gstack-review-*.md
-# Factory: the evidence trail under .factory/ is TRACKED (history/, grills/,
-# run.json, events.jsonl — matches the vendored harness). Only ephemeral working
-# files are ignored.
-.factory/tool-history.jsonl
-.factory/*.tmp.json
-.factory/plan-approval.json
-.factory/scratchpad.md
 # myclaw-local ephemeral: perf benchmarks + per-worktree LOCAL working artifacts
 .factory/benchmarks/
 .factory/*-local*.json
@@ -77,19 +68,3 @@ agents-sdk-docs
 
 # local skill-plugin clone, not part of this repo
 i-have-adhd/
-
-# Project-local gstack store: projects/ committed, machine noise not
-.gstack/sessions/
-.gstack/analytics/
-.gstack/cdp-profile/
-.gstack/tmp/
-.gstack/.*
-.gstack/**/brain-cache/
-.gstack/**/timeline.jsonl
-.gstack/slug-cache/
-
-
-# forge 0025: briefs and the delegation mirror are read from disk, never from git
-.factory/briefs/
-.factory/diagnostic-briefs/
-.factory/delegations.jsonl

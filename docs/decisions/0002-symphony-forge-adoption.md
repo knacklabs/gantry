@@ -6,6 +6,8 @@ date: 2026-07-22
 
 # Symphony Forge Adoption
 
+> Superseded: the repo moved to Forge v1 in September 2026 (`forge.toml`); kept as history.
+
 ## Context
 
 The repo previously ran its own Codex factory: a Linear-first workflow

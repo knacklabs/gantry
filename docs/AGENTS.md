@@ -2,7 +2,7 @@
 
 ## Scope
 
-- `docs/` contains active product, architecture, security, factory, and operations documentation for Gantry.
+- `docs/` contains active product, architecture, security, and operations documentation for Gantry.
 
 ## Rules
 

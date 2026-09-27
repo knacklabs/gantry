@@ -11,7 +11,7 @@ events, or tests.
 
 ## Required Workflow
 
-1. Read `WORKFLOW.md`, `docs/FACTORY.md`, `docs/QUALITY.md`, and `docs/architecture/current-verification-commands.md`.
+1. Read `AGENTS.md` and `docs/architecture/current-verification-commands.md`.
 2. Convert vague requests into acceptance criteria and bounded write scopes before editing.
 3. Include a Surface Impact Matrix with these surfaces: runtime behavior, `settings.yaml`, Postgres/runtime projection, control API, SDK/contracts, CLI, Gantry MCP tools/admin skill, channel/provider adapters, docs/prompts, audit/events, and tests/verification.
 4. Classify each surface as `Changed`, `Read-only/observable`, `Unchanged by design`, `Deferred`, or `Not applicable`.
