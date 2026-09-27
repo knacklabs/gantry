@@ -3,7 +3,7 @@ version = "v1.0.0"
 repo = "client"
 signoff = "docs/decisions/0034-client-signoff.md"
 workers = "claude"
-test = "(npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test"
+test = "npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test"
 checks = ["tests", "forge-pr-check"]
 interfaces = ["**/routes/**", "**/*.controller.*", "**/migrations/**", "**/schema.*", "**/*.schema.*", "**/cli.*"]
 

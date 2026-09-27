@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
-      - run: "(npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test"
+      - run: "npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test"
 
   forge-pr-check:
     if: github.event_name == 'pull_request_target'
