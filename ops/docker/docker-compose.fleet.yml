@@ -140,7 +140,7 @@ services:
   # S3-compatible artifact store for local fleet rehearsal. Production uses real
   # S3 with split IAM (bake:rw, worker:ro); here one root credential is enough.
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
     container_name: gantry-fleet-minio
     restart: unless-stopped
     command: server /data --console-address ':9001'
@@ -163,7 +163,7 @@ services:
   # One-shot bucket bootstrap: create the artifact bucket, then exit. All roles
   # wait on service_completed_successfully before booting.
   minio-bootstrap:
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     container_name: gantry-fleet-minio-bootstrap
     depends_on:
       minio:
