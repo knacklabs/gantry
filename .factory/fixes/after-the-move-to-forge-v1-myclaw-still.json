@@ -1,0 +1,14 @@
+{
+  "base": "310fd31d8723d0a3816e6052e667bce61260ce6a",
+  "branch": "fix/after-the-move-to-forge-v1-myclaw-still",
+  "done_when": "The owner-approved leftover audit is applied in one change: files nothing reads are deleted, kept history is linked from a current doc, docs, ignore rules, config and skills no longer describe the old Forge, the roadmap marks ASKFLOOR-1 and LOCAL-DEV-1 done and drops cache-bug and GRANTED-1, and .forge-migrate/ is gone",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-27T15:00:09+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "After the move to Forge v1, myclaw still carries the old Forge's leftovers: dead records, drafts, rules and docs that describe the old harness"
+}
