@@ -20,7 +20,7 @@ be re-run. Re-running was structural, not sloppy — and each re-run re-pointed 
 at whatever record was newest. Twelve `client-signoff.md` records now exist because every task
 was pushed into minting one.
 
-`WORKFLOW.md` has always said sign-off is a single gate sitting between `prototype` and
+The retired `WORKFLOW.md` has always said sign-off is a single gate sitting between `prototype` and
 `planning`, and `intake.py` deliberately carried the flag forward ("Intake must never bypass
 or erase the sign-off gate"). The documented design and the practice had diverged.
 
@@ -63,5 +63,5 @@ Grilled with Ravi on 2026-07-31; five decisions:
 - Rejected: making sign-off per-task and enforcing the issue in frontmatter (duplicates plan
   approval); keeping a cached copy in `run.json` for display (two representations of one fact);
   taking the earliest record by convention (still a convention — a back-numbered file breaks
-  it); annotating all 11 stray records (says once in `WORKFLOW.md` what would otherwise be
+  it); annotating all 11 stray records (says once in the retired `WORKFLOW.md` what would otherwise be
   repeated eleven times).

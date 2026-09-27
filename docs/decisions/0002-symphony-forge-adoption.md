@@ -23,7 +23,7 @@ Adopt the symphony-forge harness (vendored @ fb3b0f6f, commit 7a3b24798) as
 the workflow engine, replacing the legacy `.codex` factory, the Linear-first
 task authority, the old specialist roster, and the gantry-goal-pipeline
 orchestration contract with the forge phase contract (`AGENTS.md`,
-`WORKFLOW.md`, `harness.yaml`).
+the retired `WORKFLOW.md`, `harness.yaml`).
 
 ## Consequences
 
