@@ -1,0 +1,11 @@
+{
+  "branch": "task/LEGACY-2-T1",
+  "status": "merged",
+  "steps": [
+    {
+      "at": "2026-08-30T02:33:23+00:00",
+      "step": "merged"
+    }
+  ],
+  "touches": 0
+}

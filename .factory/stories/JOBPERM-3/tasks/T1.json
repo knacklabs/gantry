@@ -1,0 +1,11 @@
+{
+  "branch": "task/JOBPERM-3-T1",
+  "status": "merged",
+  "steps": [
+    {
+      "at": "2026-08-30T09:19:41+00:00",
+      "step": "merged"
+    }
+  ],
+  "touches": 0
+}

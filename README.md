@@ -277,14 +277,6 @@ work, regenerate and resolve any Drizzle conflicts. CI also verifies that a
 clean schema produces no uncommitted migration files. Runtime deployments
 continue to apply migrations with `npm run db:migrate`.
 
-## Optional Codex Factory
-
-The `factory/`, `.codex/`, and `.factory/` folders contain optional maintainer
-automation for planning, decomposition, verification, and review. Public
-contributors are not required to use it. Maintainers who enable the harness
-should first read [AGENTS.md](AGENTS.md), [WORKFLOW.md](WORKFLOW.md),
-[docs/FACTORY.md](docs/FACTORY.md), and [docs/QUALITY.md](docs/QUALITY.md).
-
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep
@@ -311,12 +303,7 @@ root, then:
 - **Every feature starts with a plan the agent must defend.** Plan mode is
   enforced by hooks; work then runs stage by stage with a local review
   before every commit, and shipping refuses until the evidence gates pass.
-- **The map:** `AGENTS.md` is the contract and read order, `WORKFLOW.md` the
-  doctrine, `docs/product/BRIEF.md` what this product is. Standards that are
-  law live in `docs/architecture/` and `docs/decisions/`.
+- **The map:** `AGENTS.md` is the contract, `docs/product/BRIEF.md` what this product is.
+  Standards that are law live in `docs/architecture/` and `docs/decisions/`.
 - **Humans own** accepting decisions, client sign-off, and merging PRs —
   agents draft and relay, never run those.
-
-The vendored harness machinery (`factory/`, `constitution/`, gate scripts)
-is frozen: never edit it here — improvements go to the harness repo and
-arrive by re-vendoring.

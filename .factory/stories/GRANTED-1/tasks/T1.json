@@ -1,0 +1,11 @@
+{
+  "branch": "task/GRANTED-1-T1",
+  "status": "merged",
+  "steps": [
+    {
+      "at": "2026-09-12T06:53:31+00:00",
+      "step": "merged"
+    }
+  ],
+  "touches": 0
+}

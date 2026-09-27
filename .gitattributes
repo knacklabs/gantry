@@ -7,7 +7,6 @@
 # and no repo is forced to migrate. `union` is git's BUILT-IN driver and the
 # only thing keeping them mergeable while they last; it reorders and can
 # DUPLICATE records, which is the behaviour 0022 removes rather than manages.
-.gstack/**/*.jsonl merge=union
 plans/lessons.jsonl merge=union
 plans/quickfixes.jsonl merge=union
 # Story timelines and worker signals: task-scoped, cleaned at every intake and
