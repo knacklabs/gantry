@@ -2,7 +2,7 @@
 
 Status: active. Governing decision: `docs/decisions/0094-conversation-file-trust-program.md`
 (twelve client-grilled locks + the provider parity matrix). Sign-off:
-`docs/decisions/0095-client-signoff.md`.
+docs/decisions/0095-client-signoff.md (removed).
 User-facing documentation ships from the corrected draft (per-provider honest).
 
 ## The promise

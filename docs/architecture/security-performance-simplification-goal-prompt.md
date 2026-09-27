@@ -11,7 +11,7 @@ architecture-checker and decision-parser findings may be partially stale.
 
 ## Executive summary
 
-Audit target: tracked `main` at commit `ddfe0d614880fde85ecfdcd478c4460461a01119`, committed July 22, 2026. The tracked tree was clean. The audit followed the mandated repository orientation, including `AGENTS.md`, `docs/context/migrated-WORKFLOW.md`, factory and quality documentation, `harness.yaml`, the constitution, product brief, relevant architecture documents, and `./forge decision list --active`.
+Audit target: tracked `main` at commit `ddfe0d614880fde85ecfdcd478c4460461a01119`, committed July 22, 2026. The tracked tree was clean. The audit followed the mandated repository orientation, including `AGENTS.md`, docs/context/migrated-WORKFLOW.md (removed), factory and quality documentation, `harness.yaml`, the constitution, product brief, relevant architecture documents, and `./forge decision list --active`.
 
 Overall risk assessment: High. The runtime has strong controls in several important areas—API-key scoping, signed ingress, durable claim fencing, SSRF protection, and outbound workspace-file containment—but those controls are undermined by three high-impact boundary weaknesses:
 

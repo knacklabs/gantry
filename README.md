@@ -287,23 +287,21 @@ checks.
 
 MIT. See [LICENSE](LICENSE).
 
-## Working in this repo — Symphony Forge
+## Working in this repo — Forge
 
-This repo runs on the [Symphony Forge](https://github.com/knacklabs/symphony-forge)
-engineering harness: agents do the mechanical work, deterministic gates keep
-the evidence honest, and humans make the decisions. Getting started is
-conversational — open an agent session (Claude Code or Codex) in the repo
-root, then:
+This repo runs on [Forge](https://github.com/knacklabs/symphony-forge) v1, which
+takes each change from an approved plan to a merged pull request. Open an agent
+session (Claude Code or Codex) in the repo root, then:
 
-- **The session checks your machine every time.** If tools are missing it
-  says so on the spot — reply "set up my machine" and approve the installs;
-  only logins stay manual.
-- **Ask "what now?" whenever you are unsure.** The harness answers with the
-  current phase and the exact next step. There is nothing to memorize.
-- **Every feature starts with a plan the agent must defend.** Plan mode is
-  enforced by hooks; work then runs stage by stage with a local review
-  before every commit, and shipping refuses until the evidence gates pass.
-- **The map:** `AGENTS.md` is the contract, `docs/product/BRIEF.md` what this product is.
-  Standards that are law live in `docs/architecture/` and `docs/decisions/`.
-- **Humans own** accepting decisions, client sign-off, and merging PRs —
-  agents draft and relay, never run those.
+- **Run `forge next` whenever you are unsure.** It says where things stand and
+  gives the exact next command.
+- **Changes arrive as stories or fixes.** A story is one short doc that gets one
+  cold read and one human approval, then runs task by task; a small change is a
+  fix. `AGENTS.md` has the rules, `forge.toml` the settings.
+- **Humans approve and merge.** Agents plan, build and review; approving a story
+  and merging its pull requests stay with people.
+
+The old copied-in Forge is history: see
+[0002 Symphony Forge adoption](docs/decisions/0002-symphony-forge-adoption.md) and
+[0093 client sign-off gate](docs/decisions/0093-client-signoff-is-a-pinned-project-gate.md),
+both superseded.

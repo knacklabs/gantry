@@ -6,6 +6,8 @@ date: 2026-07-31
 
 # Client sign-off is a one-time project gate, pinned in harness.yaml and derived
 
+> Superseded: the repo moved to Forge v1 in September 2026 (`forge.toml`); kept as history.
+
 ## Context
 
 `record_signoff.py` took `candidates[-1]` — the highest-numbered

@@ -46,3 +46,7 @@ and reset on reload.
 - Reuse only the disconnected shell portion of the existing UI work.
 - Keep the existing production build and delivery workflows unchanged.
 - Keep the existing full UI branch, draft PR, and identity stash unchanged.
+
+## Related designs
+
+- [Local browser reauthorization](../superpowers/specs/2026-08-24-local-browser-reauthorization-design.md)

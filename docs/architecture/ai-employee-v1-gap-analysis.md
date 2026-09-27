@@ -180,7 +180,7 @@ Adding a page + facade:
 
 A third UI role requires widening `BrowserSession`, `isBrowserRole`, auth access types/options, and all role capability guards; the server decision and scope policy must change too—today both explicitly model only two roles.
 
-Testing: web uses Vitest only (`pnpm --filter @gantry/web test`), with static/source-contract tests rather than Playwright or browser-interaction tests: `apps/web/vitest.config.ts`. For a `user_facing: true` story, implementer tests + verify + three reviews are required; then functional-checker validates visible/end-to-end behavior and records a 0–10 artifact, requiring score ≥8 and acceptance evidence: the retired harness quality doc (`docs/context/migrated-QUALITY.md`).
+Testing: web uses Vitest only (`pnpm --filter @gantry/web test`), with static/source-contract tests rather than Playwright or browser-interaction tests: `apps/web/vitest.config.ts`. For a `user_facing: true` story, implementer tests + verify + three reviews are required; then functional-checker validates visible/end-to-end behavior and records a 0–10 artifact, requiring score ≥8 and acceptance evidence: the retired harness quality doc (docs/context/migrated-QUALITY.md (removed)).
 
 ## Onboarding flows: CLI today, browser needs
 

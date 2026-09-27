@@ -9,7 +9,7 @@ date: 2026-07-22
 ## Context
 
 First roadmap import under the harness, seeded from
-`docs/architecture/goals-index.md` per DISCOVERY. Epics grill passed
+docs/architecture/goals-index.md (removed) per DISCOVERY. Epics grill passed
 2026-07-22 (2 questions; CAP-1 closeout exception and the exclusion list
 confirmed by the client; digest-bound to the import JSON).
 

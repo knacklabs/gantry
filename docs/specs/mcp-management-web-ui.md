@@ -392,3 +392,7 @@ Focused proof must cover:
 The interactive mockups are preserved under `.superpowers/brainstorm/` and are
 design references only. They are not production assets and must not be shipped
 or imported by the web application.
+
+## Related designs
+
+- [MCP agent attachments design](../superpowers/specs/2026-08-27-mcp-agent-attachments-design.md)

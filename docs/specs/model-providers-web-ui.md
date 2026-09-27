@@ -64,3 +64,9 @@ their credentials without exposing a Control API key or a provider secret.
   technology; icon-only controls have accessible names.
 - Existing credential API tests remain valid, focused server/UI tests cover the
   new authorization and redaction paths, and final factory verification runs.
+
+## Related designs
+
+- [Model Providers clarity cleanup](../superpowers/specs/2026-08-24-model-providers-clarity-design.md)
+- [Model provider credential removal](../superpowers/specs/2026-08-24-model-provider-credential-removal-design.md)
+- [Web UI module ownership design](../superpowers/specs/2026-08-24-web-ui-module-ownership-design.md)

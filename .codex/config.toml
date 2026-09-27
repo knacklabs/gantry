@@ -1,10 +1,6 @@
-# Implementation default (what /codex:rescue runs): the GPT-5.6 flagship at
-# medium effort — bounded tasks with approved plans rarely need more; escalate
-# effort to high for migrations/cross-domain/concurrency/security-sensitive
-# work. Code EXPLORATION goes through /codex:rescue --model gpt-5.6-terra
-# --effort high (read-only by default); explore.config.toml serves
-# Codex-native sessions — raw codex exec is hook-blocked, no exceptions.
-# Agents under .codex/agents/ override per-role.
+# Implementation default: the GPT-5.6 flagship at medium effort — bounded
+# tasks with approved plans rarely need more; escalate effort to high for
+# migrations/cross-domain/concurrency/security-sensitive work.
 model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
 plan_mode_reasoning_effort = "high"
@@ -12,13 +8,12 @@ plan_mode_reasoning_effort = "high"
 model_verbosity = "low"
 model_reasoning_summary = "concise"
 personality = "pragmatic"
-# Workspace-write by default (decision 0041). Needing broader access means
-# editing this value deliberately in the client repo — the diff-visible edit
-# is the ledgered escape hatch, and `forge upgrade` restores this default.
+# Workspace-write by default. Needing broader access means editing this value
+# deliberately, as a diff-visible change.
 sandbox_mode = "workspace-write"
 web_search = "cached"
 
-# The commands the worker runs may reach the network (decision 0068): the
+# The commands the worker runs may reach the network: the
 # package registry and the local database, so a task can install what it
 # declares and run the tests it writes. Writes stay confined to the worktree.
 # On Windows this is what routes each command to the CodexSandboxOnline

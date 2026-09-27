@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 const SOURCE_ROOTS = [
   '.claude/skills',
   '.codex/skills',
-  'plans/lessons.jsonl',
   'AGENTS.md',
   'README.md',
   'apps/core/src',

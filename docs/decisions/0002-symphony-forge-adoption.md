@@ -6,16 +6,18 @@ date: 2026-07-22
 
 # Symphony Forge Adoption
 
+> Superseded: the repo moved to Forge v1 in September 2026 (`forge.toml`); kept as history.
+
 ## Context
 
 The repo previously ran its own Codex factory: a Linear-first workflow
-("Linear owns task and decomposition state", `docs/context/migrated-WORKFLOW.md`),
+("Linear owns task and decomposition state", docs/context/migrated-WORKFLOW.md (removed)),
 `.codex/` scripts/prompts/hooks as the workflow engine
-(`docs/context/migrated-FACTORY.md`, `migrated-codex-hooks.json`,
+(docs/context/migrated-FACTORY.md (removed), `migrated-codex-hooks.json`,
 `migrated-codex-config.toml`), a seven-specialist review/testing roster with a
 gpt-5.5 / gpt-5.3-codex reasoning matrix (`migrated-QUALITY.md`), and the
 mandatory gantry-goal-pipeline for all implementation
-(`docs/context/migrated-AGENTS.md`, Execution Standards).
+(docs/context/migrated-AGENTS.md (removed), Execution Standards).
 
 ## Decision
 

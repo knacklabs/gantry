@@ -172,10 +172,7 @@ def mask_comments_and_string_literals(source_text: str) -> str:
 ACTIVE_DOC_FILES = (
     "README.md",
     "AGENTS.md",
-    "WORKFLOW.md",
     "CONTRIBUTING.md",
-    "docs/FACTORY.md",
-    "docs/QUALITY.md",
     "docs/SECURITY.md",
 )
 
@@ -541,7 +538,6 @@ RECOGNIZED_CODE_PATH_EXTENSIONS = {
 ROOT_FILE_REFERENCES = {
     "README.md",
     "AGENTS.md",
-    "WORKFLOW.md",
     "CONTRIBUTING.md",
     "CHANGELOG.md",
     "CLAUDE.md",

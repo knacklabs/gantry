@@ -160,7 +160,7 @@ Complete removal set (codex-verified — the earlier list was incomplete):
 ## Execution (workflow rules for the fresh session)
 - **Codex does code exploration** (read-only investigation) before implementing.
 - **Codex effort: `--effort high` for implementation AND exploration; `--thinking xhigh`
-  for autoreview.** (Codified in `.claude/skills/gantry-goal-pipeline/SKILL.md`.)
+  for autoreview.** (Codified in .claude/skills/gantry-goal-pipeline/SKILL.md (removed).)
 - **Autoreview per stage on the LOCAL uncommitted diff before committing**
   (`autoreview --mode local --thinking xhigh`), fix while uncommitted, then commit; run
   the branch-wide pass (`--mode branch --base origin/main --thinking xhigh`) ONCE at
