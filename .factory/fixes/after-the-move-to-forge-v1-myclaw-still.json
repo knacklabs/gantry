@@ -1,4 +1,5 @@
 {
+  "allow_large": "The owner approved the one leftover cleanup the migration skill asks for, 356 old-Forge files deleted in a single change, on 2026-09-27",
   "base": "310fd31d8723d0a3816e6052e667bce61260ce6a",
   "branch": "fix/after-the-move-to-forge-v1-myclaw-still",
   "done_when": "The owner-approved leftover audit is applied in one change: files nothing reads are deleted, kept history is linked from a current doc, docs, ignore rules, config and skills no longer describe the old Forge, the roadmap marks ASKFLOOR-1 and LOCAL-DEV-1 done and drops cache-bug and GRANTED-1, and .forge-migrate/ is gone",
