@@ -1,0 +1,26 @@
+{
+  "approval": {
+    "at": "2026-08-31T11:01:48+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "6b37801b9be3e3bcc9ce74d48c19f4e65748f861e436dae96cbb5525e212c8ff"
+  },
+  "doc": "plans/CARDFIX-1.md",
+  "finished": "2026-08-31T17:01:39+00:00",
+  "merged": {
+    "T1": "2026-08-31T17:01:39+00:00"
+  },
+  "outcome": "Paused scheduled jobs are no longer dead ends: every pause/setup message now arrives with working buttons on Slack, Telegram, Discord and Teams. A job paused for a blocked shell command offers 'Allow once for this run' \u2014 one more run that asks live for that exact command, nothing permanently granted \u2014 and 'Pause job', which now really pauses the job from the card on every provider (it used to be guidance text). Double taps, crashed taps and concurrent taps all collapse into exactly one extra run.",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-08-31T11:01:48+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-08-31T17:01:39+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Every pause card carries a real action",
+  "touches": 0
+}

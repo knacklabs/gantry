@@ -1,0 +1,26 @@
+{
+  "approval": {
+    "at": "2026-08-21T11:05:44+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "5207785a66c6a380f35e7e3ea12aa9bde45619e26c33a8620818e78e2521bcb1"
+  },
+  "doc": "plans/NOTIFY-1-T7.md",
+  "finished": "2026-08-22T09:16:57+00:00",
+  "merged": {
+    "NOTIFY-1-T7": "2026-08-22T09:16:57+00:00"
+  },
+  "outcome": "Every scheduled job (and every live turn) now produces a structured, neutral summary of what it actually did for any tool on either runtime and provider - grouped actions with counts, failed-first, family-aware labels (e.g. 'Google Sheets Values Append x3', 'WebSearch x5', 'Browser: Open') - instead of falling back to raw narration. A single tool.activity event is recorded per tool call on both worker runtimes and both inline lanes with per-invocation correlation; Gantry-owned capability/browser events dedup against the generic event via trusted, provenance-gated result metadata (decision 0133), so a third-party tool can never spoof correlation. Someone reading a finished job now sees exactly which actions ran and which failed.",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-08-21T11:05:44+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-08-22T09:16:57+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Deterministic structured job result from recorded run actions",
+  "touches": 0
+}

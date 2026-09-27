@@ -3,4 +3,3 @@
 The shared contract and the Claude adapter are imported; edit those instead.
 
 @AGENTS.md
-@.claude/CLAUDE.md

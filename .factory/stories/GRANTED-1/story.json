@@ -1,0 +1,26 @@
+{
+  "approval": {
+    "at": "2026-09-10T16:13:49+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "b0122cd5d2d0118e155c1f0cc39583a55e2199c09e6ab67d68f70f6390299081"
+  },
+  "doc": "plans/GRANTED-1.md",
+  "finished": "2026-09-12T06:53:31+00:00",
+  "merged": {
+    "T1": "2026-09-12T06:53:31+00:00"
+  },
+  "outcome": "Finished before the move to the new Forge.",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-09-10T16:13:49+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-09-12T06:53:31+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Agents can use what they are granted",
+  "touches": 0
+}

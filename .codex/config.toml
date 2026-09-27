@@ -27,6 +27,7 @@ web_search = "cached"
 network_access = true
 
 [features]
+hooks = true
 codex_hooks = true
 multi_agent = true
 streamable_shell = true

@@ -1,0 +1,11 @@
+{
+  "branch": "task/CARDSIMPLE-1-T1",
+  "status": "merged",
+  "steps": [
+    {
+      "at": "2026-09-01T06:50:09+00:00",
+      "step": "merged"
+    }
+  ],
+  "touches": 0
+}

@@ -1,0 +1,27 @@
+{
+  "approval": {
+    "at": "2026-08-27T16:17:12+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "41e91dd45c9e133330bbe5b13644ceca984e1b2f21df87dfa78511ef4b48859a"
+  },
+  "doc": "plans/CHAN-2.md",
+  "finished": "2026-08-28T05:34:21+00:00",
+  "merged": {
+    "T1": "2026-08-28T05:34:21+00:00",
+    "T2": "2026-08-28T05:34:21+00:00"
+  },
+  "outcome": "The provider adapters are easier to read and change safely. Five repeated guards (Telegram, Slack, Discord, Teams) are computed once instead of per branch, and the Telegram callback \u2014 previously one ~700-line function handling every button tap \u2014 is now a thin dispatcher that builds one context object and hands each kind of tap (question answers, stop, job-permission card, memory/brain reviews, observer, retry, classic permission prompt) to a named handler in its own module. Nothing changed in behaviour: every existing test passes untouched. Complexity: dispatcher 11, largest handler 16 (ceilings 15/25).",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-08-27T16:17:12+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-08-28T05:34:21+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Channel dispatchers: flatten repeated guards and split the Telegram callback by action kind",
+  "touches": 0
+}

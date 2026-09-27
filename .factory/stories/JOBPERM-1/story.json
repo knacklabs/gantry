@@ -1,0 +1,28 @@
+{
+  "approval": {
+    "at": "2026-08-23T11:16:48+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "4ffd5229f618d922c4357a7017ddeb151e4d757d86658ef4436944ea52b0fea3"
+  },
+  "doc": "plans/JOBPERM-1.md",
+  "finished": "2026-08-27T08:47:24+00:00",
+  "merged": {
+    "T1": "2026-08-27T08:47:24+00:00",
+    "T2": "2026-08-27T08:47:24+00:00",
+    "T3": "2026-08-27T08:47:24+00:00"
+  },
+  "outcome": "Scheduled jobs now ask for permission the same way a chat does: when a job needs a tool it is not yet allowed to use, one living card appears in the job's chat with Allow/Deny buttons and no timer, the run waits in place, and an Allow-always answer is remembered for future runs. The job notification was rebuilt alongside it: exactly one message per run, edited from Running into the result, rendered natively on Telegram, Slack and Discord, leading with a one-line outcome, then the per-tool results, then the next run time. Operators also got a heredoc-aware command gate, honest 'this request stays open' wording on job prompts, and the KnackLabs incident class (one card edited ten thousand times) is closed by JSONB-faithful settlement.",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-08-23T11:16:48+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-08-27T08:47:24+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Chat-parity permissions for scheduled jobs",
+  "touches": 0
+}

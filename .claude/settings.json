@@ -2,21 +2,10 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook session_start || exit 2' || exit 2"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook pre_compact || exit 2' || exit 2"
+            "command": "sh -c 'forge hook context || exit 2' || exit 2"
           }
         ]
       }
@@ -27,38 +16,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook pre_tool_use || exit 2' || exit 2"
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook pre_tool_use || exit 2' || exit 2"
+            "command": "sh -c 'forge hook deny || exit 2' || exit 2"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|AskUserQuestion",
+        "matcher": "ExitPlanMode|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook post_tool_use || exit 0' || exit 0"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "sh -c '\"$(git rev-parse --show-toplevel)/forge\" hook stop_continue || exit 2' || exit 2",
-            "timeout": 30
+            "command": "sh -c 'forge hook approval || exit 2' || exit 2"
           }
         ]
       }

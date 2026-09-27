@@ -1,0 +1,26 @@
+{
+  "approval": {
+    "at": "2026-08-29T18:18:41+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "8b3d83b3980cfd553ae70f5de74589bacb8818337e60f07828b4fb823c3ad37c"
+  },
+  "doc": "plans/LEGACY-2.md",
+  "finished": "2026-08-30T02:33:23+00:00",
+  "merged": {
+    "T1": "2026-08-30T02:33:23+00:00"
+  },
+  "outcome": "The old providerConnection name no longer lives anywhere in the runtime settings path: the in-memory shadow field and its parser fill are gone, every providerAccount ?? providerConnection read now reads provider accounts only, writers stop creating the property, and the 19 expired architecture exceptions are deleted, so npm run check:architecture is green on main again. Behaviour is unchanged: a settings document that still says provider_connection keeps being rejected by the existing strict key check (now covered by a test), and the Slack approver lookup stays account-qualified. providerConnectionId and the missing_provider_connection enum are deliberately left alone (deferral D-0070).",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-08-29T18:18:41+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-08-30T02:33:23+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "Remove the providerConnection dual-read",
+  "touches": 0
+}

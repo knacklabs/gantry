@@ -1,0 +1,26 @@
+{
+  "approval": {
+    "at": "2026-09-01T03:25:12+00:00",
+    "by": "carried over from the copied-in Forge",
+    "hash": "0ec8dae2d2fcf4aa152eadb190aacadac75238fcd67e609eb1f473f9c5b4c4b1"
+  },
+  "doc": "plans/CARDSIMPLE-1.md",
+  "finished": "2026-09-01T06:50:09+00:00",
+  "merged": {
+    "T1": "2026-09-01T06:50:09+00:00"
+  },
+  "outcome": "Allowing a command once now settles its whole family: approve curl for one URL and future runs of curl with any arguments proceed without asking, on every lane that mints permission rules. Piped commands still never get an Allow button, dangerous variants inside an allowed family still ask (and only for that one run), and scripts or environment-dependent paths can never become broad grants. Exact rules and capability grants behave exactly as before \u2014 the only visible change is fewer permission prompts.",
+  "status": "done",
+  "steps": [
+    {
+      "at": "2026-09-01T03:25:12+00:00",
+      "step": "approved"
+    },
+    {
+      "at": "2026-09-01T06:50:09+00:00",
+      "step": "done"
+    }
+  ],
+  "title": "One permission surface, family-wide grants",
+  "touches": 0
+}
