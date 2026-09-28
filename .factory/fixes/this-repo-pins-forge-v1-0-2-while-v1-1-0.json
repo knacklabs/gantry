@@ -1,0 +1,14 @@
+{
+  "base": "78cacfa44ac3d5c56c00ccb1739783c1d4acdfaf",
+  "branch": "fix/this-repo-pins-forge-v1-0-2-while-v1-1-0",
+  "done_when": "forge.toml pins v1.1.0, forge sync has rewritten the generated files for it, and the repo's tests pass",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-28T11:44:48+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "This repo pins Forge v1.0.2 while v1.1.0 is released, so the one main chat can't approve its stories"
+}
