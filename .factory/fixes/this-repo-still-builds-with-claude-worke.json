@@ -3,11 +3,30 @@
   "branch": "fix/this-repo-still-builds-with-claude-worke",
   "done_when": "forge.toml sets workers = \"codex\" with Codex models for build, fix and lite, matching the owner's setup elsewhere, and forge doctor passes",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "commit": "ccb39a90f297a77d1bef2dde08f8b5773fd6b070",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The required end-to-end regression test is missing. The suite wired through package.json:86\u201388 runs unit and integration tests, but none invokes Forge to verify this worker/model selection or `forge doctor`. The existing Forge workflow invokes `forge hook pr-check` (.github/workflows/forge.yml:47), which does not supply that test. Add suite-wired coverage through Forge's real command entry point that verifies Codex selection for build, fix and lite and checks doctor success; reverting the worker selection to Claude must fail it.",
+        "file": "forge.toml",
+        "line": 5,
+        "priority": "P1",
+        "title": "Not done: end-to-end coverage for Codex worker selection and forge doctor"
+      }
+    ],
+    "status": "blocked",
+    "tree": "f6620a878c67730e785706accb7d13f7d5e47981bbc66d31f4474fb2cf3eb999"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-28T01:57:08+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-28T01:58:34+00:00",
+      "step": "review"
     }
   ],
   "why": "This repo still builds with Claude workers, but the owner wants Codex workers for all implementation in every repo"
