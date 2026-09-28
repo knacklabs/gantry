@@ -3,11 +3,30 @@
   "branch": "fix/this-repo-pins-forge-v1-0-2-while-v1-1-0",
   "done_when": "forge.toml pins v1.1.0, forge sync has rewritten the generated files for it, and the repo's tests pass",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "commit": "ce12690049652c6f3478aa83529c666574066bd0",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The upgrade has no test through Forge's real entry point, despite the explicit test requirement. `package.json:86\u201388` runs the application unit and integration suites; inspecting their configured test directories found no Forge invocation. The workflow's `forge hook pr-check` checks PR admission, not sync or main-chat story approval. Add a suite-wired test using the pinned Forge release that verifies generated-file consistency and exercises the approval flow this upgrade is intended to repair.",
+        "file": "forge.toml",
+        "line": 2,
+        "priority": "P1",
+        "title": "Not done: Forge v1.1.0 sync and main-chat approval end-to-end test"
+      }
+    ],
+    "status": "blocked",
+    "tree": "f3609b53859b99e2fc7719d8277d8cf2aae350f61382844339e743743d9834c9"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-28T11:44:48+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-28T14:21:31+00:00",
+      "step": "review"
     }
   ],
   "why": "This repo pins Forge v1.0.2 while v1.1.0 is released, so the one main chat can't approve its stories"
