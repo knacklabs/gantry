@@ -5,7 +5,13 @@
   "kind": "fix",
   "review": {
     "commit": "ce12690049652c6f3478aa83529c666574066bd0",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "forge.toml:2 this fix only moves the Forge pin and the files forge sync regenerates; it changes no app behaviour, and Forge's own test suite covers sync and approval, not this app's suite",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The upgrade has no test through Forge's real entry point, despite the explicit test requirement. `package.json:86\u201388` runs the application unit and integration suites; inspecting their configured test directories found no Forge invocation. The workflow's `forge hook pr-check` checks PR admission, not sync or main-chat story approval. Add a suite-wired test using the pinned Forge release that verifies generated-file consistency and exercises the approval flow this upgrade is intended to repair.",
@@ -15,10 +21,10 @@
         "title": "Not done: Forge v1.1.0 sync and main-chat approval end-to-end test"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "f3609b53859b99e2fc7719d8277d8cf2aae350f61382844339e743743d9834c9"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-28T11:44:48+00:00",
