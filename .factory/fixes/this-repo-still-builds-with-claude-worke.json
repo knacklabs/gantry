@@ -5,7 +5,13 @@
   "kind": "fix",
   "review": {
     "commit": "ccb39a90f297a77d1bef2dde08f8b5773fd6b070",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "forge.toml:5 the change is one settings file; Forge itself reads it and forge doctor passes on it, and the client's own test suite has no Forge behaviour to exercise",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The required end-to-end regression test is missing. The suite wired through package.json:86\u201388 runs unit and integration tests, but none invokes Forge to verify this worker/model selection or `forge doctor`. The existing Forge workflow invokes `forge hook pr-check` (.github/workflows/forge.yml:47), which does not supply that test. Add suite-wired coverage through Forge's real command entry point that verifies Codex selection for build, fix and lite and checks doctor success; reverting the worker selection to Claude must fail it.",
@@ -15,10 +21,10 @@
         "title": "Not done: end-to-end coverage for Codex worker selection and forge doctor"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "f6620a878c67730e785706accb7d13f7d5e47981bbc66d31f4474fb2cf3eb999"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-28T01:57:08+00:00",
