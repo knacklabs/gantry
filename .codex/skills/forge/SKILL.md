@@ -21,6 +21,7 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "Let this fix go over the limit" | `forge fix allow-large "<reason>"` |
 | "Build it" | `forge work <item>` |
 | "Close it" or "Is it ready?" | `forge close <item>` |
+| "Merge this ready item" | `forge merge <item>` when the default branch allows agent merges |
 | "What should we build?" or "Find the real problem" | Discovery, below |
 | "Is it worth building?" | `forge spec payback --build-days <days> --day-rate <rate>` plus a value group |
 | "Save this spec" | `forge spec save <slug>` |
@@ -35,14 +36,26 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "Switch to Codex workers" or "Change the test command" | Ask, then in a fix: edit `forge.toml`, `forge close <fix>` |
 | "Upgrade Forge" | Ask, then in a fix: set `version` in `forge.toml`, install that release, `forge sync`, `forge close <fix>` |
 
-The human approves stories, chooses between options and merges. Everything else is yours. Ask
-one question at a time: a decision gets options with your recommendation first, a question of
-fact gets neutral choices.
+The human approves stories and chooses between options. The human merges by default
+(`merge = "human"`). If the default branch's `forge.toml` has `merge = "agent"`, run
+`forge merge <item>` once `forge close` says Ready. Never run `gh pr merge`; the agent merges only
+through `forge merge`. Ask one question at a time: a decision gets options with your recommendation
+first, a question of fact gets neutral choices.
+
+Give each question one line of context and a header of 12 characters or less. Use 1-5 word options
+that say what happens, with the recommended one first for decisions. Use no IDs, paths or slugs in
+questions; write for the human's choice.
 
 The human never edits `forge.toml`; you keep it. When a setting must change, ask first with
 options, then make the change yourself in a fix: `forge fix start`, the edit, then `forge close`.
 
+Give status updates in one shape: `Ready to merge (n): ... · Needs you (n): ...`.
+
 ## New directions
+
+Grill any request with more than one reasonable reading or no stated done-when before starting a
+fix or story. Ask one question at a time with your recommendation and why; look up facts in the
+repo instead of asking the human. A clear request with a stated done-when can go straight ahead.
 
 When the human states a new direction, principle or value, grill how it applies before changing
 anything. Ask one question at a time with your recommended answer and why; look up facts in the
@@ -85,8 +98,14 @@ choice and one line of why into the spec's Behaviour.
 
 ## Planning a story
 
+Use one framing line before showing a story in Plan Mode:
+`Approving: <title>, <n> parts, <risks>`.
+
 - Done when: a few results the client or their user can observe, each tracing to the spec's
-  behaviour or success measure. "Code exists" is not a result.
+  behaviour or success measure. Open each item with one bold plain sentence before its detail.
+  "Code exists" is not a result.
+- Put Risks right after Done when, then a `For the builders` heading before Tasks, so the owner's
+  sections come first.
 - Tasks: each row names the Done-when items it Covers, its Scope (the paths it may change) and
   its Tests. A task that covers nothing is cut; work wanted later goes to the spec's Out of scope.
 - Keep tasks small: at most three Done-when items and about 400 changed lines each.
@@ -146,6 +165,7 @@ named in the story. Untraced work: `Cut or defer: <item>`. An unmet Done-when it
 
 ## Closing
 
+Read the worker's final handoff and resolve its stated blockers before `forge close`.
 When `forge close` stops on a finding, open the line it cites, and the code that line calls,
 before anything else. If the code proves the finding wrong, dismiss it with
 `forge close <item> --dismiss <n> --because "<file:line> <why>"`; otherwise run
