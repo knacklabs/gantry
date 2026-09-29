@@ -1,0 +1,14 @@
+{
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/small-api-aliases-keep-old-spellings-ali",
+  "done_when": "The three aliases are removed, the OpenAPI schema and generated SDK are regenerated, and no code or test mentions the old spellings",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T16:36:56+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Small API aliases keep old spellings alive: a Slack button id without its numeric suffix, an ignored editedValue on memory approve/reject, and a runId query alias for run"
+}
