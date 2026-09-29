@@ -4,19 +4,19 @@
   "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
   "kind": "fix",
   "review": {
-    "commit": "bb8177cd9c542f7c1778f62792a9ab6b17565642",
+    "commit": "76e6011272dc6122fb13d650b3987416dff3dd55",
     "dismissals": [],
     "findings": [
       {
-        "body": "The Postgres tests exercise real persistence, but `click()` directly invokes a captured Slack callback and manually connects it to the review handler. They bypass production dispatch (`apps/core/src/app/bootstrap/channel-message-action-router.ts:100\u2013101`) and never exercise a running API or browser flow through Playwright. Consequently, they can pass even if application wiring prevents approval clicks from reaching the executor. Add the required running-application test with real Postgres, verifying that candidate-backed approval saves the memory and that the visible card reports approved, failed-with-reason, and already-decided outcomes, faking only third-party edges.",
+        "body": "The required running-application end-to-end test is missing. These tests use real Postgres and the production message-action router, but `click()` invokes a captured Slack callback with a handcrafted payload and asserts captured `chat.update` arguments. They never start the application/API or exercise a browser flow through Playwright, so they cannot verify production registration or the visible card interaction. Add the required running-application test with real Postgres, faking only third-party edges, that verifies candidate-backed approval persists the memory and the card displays approved, failed-with-reason, and already-decided outcomes.",
         "file": "apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts",
-        "line": 204,
+        "line": 203,
         "priority": "P1",
         "title": "Not done: Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with an..."
       }
     ],
     "status": "blocked",
-    "tree": "06fb89b4a49d8c8e0444a59dffee564245fe1309a7ab9738e47a8f31d4c0b84e"
+    "tree": "fb712b2589aa751eb53da444f59ce5d42f8bbfa09268efa5acf5df70ac912bf7"
   },
   "status": "fixing",
   "steps": [
@@ -34,6 +34,10 @@
     },
     {
       "at": "2026-09-29T10:43:38+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T11:11:21+00:00",
       "step": "review"
     }
   ],
