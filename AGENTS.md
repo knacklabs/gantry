@@ -19,7 +19,9 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 3. Each task runs in its own branch and worktree: `forge task start <KEY>/<TASK>`, then
    `forge work <KEY>/<TASK>`.
 4. `forge close <item>` closes it when the tests pass and the review finds no serious problem.
-5. The human merges. After the story's last merge, `forge story done <KEY> "<outcome>"`.
+5. The human merges unless the default branch's `forge.toml` has `merge = "agent"`.
+   Then, once close says Ready, the agent runs `forge merge <item>`. After the story's last merge,
+   `forge story done <KEY> "<outcome>"`.
 
 ### The lanes
 
@@ -31,8 +33,10 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 
 - Never commit to the default branch. Work happens on a story, task or fix branch, and the
   git hooks refuse anything else.
-- Never merge a pull request and never use `--no-verify`. Merging is the human's call.
-- Ask the human only to approve a story, to choose between options, or to merge.
+- Never run `gh pr merge` or use `--no-verify`. The agent merges only through
+  `forge merge <item>` when the default branch allows it; `merge = "human"` is the default.
+- Ask the human only to approve a story, to choose between options, or to merge when the repo
+  keeps the human merge setting.
 - No running commentary. Speak only when something lands, when a failure or finding needs the
   human, or when a decision is theirs, in a line or two.
 - Write for humans in plain English: no IDs, hashes or jargon in questions, pull request
