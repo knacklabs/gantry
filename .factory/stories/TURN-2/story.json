@@ -1,0 +1,12 @@
+{
+  "doc": "plans/TURN-2.md",
+  "status": "planning",
+  "steps": [
+    {
+      "at": "2026-09-29T07:49:55+00:00",
+      "step": "start"
+    }
+  ],
+  "title": "Messages sent while the agent works steer its answer",
+  "touches": 0
+}
