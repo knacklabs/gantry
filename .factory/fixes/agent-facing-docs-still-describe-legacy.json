@@ -3,7 +3,7 @@
   "branch": "fix/agent-facing-docs-still-describe-legacy",
   "done_when": "apps/core/src/memory/AGENTS.md, apps/core/src/adapters/storage/postgres/AGENTS.md and plans/LEGACY-2.md no longer describe removed paths",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T16:38:56+00:00",
