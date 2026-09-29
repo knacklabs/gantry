@@ -4,7 +4,7 @@
   "branch": "fix/the-old-mcp-tool-capability-binding-is-k",
   "done_when": "mcp_tool is gone from the binding kind union and from every branch and test, and stored definitions using it are rejected by the existing generic validation",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T16:38:26+00:00",
