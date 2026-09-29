@@ -12,6 +12,7 @@ import {
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionWorkItemEnqueueResult,
+  LiveAdmissionInputScope,
   LiveAdmissionWorkItemRepository,
 } from '../../../../domain/ports/live-turns.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
@@ -164,14 +165,26 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
 
 export async function takeInput(
   db: CanonicalDb,
-  input: { queueJid: string; consumedBy: string; limit: number },
+  input: { scope: LiveAdmissionInputScope; consumedBy: string; limit: number },
 ): Promise<LiveAdmissionWorkItem[]> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   return db.transaction(async (tx) => {
     const candidates = await tx
       .select({ id: items.id })
       .from(items)
-      .where(and(eq(items.queueJid, input.queueJid), isNull(items.consumedAt)))
+      .where(
+        and(
+          eq(items.appId, input.scope.appId),
+          eq(items.conversationId, input.scope.conversationId),
+          input.scope.threadId === null
+            ? isNull(items.threadId)
+            : eq(items.threadId, input.scope.threadId),
+          input.scope.agentId === null
+            ? isNull(items.agentId)
+            : eq(items.agentId, input.scope.agentId),
+          isNull(items.consumedAt),
+        ),
+      )
       .orderBy(asc(items.receiveOrder), asc(items.id))
       .limit(Math.max(1, Math.floor(input.limit)))
       .for('update', { skipLocked: true });
@@ -208,13 +221,25 @@ export async function releaseInput(
 
 export async function consumeAll(
   db: CanonicalDb,
-  input: { queueJid: string; consumedBy: string },
+  input: { scope: LiveAdmissionInputScope; consumedBy: string },
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   const rows = await db
     .update(items)
     .set({ consumedAt: sql`clock_timestamp()`, consumedBy: input.consumedBy })
-    .where(and(eq(items.queueJid, input.queueJid), isNull(items.consumedAt)))
+    .where(
+      and(
+        eq(items.appId, input.scope.appId),
+        eq(items.conversationId, input.scope.conversationId),
+        input.scope.threadId === null
+          ? isNull(items.threadId)
+          : eq(items.threadId, input.scope.threadId),
+        input.scope.agentId === null
+          ? isNull(items.agentId)
+          : eq(items.agentId, input.scope.agentId),
+        isNull(items.consumedAt),
+      ),
+    )
     .returning({ id: items.id });
   return rows.length;
 }
@@ -445,6 +470,9 @@ export async function deleteExpiredTerminalLiveAdmissionWorkItems(
         )
         DELETE FROM ${items}
         WHERE ${items.id} IN (SELECT id FROM expired)
+          AND ${items.state} IN ('completed', 'failed', 'canceled')
+          AND ${items.consumedAt} IS NOT NULL
+          AND coalesce(${items.endedAt}, ${items.updatedAt}) < ${cutoffIso}
         RETURNING ${items.id}
       `);
       return result.rows.length;

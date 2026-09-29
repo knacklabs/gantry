@@ -199,8 +199,14 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     idempotencyUnique: uniqueIndex(
       'uq_live_admission_work_items_idempotency',
     ).on(table.idempotencyKey),
-    unconsumedByQueueIdx: index('idx_live_admission_work_items_unconsumed')
-      .on(table.queueJid, table.receiveOrder)
+    unconsumedByScopeIdx: index('idx_live_admission_work_items_unconsumed')
+      .on(
+        table.appId,
+        table.conversationId,
+        table.threadId,
+        table.agentId,
+        table.receiveOrder,
+      )
       .where(sql`${table.consumedAt} IS NULL`),
     activeByAppIdx: index('idx_live_admission_work_items_active_by_app')
       .on(table.appId)

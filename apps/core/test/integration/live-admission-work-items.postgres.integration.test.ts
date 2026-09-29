@@ -62,10 +62,16 @@ maybeDescribe('live admission work items (Postgres)', () => {
     );
     const second = new PostgresLiveTurnRepository(secondService.db);
     const queueJid = 'tg:consumption-crossing';
+    const scope = {
+      appId: 'app-consume-order',
+      conversationId: queueJid,
+      threadId: null,
+      agentId: null,
+    };
     const enqueue = (id: string, messageCursor: string) =>
       liveTurns.enqueueLiveAdmissionWorkItem({
         ...base,
-        appId: 'app-consume-order',
+        appId: scope.appId,
         id,
         queueJid,
         conversationId: queueJid,
@@ -79,7 +85,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       await enqueue('receive-first', '2030-01-01T00:00:00.000Z::first');
       await enqueue('receive-second', '1990-01-01T00:00:00.000Z::second');
       const first = await liveTurns.takeInput({
-        queueJid,
+        scope,
         consumedBy: 'turn-1',
         limit: 10,
       });
@@ -94,32 +100,110 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
       await enqueue('receive-late', '1980-01-01T00:00:00.000Z::late');
       expect(
-        await second.takeInput({ queueJid, consumedBy: 'turn-2', limit: 10 }),
+        await second.takeInput({ scope, consumedBy: 'turn-2', limit: 10 }),
       ).toMatchObject([{ id: 'receive-late', consumedBy: 'turn-2' }]);
       expect(
-        await second.takeInput({ queueJid, consumedBy: 'turn-3', limit: 10 }),
+        await second.takeInput({ scope, consumedBy: 'turn-3', limit: 10 }),
       ).toEqual([]);
 
       expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(2);
       expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(0);
       expect(
         await liveTurns.takeInput({
-          queueJid,
+          scope,
           consumedBy: 'turn-4',
           limit: 10,
         }),
       ).toMatchObject([{ id: 'receive-first' }, { id: 'receive-second' }]);
       expect(await liveTurns.releaseInput({ consumedBy: 'turn-2' })).toBe(1);
-      expect(await second.consumeAll({ queueJid, consumedBy: 'history' })).toBe(
-        1,
-      );
+      expect(await second.consumeAll({ scope, consumedBy: 'history' })).toBe(1);
       expect(
         await liveTurns.takeInput({
-          queueJid,
+          scope,
           consumedBy: 'turn-5',
           limit: 10,
         }),
       ).toEqual([]);
+    } finally {
+      await secondService.close();
+    }
+  });
+
+  it('keeps consumption inside its application when two apps share a route', async () => {
+    const conversationId = 'tg:shared-consumption-route';
+    const scope = {
+      appId: 'app-consume-scope-a',
+      conversationId,
+      threadId: null,
+      agentId: null,
+    };
+    for (const appId of [scope.appId, 'app-consume-scope-b']) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        ...base,
+        appId,
+        id: `item-${appId}`,
+        conversationId,
+        queueJid: conversationId,
+        messageId: `message-${appId}`,
+        idempotencyKey: `delivery-${appId}`,
+      });
+    }
+
+    expect(
+      await liveTurns.takeInput({ scope, consumedBy: 'scope-a', limit: 10 }),
+    ).toMatchObject([{ id: 'item-app-consume-scope-a' }]);
+    expect(await liveTurns.consumeAll({ scope, consumedBy: 'scope-a' })).toBe(
+      0,
+    );
+    expect(
+      await liveTurns.takeInput({
+        scope: { ...scope, appId: 'app-consume-scope-b' },
+        consumedBy: 'scope-b',
+        limit: 10,
+      }),
+    ).toMatchObject([{ id: 'item-app-consume-scope-b' }]);
+  });
+
+  it('gives overlapping consumers disjoint input in receive order', async () => {
+    const secondService = new PostgresStorageService(
+      process.env.GANTRY_TEST_DATABASE_URL!,
+      runtime.schemaName,
+    );
+    const second = new PostgresLiveTurnRepository(secondService.db);
+    const scope = {
+      appId: 'app-consume-concurrent',
+      conversationId: 'tg:consume-concurrent',
+      threadId: null,
+      agentId: null,
+    };
+    try {
+      for (let index = 0; index < 4; index++) {
+        await liveTurns.enqueueLiveAdmissionWorkItem({
+          ...base,
+          ...scope,
+          id: `concurrent-${index}`,
+          queueJid: scope.conversationId,
+          messageId: `message-concurrent-${index}`,
+          idempotencyKey: `delivery-concurrent-${index}`,
+        });
+      }
+      const [first, other] = await Promise.all([
+        liveTurns.takeInput({ scope, consumedBy: 'concurrent-a', limit: 2 }),
+        second.takeInput({ scope, consumedBy: 'concurrent-b', limit: 2 }),
+      ]);
+      const ids = [...first, ...other].map((item) => item.id);
+      expect(new Set(ids).size).toBe(4);
+      expect(ids.sort()).toEqual([
+        'concurrent-0',
+        'concurrent-1',
+        'concurrent-2',
+        'concurrent-3',
+      ]);
+      for (const batch of [first, other]) {
+        expect(batch.map((item) => item.receiveOrder)).toEqual(
+          [...batch.map((item) => item.receiveOrder)].sort((a, b) => a! - b!),
+        );
+      }
     } finally {
       await secondService.close();
     }
@@ -344,6 +428,77 @@ maybeDescribe('live admission work items (Postgres)', () => {
       'retention-recent-completed',
       'retention-recent-failed',
     ]);
+  });
+
+  it('keeps an expired item released while the retention sweep waits for its row', async () => {
+    const id = 'retention-concurrent-release';
+    const oldAt = '2026-07-03T00:00:00.000Z';
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id,
+      appId: 'app-retention-concurrent-release',
+      messageId: `message:${id}`,
+      idempotencyKey: `delivery:${id}`,
+    });
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'completed', consumed_at = $2, consumed_by = 'prior-turn',
+           updated_at = $2, ended_at = $2
+       WHERE id = $1`,
+      [id, oldAt],
+    );
+
+    const releasingClient = await runtime.service.pool.connect();
+    let sweep:
+      | ReturnType<typeof liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems>
+      | undefined;
+    try {
+      await releasingClient.query('BEGIN');
+      const {
+        rows: [{ pid }],
+      } = await releasingClient.query<{ pid: number }>(
+        'SELECT pg_backend_pid() AS pid',
+      );
+      await releasingClient.query(
+        `UPDATE ${tableName}
+         SET consumed_at = NULL, consumed_by = NULL
+         WHERE id = $1`,
+        [id],
+      );
+      sweep = liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
+        '2026-07-04T00:00:00.000Z',
+      );
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        const {
+          rows: [{ blocked }],
+        } = await runtime.service.pool.query<{
+          blocked: boolean;
+        }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM pg_stat_activity
+             WHERE $1 = ANY(pg_blocking_pids(pid)) AND pid <> $1
+           ) AS blocked`,
+          [pid],
+        );
+        if (blocked) break;
+        if (Date.now() > deadline) {
+          throw new Error('Retention sweep did not reach the held row.');
+        }
+      }
+    } finally {
+      await releasingClient.query('COMMIT');
+      releasingClient.release();
+    }
+
+    await expect(sweep).resolves.toEqual({ deleted: 0, more: false });
+    const { rows } = await runtime.service.pool.query<{
+      consumed_at: string | null;
+    }>(`SELECT consumed_at FROM ${tableName} WHERE id = $1`, [id]);
+    expect(rows).toEqual([{ consumed_at: null }]);
   });
 
   it('persists an overloaded canonical message without a work row or wakeup', async () => {

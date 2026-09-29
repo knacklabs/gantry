@@ -13,6 +13,7 @@ import {
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionClaimInput,
+  LiveAdmissionInputScope,
   LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
@@ -101,7 +102,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
   ) {}
 
   async takeInput(input: {
-    queueJid: string;
+    scope: LiveAdmissionInputScope;
     consumedBy: string;
     limit: number;
   }): Promise<LiveAdmissionWorkItem[]> {
@@ -113,7 +114,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
   }
 
   async consumeAll(input: {
-    queueJid: string;
+    scope: LiveAdmissionInputScope;
     consumedBy: string;
   }): Promise<number> {
     return consumeAll(this.db, input);
