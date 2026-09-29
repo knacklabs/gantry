@@ -12,12 +12,15 @@ import type {
 import type { MemorySubject } from '../../domain/memory/memory.js';
 import type {
   ConversationApprover,
+  ProviderAccountId,
   ProviderId,
 } from '../../domain/provider/provider.js';
 import type {
   McpServerRepository,
+  ProviderAccountRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { normalizeRuntimeSecretRefString } from '../../domain/ports/runtime-secret-provider.js';
 import {
   jidForConfiguredConversation,
@@ -42,6 +45,27 @@ import {
   parseAgentThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
 export { agentIdForFolder, folderForAgentId };
+
+export async function storedRoutesForApp(
+  routes: Record<string, StoredAgentBinding>,
+  appId: AppId,
+  providerAccounts?: ProviderAccountRepository,
+): Promise<Record<string, StoredAgentBinding>> {
+  const entries = await Promise.all(
+    Object.entries(routes).map(async ([jid, route]) => {
+      if (route.providerAccountId) {
+        const account = await providerAccounts?.getProviderAccount(
+          route.providerAccountId as ProviderAccountId,
+        );
+        return account?.appId === appId ? ([jid, route] as const) : null;
+      }
+      const { chatJid } = parseAgentThreadQueueKey(jid);
+      const routeAppId = appIdFromConversationJid(chatJid) ?? 'default';
+      return routeAppId === appId ? ([jid, route] as const) : null;
+    }),
+  );
+  return Object.fromEntries(entries.filter((entry) => entry !== null));
+}
 
 export function configuredRoutingBindingsByAgent(
   settings: RuntimeSettings,

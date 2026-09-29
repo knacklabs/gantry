@@ -8,19 +8,11 @@ import type {
 } from '../../domain/provider/provider.js';
 import {
   buildDesiredStateCapabilityReplacement,
-  inlineAgentRuntimeCapabilityErrors,
   replaceDesiredStateCapabilities,
   replaceDesiredStateToolSources,
-  settingsCapabilityToToolReference,
 } from './desired-state-capability-reconcile.js';
 import { exportCurrentDesiredState } from './desired-state-current-export.js';
-import {
-  normalizeConfiguredCapabilities,
-  normalizeConfiguredCapabilitiesInSettings,
-  semanticCapabilityDefinitionsById,
-  semanticCapabilityDefinitionsFromCatalogTools,
-  skillActionDefinitionsForSkills,
-} from './configured-capability-normalization.js';
+import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import {
   agentIdForFolder,
   configuredAgentConfig,
@@ -30,17 +22,9 @@ import {
   hasAnyCapability,
   isInternalProviderAccount,
   listDbOnlyGroupJids,
-  loadMcpServersById,
   normalizeRuntimeSecretRefs,
+  storedRoutesForApp,
 } from './desired-state-service-helpers.js';
-import {
-  resolveConfiguredSkillReferences,
-  selectedSkillsFromResolvedSkillReferences,
-} from './desired-state-skill-references.js';
-import {
-  formatSkillMaterializationCollisionFragment,
-  skillMaterializationCollisions,
-} from '../../domain/skills/skill-identity.js';
 export {
   agentIdForFolder,
   classifySettingsChanges,
@@ -64,7 +48,6 @@ import type {
   RuntimeProviderAccountSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
-import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
@@ -99,10 +82,15 @@ export class SettingsDesiredStateService {
     settings: RuntimeSettings,
   ): Promise<SettingsDesiredStateDriftReport> {
     settings = (await this.normalizeConfiguredCapabilities(settings)).settings;
-    const [groups, chats] = await Promise.all([
+    const [allGroups, chats] = await Promise.all([
       this.deps.ops.getAllConversationRoutes(),
       this.deps.ops.getAllChats?.() ?? Promise.resolve([]),
     ]);
+    const groups = await storedRoutesForApp(
+      allGroups,
+      this.appId,
+      this.deps.repositories.providerAccounts,
+    );
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set<string>();
     for (const binding of configuredRoutingBindings(settings, groups)) {
@@ -256,7 +244,11 @@ export class SettingsDesiredStateService {
         applied.push(`capabilities:${folder}`);
       }
     }
-    const existingGroups = await this.deps.ops.getAllConversationRoutes();
+    const existingGroups = await storedRoutesForApp(
+      await this.deps.ops.getAllConversationRoutes(),
+      this.appId,
+      this.deps.repositories.providerAccounts,
+    );
     const configuredJids = new Set<string>();
     const bindingsByAgent = configuredRoutingBindingsByAgent(
       settings,
