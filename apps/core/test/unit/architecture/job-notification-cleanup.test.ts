@@ -58,7 +58,6 @@ const allowedLegacyReferenceFiles = new Set([
   'apps/core/src/jobs/ipc-scheduler-create-handlers.ts',
   'apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts',
   'apps/core/src/runtime/ipc-task-parsing.ts',
-  'apps/core/src/runner/mcp/tools/scheduler-tool-helpers.ts',
   'apps/core/src/adapters/storage/postgres/schema/migrations/0000_initial.sql',
   'apps/core/src/adapters/storage/postgres/schema/migrations/0040_jobs_target_execution_context_notification_routes.sql',
   'apps/core/src/adapters/storage/postgres/schema/migrations/0071_jobs_target_workspace_key_cutover.sql',
@@ -204,20 +203,5 @@ describe('job notification cleanup', () => {
     }
 
     expect(offenders).toEqual([]);
-  });
-
-  it('keeps the legacy group execution-scope aliases reject-only in active source', () => {
-    const rejectOnlySources = [
-      'apps/core/src/control/server/routes/jobs.ts',
-      'apps/core/src/runner/mcp/tools/scheduler.ts',
-      'apps/core/src/runner/mcp/tools/scheduler-tool-helpers.ts',
-      'apps/core/src/runtime/ipc-task-parsing.ts',
-      'apps/core/src/runner/mcp/context.ts',
-    ];
-
-    for (const relativePath of rejectOnlySources) {
-      const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
-      expect(source).toContain('is no longer');
-    }
   });
 });

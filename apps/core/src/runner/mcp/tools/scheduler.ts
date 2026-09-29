@@ -71,42 +71,10 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'max_consecutive_failures',
 ]);
 
-function removedExecutionScopeFieldError(args: Record<string, unknown>) {
-  const containers: unknown[] = [args, args.execution_context];
-  for (const container of containers) {
-    if (!container || typeof container !== 'object') continue;
-    if ('group_scope' in container || 'groupScope' in container) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: 'group_scope/groupScope is no longer accepted. Use workspace_key.',
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
-  return null;
-}
-
 function unsupportedSchedulerArgError(
   args: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
 ) {
-  const removedScopeError = removedExecutionScopeFieldError(args);
-  if (removedScopeError) return removedScopeError;
-  if (Object.prototype.hasOwnProperty.call(args, 'required_tools')) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: 'required_tools is no longer accepted. Use access_requirements for access preflight checks.',
-        },
-      ],
-      isError: true,
-    };
-  }
   const unsupported = Object.keys(args).filter((key) => !allowedKeys.has(key));
   if (unsupported.length === 0) return null;
   return {
@@ -122,8 +90,6 @@ function unsupportedSchedulerArgError(
   };
 }
 
-// passthrough() keeps unknown keys alive so the MCP SDK rejects removed
-// execution-scope inputs before the handler runs; the normalizer ignores extras.
 const executionContextSchema = z
   .object({
     conversation_jid: z.string(),
@@ -131,16 +97,7 @@ const executionContextSchema = z
     workspace_key: z.string(),
     session_id: z.string().nullable().optional(),
   })
-  .passthrough()
-  .superRefine((val, ctx) => {
-    if ('group_scope' in val || 'groupScope' in val) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'group_scope/groupScope is no longer accepted. Use workspace_key.',
-      });
-    }
-  });
+  .strict();
 
 function validateScheduleInput(args: {
   schedule_type: 'cron' | 'interval' | 'once';
@@ -235,7 +192,6 @@ export function registerSchedulerTools(server: McpServer): void {
         .describe(
           'Declare every tool this task will need at job creation in this single list. Prefer reviewed semantic-capability IDs with {kind:"capability", capability_id, implementation?}; use {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...) or {kind:"mcp_server", server} only when needed. Missing access pauses setup for user approval.',
         ),
-      required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
       timeout_ms: z.number().optional(),
@@ -427,7 +383,6 @@ export function registerSchedulerTools(server: McpServer): void {
         .describe(
           'Access this job needs as a single list. Each entry has a target: {kind:"capability", capability_id, implementation?} for reviewed semantic capabilities, {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...), or {kind:"mcp_server", server}. Missing access pauses setup for user approval.',
         ),
-      required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
       timeout_ms: z.number().optional(),
