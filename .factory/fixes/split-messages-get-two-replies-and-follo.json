@@ -4,11 +4,11 @@
   "done_when": "docs/specs/one-message-one-turn.md is saved, cold-read and confirmed, and TURN-1 is on the roadmap",
   "kind": "fix",
   "review": {
-    "commit": "aa3468e64e07941b36653fd52dc11427b00b392c",
+    "commit": "305afce381640a3f73f2df14b5350892c92f9552",
     "dismissals": [],
     "findings": [],
     "status": "clean",
-    "tree": "122df960e9815a21d86b83fb11d8065ab8fbbabec3f2c33eb7b20354ae88450b"
+    "tree": "499b1e10e3c3d64f2149b2ae2c86561590eb4ec57655ec20a2808c8a94f2f9cf"
   },
   "status": "waiting for checks",
   "steps": [
@@ -18,6 +18,10 @@
     },
     {
       "at": "2026-09-29T03:45:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T03:50:29+00:00",
       "step": "review"
     }
   ],
