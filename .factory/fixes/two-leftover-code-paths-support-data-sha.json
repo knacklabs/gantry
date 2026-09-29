@@ -5,26 +5,26 @@
   "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
   "kind": "fix",
   "review": {
-    "commit": "70a4fbd462ce8e7246d0259f42e3035d6429a3c3",
+    "commit": "536872a37962c9bbf171c0b874fd8b45b4591347",
     "dismissals": [],
     "findings": [
       {
-        "body": "The SDK requirement remains unmet: packages/sdk/src/session-events.ts:109\u2013114 still accepts typing events without orderedEnvelope and updates typing state before an ordered baseline exists. apps/core/test/unit/control/sdk-transport.test.ts:660\u2013663 explicitly asserts this legacy behavior. Remove that compatibility path and update its tests. Recording a split into `the-sdk-still-branches-on-typing-events` does not demonstrate a prerequisite dependency that prevents this branch from completing the requested work.",
-        "file": ".factory/fixes/two-leftover-code-paths-support-data-sha.json",
-        "line": 4,
+        "body": "This test creates and lists reviews through internal functions, then calls the renderer directly; it never exercises the required running API and Playwright user flow. Its valid-snapshot assertions also pass with the pre-change renderer, so restoring the removed fallbacks would not fail it. Existing CLI coverage mocks the API (apps/core/test/unit/cli/memory-review-command.test.ts:15). Add coverage through the required entry points that detects the snapshot-contract regression and include it in the repository test command; forge.toml:6 invokes npm test, which currently runs only unit and integration suites (package.json:86).",
+        "file": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts",
+        "line": 114,
         "priority": "P1",
-        "title": "Not done: The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope"
+        "title": "Not done: End-to-end regression coverage for required memory review snapshots"
       },
       {
-        "body": "The updated test injects the snapshot through a mocked memory service at lines 53\u201356 and invokes the notification helper directly. Its Berlin assertion also passes with the previous snapshot-aware renderer, so it does not detect restoration of the removed fallbacks. Neither completion item has the required Playwright user flow through a running API and real database. Existing CLI coverage mocks the API at apps/core/test/unit/cli/memory-review-command.test.ts:15\u201324, while forge.toml:6 invokes npm test, whose package.json:86 definition runs only unit and integration suites. Add meaningful coverage through the required entry points and include it in the repository test command.",
-        "file": "apps/core/test/unit/jobs/memory-dreaming-job-outcome.test.ts",
-        "line": 88,
+        "body": "The new test meaningfully detects the removed compatibility behavior, but it only feeds handcrafted events directly into SessionTypingTracker. The completion contract explicitly disallows unit tests as an item's only proof and requires a running API, real database, and Playwright user flow. Add that coverage to verify observable typing behavior through the actual event-consumption path, and wire it into the repository test command (forge.toml:6 and package.json:86).",
+        "file": "apps/core/test/unit/control/two-leftover-code-paths-support-data-sha.test.ts",
+        "line": 17,
         "priority": "P1",
-        "title": "Not done: End-to-end coverage for required review snapshots and ordered typing events"
+        "title": "Not done: End-to-end coverage for ordered SDK typing events"
       }
     ],
     "status": "blocked",
-    "tree": "9e79fd74eaf0521f655b8f96c1c3f53047f739fb35b70b019446e0da1dbfdca4"
+    "tree": "a47f48931ee03e8bf562a2050d7a36b2b5c94b009c2ff5efadcf6a4a0fb76128"
   },
   "status": "fixing",
   "steps": [
@@ -46,6 +46,10 @@
     },
     {
       "at": "2026-09-29T07:42:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:04:30+00:00",
       "step": "review"
     }
   ],
