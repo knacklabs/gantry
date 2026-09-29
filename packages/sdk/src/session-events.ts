@@ -8,7 +8,7 @@ type AppliedTypingOrder = {
 type AppliedTypingState = {
   isTyping: boolean;
   observedAtMs: number;
-  order?: AppliedTypingOrder;
+  order: AppliedTypingOrder;
 };
 
 export type SessionTypingInvalidation = {
@@ -106,13 +106,7 @@ export class SessionTypingTracker {
     if (isTyping === undefined) return true;
     const target = `${event.sessionId}\n${event.threadId ?? ''}`;
     const envelope = orderedEnvelope(event.payload);
-    if (!envelope) {
-      const applied = this.appliedByTarget.get(target);
-      if (this.highestGenerationBySession.has(event.sessionId)) return false;
-      if (applied?.order) return false;
-      this.appliedByTarget.set(target, { isTyping, observedAtMs: Date.now() });
-      return true;
-    }
+    if (!envelope) return false;
     const highestGeneration = this.highestGenerationBySession.get(
       event.sessionId,
     );
@@ -145,7 +139,7 @@ export class SessionTypingTracker {
       }
     }
     const applied = this.appliedByTarget.get(target);
-    if (!applied?.order) {
+    if (!applied) {
       this.appliedByTarget.set(target, {
         isTyping,
         observedAtMs: Date.now(),

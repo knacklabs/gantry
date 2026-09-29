@@ -632,9 +632,9 @@ describe('@gantry/sdk transport', () => {
     expect(new Set(observed.map((event) => event.eventId)).size).toBe(2);
   });
 
-  it('records legacy typing state until an ordered envelope establishes the baseline', () => {
+  it('ignores typing without an ordered envelope before and after ordered state', () => {
     const tracker = new SessionTypingTracker();
-    const legacy = (isTyping: boolean, eventId: number) => ({
+    const unordered = (isTyping: boolean, eventId: number) => ({
       eventId,
       eventType: 'session.typing',
       sessionId: 'session-1',
@@ -644,9 +644,9 @@ describe('@gantry/sdk transport', () => {
       payload: { isTyping },
     });
     const ordered = {
-      ...legacy(false, 3),
+      ...unordered(true, 3),
       payload: {
-        isTyping: false,
+        isTyping: true,
         orderedEnvelope: {
           generation: 1,
           sequence: 2,
@@ -657,13 +657,16 @@ describe('@gantry/sdk transport', () => {
       },
     };
 
-    expect(tracker.apply(legacy(true, 1))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(true);
-    expect(tracker.apply(legacy(false, 2))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(false);
+    // The App producer always supplies ordering; envelope-free events cannot
+    // establish or replace the SDK's typing state.
+    expect(tracker.apply(unordered(true, 1))).toBe(false);
+    expect(tracker.isTyping('session-1')).toBeUndefined();
+    expect(tracker.apply(unordered(false, 2))).toBe(false);
+    expect(tracker.isTyping('session-1')).toBeUndefined();
     expect(tracker.apply(ordered)).toBe(true);
-    expect(tracker.apply(legacy(true, 4))).toBe(false);
-    expect(tracker.isTyping('session-1')).toBe(false);
+    expect(tracker.isTyping('session-1')).toBe(true);
+    expect(tracker.apply(unordered(false, 4))).toBe(false);
+    expect(tracker.isTyping('session-1')).toBe(true);
   });
 
   it('does not hide suppressed typing events or rewrite the reconnect cursor', async () => {
