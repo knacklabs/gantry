@@ -5,27 +5,21 @@
   "done_when": "The jobs API, IPC task parsing and scheduler MCP tools no longer mention groupScope, group_scope, requiredTools, required_tools or GANTRY_GROUP_FOLDER; the tool schema no longer advertises required_tools; tests updated",
   "kind": "fix",
   "review": {
-    "commit": "fe1c5fafc51c9b69900d975c07292b1820d04a12",
-    "dismissals": [
-      {
-        "because": "apps/core/test/unit/runner/mcp/specific-no-longer-accepted-errors-for-r.test.ts:43 this fix only deletes field-specific rejection messages for fields that no longer exist; there is no behaviour left to regress end to end, and the model-facing part (the scheduler tool schema no longer advertising required_tools) is covered by this real MCP SDK test",
-        "finding": 1,
-        "from_base": false
-      }
-    ],
+    "commit": "54eeb96e5b16c74af10e0f7b484e7ffc9e23fec0",
+    "dismissals": [],
     "findings": [
       {
-        "body": "The new test verifies schema discovery through the real MCP SDK, but never exercises the running application's jobs API, IPC processing, or MCP startup. No replacement regression covers the deleted field-specific errors or environment-variable guards. Restoring those deleted behaviors would leave this test passing. Existing HTTP validation coverage checks unrelated fields such as `model` (apps/core/test/unit/control/job-trigger.test.ts:1057), so it does not close this gap. Add suite-wired tests through the real entry points that fail when the removed special cases return, including startup with the obsolete environment variable present. This is required by the explicit end-to-end test audit.",
+        "body": "The new test checks schema discovery through an in-memory MCP server, but never exercises the running jobs API, IPC processing, or MCP startup with GANTRY_GROUP_FOLDER present. Restoring the deleted field-specific API/IPC errors or environment-variable guards would leave it passing. Existing HTTP coverage at apps/core/test/unit/control/job-trigger.test.ts:1057 checks the unrelated `model` field; the changed scheduler tests call captured schemas/handlers directly. Add suite-wired tests through the real application entry points that fail when these removed behaviors return, using the real database where applicable. The explicit end-to-end test requirement remains unmet despite the valid schema-discovery assertion.",
         "file": "apps/core/test/unit/runner/mcp/specific-no-longer-accepted-errors-for-r.test.ts",
         "line": 43,
         "priority": "P1",
         "title": "Not done: End-to-end regression tests for removed job and scheduler fields"
       }
     ],
-    "status": "clean",
-    "tree": "4de53f24fd64ac3d91aedd0b9a9d4d1293d00c543ce8d4b4bba38ac5bcba2457"
+    "status": "blocked",
+    "tree": "8efe4e86e3e6fdad7da78b975fde0a5310c3e62ab1a95254ff71ae225ba9423f"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T06:31:50+00:00",
@@ -33,6 +27,10 @@
     },
     {
       "at": "2026-09-29T06:53:31+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:51:10+00:00",
       "step": "review"
     }
   ],
