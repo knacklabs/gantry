@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: the fix contract covers both the memory snapshot fallback and the SDK typing-event branch; pure deletions plus regression tests",
   "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
   "branch": "fix/two-leftover-code-paths-support-data-sha",
   "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
