@@ -6,6 +6,7 @@ import {
 } from '@core/adapters/storage/postgres/storage-service.js';
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { PostgresLiveTurnRepository } from '@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js';
+import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import {
   DEFAULT_AGENT_ID,
@@ -237,6 +238,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
     const folder = 'failure_boundary';
+    await new PostgresCanonicalGraphRepository(runtime.service.db).ensureAgent(
+      folder,
+    );
     const agentId = agentIdForFolder(folder);
     const chatJid = 'tg:failure-boundary';
     const channel = createFakeChannelRuntime((jid) => jid === chatJid);
@@ -348,6 +352,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
     const folder = 'restart_boundary';
+    await new PostgresCanonicalGraphRepository(runtime.service.db).ensureAgent(
+      folder,
+    );
     const queue = new GroupQueue({
       maxMessageRuns: 2,
       maxJobRuns: 1,

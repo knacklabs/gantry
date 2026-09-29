@@ -17,6 +17,7 @@ import { processBrowserIpcRequest } from '@core/runtime/ipc-browser-handler.js';
 import { validateAgentToolRuntimeRules } from '@core/application/agents/agent-tool-runtime-rules.js';
 import { nowIso } from '@core/shared/time/datetime.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import {
   buildLiveAdmissionProcessor,
@@ -368,6 +369,9 @@ maybeDescribe(
       _setRuntimeStorageForTest(runtime.storageRuntime);
       const jid = 'tg:two-worker-active-follow-up';
       const folder = 'two_worker_follow_up';
+      await new PostgresCanonicalGraphRepository(
+        runtime.service.db,
+      ).ensureAgent(folder);
       const scope = {
         appId: 'default',
         conversationId: jid,
