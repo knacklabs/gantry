@@ -1,0 +1,51 @@
+{
+  "base": "32b1f190f7b9f9fd8f473b9902b1f7c10b80a425",
+  "branch": "fix/four-guard-tests-exist-only-to-keep-remo",
+  "done_when": "The four legacy guard tests are deleted, nothing else references them, and the full suite passes",
+  "kind": "fix",
+  "review": {
+    "commit": "208f2b95dabdc4934854a7bed2b3315b9d2d1b41",
+    "dismissals": [
+      {
+        "because": "docs/review-instructions.md:10 the only remaining reference is inside a historic Forge-written .factory review record, which agents never edit; owner's standing rule 2026-09-29",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": ".factory/fixes/four-guard-tests-exist-only-to-keep-remo.json:4 owner's standing rule (2026-09-29): pure legacy deletions get no end-to-end guard tests",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "All four tests are deleted, but `.factory/fixes/after-the-move-to-forge-v1-myclaw-still.json:18` still names `browser-legacy-cleanup.test.ts` in a historical review record. The requirement that nothing else references the deleted tests is therefore unmet. The full-suite result could not be verified because this review was read-only.",
+        "file": "docs/review-instructions.md",
+        "line": 10,
+        "priority": "P1",
+        "title": "Not done: The four legacy guard tests are deleted, nothing else references them, and the full suite passes"
+      },
+      {
+        "body": "The branch deletes the four guards without adding a suite-wired acceptance test through Forge's command entry point. `forge.toml:6` runs the repository checks, while `package.json:86-88` runs Gantry's unit and integration tests; no remaining test establishes that this cleanup is complete through Forge. Restoring a deleted guard or retaining a reference would not fail an acceptance test for this item, as the required test-audit contract demands.",
+        "file": ".factory/fixes/four-guard-tests-exist-only-to-keep-remo.json",
+        "line": 4,
+        "priority": "P1",
+        "title": "Not done: End-to-end Forge test for the guard-test removal"
+      }
+    ],
+    "status": "clean",
+    "tree": "56362d547db970f318502658baf35fe9f19ef74e5f46c1c30c9bbc38835bc3c8"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T15:25:01+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T15:47:48+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Four guard tests exist only to keep removed legacy names out of code and docs; the owner chose to delete them"
+}
