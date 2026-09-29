@@ -248,8 +248,8 @@ export interface MemoryReviewRecord extends NormalizedMemorySubject {
   validationSummary: string;
   /** Raw immutable artifact JSON captured at review creation (Task 3). */
   reviewSnapshotJson?: string | null;
-  /** Parsed form of {@link reviewSnapshotJson} when present and valid. */
-  reviewSnapshot?: MemoryReviewSnapshot | null;
+  /** Parsed form of {@link reviewSnapshotJson}. */
+  reviewSnapshot: MemoryReviewSnapshot;
   /** Origin of the decision, e.g. 'mcp' | 'channel_action' | 'control_api'. */
   decisionSource?: string | null;
   reviewerId?: string | null;

@@ -59,7 +59,18 @@ describe('buildMemoryReviewCreatedNotification', () => {
   const record = {
     id: 'mrv_1',
     proposal: { action: 'rewrite', key: 'user.location', reason: 'stale' },
-    reviewSnapshot: null,
+    reviewSnapshot: {
+      schemaVersion: 1,
+      subject,
+      proposedCanonical: {
+        kind: 'fact',
+        key: 'user.location',
+        value: 'Berlin',
+        reason: 'stale',
+        evidenceIds: [],
+      },
+      evidence: [],
+    },
   } as never;
 
   it('loads the first review and builds a snapshot-sourced view', async () => {
@@ -74,6 +85,7 @@ describe('buildMemoryReviewCreatedNotification', () => {
     expect(context).not.toBeNull();
     expect(context?.kind).toBe('memory_review_created');
     expect(context?.reviewMessageView.reviewId).toBe('mrv_1');
+    expect(context?.reviewMessageView.change).toBe('"Berlin"');
     expect(context?.reviewMessageView.affordances).toHaveLength(3);
     // pendingCount 2 → this message shows 1, so 1 more is pending.
     expect(context?.reviewMessageView.morePendingCount).toBe(1);

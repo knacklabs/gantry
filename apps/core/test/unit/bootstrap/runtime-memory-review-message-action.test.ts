@@ -137,10 +137,10 @@ describe('handleMemoryReviewDecisionAction', () => {
     expect(outcome.state).toBe('invalid');
   });
 
-  it('maps a no-longer-pending review to stale', async () => {
+  it('maps an already-decided review to stale', async () => {
     const execute = vi.fn(async () => ({
       state: 'stale' as const,
-      receipt: 'This review is no longer pending.',
+      receipt: 'This review was already decided.',
     }));
     const { deps: d } = deps({ execute });
     const outcome = await handleMemoryReviewDecisionAction(d, baseAction());

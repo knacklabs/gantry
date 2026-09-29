@@ -1,0 +1,51 @@
+{
+  "base": "cc0f36359c604ea52b0cc35c53737e11dae0e335",
+  "branch": "fix/approving-a-learned-memory-always-fails",
+  "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
+  "kind": "fix",
+  "review": {
+    "commit": "76e6011272dc6122fb13d650b3987416dff3dd55",
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts:203 drives clicks through the production message-action router with real Postgres and the real memory service, faking only the Slack client; passes host-side 3/3; the owner approved dismissing the running-app/browser test for this fix on 2026-09-29",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "The required running-application end-to-end test is missing. These tests use real Postgres and the production message-action router, but `click()` invokes a captured Slack callback with a handcrafted payload and asserts captured `chat.update` arguments. They never start the application/API or exercise a browser flow through Playwright, so they cannot verify production registration or the visible card interaction. Add the required running-application test with real Postgres, faking only third-party edges, that verifies candidate-backed approval persists the memory and the card displays approved, failed-with-reason, and already-decided outcomes.",
+        "file": "apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts",
+        "line": 203,
+        "priority": "P1",
+        "title": "Not done: Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with an..."
+      }
+    ],
+    "status": "clean",
+    "tree": "fb712b2589aa751eb53da444f59ce5d42f8bbfa09268efa5acf5df70ac912bf7"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T07:39:00+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T07:52:48+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:18:41+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T10:43:38+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T11:11:21+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Approving a learned memory always fails as stale while the card still says 'Memory review approved', so preferences and corrections can never be approved"
+}

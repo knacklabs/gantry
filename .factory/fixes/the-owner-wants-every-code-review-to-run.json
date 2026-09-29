@@ -1,0 +1,55 @@
+{
+  "base": "01bd1e28d4359aff8826b4af09f6bd9e4d7c3866",
+  "branch": "fix/the-owner-wants-every-code-review-to-run",
+  "done_when": "forge.toml [models.review] sets model = \"gpt-6-sol\" and effort = \"high\", and forge doctor passes on the pinned release",
+  "kind": "fix",
+  "review": {
+    "commit": "9826bb71aa01471754bfd080c9ba8da736ba1709",
+    "dismissals": [
+      {
+        "because": "forge.toml:36 forge doctor was run on this branch with the pinned v1.1.0 release and passes (its only note was about local git hooks, not the settings); dismissal approved by the owner 2026-09-29",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "forge.toml:35 Gantry's test suite covers Gantry, not Forge's own settings file; Forge's own suite covers review model selection; dismissal approved by the owner 2026-09-29",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "Both settings are correct, but the required `forge doctor` check remains unverified. `.github/workflows/forge.yml:38-47` installs Forge v1.1.0 and runs only `forge hook pr-check`; the branch's fix record also marks the doctor check unresolved. Run `forge doctor` on the pinned release and provide a passing result.",
+        "file": "forge.toml",
+        "line": 36,
+        "priority": "P1",
+        "title": "Not done: forge.toml [models.review] sets model = \"gpt-6-sol\" and effort = \"high\", and forge doctor passes on the pinned release"
+      },
+      {
+        "body": "The change adds no suite-wired test that checks the effective review model and effort through a Forge command. `package.json:86-88` runs Gantry's unit and integration suites, and `.github/workflows/forge.yml:32-47` runs Forge's PR check against the base branch's configuration. Reverting this setting would therefore leave the required regression test passing. Add a test that uses Forge's command entry point and fails when either review setting changes.",
+        "file": "forge.toml",
+        "line": 35,
+        "priority": "P1",
+        "title": "Not done: end-to-end test for review model and effort selection"
+      }
+    ],
+    "status": "clean",
+    "tree": "886fdc7f30e5b3c1063f9cbad87c809c8be800a91d02ab64372701c4c15c35c2"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T14:17:35+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T14:23:22+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T14:39:01+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The owner wants every code review to run on GPT-6 Sol at high effort, but myclaw's forge.toml still reviews with gpt-6-astra"
+}
