@@ -1,12 +1,28 @@
 {
+  "approval": {
+    "at": "2026-09-29T08:03:41+00:00",
+    "by": "human-via-Claude",
+    "event": "toolu_019ZyNfcdNfmB2YQTJYnAytz",
+    "hash": "a930c0de53d2dba1e5b8491aba7b6ccf1fa14b9964d6ec3a25956b1f0782d558",
+    "runtime": "claude",
+    "session": "a69a30fe-23d4-5b7d-9b59-8360571f490c"
+  },
   "doc": "plans/TURN-2.md",
-  "status": "planning",
+  "status": "approved",
   "steps": [
     {
       "at": "2026-09-29T07:49:55+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T07:59:36+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-09-29T08:03:41+00:00",
+      "step": "approved"
     }
   ],
   "title": "Messages sent while the agent works steer its answer",
-  "touches": 0
+  "touches": 1
 }
