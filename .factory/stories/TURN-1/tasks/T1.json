@@ -1,54 +1,40 @@
 {
   "branch": "task/TURN-1-T1",
   "review": {
-    "commit": "a5c29b8f551ddfd5697006917b4e3968d91068a9",
+    "commit": "4a80ce3bee0f34f240c7dddba3867d4046511ec5",
     "dismissals": [],
     "findings": [
       {
-        "body": "chunk 1/3:\n\nTwo provider accounts sharing an app, agent, chat JID and thread match the same consumption query. Intake stores the raw `msg.chat_jid` as `conversationId` and distinguishes accounts in `queueJid` instead (`canonical-message-repository.postgres.ts:369\u2013375`; `shared/thread-queue-key.ts:21\u201334`). Consequently, `takeInput` can return both accounts' messages, and `consumeAll` can mark another account's pending messages consumed. Preserve provider-account identity in the port and both queries, and add an integration test with otherwise identical routes on two accounts.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
-        "line": 178,
-        "priority": "P1",
-        "title": "Include provider-account identity in the consumption scope"
-      },
-      {
-        "body": "chunk 1/3:\n\nThe crossing and concurrent-consumer tests exercise repositories directly. They do not prove delivery of late input, release after failure before a reply, retention after failure following a reply, or consumption across settings reload and restart through the real entry point. Existing lifecycle coverage does not supply that proof: `apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:638\u2013643` checks the old cursor, while `apps/core/test/agent-e2e/scenarios/boot-restart.agent-e2e.test.ts:114\u2013143` checks agent configuration survival. Add the required lifecycle scenarios with delivery-count and persisted-consumption assertions. The review contract explicitly keeps missing tests at P1.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 58,
-        "priority": "P1",
-        "title": "Not done: no-loss/no-duplication end-to-end tests"
-      },
-      {
-        "body": "chunk 1/3:\n\nThese storage operations have no production callers, as intended for T1. Runtime admission still uses `getOrRecoverCursor` and `collectPendingMessagesSince` (`apps/core/src/runtime/message-loop.ts:497\u2013509`), and group processing still reads through the cursor (`apps/core/src/runtime/group-processing.ts:96\u2013108`). Done-when item 2 therefore remains dependent on T2's coordinated reader/writer and recovery switch and T4's runner delivery confirmations. Track this functional gap with those tasks; the repository addition alone does not deliver the story's guarantee.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts",
-        "line": 104,
-        "priority": "P2",
-        "title": "Later: T2 and T4 must complete message delivery and failure recovery"
-      },
-      {
-        "body": "chunk 1/3:\n\nThe branch adds `plans/TURN-1.md`, `plans/TURN-1.read.md` and `.factory/stories/TURN-1/**`, including the seven-task plan and historical review findings. These paths are outside the permitted scope and are not needed to implement or test the storage contract. Move those artifacts to a separately scoped change. The repository port and Postgres integration-test changes are necessary for this task.",
-        "file": ".factory/stories/TURN-1/tasks/T1.json",
-        "line": 3,
-        "priority": "P2",
-        "title": "Remove story-wide planning and review artifacts from the scoped change"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe new crossing test calls repository methods directly; it never starts a turn, delivers a reply, reloads settings, or restarts a worker. It therefore cannot prove the required end-to-end guarantees for late messages and failures before versus after replying. The existing two-process test at apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:424 covers one inbound message, without these consumption scenarios. Add the required real-entry-point tests asserting delivery counts and remaining unconsumed items across two workers, settings reload, restart, and both failure boundaries. Although production wiring belongs to T2/T4, the review contract explicitly keeps missing test coverage at P1.",
+        "body": "chunk 1/3:\n\nThe added crossing test calls repositories directly; it never delivers input to an agent, sends a reply, reloads settings, or restarts a worker. The required end-to-end coverage for late arrivals, failures before versus after replying, two workers, settings reload, and restart is missing. Existing coverage does not establish this: apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:638\u2013643 asserts the old cursor, and apps/core/test/agent-e2e/scenarios/boot-restart.agent-e2e.test.ts:114\u2013143 verifies configuration survival. Add real-entry-point scenarios asserting delivery counts and persisted consumption. The review contract explicitly keeps missing tests at P1.",
         "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
         "line": 58,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice."
       },
       {
-        "body": "chunk 3/3:\n\nThe branch adds plans/TURN-1.md and plans/TURN-1.read.md, although the permitted documentation scope is docs/decisions/0103-*. These files contain the seven-task story plan and a prior review receipt; neither is needed to implement or test T1's persistence contract. Move both additions to a separate planning change. The repository port and integration-test changes are necessary for this task and do not have the same scope issue.",
-        "file": "plans/TURN-1.md",
-        "line": 1,
+        "body": "chunk 1/3:\n\nThese operations have no production callers, as intended for T1. Runtime admission still reads through getOrRecoverCursor and collectPendingMessagesSince (apps/core/src/runtime/message-loop.ts:497\u2013509), and turn processing still reads the cursor (apps/core/src/runtime/group-processing.ts:96\u2013108). Consequently, the storage addition alone does not deliver Done-when item 2. Its functional completion depends on T2's coordinated consumption/recovery switch and T4's runner delivery confirmations; track this as a dependency on those tasks.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts",
+        "line": 104,
         "priority": "P2",
-        "title": "Remove the story-wide planning artifacts from this scoped change"
+        "title": "Later: T2 and T4 must complete message delivery and failure recovery"
+      },
+      {
+        "body": "chunk 1/3:\n\nThe branch adds .factory/stories/TURN-1/**, plans/TURN-1.md, and plans/TURN-1.read.md, containing story-wide planning and historical review records. These paths are outside the permitted scope and are unnecessary to implement or test the storage contract. Move them to a separately scoped change. The port, integration tests, and canonical-message provider-account propagation are needed for this implementation.",
+        "file": ".factory/stories/TURN-1/tasks/T1.json",
+        "line": 3,
+        "priority": "P2",
+        "title": "Remove story-wide planning and review artifacts from the scoped change"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe added concurrency test calls the repository through two connections, but never starts workers, reloads settings, restarts the runtime, or checks delivery to an agent. It therefore cannot detect messages dropped, replayed, or stranded across those lifecycle events. The existing two-process test at apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:140 races a job-run claim, and its recovery case at line 1038 checks lease fencing rather than message consumption. Add the required end-to-end consumption assertions, including failure before versus after a reply. Runtime wiring belongs to T2/T4, but the review contract explicitly keeps missing required tests at P1.",
+        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
+        "line": 213,
+        "priority": "P1",
+        "title": "Not done: Two-worker, settings-reload and restart message-consumption tests"
       }
     ],
     "status": "blocked",
-    "tree": "45868ba79b61a8e1ae76849635a27790ba3a478799e0cedebe400416d80b58b8"
+    "tree": "2878a3d40db065e4887f62a2a54d3f76de82b48ecc38d8b172e85cd762528a05"
   },
   "status": "fixing",
   "steps": [
@@ -62,6 +48,10 @@
     },
     {
       "at": "2026-09-29T06:40:38+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:08:46+00:00",
       "step": "review"
     }
   ]
