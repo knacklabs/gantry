@@ -1,0 +1,14 @@
+{
+  "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
+  "branch": "fix/the-repo-keeps-30-old-drizzle-schema-sna",
+  "done_when": "Only the latest migration snapshot remains in migrations/meta, drizzle-kit generate shows no schema diff, and the two tests that read old snapshots use the latest one",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T06:31:12+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The repo keeps 30 old drizzle schema snapshots (13 MB) that drizzle never reads; only the latest is needed"
+}
