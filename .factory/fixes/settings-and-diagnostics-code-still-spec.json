@@ -6,7 +6,18 @@
   "kind": "fix",
   "review": {
     "commit": "533555fe875ceb29385fe669b1b75719b33513bb",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/unit/config/settings-import-service.test.ts:2507 owner's standing rule (2026-09-29): no tests may name removed fields, and regression tests proving a pure legacy deletion stays deleted are dismissed; generic rejection stays covered by existing current-behaviour tests",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/src/jobs/execution-diagnostics.ts:236 owner's standing rule (2026-09-29): an end-to-end case carrying an old field would name removed fields; pure legacy deletions get no guard tests",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The two tests that pinned the old settings messages were deleted without replacement. The remaining test in apps/core/test/unit/config/runtime-settings.test.ts:200 checks only that parsing throws a broad 'not supported' error; it passes both before and after this change. The generic rejection paths remain in runtime-settings-parser.ts:979 and runtime-settings-agents-parser.ts:395, but no end-to-end command or revision-import test verifies their new messages. Update the tests at those entry points so they fail if either removed special-case message returns.",
@@ -23,10 +34,10 @@
         "title": "Not done: execution-diagnostics terminal-denial end-to-end test"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "c359189e06cb42ba945763ede02635b8bb55dafb9730b4d587dada602f8b67da"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T16:37:26+00:00",
