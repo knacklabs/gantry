@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: deletes five tests that pinned one-off migrations and keeps one current-behaviour storage health check; tests only, no production change",
   "base": "32b1f190f7b9f9fd8f473b9902b1f7c10b80a425",
   "branch": "fix/five-tests-only-re-check-one-off-data-mi",
   "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
