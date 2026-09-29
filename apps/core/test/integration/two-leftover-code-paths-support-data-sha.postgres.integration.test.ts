@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { createPendingMemoryReview } from '@core/memory/app-memory-review-create.js';
-import { listPendingMemoryReviews } from '@core/memory/app-memory-review.js';
+import { listPendingMemoryReviewPage } from '@core/memory/app-memory-review.js';
 import { buildReviewMessageView } from '@core/memory/review-message-view.js';
 import type { NormalizedMemorySubject } from '@core/memory/memory-types.js';
 
@@ -32,6 +32,10 @@ maybeDescribe('memory reviews require stored snapshots (Postgres)', () => {
       schemaPrefix: 'review_snapshot_contract',
     });
     const now = '2026-09-29T00:00:00.000Z';
+    await runtime.service.db.insert(pgSchema.usersPostgres).values({
+      id: 'user-snapshot-contract',
+      appId: subject.appId,
+    });
     await runtime.service.db.insert(pgSchema.memoryEvidencePostgres).values({
       id: evidenceId,
       appId: subject.appId,
@@ -108,9 +112,17 @@ maybeDescribe('memory reviews require stored snapshots (Postgres)', () => {
       .set({ text: 'The user moved to Rome.' })
       .where(eq(pgSchema.memoryEvidencePostgres.id, evidenceId));
 
-    const reviews = await listPendingMemoryReviews({ db, subject });
+    const { reviews, reviewPage } = await listPendingMemoryReviewPage({
+      db,
+      subject,
+    });
     expect(reviews).toHaveLength(1);
     expect(reviews[0].reviewSnapshot.conflict?.active.value).toBe('Paris');
+    expect(reviewPage.items[0].before?.value).toBe('Paris');
+    expect(reviewPage.items[0].after?.value).toBe('Berlin');
+    expect(reviewPage.items[0].evidence[0].snippet).toBe(
+      'The user moved to Berlin.',
+    );
     const view = buildReviewMessageView(reviews[0]);
     expect(view.sides[0].value).toBe('Paris');
     expect(view.change).toBe('"Berlin"');
