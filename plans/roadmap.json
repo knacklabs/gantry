@@ -2507,6 +2507,13 @@
       "spec": "docs/specs/one-message-one-turn.md",
       "status": "pending",
       "order": 124
+    },
+    {
+      "key": "TURN-2",
+      "title": "Messages sent while the agent works steer its answer",
+      "spec": "docs/specs/steer-running-answer.md",
+      "status": "pending",
+      "order": 125
     }
   ],
   "epics": [
