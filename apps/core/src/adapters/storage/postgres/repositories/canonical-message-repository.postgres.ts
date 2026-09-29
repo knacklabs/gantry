@@ -368,6 +368,7 @@ export class PostgresCanonicalMessageRepository {
         agentSessionId: admission.agentSessionId,
         conversationId: msg.chat_jid,
         threadId: msg.thread_id ?? null,
+        providerAccountId,
         queueJid: makeAgentThreadQueueKey(
           msg.chat_jid,
           agentId,

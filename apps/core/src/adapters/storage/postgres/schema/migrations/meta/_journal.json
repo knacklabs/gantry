@@ -1037,6 +1037,20 @@
       "when": 1788953932534,
       "tag": "20260909113852_provider_session_context_high_water_mark",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1790660602595,
+      "tag": "20260929054322_live_admission_consumption",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1790662570803,
+      "tag": "20260929061610_scope_live_admission_input",
+      "breakpoints": true
     }
   ]
 }
