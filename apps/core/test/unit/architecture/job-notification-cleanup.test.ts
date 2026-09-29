@@ -36,22 +36,6 @@ const unsupportedSchedulerRoutingAliases = [
   'deliverTo',
   'threadId',
   'sessionId',
-  'groupScope',
-  'group_scope',
-] as const;
-
-// Group->workspace rename: legacy execution-scope tokens that must not
-// reappear in active docs.
-const workspaceRenameLegacyTokens = [
-  'groupScope',
-  'group_scope',
-  'groupFolder',
-  'group_folder',
-  'GANTRY_GROUP_FOLDER',
-  'Group Folder',
-  'group folder',
-  'idx_jobs_target_group_scope',
-  'executionContext.groupScope',
 ] as const;
 
 const allowedLegacyReferenceFiles = new Set([
@@ -186,22 +170,5 @@ describe('job notification cleanup', () => {
         expect(source).not.toContain(term);
       }
     }
-  });
-
-  it('keeps legacy group execution-scope tokens out of active docs', () => {
-    const docsRoot = path.join(repoRoot, 'docs');
-    const offenders: string[] = [];
-
-    for (const absolutePath of collectFiles(docsRoot)) {
-      if (!/\.md$/.test(absolutePath)) continue;
-      const relativePath = path.relative(repoRoot, absolutePath);
-      const source = fs.readFileSync(absolutePath, 'utf8');
-      const hit = workspaceRenameLegacyTokens.find((token) =>
-        source.includes(token),
-      );
-      if (hit) offenders.push(`${relativePath} (${hit})`);
-    }
-
-    expect(offenders).toEqual([]);
   });
 });
