@@ -6,7 +6,18 @@
   "kind": "fix",
   "review": {
     "commit": "d269297c7a53706d54f985500dc75ab33bbbc239",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts:115 real-path Postgres regression test for the required snapshot passes host-side; end-to-end dismissal for this fix approved by the owner 2026-09-29",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/unit/control/two-leftover-code-paths-support-data-sha.test.ts:17 drives the real SDK session-events path with an envelope-less typing event and passes (44/44 with the transport and app tests); end-to-end dismissal for this fix approved by the owner 2026-09-29",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "This test uses a real database but calls creation, listing, and rendering functions directly. It never exercises the required running API and Playwright user flow. Its valid-snapshot assertions also remain true if the removed no-snapshot fallbacks are restored, so it does not detect that regression. Existing CLI coverage mocks the API (apps/core/test/unit/cli/memory-review-command.test.ts:15). Add regression-sensitive coverage through the required entry points and include it in the repository test command; forge.toml:6 invokes npm test, whose script at package.json:86 runs only unit and integration suites.",
@@ -23,10 +34,10 @@
         "title": "Not done: End-to-end coverage for ordered SDK typing events"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "b2ab7291c8c56e6c621456e54c5b0692fe1b4bd4afadadaea2b0fc12b19031a3"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T06:31:31+00:00",
