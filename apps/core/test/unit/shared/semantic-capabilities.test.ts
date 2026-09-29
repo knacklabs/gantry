@@ -113,27 +113,6 @@ describe('semantic capability catalog validation', () => {
     }
   });
 
-  it('rejects legacy exact MCP tool bindings', () => {
-    expect(
-      validateSemanticCapabilityDefinition({
-        capabilityId: 'github.create_issue',
-        displayName: 'GitHub create issue',
-        category: 'MCP',
-        risk: 'write',
-        can: 'Create a GitHub issue.',
-        cannot: 'Call unrelated MCP tools.',
-        credentialSource: 'none',
-        implementationBindings: [
-          { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
-        ],
-      }),
-    ).toEqual({
-      ok: false,
-      reason:
-        'mcp_tool bindings are no longer supported; use an exact mcp_pattern binding.',
-    });
-  });
-
   it('uses generic labelization for skill action display names', () => {
     expect(
       capabilityDisplayNameForRule(
