@@ -1,0 +1,14 @@
+{
+  "base": "cc0f36359c604ea52b0cc35c53737e11dae0e335",
+  "branch": "fix/main-fails-the-snapshot-inventory-test-i",
+  "done_when": "Only the latest drizzle snapshot remains, the inventory test checks that the latest journal entry's snapshot exists instead of counting files, drizzle-kit generate shows no diff, and the full unit suite passes on main",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T08:12:38+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "main fails the snapshot inventory test: it demands exactly one migration snapshot, but #528 and #531 merged in an order that left three, and every future migration would break it again"
+}
