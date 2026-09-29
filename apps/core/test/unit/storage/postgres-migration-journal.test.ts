@@ -186,7 +186,7 @@ describe('Postgres migration journal', () => {
 
     const snapshot = JSON.parse(
       fs.readFileSync(
-        path.join(migrationsDir, 'meta/20260909113852_snapshot.json'),
+        path.join(migrationsDir, 'meta/20260929061610_snapshot.json'),
         'utf8',
       ),
     ) as {
