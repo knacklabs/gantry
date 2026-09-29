@@ -17,12 +17,6 @@ const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
 export const SCHEDULER_WAIT_RESPONSE_GRACE_MS = 10_000;
 
-if (process.env.GANTRY_GROUP_FOLDER !== undefined) {
-  throw new Error(
-    'GANTRY_GROUP_FOLDER is no longer supported. Use GANTRY_WORKSPACE_KEY.',
-  );
-}
-
 const ambientWorkspaceKey = process.env.GANTRY_WORKSPACE_KEY?.trim() ?? '';
 // The provider account (installation) the creating turn is bound to. Stamped
 // onto default notification routes so a job's route names its authoritative

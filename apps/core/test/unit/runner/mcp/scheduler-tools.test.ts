@@ -305,10 +305,7 @@ describe('scheduler MCP tools', () => {
     expect(schemas.get('scheduler_list_notification_targets')).toBeDefined();
   });
 
-  it('rejects removed execution_context group scope fields through the MCP schema parse path', async () => {
-    // Guards the real MCP parse path: the SDK runs the per-tool zod schema and
-    // strips unknown keys before the handler, so the rejection must come from
-    // the execution_context schema (passthrough + superRefine), not the handler.
+  it('rejects unknown execution_context fields through the MCP schema parse path', async () => {
     const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
@@ -346,21 +343,19 @@ describe('scheduler MCP tools', () => {
 
     registerSchedulerTools(server as never);
 
-    for (const removedField of ['group_scope', 'groupScope'] as const) {
-      const result = schemas
-        .get('scheduler_upsert_job')!
-        .execution_context.safeParse({
-          conversation_jid: 'tg:team',
-          thread_id: null,
-          workspace_key: 'team',
-          [removedField]: 'team',
-        });
+    const result = schemas
+      .get('scheduler_upsert_job')!
+      .execution_context.safeParse({
+        conversation_jid: 'tg:team',
+        thread_id: null,
+        workspace_key: 'team',
+        unexpected: 'team',
+      });
 
-      expect(result.success).toBe(false);
-      expect(result.error!.issues.map((issue) => issue.message)).toContain(
-        'group_scope/groupScope is no longer accepted. Use workspace_key.',
-      );
-    }
+    expect(result.success).toBe(false);
+    expect(result.error!.issues.map((issue) => issue.message)).toContain(
+      'Unrecognized key: "unexpected"',
+    );
   });
 
   it('writes scheduler capability requirements for update mutations', async () => {
@@ -712,7 +707,7 @@ describe('scheduler MCP tools', () => {
     expect(writeIpcFile).not.toHaveBeenCalled();
   });
 
-  it('rejects deprecated scheduler required_tools input with cutover guidance', async () => {
+  it('rejects unknown scheduler fields without sending a mutation', async () => {
     const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
@@ -743,12 +738,12 @@ describe('scheduler MCP tools', () => {
     registerSchedulerTools(server as never);
     const response = await tools.get('scheduler_update_job')!({
       job_id: 'job-1',
-      required_tools: ['Browser'],
+      unexpected: ['Browser'],
     });
 
     expect(response.isError).toBe(true);
     expect(response.content[0].text).toContain(
-      'required_tools is no longer accepted. Use access_requirements',
+      'Unsupported scheduler fields: unexpected',
     );
     expect(writeIpcFile).not.toHaveBeenCalled();
   });

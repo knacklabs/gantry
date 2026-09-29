@@ -400,77 +400,12 @@ describe('validateIpcAuthRequest', () => {
     assertRejected({ threadId: 'thread-1' });
     assertRejected({ session_id: 'session-1' });
     assertRejected({ sessionId: 'session-1' });
-    const assertRejectedWith = (
-      extra: Record<string, unknown>,
-      message: string,
-    ) => {
-      const requestId = `task-non-canonical-job-fields-${Math.random().toString(36).slice(2)}`;
-      expect(() =>
-        parseTaskIpcData(
-          signedPayload(
-            {
-              ...basePayload,
-              requestId,
-              nonce: randomUUID(),
-              ...extra,
-            },
-            'team',
-            'thread-1',
-          ),
-          'team',
-        ),
-      ).toThrow(message);
-    };
-    assertRejectedWith(
-      { group_scope: 'team' },
-      'group_scope is no longer accepted. Use workspace_key.',
-    );
-    assertRejectedWith(
-      { groupScope: 'team' },
-      'groupScope is no longer accepted. Use workspaceKey.',
-    );
     assertRejected({ required_mcp_servers: ['mcp:legacy'] });
-    assertRejected({ required_tools: ['Browser'] });
     assertRejected({
       capability_requirements: [
         { capabilityId: 'acme.records.append', reason: 'required' },
       ],
     });
-  });
-
-  it('rejects deprecated scheduler requiredTools at task parsing boundary', () => {
-    const payload = signedPayload(
-      {
-        requestId: 'task-required-tools-cutover',
-        nonce: randomUUID(),
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-        type: 'scheduler_upsert_job',
-        context: { threadId: 'thread-1', responseKeyId: TEST_RESPONSE_KEY_ID },
-        name: 'Job',
-        prompt: 'Run it',
-        scheduleType: 'interval',
-        scheduleValue: '60000',
-        executionContext: {
-          conversationJid: 'tg:team',
-          threadId: 'thread-1',
-          workspaceKey: 'team',
-        },
-        notificationRoutes: [
-          {
-            conversationJid: 'tg:team',
-            threadId: 'thread-1',
-            label: 'primary',
-          },
-        ],
-        requiredTools: ['Browser'],
-      },
-      'team',
-      'thread-1',
-    );
-
-    expect(() => parseTaskIpcData(payload, 'team')).toThrow(
-      /requiredTools.*Use accessRequirements/,
-    );
   });
 
   it('rejects scheduler job allowedTools because jobs inherit agent capabilities', () => {
