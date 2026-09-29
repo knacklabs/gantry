@@ -4,11 +4,37 @@
   "branch": "fix/settings-and-diagnostics-code-still-spec",
   "done_when": "runtime-settings-compact, settings-revision-document and execution-diagnostics no longer mention those removed fields, and the tests that pinned the messages are updated",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "533555fe875ceb29385fe669b1b75719b33513bb",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The two tests that pinned the old settings messages were deleted without replacement. The remaining test in apps/core/test/unit/config/runtime-settings.test.ts:200 checks only that parsing throws a broad 'not supported' error; it passes both before and after this change. The generic rejection paths remain in runtime-settings-parser.ts:979 and runtime-settings-agents-parser.ts:395, but no end-to-end command or revision-import test verifies their new messages. Update the tests at those entry points so they fail if either removed special-case message returns.",
+        "file": "apps/core/test/unit/config/settings-import-service.test.ts",
+        "line": 2507,
+        "priority": "P1",
+        "title": "Not done: runtime-settings-compact, settings-revision-document and execution-diagnostics no longer mention those removed fields, and the\u0ed0amp"
+      },
+      {
+        "body": "Removing the legacy-field guard changes whether a typed terminal denial carrying an old field is recorded, but no test exercises that change through a real job run. The existing job-lifecycle test at apps/core/test/integration/job-lifecycle.postgres.integration.test.ts:1371 supplies a typed action without old fields, and the unit test at apps/core/test/unit/jobs/execution-diagnostics.test.ts:191 checks only a missing action. Both pass if this guard is restored. Add an end-to-end case that observes the resulting denial.",
+        "file": "apps/core/src/jobs/execution-diagnostics.ts",
+        "line": 236,
+        "priority": "P1",
+        "title": "Not done: execution-diagnostics terminal-denial end-to-end test"
+      }
+    ],
+    "status": "blocked",
+    "tree": "c359189e06cb42ba945763ede02635b8bb55dafb9730b4d587dada602f8b67da"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T16:37:26+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T17:06:52+00:00",
+      "step": "review"
     }
   ],
   "why": "Settings and diagnostics code still special-cases removed fields (provider_connections, bindings, agents.*.bindings, and the old denial keys grantable and recovery_kind)"
