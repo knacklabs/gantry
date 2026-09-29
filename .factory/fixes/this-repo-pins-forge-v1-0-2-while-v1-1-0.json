@@ -4,11 +4,11 @@
   "done_when": "forge.toml pins v1.1.0, forge sync has rewritten the generated files for it, and the repo's tests pass",
   "kind": "fix",
   "review": {
-    "commit": "1a6d8bbd094df9df7cbf2af3b71297f02f1f9440",
+    "commit": "60afbe4db46a04241ef05b66001c48f4f6c9e110",
     "dismissals": [],
     "findings": [],
     "status": "clean",
-    "tree": "5a39dc347b8c45c82abe43d280df6c36c350757acdf90a7281b236bd2b2a1360"
+    "tree": "36cfea62882c1c2400c8ef17703db0cd0aa7cd023e3f3032814b6906f351d8b8"
   },
   "status": "waiting for checks",
   "steps": [
@@ -22,6 +22,10 @@
     },
     {
       "at": "2026-09-29T02:34:25+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T02:38:57+00:00",
       "step": "review"
     }
   ],
