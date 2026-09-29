@@ -5,40 +5,33 @@
   "done_when": "The three aliases are removed, the OpenAPI schema and generated SDK are regenerated, and no code or test mentions the old spellings",
   "kind": "fix",
   "review": {
-    "commit": "41f3ddc90aebc3aa9647e114d42c39efd0328704",
+    "commit": "f1fc0f377ed564d967ca04592717b48a395d4c4c",
     "dismissals": [],
     "findings": [
       {
-        "body": "The Slack handler now requires a numeric suffix, but an unchanged source comment still names the bare `gantry_message_action` spelling in `apps/core/src/channels/slack/observer-digest-affordances.ts:152`. The Done-when line explicitly requires that no code mention an old spelling. Update that comment to describe the indexed button ID.",
+        "body": "No test sends an indexed button action through the registered Slack receiver and verifies that the bare ID is no longer dispatched. The existing Postgres flow calls the captured handler directly at apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts:203, bypassing the changed matcher. An end-to-end receiver test is needed to catch a restored optional suffix.",
         "file": "apps/core/src/channels/slack/channel-message-action-handler.ts",
         "line": 58,
-        "priority": "P1",
-        "title": "Not done: The three aliases are removed, the OpenAPI schema and generated SDK are regenerated, and no code or test mentions the old spell  7"
-      },
-      {
-        "body": "The new test inspects the registered regex but never sends an action through the running Slack receiver. Existing integration and end-to-end tests do not exercise this ID. Add a receiver-level test that delivers an indexed action and verifies its outcome, and verifies that the bare ID is not dispatched.",
-        "file": "apps/core/test/unit/control/fix-small-api-aliases.test.ts",
-        "line": 71,
         "priority": "P1",
         "title": "Not done: end-to-end test for the Slack button ID"
       },
       {
-        "body": "The new direct-handler test sends an unrelated `extra` field, so it could pass even if `editedValue` were again specially accepted and ignored on approve or reject. It also mocks the memory service and decision IPC. Add a running-API test with a real review that sends the former field on both decisions and verifies rejection.",
-        "file": "apps/core/test/unit/control/fix-small-api-aliases.test.ts",
-        "line": 89,
+        "body": "The new test submits `extra`, so it would pass if approve or reject again accepted and ignored `editedValue`. It also mocks the memory service and decision IPC at apps/core/test/unit/control/memory-review-routes.test.ts:27. A running-API test with a real pending review should submit `editedValue` with each decision and verify rejection.",
+        "file": "apps/core/test/unit/control/memory-review-routes.test.ts",
+        "line": 169,
         "priority": "P1",
         "title": "Not done: end-to-end test for editedValue on approve and reject"
       },
       {
-        "body": "The new test sends only the canonical `run` parameter. Its parameter-count assertion checks the schema, but restoring the route's `runId` fallback would leave this test passing. Add a running-API test against persisted events that sends only the former query parameter and verifies it does not filter, while `run` still does.",
-        "file": "apps/core/test/unit/control/fix-small-api-aliases.test.ts",
-        "line": 99,
+        "body": "No test verifies that the former `runId` query parameter no longer filters job events. The existing HTTP test sends only `run` and uses mocked events at apps/core/test/unit/control/job-trigger.test.ts:1227; the job lifecycle test reads events without a filter at apps/core/test/agent-e2e/scenarios/job-lifecycle.agent-e2e.test.ts:462. A running-API test against persisted events should distinguish `runId` from the supported `run` parameter.",
+        "file": "apps/core/src/control/server/routes/jobs.ts",
+        "line": 435,
         "priority": "P1",
         "title": "Not done: end-to-end test for the runId query alias"
       }
     ],
     "status": "blocked",
-    "tree": "f982836d024e289c9866c8dd78aa1afcf312a688ce1563e46855a294e1ecf338"
+    "tree": "4abefe97ea94e3ce5d22446f0e89061d779761564b7c0dfafbe6d13780cf77ee"
   },
   "status": "fixing",
   "steps": [
@@ -48,6 +41,10 @@
     },
     {
       "at": "2026-09-29T17:08:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T17:30:13+00:00",
       "step": "review"
     }
   ],
