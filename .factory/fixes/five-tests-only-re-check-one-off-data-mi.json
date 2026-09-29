@@ -3,11 +3,30 @@
   "branch": "fix/five-tests-only-re-check-one-off-data-mi",
   "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "6335d907b1d504692bce02e82d4176d6bd94fc76",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "Deleting this test removes the only real-Postgres check that `healthCheck()` detects a missing identity generator. The remaining test at `apps/core/test/unit/storage/storage-service.test.ts:189` supplies the `missing_generated_identity_primary_keys` result through a mock, so it cannot catch a defect in the catalog query at `apps/core/src/adapters/storage/postgres/storage-service.ts:332`. Keep coverage of the live readiness behavior in a separate test while removing the one-off migration replay.",
+        "file": "apps/core/test/integration/generated-identity-repair.postgres.integration.test.ts",
+        "line": 34,
+        "priority": "P1",
+        "title": "Not done: the real-Postgres identity drift readiness test"
+      }
+    ],
+    "status": "blocked",
+    "tree": "f4df8a06d8811c82a558b5c0ea99b880cc50637d41461f977221ff04aaa2b8c3"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T15:24:35+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T15:48:05+00:00",
+      "step": "review"
     }
   ],
   "why": "Five tests only re-check one-off data migrations that already ran on the only live database, keeping legacy data shapes alive in the test suite"
