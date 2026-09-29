@@ -4,25 +4,19 @@
   "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
   "kind": "fix",
   "review": {
-    "commit": "7a6b7a8c9010836da302a8bf2c52f35fb69ef02d",
-    "dismissals": [
-      {
-        "because": "apps/core/test/integration/approving-a-learned-memory-always-fails.postgres.integration.test.ts:204 drives the real review-card action with the real memory service and real Postgres, faking only the chat send; it passes host-side (10/10 with the dreaming chain); a full running-app test is out of proportion; dismissal approved by the owner 2026-09-29",
-        "finding": 1,
-        "from_base": false
-      }
-    ],
+    "commit": "bb8177cd9c542f7c1778f62792a9ab6b17565642",
+    "dismissals": [],
     "findings": [
       {
-        "body": "The new Postgres tests exercise real persistence, but `click()` directly invokes a captured callback and manually connects the handlers. They never start the application or drive the required browser flow through Playwright. This bypasses production dispatch (`apps/core/src/app/bootstrap/channel-message-action-router.ts:100`), so the tests could pass even if deployed approval clicks never reach the executor. Add the required running-application test with real Postgres, verifying saved memory and visible approved, failed-with-reason, and already-decided outcomes; fake only third-party edges.",
-        "file": "apps/core/test/integration/approving-a-learned-memory-always-fails.postgres.integration.test.ts",
+        "body": "The Postgres tests exercise real persistence, but `click()` directly invokes a captured Slack callback and manually connects it to the review handler. They bypass production dispatch (`apps/core/src/app/bootstrap/channel-message-action-router.ts:100\u2013101`) and never exercise a running API or browser flow through Playwright. Consequently, they can pass even if application wiring prevents approval clicks from reaching the executor. Add the required running-application test with real Postgres, verifying that candidate-backed approval saves the memory and that the visible card reports approved, failed-with-reason, and already-decided outcomes, faking only third-party edges.",
+        "file": "apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts",
         "line": 204,
         "priority": "P1",
-        "title": "Not done: End-to-end approval and review-card outcomes through the running application"
+        "title": "Not done: Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with an..."
       }
     ],
-    "status": "clean",
-    "tree": "30950f1013cf1dc7ec9e8d1c31ccf3ee92e49ec26812f56bd3f18e528df5506f"
+    "status": "blocked",
+    "tree": "06fb89b4a49d8c8e0444a59dffee564245fe1309a7ab9738e47a8f31d4c0b84e"
   },
   "status": "fixing",
   "steps": [
@@ -36,6 +30,10 @@
     },
     {
       "at": "2026-09-29T08:18:41+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T10:43:38+00:00",
       "step": "review"
     }
   ],
