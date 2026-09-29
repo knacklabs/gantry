@@ -1,0 +1,14 @@
+{
+  "base": "32b1f190f7b9f9fd8f473b9902b1f7c10b80a425",
+  "branch": "fix/five-tests-only-re-check-one-off-data-mi",
+  "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T15:24:35+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Five tests only re-check one-off data migrations that already ran on the only live database, keeping legacy data shapes alive in the test suite"
+}
