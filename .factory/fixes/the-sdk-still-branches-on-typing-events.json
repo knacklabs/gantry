@@ -3,11 +3,30 @@
   "branch": "fix/the-sdk-still-branches-on-typing-events",
   "done_when": "packages/sdk/src/session-events.ts always expects orderedEnvelope on typing events, the old branch is deleted, and the tests that pinned it are updated",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "94ffca992f8269dc0e258c064ca4386672b2a7db",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The updated regression test directly constructs SessionTypingTracker and calls apply(); it provides useful unit coverage but does not satisfy the required end-to-end proof. The real SDK stream applies events through packages/sdk/src/sessions.ts:19\u201321, while the neighboring transport tests mock that stream. No integration or end-to-end test exercises this changed behavior. Add a suite-wired regression through the running API, real database, and browser consumer that verifies unordered events cannot establish or replace typing state while ordered events still work, and that fails when the removed legacy behavior returns.",
+        "file": "apps/core/test/unit/control/sdk-transport.test.ts",
+        "line": 635,
+        "priority": "P1",
+        "title": "Not done: end-to-end coverage for ordered-only SDK typing events"
+      }
+    ],
+    "status": "blocked",
+    "tree": "d0d43b957f31a755c87d3282950f1c6fbb7fec993bfa073246642951cf61c281"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T06:59:23+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T07:09:27+00:00",
+      "step": "review"
     }
   ],
   "why": "The SDK still branches on typing events without ordering info, a shape no producer emits any more"
