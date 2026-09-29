@@ -36,7 +36,7 @@
     "status": "clean",
     "tree": "81eea305c642676063e2a94c99cf4977ee777819c1f37cb28959a3be80964fae"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T06:31:31+00:00",
