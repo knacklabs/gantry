@@ -209,7 +209,6 @@ export async function decideMemoryReview(input: {
     subject: input.subject,
     proposal,
     expectedItemVersions: review.itemVersions,
-    expectedCandidateVersions: review.candidateVersions,
   });
   if (!validation.ok) {
     const [updated] = await input.db
@@ -270,7 +269,6 @@ export async function validateMemoryReviewProposal(input: {
   subject: NormalizedMemorySubject;
   proposal: MemoryLifecycleProposal;
   expectedItemVersions?: Record<string, number>;
-  expectedCandidateVersions?: Record<string, string>;
 }): Promise<{
   ok: boolean;
   reason: string;
@@ -445,16 +443,6 @@ export async function validateMemoryReviewProposal(input: {
       };
     }
     candidateVersions[candidate.id] = candidate.updatedAt;
-    if (
-      input.expectedCandidateVersions &&
-      input.expectedCandidateVersions[candidate.id] !== candidate.updatedAt
-    ) {
-      return {
-        ...failure('proposal candidate version is stale'),
-        itemVersions,
-        candidateVersions,
-      };
-    }
     fingerprintParts.push(
       `candidate:${candidate.id}:${candidate.kind}:${candidate.key}:${candidate.value}`,
     );
