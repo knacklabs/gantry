@@ -2500,6 +2500,13 @@
       "origin": "adhoc",
       "spec": "docs/specs/local-dev-launch.md",
       "completed_at": "2026-09-18T06:15:26+00:00"
+    },
+    {
+      "key": "TURN-1",
+      "title": "One message, one turn",
+      "spec": "docs/specs/one-message-one-turn.md",
+      "status": "pending",
+      "order": 124
     }
   ],
   "epics": [
