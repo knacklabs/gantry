@@ -7,15 +7,31 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, it, expect, vi } from 'vitest';
 
 const previousIpcDir = process.env.GANTRY_IPC_DIR;
+const previousGroupFolder = process.env.GANTRY_GROUP_FOLDER;
 const tempRoots: string[] = [];
 
 afterEach(() => {
   vi.resetModules();
   if (previousIpcDir === undefined) delete process.env.GANTRY_IPC_DIR;
   else process.env.GANTRY_IPC_DIR = previousIpcDir;
+  if (previousGroupFolder === undefined) delete process.env.GANTRY_GROUP_FOLDER;
+  else process.env.GANTRY_GROUP_FOLDER = previousGroupFolder;
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+it('starts the MCP server when an obsolete group-folder variable is present', async () => {
+  const ipcDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'gantry-scheduler-startup-'),
+  );
+  tempRoots.push(ipcDir);
+  process.env.GANTRY_IPC_DIR = ipcDir;
+  process.env.GANTRY_GROUP_FOLDER = 'old-folder';
+  const { createGantryMcpServer } =
+    await import('../../../../src/runner/mcp/server.js');
+
+  expect(() => createGantryMcpServer()).not.toThrow();
 });
 
 it('does not advertise a removed tool parameter in either scheduler job tool', async () => {

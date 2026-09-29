@@ -81,22 +81,40 @@ const DISALLOWED_TASK_FIELDS = [
   'since_id',
 ] as const;
 
-const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
-  'script',
-  'linked_sessions',
-  'linkedSessions',
-  'deliver_to',
-  'deliverTo',
-  'notificationTarget',
-  'thread_id',
-  'sessionId',
-  'workspaceKey',
-  'capability_requirements',
-  'modelProfileId',
-  'allowedTools',
-  'executionMode',
-  'serialize',
-] as const;
+const SCHEDULER_JOB_TASK_FIELDS = new Set([
+  'type',
+  'taskId',
+  'requestId',
+  'nonce',
+  'expiresAt',
+  'signature',
+  'context',
+  'targetJid',
+  'chatJid',
+  'authThreadId',
+  'timestamp',
+  'jobId',
+  'name',
+  'prompt',
+  'modelAlias',
+  'scheduleType',
+  'scheduleValue',
+  'executionContext',
+  'notificationRoutes',
+  'accessRequirements',
+  'silent',
+  'cleanupAfterMs',
+  'timeoutMs',
+  'maxRetries',
+  'retryBackoffMs',
+  'maxConsecutiveFailures',
+  'createdBy',
+  'confirm',
+  'confirmationToken',
+  'appId',
+  'agentId',
+  'providerAccountId',
+]);
 
 function isSchedulerJobMutationTask(type: string): boolean {
   return type === 'scheduler_upsert_job' || type === 'scheduler_update_job';
@@ -117,16 +135,7 @@ function findUnsupportedSchedulerJobTaskFields(
   type: string,
 ): string[] {
   if (!isSchedulerJobMutationTask(type)) return [];
-  const found: string[] = [];
-  for (const key of UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(raw, key)) {
-      found.push(key);
-    }
-  }
-  if (Object.prototype.hasOwnProperty.call(raw, 'threadId')) {
-    found.push('threadId');
-  }
-  return found;
+  return Object.keys(raw).filter((key) => !SCHEDULER_JOB_TASK_FIELDS.has(key));
 }
 
 function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
