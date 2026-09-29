@@ -5,19 +5,19 @@
   "done_when": "The jobs API, IPC task parsing and scheduler MCP tools no longer mention groupScope, group_scope, requiredTools, required_tools or GANTRY_GROUP_FOLDER; the tool schema no longer advertises required_tools; tests updated",
   "kind": "fix",
   "review": {
-    "commit": "54eeb96e5b16c74af10e0f7b484e7ffc9e23fec0",
+    "commit": "5bc4d3c90c3e95cdf77e7cffdb8d25f37631acc9",
     "dismissals": [],
     "findings": [
       {
-        "body": "The new test checks schema discovery through an in-memory MCP server, but never exercises the running jobs API, IPC processing, or MCP startup with GANTRY_GROUP_FOLDER present. Restoring the deleted field-specific API/IPC errors or environment-variable guards would leave it passing. Existing HTTP coverage at apps/core/test/unit/control/job-trigger.test.ts:1057 checks the unrelated `model` field; the changed scheduler tests call captured schemas/handlers directly. Add suite-wired tests through the real application entry points that fail when these removed behaviors return, using the real database where applicable. The explicit end-to-end test requirement remains unmet despite the valid schema-discovery assertion.",
-        "file": "apps/core/test/unit/runner/mcp/specific-no-longer-accepted-errors-for-r.test.ts",
-        "line": 43,
+        "body": "The HTTP test sends `unexpectedField`, which already received this generic response before the fix; restoring every deleted field-specific error would leave it passing. The new IPC test likewise exercises an unrelated field and calls the parser directly. The scheduler tests capture schemas/handlers instead of exercising MCP, and no remaining test verifies that discovery omits `required_tools` or that startup succeeds with `GANTRY_GROUP_FOLDER` present. Thus the explicit end-to-end regression-test requirement remains unmet. Add suite-wired tests through the running API/IPC and MCP entry points that exercise the removed names, assert generic responses, verify the advertised schemas, and cover startup with the obsolete environment variable. These tests must fail when the corresponding removed behavior returns.",
+        "file": "apps/core/test/unit/control/specific-no-longer-accepted-errors-for-r.test.ts",
+        "line": 35,
         "priority": "P1",
         "title": "Not done: End-to-end regression tests for removed job and scheduler fields"
       }
     ],
     "status": "blocked",
-    "tree": "8efe4e86e3e6fdad7da78b975fde0a5310c3e62ab1a95254ff71ae225ba9423f"
+    "tree": "78857189c8761c154c242d2f6a76e652c9cac43fe7211d2bea6e70ccbaa26787"
   },
   "status": "fixing",
   "steps": [
@@ -31,6 +31,10 @@
     },
     {
       "at": "2026-09-29T07:51:10+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:58:16+00:00",
       "step": "review"
     }
   ],
