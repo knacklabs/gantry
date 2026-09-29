@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: pure removal of legacy/compat code, may exceed the fix file limit or touch interface paths",
   "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
   "branch": "fix/telegram-direct-message-draft-streaming",
   "done_when": "The unreachable Telegram DM draft-streaming code, its state and its tests are deleted, the @grammyjs/stream dependency is removed with the lockfile updated by npm, and group streaming still passes its tests",
