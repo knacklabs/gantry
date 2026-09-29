@@ -17,10 +17,10 @@ delete on a TTL, or keep everything for audit history.
 
 ## Decision
 
-Terminal live-admission work items are retained for **30 days**, then deleted
+Consumed terminal live-admission work items are retained for **30 days**, then deleted
 by a periodic maintenance sweep (run from the existing scheduled-maintenance
-machinery, not a new subsystem). Non-terminal rows are never touched by the
-sweep.
+machinery, not a new subsystem). Unconsumed and non-terminal rows are never
+touched by the sweep, so waiting input cannot be lost to retention.
 
 ## Consequences
 
