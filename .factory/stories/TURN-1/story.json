@@ -1,0 +1,28 @@
+{
+  "approval": {
+    "at": "2026-09-29T05:36:01+00:00",
+    "by": "human-via-Claude",
+    "event": "toolu_01VFmwpSbkiCKrpCQbkkZPrq",
+    "hash": "ef7300510b3b565067d8329014879e3b204941eba2b0e440f0dc73c30ae4e49e",
+    "runtime": "claude",
+    "session": "a69a30fe-23d4-5b7d-9b59-8360571f490c"
+  },
+  "doc": "plans/TURN-1.md",
+  "status": "approved",
+  "steps": [
+    {
+      "at": "2026-09-29T05:25:01+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T05:29:20+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-09-29T05:36:01+00:00",
+      "step": "approved"
+    }
+  ],
+  "title": "One message, one turn",
+  "touches": 1
+}

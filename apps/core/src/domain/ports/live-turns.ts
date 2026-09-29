@@ -129,9 +129,13 @@ export interface LiveAdmissionWorkItem {
   agentSessionId: string | null;
   conversationId: string;
   threadId: string | null;
+  providerAccountId: string | null;
   queueJid: string;
   messageId: string;
   messageCursor: string;
+  receiveOrder: number | null;
+  consumedAt: string | null;
+  consumedBy: string | null;
   senderUserId: string | null;
   senderDisplayName: string | null;
   idempotencyKey: string;
@@ -194,7 +198,25 @@ export interface LiveAdmissionClaimInput {
   now?: string;
 }
 
+export interface LiveAdmissionInputScope {
+  appId: string;
+  conversationId: string;
+  threadId: string | null;
+  agentId: string | null;
+  providerAccountId: string | null;
+}
+
 export interface LiveAdmissionWorkItemRepository {
+  takeInput(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+    limit: number;
+  }): Promise<LiveAdmissionWorkItem[]>;
+  releaseInput(input: { consumedBy: string }): Promise<number>;
+  consumeAll(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+  }): Promise<number>;
   /**
    * Durable message-backed admission. The idempotency key is provider delivery
    * identity; replaying a webhook/socket event returns the existing row instead
@@ -207,6 +229,7 @@ export interface LiveAdmissionWorkItemRepository {
     agentSessionId?: string | null;
     conversationId: string;
     threadId?: string | null;
+    providerAccountId?: string | null;
     queueJid: string;
     messageId: string;
     messageCursor: string;

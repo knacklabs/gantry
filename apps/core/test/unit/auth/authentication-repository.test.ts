@@ -14,7 +14,7 @@ describe('authentication repository', () => {
       fs.readFileSync(
         path.join(
           repoRoot,
-          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260818105732_snapshot.json',
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260909113852_snapshot.json',
         ),
         'utf8',
       ),
