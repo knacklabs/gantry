@@ -5,7 +5,13 @@
   "kind": "fix",
   "review": {
     "commit": "7a6b7a8c9010836da302a8bf2c52f35fb69ef02d",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/approving-a-learned-memory-always-fails.postgres.integration.test.ts:204 drives the real review-card action with the real memory service and real Postgres, faking only the chat send; it passes host-side (10/10 with the dreaming chain); a full running-app test is out of proportion; dismissal approved by the owner 2026-09-29",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The new Postgres tests exercise real persistence, but `click()` directly invokes a captured callback and manually connects the handlers. They never start the application or drive the required browser flow through Playwright. This bypasses production dispatch (`apps/core/src/app/bootstrap/channel-message-action-router.ts:100`), so the tests could pass even if deployed approval clicks never reach the executor. Add the required running-application test with real Postgres, verifying saved memory and visible approved, failed-with-reason, and already-decided outcomes; fake only third-party edges.",
@@ -15,10 +21,10 @@
         "title": "Not done: End-to-end approval and review-card outcomes through the running application"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "30950f1013cf1dc7ec9e8d1c31ccf3ee92e49ec26812f56bd3f18e528df5506f"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T07:39:00+00:00",
