@@ -3,11 +3,30 @@
   "branch": "fix/approving-a-learned-memory-always-fails",
   "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "0156aa7f44245ad14426e580d0ca52c5dfa20c33",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The Postgres test calls `service.decideReview` directly, bypassing the user-facing approval entry point and card update. The new card tests mock the internal IPC decision and subject lookup (`apps/core/test/unit/bootstrap/approving-a-learned-memory-always-fails.test.ts:5`), so they cannot prove that real database outcomes reach the card. Actual Slack card replacement occurs in `apps/core/src/channels/slack/channel-message-action-handler.ts:263`, which neither test exercises. Add the required end-to-end flow through the running application with real Postgres, verifying saved memory and visible approved, failed-with-reason, and already-decided outcomes; fake only third-party edges. The current coverage does not satisfy the explicit Done-when test requirement.",
+        "file": "apps/core/test/integration/approving-a-learned-memory-always-fails.postgres.integration.test.ts",
+        "line": 91,
+        "priority": "P1",
+        "title": "Not done: Candidate-backed approval and review-card outcomes need end-to-end coverage"
+      }
+    ],
+    "status": "blocked",
+    "tree": "8945e1488649e406c475cdec30d60554a96a2e60a9e71f2d50cec9e3b677be9f"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T07:39:00+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T07:52:48+00:00",
+      "step": "review"
     }
   ],
   "why": "Approving a learned memory always fails as stale while the card still says 'Memory review approved', so preferences and corrections can never be approved"
