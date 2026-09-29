@@ -14,14 +14,17 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "Show me progress" | `forge board` |
 | "Plan a new story" | `forge story new <KEY> "<title>"` |
 | "Read the plan cold" | `forge read <KEY>`, or `forge read <slug>` for a spec |
-| "I've amended it" | `forge read <KEY> --amended` |
+| "I've amended it" | `forge read <KEY>` again, for the next round |
 | "Start this task" | `forge task start <KEY>/<TASK>` |
 | "Fix this small thing" | `forge fix start "<why>" --done "<done when>"` |
 | "This fix is too big" | `forge story new <KEY> --from-fix <fix>` |
 | "Let this fix go over the limit" | `forge fix allow-large "<reason>"` |
 | "Build it" | `forge work <item>` |
+| "Tell the worker this round" | `forge work <item> --note "<text>"` |
+| "Ask Codex about this code" | `forge ask "<question>"` |
 | "Close it" or "Is it ready?" | `forge close <item>` |
 | "Merge this ready item" | `forge merge <item>` when the default branch allows agent merges |
+| "Let the agent merge" | The owner runs `forge merge enable` in their own terminal; never you |
 | "What should we build?" or "Find the real problem" | Discovery, below |
 | "Is it worth building?" | `forge spec payback --build-days <days> --day-rate <rate>` plus a value group |
 | "Save this spec" | `forge spec save <slug>` |
@@ -33,12 +36,15 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "The story is finished" | `forge story done <KEY> "<outcome>"` |
 | "Is my setup healthy?" | `forge doctor` |
 | "Set up a new repo" | `forge init` |
-| "Switch to Codex workers" or "Change the test command" | Ask, then in a fix: edit `forge.toml`, `forge close <fix>` |
-| "Upgrade Forge" | Ask, then in a fix: set `version` in `forge.toml`, install that release, `forge sync`, `forge close <fix>` |
+| "Bring our live app into Forge" | Adopt a live app, below |
+| "Switch to Codex workers" or "Change the test command" | Ask, then in a fix: edit `forge.toml` (never its `merge` setting), `forge close <fix>` |
+| "Upgrade Forge" | Upgrade Forge, below |
 
-The human approves stories and chooses between options. The human merges by default
-(`merge = "human"`). If the default branch's `forge.toml` has `merge = "agent"`, run
-`forge merge <item>` once `forge close` says Ready. Never run `gh pr merge`; the agent merges only
+The human approves stories and chooses between options. In a client repo before the default
+branch has an accepted sign-off, the agent runs `forge merge <item>` once `forge close` says Ready.
+After sign-off, the default branch's `forge.toml` merge setting applies: the human merges by
+default (`merge = "human"`), or the agent runs `forge merge <item>` for `merge = "agent"`.
+Forge's own repo follows its setting throughout. Never run `gh pr merge`; the agent merges only
 through `forge merge`. Ask one question at a time: a decision gets options with your recommendation
 first, a question of fact gets neutral choices.
 
@@ -48,8 +54,35 @@ questions; write for the human's choice.
 
 The human never edits `forge.toml`; you keep it. When a setting must change, ask first with
 options, then make the change yourself in a fix: `forge fix start`, the edit, then `forge close`.
+The `merge` setting is the owner's, because it is a gate on your own work: never change it to
+`"agent"` or run `forge merge enable`, even when the owner asks, and never merge a change to it.
+When agent merges are off and the owner wants you to merge, tell them to run `forge merge enable`
+in their own terminal; it opens the change for them to merge.
 
 Give status updates in one shape: `Ready to merge (n): ... · Needs you (n): ...`.
+
+## Handoff
+
+`.git/forge/handoff.md` in the main checkout, shared by every worktree, carries your state across
+a compaction. Before each compaction Forge rewrites its current-state part from `forge next` and
+keeps everything under `## Decisions and lessons`. Add one line there at each milestone: a story
+approved, a task merged, a decision the owner made, a lesson learned or a mistake you won't
+repeat. After a compaction or in a new session, read it first. The file is local and never
+committed.
+
+## Coaching
+
+The first time each of these happens for a person, add one plain sentence saying what just
+happened and what they can do next. Say it once, then never repeat it, and never name commands
+unless they ask. Note each one in the handoff so a new session doesn't repeat it.
+
+- A story plan shown for approval: "This is the plan in short; you can approve it as it is or tell me what to change."
+- A cold read finding: "A fresh reader found a gap in the plan, which I'm fixing; you can weigh in on the fix or wait for the next read."
+- A part starting: "A worker is building this part on its own copy; you can keep planning meanwhile."
+- A pull request ready: "This part passed its tests and review; you can look it over before it merges."
+- A merge: "This part is now in the main code; you can try it there or pick what comes next."
+- A prototype demo: "The customer has seen it working; you can tell me what they did and said to shape the next round."
+- Sign-off: "The customer approved the prototype; you can now choose the first real story to plan."
 
 ## New directions
 
@@ -65,7 +98,8 @@ the changes.
 ## Discovery
 
 Every ask is a guess about a problem: find the problem before anything is planned. The worked
-example, question bank and customer call script are in [the reference page](fde.md).
+example, question bank, customer call script and outlines for the pre-meeting brief and recap are
+in [the reference page](fde.md).
 
 **By size.** On a fix or an everyday story, interview the engineer, and through them the
 customer: one question per turn, about something that already happened. Offer no solutions while
@@ -74,13 +108,18 @@ your recommendation first. Add a one-line `Why I ask:` to each question until th
 they know why. Ask at most two questions for a fix and eight for a story, then write what is
 still unanswered as `unknown`.
 
-**Office-hours.** On a new project, or an ask no confirmed spec covers, run gstack's
-`/office-hours` first. At its end it names its design doc, kept under
-`~/.gstack/projects/<project>/` as `*-design-*.md`; copy that file unchanged into `docs/context/`
-in the discovery fix. Fill the card from it, write what it leaves open as `unknown`, and name the
-doc in the card's Evidence. Without `/office-hours`, say it comes with gstack
-(github.com/garrytan/gstack), then run your own interview with the story limit. Use gstack for
-nothing else.
+**A new project.** On a new project, or an ask no confirmed spec covers, run this discovery
+with the story limit. Before the first meeting, draft a one-page pre-meeting brief in
+`docs/context/` from the prospect's website: their likely jobs, two or three guessed problem cards
+each marked `(guess)`, their terms, and the first five questions to ask. During discovery, keep
+the customer's own words in `## Words they use` in `docs/product/DISCOVERY.md`, one
+`- <their word>: <what it means>` line each. Ask for the spreadsheet or form they use today and
+keep only its column headers, never its rows. The same day, draft a recap in `docs/context/` for
+the customer to confirm: their problem in their words, the cost in their numbers, the one task
+the demo will cover, who signs off, the open "ask the client" questions and the demo date. When
+they reply, record the Demo workflow and Sign-off person answers from it with `client` as the
+source, as `- Demo workflow: <task> (client, <YYYY-MM-DD>)` and `- Sign-off person: <name, role>
+(client, <YYYY-MM-DD>)`. The salesperson sends the recap; Forge sends nothing.
 
 **The card.** Write each problem as a card under `## Problems` in `docs/product/DISCOVERY.md`,
 adding the section to an older file on first use: `### <short problem title>`, then Job,
@@ -96,16 +135,165 @@ build or smallest slice first; a tie goes to the smaller build. If none does, re
 build, or find out first when an option's value can't be estimated. The human chooses; write the
 choice and one line of why into the spec's Behaviour.
 
+## Prototype
+
+In a new client repo, follow the FDE route: start with discovery of the customer's job,
+workaround, cost, people, frequency and evidence; build the smallest working prototype that tests
+the riskiest part of that problem; demo it; review the whole prototype and answers; obtain the
+customer's named sign-off;
+then create stories. Use prototype fixes before sign-off. The salesperson can be the FDE at first;
+the developer takes over with `docs/product/DISCOVERY.md`, `docs/product/BRIEF.md` and the customer
+call script. Push back when a requested feature does not serve the problem card: explain why and
+offer to note it for after sign-off. Keep the same app as it grows into production.
+
+Always build the demo-data loader in the first version, so the customer sees their own kind of
+work instead of empty screens (see demo-data.md). Use the customer's words
+from `## Words they use` in `docs/product/DISCOVERY.md` for screen labels. Tell the salesperson
+they can point at the screen: click an element in the demo build, write what's wrong and paste the
+output to the agent.
+
+For each demo round, gather all requests from one conversation into one prototype fix. Build,
+test, review and merge that round before starting another. Tell the salesperson what changed in
+the demo: "the next version is live" or "the reviewer found a missing error message". Do not
+use Forge's words (fix, worktree, branch, pull request) in progress updates to the salesperson.
+When `forge next` says to connect the repo to our deploy platform, tell the salesperson to use
+their own login, pick a subdomain and record its address under `## Demo` in
+`docs/product/BRIEF.md` as `- Address: <url>`. Copy that address into the sign-off decision.
+
+**The demo.** Every demo follows five steps, in order:
+
+1. their workaround today;
+2. the same job in the app;
+3. the time or money it saves, in their numbers;
+4. they take the controls;
+5. ask "what would stop you using this?"
+
+Send the demo link only after the guided demo, never before it. With each new version, draft a
+three-line "what changed" note for the salesperson to send: what they can do now, what changed
+since their last look, and what to try first, all in their words.
+
+After each demo, ask the salesperson one question at a time: what the customer did themselves,
+what they said word for word, and what they asked for. Write the answers under
+`## Prototype notes` in `docs/product/DISCOVERY.md` as one `### <YYYY-MM-DD>` block with `- Did:`,
+`- Said: "<their words>"` and one `- Asked:` line per request, ending each request in
+`(serves the problem)` or `(after sign-off)`.
+
+Ask one topic at a time when it first changes what you are building. Skip a topic the repo already
+answers. In the options column, our default is first where there is one; questions of fact have
+no default. Offer **Ask the client** on every question and add it to the customer call script in
+`docs/product/DISCOVERY.md`. For a topic that may wait, also offer **Decide later**. Standards
+already decide logging, security and error handling; take those defaults and include them in the
+read-back without asking again. The first seven topics must have answers from the client,
+salesperson or developer before sign-off; a default or agent-only answer does not settle them.
+
+| Topic | Question | Options (default first) | Before sign-off |
+|---|---|---|---|
+| Sign-off person | Who at the customer approves the prototype? | name and role | must |
+| Demo workflow | Which one task should the demo let them do from start to finish? | from the problem card | must |
+| Users and roles | Who uses it, and what can each kind of user do? | admin and staff; other | must |
+| Existing systems | Which systems must this work with? | none; CRM; accounting; email or SMS; payments; company sign-in | must |
+| Sign-in | How will people sign in? | email and password; company sign-in (Google or Microsoft) | must |
+| Personal data | Will it hold personal, health or payment data, or data that must stay in one country? | none; personal only; regulated | must |
+| Production host | Where will the real app run? | our platform; the client's cloud; the client's servers | must |
+| Data import | Does data need to come in from today's tools? | no; a spreadsheet; another system | may wait |
+| Email or SMS | Which provider sends messages? | none yet; the client's provider | may wait |
+| Domain | Which web address? | our subdomain; the client's domain | may wait |
+| Backups and uptime | How much downtime or data loss is acceptable? | the platform's daily backups; stricter | may wait |
+| Log retention | How long must logs be kept? | the platform's default; longer | may wait |
+
+Keep one `## Answers` section in `docs/product/BRIEF.md`, one line per topic. Record an answer as
+`- <Topic>: <answer> (<source>, <YYYY-MM-DD>)`, with the client, salesperson, developer, our
+default or agent as its source. Record an open request as
+`- <Topic>: ask the client (<who asked>, <date>)`; replace it with the sourced answer when the
+client replies. Only a may-wait topic can read `- <Topic>: later, when <trigger>`.
+
+**Sign-off.** Before anyone asks for sign-off, hold one read-back call with the customer that
+goes through every answer on the answers page: our defaults, the agent's guesses and the topics
+marked later. Settle every open must-answer topic in that call: `forge next` lists those still
+missing, malformed, or marked ask the client or later, and sign-off also refuses one answered by
+our default or the agent, so record each as the client, salesperson or developer answered it. Then
+run the strict sign-off review before anyone asks for sign-off: write `forge decision new
+client-signoff` (customer, demo address, and the answers page copied word for word, leaving
+approved via and approved on empty), and run `forge decision accept client-signoff --by "<name>"`
+before any reply is recorded; it runs the strict review alone and stops. Fix what it finds and run
+it again. Once it passes, tell the salesperson to ask the customer's named person for sign-off
+their own way. Draft no sign-off email; Forge sends nothing. When they bring the reply back, record
+it in `approved_via` and `approved_on`, then run `forge decision accept client-signoff --by
+"<name>"` again to accept. The customer's reply is the approval evidence the sign-off decision
+records.
+
+When a later story needs a topic marked later, its cold read reports `Decide first: <topic>`.
+Ask that one question, put the answer in the finding's disposition and the story's Notes as
+`Decided: <topic>: <answer> (<source>, <date>)`, and make the first task update the answers page.
+Until the decision, use a fake provider for an external service.
+
+## Adopt a live app
+
+An app already in production joins Forge through one fix and one pull request the human merges.
+Adopting changes no app code.
+
+1. Write the codebase report in `docs/context/codebase.md`: the stack and how to run it; the tests
+   and the areas they don't cover; the CI workflows and the checks branch protection requires; what
+   a merge triggers; branch rules and reviewers; the hook tools already in use; secret files and
+   variables by name only, never their values; where personal data lives; the migration tool; and
+   the danger zones.
+2. Mark as danger zones the most-changed, most-reverted and most-hotfixed files in git history. A
+   story that touches one names it under Risks.
+3. List the open pull requests and branches in the report, so a story's plan avoids colliding with
+   a teammate's work.
+4. Link or import the repo's existing decision records and design docs as Forge decisions:
+   `forge decision new <slug>`, the original linked or copied unchanged under the line
+   `Imported from <path>.` Don't rewrite them.
+5. Read the review comments of about the last 100 merged pull requests. Each rule reviewers enforce
+   repeatedly becomes a House rule citing the pull requests it came from.
+6. Ask the human three questions, one at a time, with options: who approves stories, who merges,
+   and what must never be touched.
+7. Write the answers and the reviewers' rules under `## House rules` in AGENTS.md, outside Forge's
+   block. The repo's own rules win where they differ from Forge's default-stack conventions.
+
+On a live app, every story and fix also follows these:
+
+- Before changing code no test covers, first add a test that pins today's behaviour.
+- Migrations only add, and work with the previous version of the app still running.
+- A change users would notice ships behind the team's own feature flags.
+- No production credentials on this machine; never ask for them.
+
+## Upgrade Forge
+
+An upgrade is one fix. Its pull request carries the new version and every file Forge keeps in the
+repo, rewritten by that version.
+
+1. Ask which release to move to, recommending the newest.
+2. `forge fix start "Upgrade Forge to <release>" --done "Forge runs <release>"`.
+3. In the fix's folder, set `version` in `forge.toml` to the release, such as `"v1.2.0"`.
+4. Install that release: `uv tool install git+https://github.com/knacklabs/symphony-forge@<release>`.
+5. Run `forge sync` in the fix's folder and commit everything it wrote.
+6. `forge close <fix>`. If it names files that aren't what `forge sync` writes, go back to step 5.
+
+Until the upgrade merges, the default branch keeps working with the new release installed.
+
 ## Planning a story
 
 Use one framing line before showing a story in Plan Mode:
 `Approving: <title>, <n> parts, <risks>`.
 
+The owner approves only the top of the story doc. Show it from its title down to
+`## For the builders`, unchanged, in Plan Mode and exit Plan Mode with that part as the plan; in
+Codex, show the same part, then ask the approval question `forge next` gives. A doc with no
+`## For the builders` heading is shown whole. The approval binds "What changes for you" and
+"Done when", so tightening anything below `## For the builders` needs no new approval, while
+changing a result or "What changes for you" does.
+
 - Done when: a few results the client or their user can observe, each tracing to the spec's
-  behaviour or success measure. Open each item with one bold plain sentence before its detail.
-  "Code exists" is not a result.
-- Put Risks right after Done when, then a `For the builders` heading before Tasks, so the owner's
-  sections come first.
+  behaviour or success measure. Each item is one bold plain sentence and nothing more, with no
+  code names, file paths or test names. "Code exists" is not a result.
+- Each item's evidence, edge cases and proving tests go under the same number in
+  `### Done-when details`, the first section under `## For the builders`. Workers and reviewers
+  get the entries of the items their task covers. An item with nothing to add has no entry.
+- Done-when or Notes names supported inputs and exclusions. A dismissal that narrows those
+  inputs needs an amendment to the story doc before the review can close.
+- Put Risks right after Done when, then the `## For the builders` heading, so the owner's
+  sections come first and everything for the agents sits below.
 - Tasks: each row names the Done-when items it Covers, its Scope (the paths it may change) and
   its Tests. A task that covers nothing is cut; work wanted later goes to the spec's Out of scope.
 - Keep tasks small: at most three Done-when items and about 400 changed lines each.
@@ -127,43 +315,57 @@ setup-only, platform or "foundation" stories. A story that no spec behaviour lin
 Start every task and fix `forge next` lists as ready at once, and close each as its worker
 finishes.
 
+## Cold read findings
+
+- `Unproven: item <n>: <case>` or `Trap: <trap>: item <n>`: add the case to that Done-when item
+  and its test to the Tests cell of the task that owns it. Never resolve one only in Notes.
+- `Disputed keep <n>: <why>`: the reader still disagrees with a finding you kept. Put it to the
+  human as one question with options, record the answer in the doc's Notes as
+  `Decided: <finding>: <answer> (owner, <date>)`, and give both the kept finding and the disputed
+  one the disposition `keep` citing that line.
+
+**Learn the traps.** After `forge story done` opens the outcome fix, look back at the story's
+review rounds. For each kind of finding the plan missed that cost two or more fix rounds or hit
+two or more tasks, add one trap line to the `## Known traps` section of the repo's AGENTS.md,
+outside Forge's block, in the outcome fix's worktree; create the section when it is missing.
+Commit it before closing the fix. Every cold read checks plans against that section.
+
+## Steering a Codex worker
+
+When one sentence would help a worker finish its next round, give it with
+`forge work <item> --note "<text>"`. The note appears under "From the coordinator" in that
+round's brief and is recorded with the turn. Give it again if a later round needs it; a note
+does not change the item's Scope. Read a close finding and the code it cites before deciding
+whether the worker needs a note or the finding should be dismissed with evidence.
+
+If a worker ends with a `Question:` paragraph, answer with
+`forge work <item> --note "<answer>"`. The worker waits for that answer: another work round
+without a note and `forge close <item>` both refuse until the answering round completes. The
+answer returns to the same conversation when it can resume; a fresh brief carries both the
+question and answer. If the answer needs work outside Scope or a choice the item does not settle,
+resolve that boundary before sending the note.
+
+For a quick question about the code that needs no fix, run `forge ask "<question>"`. It asks
+Codex read-only in this checkout and prints the answer. Use `--model <model>` and
+`--effort <effort>` to choose for this question; without them it uses `[models.lite]` in
+`forge.toml`. Its records stay under `.git/forge/`; the conversation is temporary and does not
+appear in the Codex chat list. If a tracked or untracked file changes during the turn, Forge
+discards the answer.
+
 ## Build simple
 
-Rules for the client's app in every phase; Forge's own principles govern Forge. Their checks run
-in the cold reads, the review, the functional check and the check-back, and add no record.
-
-**Challenge first.** Treat every feature the client or the FDE asks for as a guess about a
-problem, and find that problem through Discovery before building.
-
-1. Problem first: a spec's Why names the problem and what today's workaround costs.
-2. Smallest slice: the first story is the thinnest end-to-end path that moves the success
-   measure, deployed where the client can use it.
-3. Only what Done-when needs: every task, screen, field, setting, role and integration traces to
-   a Done-when item; anything else is cut, or goes under the spec's Out of scope.
-4. Fewest moving parts: climb the ladder below. The story doc's Tasks section ends with one
-   `New moving parts:` line: `none`, or each new dependency, service, datastore, queue,
-   background job or abstraction layer with the Done-when item that needs it.
-5. Delete before adding: prefer removing a step, screen or workaround.
-6. One home per fact: store each piece of data once; everything else reads or derives it.
-7. Simplest UI: one path per job, the fewest screens, fields and clicks, native controls first.
-   impeccable is the one UI skill; run its `distill` before a demo. Use a motion skill only when a
-   Done-when item needs motion.
-8. Measure: success means the client's number moved, not that a feature shipped.
-9. Reversible: every change is a pull request a revert undoes; one-way steps go under Risks.
-10. Operable: messages say in plain words what to do next, and the README keeps a short "How it
-    works" that a non-technical client can follow.
-11. Never simplified away: input checks at trust boundaries, permission checks, secrets kept out
-    of code and logs, protection against data loss, and accessibility basics.
-
-**The ladder.** Stop at the first rung that holds: does it need software at all; does a Done-when
-item need this code; is it already in the repo; the standard library; a platform feature; an
-installed dependency; one line; then the least new code. A new moving part is always last.
+Read [standards.md](standards.md) beside this skill for Forge's principles, the client's app
+rules and the build-simple ladder. Apply its rules in every phase.
 
 **Finding forms.** `Simpler: <cut> → <replacement>` is P2, or P1 when a new moving part isn't
 named in the story. Untraced work: `Cut or defer: <item>`. An unmet Done-when item:
 `Not done: <item>` (P1). A missing rule-11 basic is its own P1, never `Simpler:`.
 
 ## Closing
+
+Before building a fix, check its brief for the five-code-file limit, interface globs and any
+recorded allowance. If the work exceeds that boundary, promote it to a story or get the allowance
+recorded before editing.
 
 Read the worker's final handoff and resolve its stated blockers before `forge close`.
 When `forge close` stops on a finding, open the line it cites, and the code that line calls,
