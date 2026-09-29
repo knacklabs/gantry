@@ -167,19 +167,7 @@ function buildRevisionDocument(
 export function settingsFromRevisionDocument(
   document: Record<string, unknown>,
 ): RuntimeSettings {
-  assertNoLegacyAgentBindings(document);
   return parseRuntimeSettingsObject(document);
-}
-
-function assertNoLegacyAgentBindings(document: Record<string, unknown>): void {
-  if (!isRecord(document.agents)) return;
-  for (const [agentId, agent] of Object.entries(document.agents)) {
-    if (isRecord(agent) && Object.hasOwn(agent, 'bindings')) {
-      throw new Error(
-        `agents.${agentId}.bindings is no longer supported in settings revisions. Reset the stored settings revision and re-import canonical settings without agents.*.bindings.`,
-      );
-    }
-  }
 }
 
 export async function settingsMatchesLatestRevision(input: {
@@ -305,8 +293,4 @@ function stripUndefinedDeep(value: unknown): unknown {
       item === undefined ? [] : [[key, stripUndefinedDeep(item)]],
     ),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

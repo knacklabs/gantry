@@ -180,13 +180,6 @@ function normalizeCompactConversations(
 export function normalizeCompactRuntimeSettingsRoot(
   root: Record<string, unknown>,
 ): Record<string, unknown> {
-  for (const key of ['provider_connections', 'bindings']) {
-    if (root[key] !== undefined) {
-      throw new Error(
-        `${key} is no longer supported. Use provider_accounts and conversations.*.installed_agents.`,
-      );
-    }
-  }
   const normalized: Record<string, unknown> = { ...root };
   normalizeCompactDefaults(normalized, root);
   normalizeCompactProviders(normalized, root);

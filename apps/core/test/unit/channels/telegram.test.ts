@@ -101,7 +101,6 @@ vi.mock('grammy', () => ({
     api = {
       sendMessage: vi.fn().mockResolvedValue({ message_id: 987 }),
       sendDocument: vi.fn().mockResolvedValue({ message_id: 988 }),
-      sendMessageDraft: vi.fn().mockResolvedValue(true),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
       getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_0.jpg' }),
       getChatMember: vi.fn().mockResolvedValue({ status: 'administrator' }),
@@ -120,10 +119,6 @@ vi.mock('grammy', () => ({
         sendMessage: vi.fn((params: any) => {
           const { chat_id, text, ...rest } = params;
           return this.api.sendMessage(chat_id.toString(), text, rest);
-        }),
-        sendMessageDraft: vi.fn((params: any) => {
-          const { chat_id, draft_id, text, ...rest } = params;
-          return this.api.sendMessageDraft(chat_id, draft_id, text, rest);
         }),
       };
       botRef.current = this;
@@ -3991,42 +3986,6 @@ describe('TelegramChannel', () => {
   });
 
   describe('sendStreamingChunk', () => {
-    it('ignores done=true when no private draft stream is active', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      currentBot().api.sendMessageDraft.mockClear();
-      currentBot().api.sendMessage.mockClear();
-
-      await channel.sendStreamingChunk('tg:100200300', '', { done: true });
-
-      expect(currentBot().api.sendMessageDraft).not.toHaveBeenCalled();
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-    });
-
-    it('uses sendMessageDraft in private chats and sends final message on done', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await channel.sendStreamingChunk('tg:100200300', 'Hello ');
-      await channel.sendStreamingChunk('tg:100200300', 'world');
-      await channel.sendStreamingChunk('tg:100200300', '', { done: true });
-
-      expect(currentBot().api.sendMessageDraft).toHaveBeenCalledWith(
-        100200300,
-        expect.any(Number),
-        expect.stringContaining('Hello'),
-        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
-      );
-      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
-        '100200300',
-        'Hello world',
-        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
-      );
-    });
-
     it('streams in groups via send+edit fallback', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -4035,7 +3994,6 @@ describe('TelegramChannel', () => {
       await channel.sendStreamingChunk('tg:-1001234567890', 'group update');
       await channel.sendStreamingChunk('tg:-1001234567890', '', { done: true });
 
-      expect(currentBot().api.sendMessageDraft).not.toHaveBeenCalled();
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '-1001234567890',
         'group update',
@@ -4046,27 +4004,6 @@ describe('TelegramChannel', () => {
         987,
         'group update',
         expect.objectContaining({ parse_mode: 'MarkdownV2' }),
-      );
-    });
-
-    it('streams in groups even when private draft streaming is unavailable', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-      (channel as unknown as { draftStreamApi: null }).draftStreamApi = null;
-
-      const delivered = await channel.sendStreamingChunk(
-        'tg:-1001234567890',
-        'group update',
-        { threadId: '1' },
-      );
-
-      expect(delivered).toBe(true);
-      expect(currentBot().api.sendMessageDraft).not.toHaveBeenCalled();
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '-1001234567890',
-        'group update',
-        { message_thread_id: 1 },
       );
     });
 
@@ -4327,55 +4264,6 @@ describe('TelegramChannel', () => {
         987,
         'new tail',
         expect.objectContaining({ parse_mode: 'MarkdownV2' }),
-      );
-    });
-
-    it('keeps targeted-reset private draft state when an old final send completes', async () => {
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      const jid = 'tg:100200300';
-      const stream = { generation: 1, threadId: '42' };
-
-      await channel.sendStreamingChunk(jid, 'old', stream);
-      await vi.waitFor(() =>
-        expect(currentBot().api.sendMessageDraft).toHaveBeenCalledTimes(1),
-      );
-      let finishOldSend!: () => void;
-      currentBot().api.sendMessage.mockImplementationOnce(
-        () =>
-          new Promise<{ message_id: number }>((resolve) => {
-            finishOldSend = () => resolve({ message_id: 987 });
-          }),
-      );
-      const oldCompletion = channel.sendStreamingChunk(jid, '', {
-        ...stream,
-        done: true,
-      });
-      await vi.waitFor(() =>
-        expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1),
-      );
-
-      channel.resetStreaming(jid, { threadId: stream.threadId });
-      await expect(
-        channel.sendStreamingChunk(jid, 'new', stream),
-      ).resolves.toBe(true);
-      finishOldSend();
-      await oldCompletion;
-
-      await expect(
-        channel.sendStreamingChunk(jid, ' tail', {
-          ...stream,
-          done: true,
-        }),
-      ).resolves.toBe(true);
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
-        '100200300',
-        'new tail',
-        expect.objectContaining({
-          message_thread_id: 42,
-          parse_mode: 'MarkdownV2',
-        }),
       );
     });
   });

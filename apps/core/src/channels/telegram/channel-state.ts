@@ -19,8 +19,6 @@ import {
   TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
   TELEGRAM_GROUP_EDIT_INTERVAL_MS,
   TelegramContext,
-  TelegramStreamApi,
-  ActiveDraftStreamState,
   ActiveGroupStreamState,
   ActiveProgressState,
   PendingUserQuestionState,
@@ -48,7 +46,6 @@ import { sanitizeTelegramFilePath } from './channel-file-path.js';
 export abstract class TelegramChannelState implements ChannelAdapter {
   name = 'telegram';
   protected bot: Bot<TelegramContext> | null = null;
-  protected draftStreamApi: TelegramStreamApi | null = null;
   protected isStopping = false;
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
   protected pollingLease: RuntimeLease | null = null;
@@ -72,7 +69,6 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     string,
     { chatId: string; messageId: number }
   >();
-  protected activeDraftStreams = new Map<string, ActiveDraftStreamState>();
   protected activeGroupStreams = new Map<string, ActiveGroupStreamState>();
   protected streamGenerationByJid = new Map<string, number>();
   protected sealedStreamGenerationByJid = new Map<string, number>();
@@ -85,7 +81,6 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
     TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
   );
-  protected nextDraftIdOffset = 1;
   dropPendingInteraction(
     kind: 'permission' | 'question',
     request: PermissionApprovalRequest | UserQuestionRequest,
@@ -138,7 +133,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     clearTimeout(this.pollingRetryTimer);
     this.pollingRetryTimer = null;
   }
-  protected buildDraftStreamKey(jid: string, threadId?: string): string {
+  protected buildStreamKey(jid: string, threadId?: string): string {
     return `${jid}:${threadId || ''}`;
   }
   protected loadPersistedProgressMessages(): void {
@@ -184,11 +179,6 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     return channelProgressStateFilePath('telegram', this.botToken);
   }
   protected clearStreamingStateForJid(jid: string): void {
-    for (const [key, state] of this.activeDraftStreams.entries()) {
-      if (!key.startsWith(`${jid}:`)) continue;
-      state.closeStream();
-      this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
-    }
     for (const key of this.activeGroupStreams.keys()) {
       if (!key.startsWith(`${jid}:`)) continue;
       this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
@@ -196,15 +186,12 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   }
   resetStreaming(jid: string, options?: { threadId?: string }): void {
     if (options) {
-      const key = this.buildDraftStreamKey(jid, options.threadId);
+      const key = this.buildStreamKey(jid, options.threadId);
       this.streamResetEpochs.bump(key);
-      this.activeDraftStreams.get(key)?.closeStream();
-      this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
       this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
       return;
     }
     const prefix = `${jid}:`;
-    this.streamResetEpochs.bumpMatching(this.activeDraftStreams.keys(), prefix);
     this.streamResetEpochs.bumpMatching(this.activeGroupStreams.keys(), prefix);
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
@@ -250,50 +237,6 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   }
   protected sealStreamingGenerationOnReset(jid: string): void {
     this.markStreamingGenerationDone(jid, this.streamGenerationByJid.get(jid));
-  }
-
-  protected isLikelyPrivateChatId(numericId: string): boolean {
-    return !numericId.startsWith('-');
-  }
-
-  protected createDraftChunkStream(): {
-    iterator: AsyncIterable<string>;
-    push: (chunk: string) => void;
-    close: () => void;
-  } {
-    const chunks: string[] = [];
-    let closed = false;
-    let resolver: (() => void) | null = null;
-    const wake = () => {
-      if (resolver) {
-        const resolve = resolver;
-        resolver = null;
-        resolve();
-      }
-    };
-    return {
-      iterator: (async function* () {
-        while (!closed || chunks.length > 0) {
-          if (chunks.length === 0) {
-            await new Promise<void>((resolve) => {
-              resolver = resolve;
-            });
-            continue;
-          }
-          const next = chunks.shift();
-          if (next) yield next;
-        }
-      })(),
-      push: (chunk: string) => {
-        if (!chunk) return;
-        chunks.push(chunk);
-        wake();
-      },
-      close: () => {
-        closed = true;
-        wake();
-      },
-    };
   }
 
   private telegramRateLimitRetryDelayMs(err: unknown): number | null {
@@ -359,7 +302,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     const parsedThreadId = options.threadId
       ? Number.parseInt(options.threadId, 10)
       : undefined;
-    const key = this.buildDraftStreamKey(jid, options.threadId);
+    const key = this.buildStreamKey(jid, options.threadId);
     const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeGroupStreams.get(key);
     if (!state) {

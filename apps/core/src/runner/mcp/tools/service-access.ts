@@ -51,10 +51,7 @@ export function registerServiceAccessRequestTool(server: McpServer): void {
               `capability:${capability.capabilityId}`,
             ) &&
             capability.implementationBindings.some(
-              (binding) =>
-                binding.kind === 'mcp_tool' ||
-                binding.kind === 'mcp_pattern' ||
-                Boolean(binding.mcpTool),
+              (binding) => binding.kind === 'mcp_pattern',
             ),
         );
         const selectedMcpCapabilityIds = selectedMcpCapabilities
@@ -102,9 +99,6 @@ function mcpCapabilityNames(
       if (binding.mcpServer) names.push(binding.mcpServer);
       continue;
     }
-    if (binding.kind !== 'mcp_tool' && !binding.mcpTool) continue;
-    const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
-    if (match?.[1]) names.push(match[1]);
   }
   return names.map(normalizeMcpServerName).filter(Boolean);
 }

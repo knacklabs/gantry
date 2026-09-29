@@ -27,7 +27,6 @@ type TelegramQuestionTarget = Pick<
 
 export async function disconnectTelegramDelivery(input: {
   bot: { stop(): void } | null;
-  activeDraftStreams: Map<unknown, { closeStream(): void }>;
   activeGroupStreams: Map<unknown, unknown>;
   streamGenerationByJid: Map<unknown, unknown>;
   sealedStreamGenerationByJid: Map<unknown, unknown>;
@@ -52,11 +51,7 @@ export async function disconnectTelegramDelivery(input: {
   pendingUserQuestionCallbackIds: Map<string, TelegramQuestionTarget>;
   pendingUserQuestions: Map<string, PendingTelegramQuestion>;
   releasePollingLease(): Promise<void>;
-}): Promise<{ bot: null; draftStreamApi: null }> {
-  for (const streamState of input.activeDraftStreams.values()) {
-    streamState.closeStream();
-  }
-  input.activeDraftStreams.clear();
+}): Promise<{ bot: null }> {
   input.activeGroupStreams.clear();
   input.streamGenerationByJid.clear();
   input.sealedStreamGenerationByJid.clear();
@@ -103,7 +98,7 @@ export async function disconnectTelegramDelivery(input: {
     await input.releasePollingLease();
     logger.info('Telegram bot stopped');
   }
-  return { bot: null, draftStreamApi: null };
+  return { bot: null };
 }
 
 export function dropPendingTelegramInteraction(

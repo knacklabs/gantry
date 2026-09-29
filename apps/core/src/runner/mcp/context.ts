@@ -414,14 +414,10 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
     .filter(
       (capability) =>
         currentAllowedTools.includes(`capability:${capability.capabilityId}`) &&
-        capability.implementationBindings.some((binding) => {
-          if (binding.kind === 'mcp_pattern') {
-            return binding.mcpServer === serverName;
-          }
-          if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
-          const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
-          return match?.[1] === serverName;
-        }),
+        capability.implementationBindings.some(
+          (binding) =>
+            binding.kind === 'mcp_pattern' && binding.mcpServer === serverName,
+        ),
     )
     .map((capability) => capability.capabilityId)
     .sort();

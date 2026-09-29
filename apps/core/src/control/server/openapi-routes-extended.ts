@@ -145,7 +145,6 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
       parameters: [
         ids.job,
         query('run', 'Run id filter.'),
-        query('runId', 'Run id filter alias.'),
         query('eventType', 'Runtime event type filter.'),
         query('sinceId', 'Return events after this event id.', {
           type: 'integer',

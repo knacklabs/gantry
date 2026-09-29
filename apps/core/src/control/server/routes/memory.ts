@@ -314,6 +314,13 @@ export async function handleMemoryRoutes(
       );
       return true;
     }
+    if (
+      decision !== 'edit_approve' &&
+      Object.keys(body).some((key) => key !== 'decision' && key !== 'reason')
+    ) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Unsupported decision field');
+      return true;
+    }
     // edit_approve replaces the recorded value, so it is meaningless without a
     // non-empty editedValue — reject here rather than forward a broken decision.
     if (
@@ -358,7 +365,7 @@ export async function handleMemoryRoutes(
           payload: {
             review_id: decisionReviewId,
             decision,
-            ...(typeof body.editedValue === 'string'
+            ...(decision === 'edit_approve'
               ? { edited_value: body.editedValue }
               : {}),
             ...(typeof body.reason === 'string'

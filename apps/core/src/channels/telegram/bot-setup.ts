@@ -2,25 +2,22 @@ import https from 'https';
 
 import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
-import { stream, streamApi } from '@grammyjs/stream';
 
 import {
   escapeTelegramMarkdownV2Literal,
   type TelegramContext,
 } from './channel-shared.js';
 
-export function createTelegramBotRuntime(botToken: string): {
-  bot: Bot<TelegramContext>;
-  draftStreamApi: ReturnType<typeof streamApi>;
-} {
+export function createTelegramBotRuntime(
+  botToken: string,
+): Bot<TelegramContext> {
   const bot = new Bot<TelegramContext>(botToken, {
     client: {
       baseFetchConfig: { agent: https.globalAgent, compress: true },
     },
   });
   bot.api.config.use(autoRetry());
-  bot.use(stream());
-  return { bot, draftStreamApi: streamApi(bot.api.raw) };
+  return bot;
 }
 
 export function registerTelegramBotCommands(

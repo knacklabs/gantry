@@ -147,6 +147,34 @@ describe('GET /v1/memory/reviews/{reviewId}', () => {
 });
 
 describe('POST /v1/memory/reviews/{reviewId}/decision', () => {
+  it.each(['approve', 'reject'] as const)(
+    '%s accepts only the documented decision fields',
+    async (decision) => {
+      serviceMock.getReviewDetail.mockResolvedValue({
+        id: 'rev-1',
+        status: 'pending_review',
+      });
+      ipcMock.processMemoryReviewDecisionRequest.mockResolvedValue({
+        data: { review: { id: 'rev-1' } },
+      });
+      const path = `/v1/memory/reviews/rev-1/decision?${SUBJECT_QUERY}`;
+      const allowed = await call('POST', path, ctxWith(['memory:admin']), {
+        decision,
+        reason: 'reviewed',
+      });
+      expect(allowed.statusCode).toBe(200);
+
+      const rejected = await call('POST', path, ctxWith(['memory:admin']), {
+        decision,
+        extra: 'value',
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(ipcMock.processMemoryReviewDecisionRequest).toHaveBeenCalledTimes(
+        1,
+      );
+    },
+  );
+
   it('rejects a key with only memory:read', async () => {
     const res = await call(
       'POST',

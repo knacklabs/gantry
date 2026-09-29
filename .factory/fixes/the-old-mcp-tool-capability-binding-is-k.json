@@ -1,0 +1,44 @@
+{
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: pure removal of legacy/compat code, may exceed the fix file limit or touch interface paths",
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/the-old-mcp-tool-capability-binding-is-k",
+  "done_when": "mcp_tool is gone from the binding kind union and from every branch and test, and stored definitions using it are rejected by the existing generic validation",
+  "kind": "fix",
+  "review": {
+    "commit": "6dddb74a8ffabb3a62d84d870a9c6773573f4afd",
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/capability-binding-kind-validation.postgres.integration.test.ts:60 owner's standing rule (2026-09-29): pure legacy deletions get no end-to-end guard tests; unknown binding kinds are rejected by the existing generic validation, covered with neutral names",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "The new Postgres test saves an invalid definition but calls `semanticCapabilityFromToolCatalogItem` directly at line 60. It never selects the stored tool for an agent or exercises the running API. The agent path in `apps/core/src/application/agents/agent-tool-runtime-rules.ts:135-149` parses selected tools and rejects invalid definitions; a regression in that wiring would leave this test green. Add a real-database API test that attempts to use the stored definition through that path and asserts rejection.",
+        "file": "apps/core/test/integration/capability-binding-kind-validation.postgres.integration.test.ts",
+        "line": 60,
+        "priority": "P1",
+        "title": "Not done: end-to-end test that stored unsupported bindings cannot reach an agent"
+      }
+    ],
+    "status": "clean",
+    "tree": "df6616da88f30358cb84bf2261af577be994864ad9b82c225428177da2507c04"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T16:38:26+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T17:05:41+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T17:30:14+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The old mcp_tool capability binding is kept only to be rejected, yet seven files still branch on it"
+}
