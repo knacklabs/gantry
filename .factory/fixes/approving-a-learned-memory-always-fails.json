@@ -1,0 +1,14 @@
+{
+  "base": "cc0f36359c604ea52b0cc35c53737e11dae0e335",
+  "branch": "fix/approving-a-learned-memory-always-fails",
+  "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T07:39:00+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Approving a learned memory always fails as stale while the card still says 'Memory review approved', so preferences and corrections can never be approved"
+}
