@@ -65,6 +65,13 @@ async function seedPendingRoute(
     createdAt: NOW,
     updatedAt: NOW,
   });
+  await runtime.control.ensureAppSession({
+    appId: APP_ID,
+    conversationId: 'chat',
+    chatJid: CHAT_JID,
+    workspaceFolder: 'route_recovery',
+    title: 'Route Recovery Chat',
+  });
   await runtime.repositories.providerAccounts.saveProviderAccount({
     id: PROVIDER_ACCOUNT_ID,
     appId: APP_ID,
