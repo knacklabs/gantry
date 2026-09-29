@@ -5,13 +5,13 @@
   "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
   "kind": "fix",
   "review": {
-    "commit": "1fc6c9d588a06b03f80ae068a1567e9ddb301302",
+    "commit": "f4f5179d129eacffdb0edb8ff658d2fc11bbf394",
     "dismissals": [],
     "findings": [],
     "status": "clean",
-    "tree": "6475a11f7396aee33e3970da0d3feecb6d21c5758d1f1897e25e99ec18275797"
+    "tree": "2c2237c157ebdef8555e0eb35eb488a985340760ff39898f77b80b699ea517db"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T15:24:35+00:00",
@@ -23,6 +23,10 @@
     },
     {
       "at": "2026-09-29T16:03:13+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:21:34+00:00",
       "step": "review"
     }
   ],
