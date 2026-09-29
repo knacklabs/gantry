@@ -6,7 +6,13 @@
   "kind": "fix",
   "review": {
     "commit": "6dddb74a8ffabb3a62d84d870a9c6773573f4afd",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/capability-binding-kind-validation.postgres.integration.test.ts:60 owner's standing rule (2026-09-29): pure legacy deletions get no end-to-end guard tests; unknown binding kinds are rejected by the existing generic validation, covered with neutral names",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The new Postgres test saves an invalid definition but calls `semanticCapabilityFromToolCatalogItem` directly at line 60. It never selects the stored tool for an agent or exercises the running API. The agent path in `apps/core/src/application/agents/agent-tool-runtime-rules.ts:135-149` parses selected tools and rejects invalid definitions; a regression in that wiring would leave this test green. Add a real-database API test that attempts to use the stored definition through that path and asserts rejection.",
@@ -16,10 +22,10 @@
         "title": "Not done: end-to-end test that stored unsupported bindings cannot reach an agent"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "df6616da88f30358cb84bf2261af577be994864ad9b82c225428177da2507c04"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T16:38:26+00:00",
