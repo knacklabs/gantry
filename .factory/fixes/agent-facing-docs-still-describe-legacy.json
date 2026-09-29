@@ -3,11 +3,30 @@
   "branch": "fix/agent-facing-docs-still-describe-legacy",
   "done_when": "apps/core/src/memory/AGENTS.md, apps/core/src/adapters/storage/postgres/AGENTS.md and plans/LEGACY-2.md no longer describe removed paths",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "eea15fc866167996b2e4f578c54049c926ae6f49",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The branch leaves `plans/LEGACY-2.md` unchanged. Its lines 5\u20139 still instruct builders to delete the `providerConnection` shadow field and dual reads, and lines 21\u201327 describe those paths as present. The named source files contain no such shadow field or dual reads. Update the plan so all three documents meet the stated Done-when condition.",
+        "file": ".factory/fixes/agent-facing-docs-still-describe-legacy.json",
+        "line": 4,
+        "priority": "P1",
+        "title": "Not done: apps/core/src/memory/AGENTS.md, apps/core/src/adapters/storage/postgres/AGENTS.md and plans/LEGACY-2.md no longer describe removed"
+      }
+    ],
+    "status": "blocked",
+    "tree": "cd4f6c8a67b73653db6b3ec2316b518d0277526dc1537e6aa3c507de8e239b00"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T16:38:56+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T16:55:36+00:00",
+      "step": "review"
     }
   ],
   "why": "Agent-facing docs still describe legacy paths that no longer exist, which misleads builders"
