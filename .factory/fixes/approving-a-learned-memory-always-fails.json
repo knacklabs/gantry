@@ -4,19 +4,19 @@
   "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
   "kind": "fix",
   "review": {
-    "commit": "0156aa7f44245ad14426e580d0ca52c5dfa20c33",
+    "commit": "7a6b7a8c9010836da302a8bf2c52f35fb69ef02d",
     "dismissals": [],
     "findings": [
       {
-        "body": "The Postgres test calls `service.decideReview` directly, bypassing the user-facing approval entry point and card update. The new card tests mock the internal IPC decision and subject lookup (`apps/core/test/unit/bootstrap/approving-a-learned-memory-always-fails.test.ts:5`), so they cannot prove that real database outcomes reach the card. Actual Slack card replacement occurs in `apps/core/src/channels/slack/channel-message-action-handler.ts:263`, which neither test exercises. Add the required end-to-end flow through the running application with real Postgres, verifying saved memory and visible approved, failed-with-reason, and already-decided outcomes; fake only third-party edges. The current coverage does not satisfy the explicit Done-when test requirement.",
+        "body": "The new Postgres tests exercise real persistence, but `click()` directly invokes a captured callback and manually connects the handlers. They never start the application or drive the required browser flow through Playwright. This bypasses production dispatch (`apps/core/src/app/bootstrap/channel-message-action-router.ts:100`), so the tests could pass even if deployed approval clicks never reach the executor. Add the required running-application test with real Postgres, verifying saved memory and visible approved, failed-with-reason, and already-decided outcomes; fake only third-party edges.",
         "file": "apps/core/test/integration/approving-a-learned-memory-always-fails.postgres.integration.test.ts",
-        "line": 91,
+        "line": 204,
         "priority": "P1",
-        "title": "Not done: Candidate-backed approval and review-card outcomes need end-to-end coverage"
+        "title": "Not done: End-to-end approval and review-card outcomes through the running application"
       }
     ],
     "status": "blocked",
-    "tree": "8945e1488649e406c475cdec30d60554a96a2e60a9e71f2d50cec9e3b677be9f"
+    "tree": "30950f1013cf1dc7ec9e8d1c31ccf3ee92e49ec26812f56bd3f18e528df5506f"
   },
   "status": "fixing",
   "steps": [
@@ -26,6 +26,10 @@
     },
     {
       "at": "2026-09-29T07:52:48+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:18:41+00:00",
       "step": "review"
     }
   ],
