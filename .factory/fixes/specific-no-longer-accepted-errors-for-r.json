@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: removes field-specific rejections for job fields that no longer exist; those fields now get the generic unknown-field rejection; no new API surface",
   "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
   "branch": "fix/specific-no-longer-accepted-errors-for-r",
   "done_when": "The jobs API, IPC task parsing and scheduler MCP tools no longer mention groupScope, group_scope, requiredTools, required_tools or GANTRY_GROUP_FOLDER; the tool schema no longer advertises required_tools; tests updated",
