@@ -4,11 +4,30 @@
   "branch": "fix/telegram-direct-message-draft-streaming",
   "done_when": "The unreachable Telegram DM draft-streaming code, its state and its tests are deleted, the @grammyjs/stream dependency is removed with the lockfile updated by npm, and group streaming still passes its tests",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "cd91dfa1b043714f45f19a6ec5e10c244a31c2fa",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The retained group streaming tests in apps/core/test/unit/channels/telegram.test.ts:3989 call TelegramChannel directly with a mocked grammy bot. The capability test in apps/core/test/unit/bootstrap/channel-wiring.test.ts:3579 also uses a mocked sink. No end-to-end test exercises the runtime routing in apps/core/src/channels/register-builtins.ts:147 through this group delivery path. The required real-entry-point test for group streaming is missing.",
+        "file": "apps/core/src/channels/telegram/channel-delivery.ts",
+        "line": 237,
+        "priority": "P1",
+        "title": "Not done: group streaming still passes its tests"
+      }
+    ],
+    "status": "blocked",
+    "tree": "dfc01ea85ac8b8a122c83ec74ef5af5eb213be143c7020dcbfe75f1e70fbc1a7"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T16:37:56+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T17:09:27+00:00",
+      "step": "review"
     }
   ],
   "why": "Telegram direct-message draft streaming can never run, because streaming is only enabled for group chats, but its code and dependency remain"
