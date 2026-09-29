@@ -1,75 +1,82 @@
 {
   "branch": "task/TURN-1-T2",
   "review": {
-    "commit": "1c7d036a1ca370e92fbaca608e274282f0b0f7fa",
+    "commit": "214e2a35b3def69a1cdfd88958c4cd57541621bb",
     "dismissals": [],
     "findings": [
       {
-        "body": "chunk 3/3:\n\nFollow-ups are consumed under a fresh `command:<uuid>` that is never associated with the owning turn or persisted in its continuation payload. If the owner fails before replying, group-processing.ts:755 releases only `turn:<runId>`. Restart recovery likewise releases only that turn consumer, then marks pending continuations applied (live-execution.ts:689\u2013698). Consequently, an accepted but unanswered follow-up remains consumed permanently. Persist recoverable ownership for these items and release unanswered continuation input on failure and recovery.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 411,
+        "body": "chunk 1/3:\n\nRecovery treats any delivered output for the run as proof that every consumed item was answered. If the owner sends an early reply, then consumes a follow-up and crashes before the runner receives that continuation, this branch keeps the follow-up consumed and marks its pending continuation command applied. The next turn cannot take it. Track which items reached the runner or release unanswered follow-ups independently of earlier output.",
+        "file": "apps/core/src/app/bootstrap/live-execution.ts",
+        "line": 696,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 3/3:\n\nRecovery unconditionally releases every item consumed by the recovered run. A worker can deliver its reply and then crash before finalizing the live turn; the successor will release and process that already-answered input again. The recovery caller in runtime/live-turn-recovery.ts:141\u2013144 does not distinguish whether output was delivered. This violates the covered requirement that failures after replying never give the messages again. Recovery needs durable delivery evidence before deciding which input to release.",
-        "file": "apps/core/src/app/bootstrap/live-execution.ts",
-        "line": 690,
-        "priority": "P1",
-        "title": "Preserve replied input when recovering a crashed worker"
-      },
-      {
-        "body": "chunk 3/3:\n\nReplacing command processing with an unconditional queue wakeup removes the active `/stop` and `/new` path. On the owning worker, GroupQueue.enqueueMessageCheck only sets pendingMessages while a run is active (group-queue.ts:226\u2013229), so `/stop` cannot interrupt that run. On another worker, the continuation path recognizes only `/compact` (runtime-services-active-compact.ts:74), so `/stop` and `/new` are consumed and forwarded as ordinary model text. Preserve immediate authorized command dispatch while updating its consumption record.",
-        "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 260,
-        "priority": "P1",
-        "title": "Restore active /stop and /new dispatch before queueing"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe new child processes call takeInput and getMessagesByIds directly, then exit. They never run admission processing, live-turn ownership, continuation delivery, a runner, or reply handling. The late message is saved only after both children finish. This proves repository claim exclusion, but would still pass if the runtime dropped every claimed message. Add the required two-worker runtime flow with an arrival during an active turn and assertions on actual delivery and remaining input.",
+        "body": "chunk 1/3:\n\nThe spawned processes only call takeInput and getMessagesByIds, then exit. The active-turn follow-up test creates both admission workers in one process and mocks the runner's continuation input. Neither test exercises two independent runtime workers delivering a follow-up to a runner and reply, so the required two-process no-loss/no-duplication behavior remains unproven.",
         "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 270,
+        "line": 275,
         "priority": "P1",
-        "title": "Not done: two-worker end-to-end no-loss/no-duplication test"
+        "title": "Not done: two-process end-to-end no-loss/no-duplication test"
       },
       {
-        "body": "chunk 3/3:\n\nThe claimed restart consists of constructing another repository over the same live database connection. Queue execution is mocked, and the test itself consumes the item afterward. No runtime restarts, no runner receives the message, and no consumed turn or pending continuation is recovered. It therefore cannot detect either lost follow-ups or duplicate replies after restart. Exercise an actual runtime restart against persisted input and assert delivery through the production recovery path.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 214,
-        "priority": "P1",
-        "title": "Not done: restart recovery test"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe failure proof here supplies outputSentToUser directly and checks calls to a mocked releaseInput. The group-processing tests also mock consumption; the Postgres tests exercise releaseInput directly without a failing runtime turn. These tests cannot establish that real delivery controls persisted consumption or that the next turn receives exactly the unanswered messages. Add runtime tests with a real database and failures before and after observable output, followed by another turn.",
-        "file": "apps/core/test/unit/runtime/group-processing-flow.test.ts",
-        "line": 100,
-        "priority": "P1",
-        "title": "Not done: failure-before-output and failure-after-output end-to-end tests"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe polling assertion uses takeInput with consumedBy='history' to check whether input remains. If the runtime leaves an item unconsumed, the first poll consumes it itself and returns false; the next poll sees an empty queue and passes. Thus the test repairs the exact unconsumed-input defect it claims to detect. Inspect persisted consumption without changing it, and verify that the runtime consumer processed the item.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 908,
-        "priority": "P1",
-        "title": "Not done: settings-reload consumption test"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe replacement active-turn path routes every non-command message through buildLiveTurnContinuation, including messages carrying responseSchema or agentControls. That builder emits only formatted text and routing metadata (live-turn-continuation.ts:37\u201343), so these request settings disappear while the item remains consumed. The removed message-loop path explicitly closed stdin and queued a fresh turn for such messages. Restore an equivalent boundary so controlled requests reach runAgent with their settings.",
+        "body": "chunk 1/3:\n\nThe active-turn path consumes every non-control item and builds a text-only continuation. A message carrying responseSchema or agentControls therefore loses those settings before reaching the runner, while its admission item stays consumed. Keep such requests for a new turn that can pass their settings to runAgent.",
         "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 442,
+        "line": 452,
         "priority": "P2",
-        "title": "Keep requests with schema or model controls out of plain continuations"
+        "title": "Preserve schema and agent controls on active-turn requests"
       },
       {
-        "body": "chunk 3/3:\n\nA successful handled result does not necessarily mean every taken message was handled. In session/session-commands.ts:366\u2013370, a pre-command run that outputs and then fails returns success=true after advancing only past the preceding messages, deliberately leaving the command pending. This branch now keeps the entire batch consumed, including that unexecuted command, so the next wakeup cannot execute it. Track the handled subset and release the pending command without replaying the already-answered messages.",
-        "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 215,
+        "body": "chunk 1/3:\n\ntakeInput selects items by receiveOrder, but this new sort gives provider timestamps precedence. A delayed attachment or a provider timestamp that moves backward can therefore appear before messages received earlier in the same batch. Sort by receiveOrder when available so the agent sees the recorded arrival order.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 30,
         "priority": "P2",
-        "title": "Leave an unexecuted session command available after partial failure"
+        "title": "Present taken messages in receive order"
+      },
+      {
+        "body": "chunk 1/3:\n\nThis new file stores a prior review result and task status. It is outside the permitted paths and is not needed for the runtime switch, migration, tests, or decisions. Remove it from the change.",
+        "file": ".factory/stories/TURN-1/tasks/T2.json",
+        "line": 3,
+        "priority": "P2",
+        "title": "Remove the review-state file outside the allowed scope"
+      },
+      {
+        "body": "chunk 3/3:\n\nChannel intake saves work items under the runtime app ID (`channel-persistence-handlers.ts:224-226`), but this new take scopes them with `turnAppId`, which `command-override-route-key.ts:37` derives from the chat JID and defaults to `default`. A normal Telegram or Slack JID in a non-default app therefore never matches its saved items. The turn sees an empty batch and replies to nothing; recovery repeats the same mismatch. Use the admission item's actual app scope.",
+        "file": "apps/core/src/runtime/group-processing.ts",
+        "line": 96,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice."
+      },
+      {
+        "body": "chunk 3/3:\n\nIf a turn delivered some output, then a follow-up was taken and routed before the worker died, `hasDeliveredOutputForRun` is true. Recovery leaves that follow-up consumed and marks pending continuation commands applied, even though the runner may never have given the follow-up to the model. The next turn cannot take it. Delivery of an earlier reply is insufficient evidence that later input was handled; recovery needs per-follow-up confirmation or must release unconfirmed items.",
+        "file": "apps/core/src/app/bootstrap/live-execution.ts",
+        "line": 697,
+        "priority": "P1",
+        "title": "Release unconfirmed follow-ups when recovering a turn that already replied"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe new failure handler returns without releasing consumed input whenever `acknowledgeFailedTurn` is true, even if `outputSentToUser` is false. `group-processing.ts:764-767` sets that flag on an ordinary exhausted final retry. Thus a turn that fails silently before replying leaves its messages permanently consumed, contrary to the required next-turn retry behavior.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 194,
+        "priority": "P1",
+        "title": "Release input after a final retry that sent no reply"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe added child processes call `takeInput` and `getMessagesByIds` directly, then exit. They never run admission, route a continuation, execute a turn, or deliver a reply. The separate two-worker follow-up case creates both workers in one process with a stubbed `runAgent`. Consequently these tests cannot catch message loss or duplicate delivery during a real two-process owner handoff, which this part explicitly requires the e2e test to prove.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 275,
+        "priority": "P1",
+        "title": "Not done: two-process no-loss end-to-end test"
+      },
+      {
+        "body": "chunk 3/3:\n\n`takeInput` selects items by `receiveOrder`, but this sort moves a later-received item ahead whenever its provider timestamp is in an earlier second. The new unit test even expects that inversion. Delayed media or provider timestamps can therefore present a burst to the agent out of received order. Sort by `receiveOrder` for recorded items.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 29,
+        "priority": "P2",
+        "title": "Preserve database receive order in the turn prompt"
       }
     ],
     "status": "blocked",
-    "tree": "8f6b5888412739b95f0708d8f005647af6bd62845003819873f38b32028e1991"
+    "tree": "49cc71eba4cc4ef8ee8758ab4c647ec3fdc2f6923eba8737f7d4737652b95de9"
   },
   "status": "fixing",
   "steps": [
@@ -79,6 +86,10 @@
     },
     {
       "at": "2026-09-29T10:45:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:43:47+00:00",
       "step": "review"
     }
   ]
