@@ -6,7 +6,6 @@ import {
 } from '@core/adapters/storage/postgres/storage-service.js';
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { PostgresLiveTurnRepository } from '@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js';
-import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
 import {
   DEFAULT_AGENT_ID,
@@ -237,12 +236,17 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'failure-boundary';
     const folder = 'failure_boundary';
-    await new PostgresCanonicalGraphRepository(runtime.service.db).ensureAgent(
-      folder,
-    );
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
     const agentId = agentIdForFolder(folder);
-    const chatJid = 'tg:failure-boundary';
     const channel = createFakeChannelRuntime((jid) => jid === chatJid);
     let mode: 'silent' | 'delivered' | 'success' = 'silent';
     const presented: string[][] = [];
@@ -271,6 +275,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await app.registerGroup(chatJid, {
       name: 'Failure boundary',
       folder,
+      providerAccountId,
       trigger: 'Andy',
       added_at: toIso(nowMs()),
       requiresTrigger: false,
@@ -282,14 +287,15 @@ maybeDescribe('live admission work items (Postgres)', () => {
         {
           id,
           chat_jid: chatJid,
-          provider: 'telegram',
+          provider: 'app',
+          providerAccountId,
           sender: 'person',
           content,
           timestamp: toIso(nowMs()),
           is_from_me: false,
           is_bot_message: false,
         },
-        { appId: 'default', agentId },
+        { appId, agentId },
       );
       expect(result?.outcome).toBe('enqueued');
       if (!result || result.outcome === 'overloaded')
@@ -298,13 +304,15 @@ maybeDescribe('live admission work items (Postgres)', () => {
     };
     const first = await save('msg:failure-before', 'before output');
     expect(
-      await app.processGroupMessages(chatJid, {
+      await app.processGroupMessages(first.queueJid, {
         existingRunId: 'run:failure-before',
       }),
     ).toBe(false);
     mode = 'success';
     expect(
-      await app.processGroupMessages(chatJid, { existingRunId: 'run:retry' }),
+      await app.processGroupMessages(first.queueJid, {
+        existingRunId: 'run:retry',
+      }),
     ).toBe(true);
     expect(presented).toEqual([['before output'], ['before output']]);
     expect(
@@ -316,16 +324,18 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const second = await save('msg:failure-after', 'after output');
     mode = 'delivered';
     expect(
-      await app.processGroupMessages(chatJid, {
+      await app.processGroupMessages(second.queueJid, {
         existingRunId: 'run:failure-after',
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       await liveTurns.hasDeliveredOutputForRun({ runId: 'run:failure-after' }),
     ).toBe(true);
     mode = 'success';
     expect(
-      await app.processGroupMessages(chatJid, { existingRunId: 'run:next' }),
+      await app.processGroupMessages(second.queueJid, {
+        existingRunId: 'run:next',
+      }),
     ).toBe(true);
     expect(presented).toEqual([
       ['before output'],
@@ -351,10 +361,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'restart-boundary';
     const folder = 'restart_boundary';
-    await new PostgresCanonicalGraphRepository(runtime.service.db).ensureAgent(
-      folder,
-    );
+    const providerAccountId = `control:${appId}`;
     const queue = new GroupQueue({
       maxMessageRuns: 2,
       maxJobRuns: 1,
@@ -363,7 +372,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     const delivered: string[][] = [];
     const channel = createFakeChannelRuntime((jid) =>
-      jid.startsWith('tg:restart-'),
+      jid.startsWith(`app:${appId}:`),
     );
     const makeApp = (runtimeQueue?: GroupQueue) => {
       const runtimeApp = createRuntimeApp({
@@ -426,20 +435,27 @@ maybeDescribe('live admission work items (Postgres)', () => {
     queue.setProcessMessagesFn((jid, context) => processor(jid, context));
     const cases = [
       {
-        jid: 'tg:restart-unanswered',
+        jid: `app:${appId}:unanswered`,
         content: 'unanswered request',
         answered: false,
       },
       {
-        jid: 'tg:restart-answered',
+        jid: `app:${appId}:answered`,
         content: 'answered request',
         answered: true,
       },
     ];
     for (const scenario of cases) {
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: scenario.answered ? 'answered' : 'unanswered',
+        chatJid: scenario.jid,
+        workspaceFolder: folder,
+      });
       await beforeApp.registerGroup(scenario.jid, {
         name: 'Restart boundary',
         folder,
+        providerAccountId,
         trigger: 'Andy',
         added_at: toIso(nowMs()),
         requiresTrigger: false,
@@ -450,6 +466,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         agentFolder: folder,
         executionProviderId: 'anthropic:claude-agent-sdk',
         conversationJid: scenario.jid,
+        providerAccountId,
         threadId: null,
         hydrateMemory: false,
       });
@@ -464,14 +481,15 @@ maybeDescribe('live admission work items (Postgres)', () => {
         {
           id: `message:${scenario.jid}`,
           chat_jid: scenario.jid,
-          provider: 'telegram',
+          provider: 'app',
+          providerAccountId,
           sender: 'person',
           content: scenario.content,
           timestamp: toIso(nowMs()),
           is_from_me: false,
           is_bot_message: false,
         },
-        { appId: 'default', agentId: agentIdForFolder(folder) },
+        { appId, agentId: agentIdForFolder(folder) },
       );
       expect(saved?.outcome).toBe('enqueued');
       if (!saved || saved.outcome === 'overloaded' || !runId)
@@ -480,7 +498,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         deps: { ...leaseDeps, workerInstanceId: workerBefore },
         turnId: `turn:${scenario.jid}`,
         scope: {
-          appId: 'default',
+          appId,
           agentSessionId: context!.agentSessionId,
           conversationId: scenario.jid,
           threadId: null,
@@ -488,7 +506,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         runId,
         pendingMessage: {
           kind: 'message_cursor',
-          queueJid: scenario.jid,
+          queueJid: saved.item.queueJid,
           cursorBefore: '',
         },
         slotCapacity: 2,
@@ -498,20 +516,14 @@ maybeDescribe('live admission work items (Postgres)', () => {
       expect(claimed.outcome).toBe('claimed');
       if (scenario.answered) {
         expect(
-          await beforeApp.processGroupMessages(scenario.jid, {
+          await beforeApp.processGroupMessages(saved.item.queueJid, {
             existingRunId: runId,
           }),
         ).toBe(true);
         expect(await liveTurns.hasDeliveredOutputForRun({ runId })).toBe(true);
       } else {
         const taken = await liveTurns.takeInput({
-          scope: {
-            appId: 'default',
-            conversationId: scenario.jid,
-            threadId: null,
-            agentId: agentIdForFolder(folder),
-            providerAccountId: null,
-          },
+          scope: saved.item,
           consumedBy: `turn:${runId}`,
           limit: 1,
         });
@@ -520,7 +532,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     }
     await app.loadState();
     const messageLoopDeps: MessageLoopDeps = {
-      appId: 'default',
+      appId,
       inputRepository: liveTurns,
       getConversationRoutes: app.getConversationRoutes,
       getOrRecoverCursor: app.getOrRecoverCursor,
@@ -535,7 +547,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
       const handle = startLiveExecutionServices({
-        appId: 'default',
+        appId,
         app,
         liveTurnAuthority: authority,
         liveTurnLeaseDeps: leaseDeps,

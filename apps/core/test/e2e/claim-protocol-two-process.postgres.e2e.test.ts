@@ -17,7 +17,6 @@ import { processBrowserIpcRequest } from '@core/runtime/ipc-browser-handler.js';
 import { validateAgentToolRuntimeRules } from '@core/application/agents/agent-tool-runtime-rules.js';
 import { nowIso } from '@core/shared/time/datetime.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
-import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import {
   buildLiveAdmissionProcessor,
@@ -367,21 +366,27 @@ maybeDescribe(
       const { _setRuntimeStorageForTest } =
         await import('@core/adapters/storage/postgres/runtime-store.js');
       _setRuntimeStorageForTest(runtime.storageRuntime);
-      const jid = 'tg:two-worker-active-follow-up';
+      const appId = 'two-worker-follow-up';
+      const jid = `app:${appId}:conversation`;
       const folder = 'two_worker_follow_up';
-      await new PostgresCanonicalGraphRepository(
-        runtime.service.db,
-      ).ensureAgent(folder);
+      const providerAccountId = `control:${appId}`;
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: 'conversation',
+        chatJid: jid,
+        workspaceFolder: folder,
+      });
       const scope = {
-        appId: 'default',
+        appId,
         conversationId: jid,
         threadId: null,
         agentId: agentIdForFolder(folder),
-        providerAccountId: null,
+        providerAccountId,
       };
       const route: ConversationRoute = {
         name: 'Two worker follow-up',
         folder,
+        providerAccountId,
         trigger: 'Andy',
         added_at: nowIso(),
         requiresTrigger: false,
@@ -481,7 +486,7 @@ maybeDescribe(
             processor(queueJid, context),
           );
           const messageLoopDeps: MessageLoopDeps = {
-            appId: 'default',
+            appId,
             inputRepository: runtime.repositories.liveTurns,
             getConversationRoutes: app.getConversationRoutes,
             getOrRecoverCursor: app.getOrRecoverCursor,
@@ -500,7 +505,7 @@ maybeDescribe(
       const start = (worker: (typeof workers)[number]) => {
         handles.push(
           startLiveExecutionServices({
-            appId: 'default',
+            appId,
             app: worker.app,
             liveTurnAuthority: worker.authority,
             liveTurnLeaseDeps: worker.leaseDeps,
@@ -527,14 +532,15 @@ maybeDescribe(
             {
               id,
               chat_jid: jid,
-              provider: 'telegram',
+              provider: 'app',
+              providerAccountId,
               sender: 'person',
               content,
               timestamp: nowIso(),
               is_from_me: false,
               is_bot_message: false,
             },
-            { appId: 'default', agentId: scope.agentId },
+            { appId, agentId: scope.agentId },
           );
           expect(admitted?.outcome).toBe('enqueued');
           if (!admitted || admitted.outcome === 'overloaded')
@@ -570,7 +576,7 @@ maybeDescribe(
             rows.length === 2 && rows.every((row) => row.consumed_at === null)
           );
         }, 'unanswered input released after failure');
-        workers[1]!.queue.enqueueMessageCheck(jid);
+        workers[1]!.queue.enqueueMessageCheck(first.queueJid);
         await waitForLiveE2e(
           () => channel.outbound.length > 0,
           'reply after follow-up',
