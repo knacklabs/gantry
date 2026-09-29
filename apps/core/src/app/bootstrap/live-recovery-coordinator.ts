@@ -229,6 +229,7 @@ export function startLiveRecoveryCoordinatorLeaseAcquisition(input: {
 
 export interface LiveTurnScopeRepository {
   getAgentTurnContext?: (input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -265,6 +266,7 @@ interface LiveTurnScopeApp {
 }
 
 export async function liveTurnScopeForQueue(input: {
+  appId?: string;
   app: LiveTurnScopeApp;
   opsRepository: LiveTurnScopeRepository;
   executionAdapter: { id: ExecutionProviderId };
@@ -283,6 +285,7 @@ export async function liveTurnScopeForQueue(input: {
     (await app.resolveExecutionProviderId?.(route, chatJid)) ??
     resolveRuntimeExecutionProviderId(executionAdapter);
   const turnContext = await opsRepository.getAgentTurnContext?.({
+    appId: input.appId,
     agentFolder: route.folder,
     executionProviderId,
     conversationJid: chatJid,

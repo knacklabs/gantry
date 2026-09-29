@@ -41,7 +41,6 @@ import {
   startLiveAdmissionWorkLoop as defaultStartLiveAdmissionWorkLoop,
   type LiveAdmissionWorkLoopHandle,
 } from '../../runtime/live-admission-work-loop.js';
-import { markPendingContinuationCommandsApplied } from './live-turn-continuation.js';
 import { routeScopeActiveLiveTurnAdmissionFromCursor } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
@@ -66,6 +65,7 @@ export type ActiveControlCommandHandler = (args: {
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -115,6 +115,7 @@ interface AdmissionApp {
 }
 
 export function buildLiveAdmissionProcessor(input: {
+  appId?: string;
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
     'takeInput' | 'releaseInput' | 'consumeAll' | 'consumeInputItem'
@@ -202,6 +203,7 @@ export function buildLiveAdmissionProcessor(input: {
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
+        admissionAppId: input.appId,
         ...projectLiveRetryContext(context),
       });
     }
@@ -244,6 +246,7 @@ export function buildLiveAdmissionProcessor(input: {
         (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
       const turnContext = await opsRepository.getAgentTurnContext?.({
+        appId: input.appId,
         agentFolder: route.folder,
         executionProviderId,
         conversationJid: chatJid,
@@ -322,6 +325,7 @@ export function buildLiveAdmissionProcessor(input: {
       let liveRunResult: 'success' | 'error' | 'stopped' | null = null;
       const success = await app.processGroupMessages(queueJid, {
         queued: true,
+        admissionAppId: input.appId,
         ...projectLiveRetryContext(context),
         existingRunId: liveRunId,
         ...(liveRunFence
@@ -687,27 +691,19 @@ async function resumeRecoveredTurn(input: {
     });
     return;
   }
-  const pendingCommands =
-    await liveTurnLeaseDeps.liveTurns.listPendingLiveTurnCommands({
-      liveTurnId: turn.id,
-      limit: 5000,
-    });
   if (turn.runId) {
+    const consumedBy = `turn:${turn.runId}`;
+    await liveTurnLeaseDeps.liveTurns.releaseInput({
+      consumedBy,
+      followUpsOnly: true,
+    });
     if (
       !(await liveTurnLeaseDeps.liveTurns.hasDeliveredOutputForRun({
         runId: turn.runId,
       }))
     ) {
-      await liveTurnLeaseDeps.liveTurns.releaseInput({
-        consumedBy: `turn:${turn.runId}`,
-        includeFollowUps: true,
-      });
+      await liveTurnLeaseDeps.liveTurns.releaseInput({ consumedBy });
     }
   }
   app.queue.enqueueMessageCheck(queueJid);
-  await markPendingContinuationCommandsApplied({
-    liveTurns: liveTurnLeaseDeps.liveTurns,
-    commands: pendingCommands,
-    fence: lease,
-  });
 }

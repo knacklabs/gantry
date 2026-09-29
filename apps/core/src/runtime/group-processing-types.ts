@@ -73,6 +73,7 @@ export type GroupProcessOptions = {
     recallQuery?: string;
   };
   existingRunId?: string;
+  admissionAppId?: string;
   existingRunLeaseToken?: string;
   existingRunLeaseWorkerInstanceId?: string;
   existingRunLeaseFencingVersion?: number;

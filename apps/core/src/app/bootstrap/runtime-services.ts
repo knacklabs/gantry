@@ -485,6 +485,12 @@ export async function startRuntimeServices(
     ),
   );
   syncGroupSnapshots();
+  const liveScopeContext = {
+    appId: channelWiring.getRuntimeAppId(),
+    app,
+    opsRepository: resolved.opsRepository,
+    executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+  };
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
       ? (queueJid, hooks, routing) =>
@@ -493,6 +499,7 @@ export async function startRuntimeServices(
   );
   app.queue.setProcessMessagesFn(
     buildLiveAdmissionProcessor({
+      appId: liveScopeContext.appId,
       inputRepository: liveTurns,
       liveTurnAuthority,
       app,
@@ -528,9 +535,7 @@ export async function startRuntimeServices(
       if (!liveTurnAuthority)
         return app.queue.sendMessage(queueJid, text, options);
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       if (!scope) return false;
@@ -554,9 +559,7 @@ export async function startRuntimeServices(
         return;
       }
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       const routed =
@@ -572,9 +575,7 @@ export async function startRuntimeServices(
       if (app.queue.stopGroup(queueJid)) return true;
       if (!liveTurnAuthority) return false;
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       return liveTurnAuthority.routeStop({
@@ -666,9 +667,7 @@ export async function startRuntimeServices(
       const scope =
         liveTurnAuthority &&
         (await liveTurnScopeForQueue({
-          app,
-          opsRepository: resolved.opsRepository,
-          executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+          ...liveScopeContext,
           queueJid,
         }));
       if (!scope || !(await liveTurnAuthority.getActiveLiveTurn(scope)))

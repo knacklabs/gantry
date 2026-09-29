@@ -14,6 +14,7 @@ import type {
   LiveAdmissionWorkItem,
   LiveAdmissionClaimInput,
   LiveAdmissionInputScope,
+  LiveAdmissionWorkItemRepository,
   LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
@@ -125,10 +126,9 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     return consumeInputItem(this.db, input);
   }
 
-  async releaseInput(input: {
-    consumedBy: string;
-    includeFollowUps?: boolean;
-  }): Promise<number> {
+  async releaseInput(
+    input: Parameters<LiveAdmissionWorkItemRepository['releaseInput']>[0],
+  ): Promise<number> {
     return releaseInput(this.db, input);
   }
 

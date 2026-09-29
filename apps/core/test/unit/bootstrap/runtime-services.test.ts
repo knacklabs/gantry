@@ -1915,11 +1915,14 @@ describe('startRuntimeServices', () => {
     try {
       await vi.advanceTimersByTimeAsync(20_000);
 
-      // The old contract rewound a marker. The record now releases this turn's
-      // input and leaves the marker written for the later T3 removal.
-      expect(liveTurns.releaseInput).toHaveBeenCalledWith({
+      // The old recovery applied pending continuations after a combined release.
+      // Recovery now releases follow-ups separately and leaves them pending.
+      expect(liveTurns.releaseInput).toHaveBeenNthCalledWith(1, {
         consumedBy: 'turn:agent-run:lost',
-        includeFollowUps: true,
+        followUpsOnly: true,
+      });
+      expect(liveTurns.releaseInput).toHaveBeenNthCalledWith(2, {
+        consumedBy: 'turn:agent-run:lost',
       });
       expect(app.setAgentCursor).not.toHaveBeenCalled();
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
@@ -1928,7 +1931,7 @@ describe('startRuntimeServices', () => {
         expect.arrayContaining([
           expect.objectContaining({
             id: 'cmd-continuation',
-            status: 'applied',
+            status: 'pending',
             rejectedReason: null,
           }),
           expect.objectContaining({

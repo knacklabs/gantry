@@ -223,7 +223,11 @@ export async function listUnconsumedLiveAdmissionQueueJids(
 
 export async function releaseInput(
   db: CanonicalDb,
-  input: { consumedBy: string; includeFollowUps?: boolean },
+  input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
+  },
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   const followUpPrefix = `${input.consumedBy}/command:`;
@@ -232,12 +236,14 @@ export async function releaseInput(
     .set({ consumedAt: null, consumedBy: null })
     .where(
       and(
-        input.includeFollowUps
-          ? or(
-              eq(items.consumedBy, input.consumedBy),
-              sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`,
-            )
-          : eq(items.consumedBy, input.consumedBy),
+        input.followUpsOnly
+          ? sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`
+          : input.includeFollowUps
+            ? or(
+                eq(items.consumedBy, input.consumedBy),
+                sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`,
+              )
+            : eq(items.consumedBy, input.consumedBy),
         isNotNull(items.consumedAt),
       ),
     )

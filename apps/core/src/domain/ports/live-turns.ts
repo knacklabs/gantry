@@ -223,6 +223,7 @@ export interface LiveAdmissionWorkItemRepository {
   releaseInput(input: {
     consumedBy: string;
     includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
   }): Promise<number>;
   consumeAll(input: {
     scope: LiveAdmissionInputScope;

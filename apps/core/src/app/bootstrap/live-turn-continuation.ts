@@ -1,9 +1,5 @@
 import type { NewMessage } from '../../domain/types.js';
-import type {
-  LiveTurnCommand,
-  LiveTurnCommandRepository,
-  LiveTurnLeaseFence,
-} from '../../domain/ports/live-turns.js';
+import type { LiveTurnCommand } from '../../domain/ports/live-turns.js';
 import { formatMessages } from '../../messaging/router.js';
 import { buildPendingMessagesContinuationIdempotencyKey } from '../../runtime/pending-message-replay.js';
 import { resolveNonSelfSenderIds } from '../../runtime/session-resume-runtime.js';
@@ -60,22 +56,4 @@ export function latestPendingContinuationCursor(
   }
   const cursorAfter = latest?.payload.cursorAfter;
   return typeof cursorAfter === 'string' ? cursorAfter : null;
-}
-
-export async function markPendingContinuationCommandsApplied(input: {
-  liveTurns: Pick<LiveTurnCommandRepository, 'markLiveTurnCommandApplied'>;
-  commands: readonly LiveTurnCommand[];
-  fence: LiveTurnLeaseFence;
-}): Promise<void> {
-  await Promise.all(
-    input.commands
-      .filter((command) => command.commandType === 'continuation')
-      .map((command) =>
-        input.liveTurns.markLiveTurnCommandApplied({
-          id: command.id,
-          appliedByWorkerId: input.fence.workerInstanceId,
-          fence: input.fence,
-        }),
-      ),
-  );
 }

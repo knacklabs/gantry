@@ -398,7 +398,83 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toMatchObject([{ id: unreadable.item.id }]);
   });
 
-  it('delivers unanswered input after worker recovery without repeating answered input', async () => {
+  it('delivers a normal channel JID in a non-default app to the turn', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'channel-app-scope';
+    const chatJid = 'tg:channel-app-scope';
+    const folder = 'channel_app_scope';
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'I saw your message.' });
+        return { status: 'success', result: 'I saw your message.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Channel app scope',
+      folder,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'message:channel-app-scope',
+        chat_jid: chatJid,
+        provider: 'telegram',
+        sender: 'person',
+        content: 'message in another app',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId, agentId: agentIdForFolder(folder) },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    const processorInput = {
+      appId,
+      inputRepository: liveTurns,
+      liveTurnAuthority: undefined,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' as const },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: () => undefined,
+      warn: () => undefined,
+    };
+    expect(
+      await buildLiveAdmissionProcessor(processorInput)(admitted.item.queueJid),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('message in another app');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('I saw your message.'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: admitted.item,
+        consumedBy: 'turn:channel-app-scope-next',
+        limit: 1,
+      }),
+    ).toEqual([]);
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a follow-up after a replied worker crashes without repeating answered input', async () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
@@ -483,6 +559,12 @@ maybeDescribe('live admission work items (Postgres)', () => {
         content: 'answered request',
         answered: true,
       },
+      {
+        jid: `app:${appId}:answered-follow-up`,
+        content: 'answered before follow-up',
+        answered: true,
+        followUp: 'follow-up after reply',
+      },
     ];
     for (const scenario of cases) {
       await runtime.control.ensureAppSession({
@@ -560,6 +642,42 @@ maybeDescribe('live admission work items (Postgres)', () => {
           }),
         ).toBe(true);
         expect(await liveTurns.hasDeliveredOutputForRun({ runId })).toBe(true);
+        if ('followUp' in scenario && scenario.followUp) {
+          const followUp = await runtime.ops.storeMessageWithLiveAdmission(
+            {
+              id: `message:follow-up:${scenario.jid}`,
+              chat_jid: scenario.jid,
+              provider: 'app',
+              providerAccountId,
+              sender: 'person',
+              content: scenario.followUp,
+              timestamp: toIso(nowMs()),
+              is_from_me: false,
+              is_bot_message: false,
+            },
+            { appId, agentId: agentIdForFolder(folder) },
+          );
+          expect(followUp?.outcome).toBe('enqueued');
+          if (!followUp || followUp.outcome === 'overloaded')
+            throw new Error('Follow-up admission failed');
+          const commandId = `command:${scenario.jid}`;
+          expect(
+            await liveTurns.takeInput({
+              scope: followUp.item,
+              consumedBy: `turn:${runId}/command:${commandId}`,
+              limit: 1,
+            }),
+          ).toMatchObject([{ id: followUp.item.id }]);
+          expect(
+            await liveTurns.appendLiveTurnCommand({
+              id: commandId,
+              liveTurnId: `turn:${scenario.jid}`,
+              commandType: 'continuation',
+              idempotencyKey: followUp.item.id,
+              payload: { text: scenario.followUp },
+            }),
+          ).toMatchObject({ outcome: 'appended' });
+        }
       } else {
         const taken = await liveTurns.takeInput({
           scope: saved.item,
@@ -620,11 +738,25 @@ maybeDescribe('live admission work items (Postgres)', () => {
         warn: () => undefined,
       });
       await vi.advanceTimersByTimeAsync(20_000);
-      await vi.waitFor(() => expect(delivered).toHaveLength(2), {
-        timeout: 10_000,
-      });
+      await vi.waitFor(
+        () =>
+          expect(delivered).toContainEqual(
+            expect.stringContaining('follow-up after reply'),
+          ),
+        { timeout: 10_000 },
+      );
       expect(delivered[0]).toContain('answered request');
-      expect(delivered[1]).toContain('unanswered request');
+      expect(delivered).toContainEqual(
+        expect.stringContaining('unanswered request'),
+      );
+      expect(delivered).toContainEqual(
+        expect.stringContaining('follow-up after reply'),
+      );
+      expect(
+        delivered.filter((prompt) =>
+          prompt.includes('answered before follow-up'),
+        ),
+      ).toHaveLength(1);
       expect(
         channel.streaming.some((entry) =>
           entry.text.includes('The answer was delivered.'),

@@ -80,7 +80,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const routeContext = resolveGroupProcessingRouteContext(deps, queueJid);
     if (!routeContext) return true;
     const { chatJid, threadId, turnAppId, group } = routeContext;
-    const { commandOverrideRouteKey } = routeContext;
     const channelAccount = group.providerAccountId
       ? { providerAccountId: group.providerAccountId }
       : undefined;
@@ -93,7 +92,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     if (!inputRepository)
       throw new Error('Group processor requires input repository');
     const inputScope = {
-      appId: turnAppId,
+      appId: options.admissionAppId ?? turnAppId,
       conversationId: chatJid,
       threadId: threadId ?? null,
       agentId: agentIdForFolder(group.folder),
@@ -159,7 +158,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           : undefined);
       const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
         deps,
-        appId: turnAppId,
+        appId: inputScope.appId,
         rawUserId: rawMemoryUserId,
         group,
         messages: missedMessages,
@@ -173,7 +172,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         timezone: config.TIMEZONE,
         deps: createGroupProcessingSessionCommandHandlers({
           ops,
-          appId: turnAppId,
+          appId: inputScope.appId,
           defaultModel: config.getDefaultModelConfig(
             'interactive',
             group.folder,
@@ -189,7 +188,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           missedMessages,
           runAgent,
           processOptions: options,
-          commandOverrideRouteKey,
+          commandOverrideRouteKey: routeContext.commandOverrideRouteKey,
           setTyping: setTurnTyping,
           sendMessage: sendMessageToChannel,
           buildMessageOptions,
@@ -205,7 +204,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             ).model,
           }),
           getConfiguredModelProviders: () =>
-            getConfiguredModelProvidersForApp(turnAppId),
+            getConfiguredModelProvidersForApp(inputScope.appId),
           getModelFamilyOrder: () =>
             config.getRuntimeSettingsForConfig().modelFamilies,
           getDefaultPermissionMode: () =>
@@ -679,6 +678,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 recallQuery,
               },
               turnMessages: missedMessages,
+              admissionAppId: inputScope.appId,
               existingRunId: options.existingRunId,
               existingRunLeaseToken: options.existingRunLeaseToken,
               existingRunLeaseWorkerInstanceId:
