@@ -95,7 +95,7 @@ function classifyKind(record: MemoryReviewRecord): ReviewMessageView['kind'] {
   const action = record.proposal.action;
   if (action === 'merge') return 'merge';
   if (action === 'retire') return 'retire';
-  if (record.reviewSnapshot?.conflict?.incoming) return 'contradiction';
+  if (record.reviewSnapshot.conflict?.incoming) return 'contradiction';
   return 'rewrite';
 }
 
@@ -110,19 +110,15 @@ function boundedEvidence(
   }));
 }
 
-/**
- * Build the compact-structured view for ONE review from its frozen snapshot.
- * Reviews without a snapshot (legacy) render a minimal fallback rather than
- * re-reading mutable rows — snapshot is the only content source.
- */
+/** Build the compact-structured view for ONE review from its frozen snapshot. */
 export function buildReviewMessageView(
   record: MemoryReviewRecord,
 ): ReviewMessageView {
   const kind = classifyKind(record);
-  const snapshot = record.reviewSnapshot ?? undefined;
-  const active = snapshot?.conflict?.active;
-  const incoming = snapshot?.conflict?.incoming;
-  const proposed = snapshot?.proposedCanonical;
+  const snapshot = record.reviewSnapshot;
+  const active = snapshot.conflict?.active;
+  const incoming = snapshot.conflict?.incoming;
+  const proposed = snapshot.proposedCanonical;
 
   const topic =
     active?.key ?? proposed?.key ?? record.proposal.key ?? record.id;
@@ -139,14 +135,14 @@ export function buildReviewMessageView(
       sideFromEvidence(
         'Now',
         active?.value ?? '',
-        snapshot ? representativeEvidence(snapshot, 'active') : undefined,
+        representativeEvidence(snapshot, 'active'),
       ),
     );
     sides.push(
       sideFromEvidence(
         'New',
         incoming?.value ?? '',
-        snapshot ? representativeEvidence(snapshot, 'incoming') : undefined,
+        representativeEvidence(snapshot, 'incoming'),
       ),
     );
     change = `"${truncate(proposed?.value, MAX_VALUE_LENGTH)}"`;
@@ -155,7 +151,7 @@ export function buildReviewMessageView(
       sideFromEvidence(
         'Now',
         active?.value ?? '',
-        snapshot ? representativeEvidence(snapshot, 'active') : undefined,
+        representativeEvidence(snapshot, 'active'),
       ),
     );
     change = `"${truncate(proposed?.value, MAX_VALUE_LENGTH)}"`;
@@ -164,7 +160,7 @@ export function buildReviewMessageView(
       sideFromEvidence(
         'Now',
         active?.value ?? '',
-        snapshot ? representativeEvidence(snapshot, 'active') : undefined,
+        representativeEvidence(snapshot, 'active'),
       ),
     );
     change = 'remove this note';
@@ -172,18 +168,16 @@ export function buildReviewMessageView(
     // merge: target survives; retiring[] disappears. Evidence is role 'active'
     // for all participants and isn't keyed per-item, so participant lines carry
     // the value only; the collapsible evidence keeps source · date.
-    const rep = snapshot
-      ? representativeEvidence(snapshot, 'active')
-      : undefined;
+    const rep = representativeEvidence(snapshot, 'active');
     sides.push(sideFromEvidence('Keep', active?.value ?? '', rep));
-    for (const participant of snapshot?.retiring ?? []) {
+    for (const participant of snapshot.retiring ?? []) {
       sides.push({
         label: 'Merge',
         value: truncate(participant.value, MAX_VALUE_LENGTH),
       });
     }
     const targetLabel = active?.key ?? topic;
-    change = `merge ${(snapshot?.retiring ?? []).length + 1} notes into "${targetLabel}"`;
+    change = `merge ${(snapshot.retiring ?? []).length + 1} notes into "${targetLabel}"`;
   }
 
   return {
@@ -194,7 +188,7 @@ export function buildReviewMessageView(
     sides,
     change,
     why,
-    evidence: snapshot ? boundedEvidence(snapshot) : [],
+    evidence: boundedEvidence(snapshot),
     affordances: [
       { label: 'Approve', decision: 'approve', reviewId: record.id },
       { label: 'Reject', decision: 'reject', reviewId: record.id },
