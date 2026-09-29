@@ -1,0 +1,14 @@
+{
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/the-old-mcp-tool-capability-binding-is-k",
+  "done_when": "mcp_tool is gone from the binding kind union and from every branch and test, and stored definitions using it are rejected by the existing generic validation",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T16:38:26+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The old mcp_tool capability binding is kept only to be rejected, yet seven files still branch on it"
+}
