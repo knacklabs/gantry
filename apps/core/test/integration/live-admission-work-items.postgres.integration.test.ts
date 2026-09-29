@@ -366,8 +366,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ]);
     expect(rows).toEqual(
       expect.arrayContaining([
-        { id: first.id, consumed_by: 'turn:retry' },
-        { id: second.id, consumed_by: 'turn:failure-after' },
+        { id: first.id, consumed_by: 'turn:run:retry' },
+        { id: second.id, consumed_by: 'turn:run:failure-after' },
       ]),
     );
 
@@ -570,6 +570,18 @@ maybeDescribe('live admission work items (Postgres)', () => {
       }
     }
     await app.loadState();
+    for (const scenario of cases) {
+      await app.registerGroup(scenario.jid, {
+        name: 'Restart boundary',
+        folder,
+        providerAccountId,
+        trigger: 'Andy',
+        added_at: toIso(nowMs()),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      });
+    }
     const messageLoopDeps: MessageLoopDeps = {
       appId,
       inputRepository: liveTurns,

@@ -27,11 +27,6 @@ import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import type { MessageLoopDeps } from '@core/runtime/message-loop.js';
 import type { ChildProcess } from 'node:child_process';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '@core/shared/message-cursor.js';
-
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
@@ -523,7 +518,7 @@ maybeDescribe(
       };
       try {
         await workers[0]!.app.registerGroup(jid, route);
-        await workers[1]!.app.loadState();
+        await workers[1]!.app.registerGroup(jid, route);
         start(workers[0]!);
         const save = async (id: string, content: string) => {
           const admitted = await runtime.ops.storeMessageWithLiveAdmission(
@@ -903,6 +898,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         exceeded: false,
         enforce: (output: unknown) => output,
       }),
+      getConfiguredProviderSessionMaxInputTokens: () => 150_000,
     }));
     vi.doMock('@core/application/agents/prompt-profile-service.js', () => {
       class MockPromptProfileService {
@@ -1070,7 +1066,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     const cursorState = JSON.parse(
       (await runtime.ops.getRouterState('last_agent_timestamp')) ?? '{}',
     ) as Record<string, string>;
-    expect(JSON.parse(cursorState[chatJid] ?? '{}')).toEqual(
+    expect(JSON.parse(cursorState[admitted.item.queueJid] ?? '{}')).toEqual(
       expect.objectContaining({ id: 'msg-live-e2e-real-runner' }),
     );
 
@@ -1123,7 +1119,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     await runtime.ops.setRouterState(
       'last_agent_timestamp',
       JSON.stringify({
-        [chatJid]: JSON.stringify({
+        [admitted.item.queueJid]: JSON.stringify({
           timestamp: '9999-01-01T00:00:00Z',
           id: 'z',
         }),
@@ -1137,20 +1133,19 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       timestamp: nowIso(),
       external_message_id: 'telegram-live-e2e-after-reload',
     };
-    await runtime.ops.storeMessage(lateMessage);
-    await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
-      id: 'item-live-e2e-after-reload',
-      appId: 'default',
-      agentId: agentIdForFolder(folder),
-      conversationId: chatJid,
-      queueJid: chatJid,
-      messageId: lateMessage.id,
-      messageCursor: encodeGroupMessageCursor(
-        toGroupMessageCursor(lateMessage),
-      ),
-      idempotencyKey: lateMessage.external_message_id,
-    });
-    expect(messageQueue.enqueueMessageCheck(chatJid)).toBe(true);
+    const lateAdmitted = await runtime.ops.storeMessageWithLiveAdmission(
+      lateMessage,
+      {
+        appId: 'default',
+        agentId: agentIdForFolder(folder),
+      },
+    );
+    expect(lateAdmitted?.outcome).toBe('enqueued');
+    if (!lateAdmitted || lateAdmitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    expect(messageQueue.enqueueMessageCheck(lateAdmitted.item.queueJid)).toBe(
+      true,
+    );
     await waitForLiveE2e(
       () =>
         fakeChannel.outbound.some((message) =>
@@ -1163,14 +1158,14 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         message.text.includes('after settings reload'),
       ),
     ).toHaveLength(1);
-    messageQueue.enqueueMessageCheck(chatJid);
+    messageQueue.enqueueMessageCheck(lateAdmitted.item.queueJid);
     const itemTable = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
     await waitForLiveE2e(async () => {
       const { rows } = await runtime.service.pool.query<{
         consumed_at: Date | null;
         consumed_by: string | null;
       }>(`SELECT consumed_at, consumed_by FROM ${itemTable} WHERE id = $1`, [
-        'item-live-e2e-after-reload',
+        lateAdmitted.item.id,
       ]);
       return (
         rows[0]?.consumed_at !== null &&

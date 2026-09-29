@@ -155,7 +155,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
       .from(messages)
       .where(
         and(
-          sql`left(${messages.id}, ${prefix.length}) = ${prefix}`,
+          sql`left(${messages.externalRefJson} ->> 'id', ${prefix.length}) = ${prefix}`,
           inArray(messages.deliveryStatus, ['sent', 'partially_sent']),
         ),
       )
