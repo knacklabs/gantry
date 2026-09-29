@@ -3,11 +3,22 @@
   "branch": "fix/split-messages-get-two-replies-and-follo",
   "done_when": "docs/specs/one-message-one-turn.md is saved, cold-read and confirmed, and TURN-1 is on the roadmap",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "commit": "aa3468e64e07941b36653fd52dc11427b00b392c",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "122df960e9815a21d86b83fb11d8065ab8fbbabec3f2c33eb7b20354ae88450b"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T03:41:07+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T03:45:59+00:00",
+      "step": "review"
     }
   ],
   "why": "Split messages get two replies and follow-ups get dropped; the 'one message, one turn' spec must be saved and confirmed before its story can be planned"
