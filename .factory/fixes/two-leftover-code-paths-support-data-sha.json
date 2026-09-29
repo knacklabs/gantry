@@ -5,18 +5,18 @@
   "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
   "kind": "fix",
   "review": {
-    "commit": "536872a37962c9bbf171c0b874fd8b45b4591347",
+    "commit": "d269297c7a53706d54f985500dc75ab33bbbc239",
     "dismissals": [],
     "findings": [
       {
-        "body": "This test creates and lists reviews through internal functions, then calls the renderer directly; it never exercises the required running API and Playwright user flow. Its valid-snapshot assertions also pass with the pre-change renderer, so restoring the removed fallbacks would not fail it. Existing CLI coverage mocks the API (apps/core/test/unit/cli/memory-review-command.test.ts:15). Add coverage through the required entry points that detects the snapshot-contract regression and include it in the repository test command; forge.toml:6 invokes npm test, which currently runs only unit and integration suites (package.json:86).",
+        "body": "This test uses a real database but calls creation, listing, and rendering functions directly. It never exercises the required running API and Playwright user flow. Its valid-snapshot assertions also remain true if the removed no-snapshot fallbacks are restored, so it does not detect that regression. Existing CLI coverage mocks the API (apps/core/test/unit/cli/memory-review-command.test.ts:15). Add regression-sensitive coverage through the required entry points and include it in the repository test command; forge.toml:6 invokes npm test, whose script at package.json:86 runs only unit and integration suites.",
         "file": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts",
-        "line": 114,
+        "line": 115,
         "priority": "P1",
         "title": "Not done: End-to-end regression coverage for required memory review snapshots"
       },
       {
-        "body": "The new test meaningfully detects the removed compatibility behavior, but it only feeds handcrafted events directly into SessionTypingTracker. The completion contract explicitly disallows unit tests as an item's only proof and requires a running API, real database, and Playwright user flow. Add that coverage to verify observable typing behavior through the actual event-consumption path, and wire it into the repository test command (forge.toml:6 and package.json:86).",
+        "body": "The new assertions detect the removed legacy behavior, but they feed handcrafted events directly into SessionTypingTracker. This leaves the typing requirement proven only by a unit test, which the completion contract explicitly disallows. Add coverage through the running API, real database, and Playwright user flow that verifies observable typing behavior through actual event consumption. Wire that coverage into the repository test command: forge.toml:6 invokes npm test, and package.json:86 does not include the end-to-end suite.",
         "file": "apps/core/test/unit/control/two-leftover-code-paths-support-data-sha.test.ts",
         "line": 17,
         "priority": "P1",
@@ -24,7 +24,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "a47f48931ee03e8bf562a2050d7a36b2b5c94b009c2ff5efadcf6a4a0fb76128"
+    "tree": "b2ab7291c8c56e6c621456e54c5b0692fe1b4bd4afadadaea2b0fc12b19031a3"
   },
   "status": "fixing",
   "steps": [
@@ -50,6 +50,10 @@
     },
     {
       "at": "2026-09-29T08:04:30+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:26:33+00:00",
       "step": "review"
     }
   ],
