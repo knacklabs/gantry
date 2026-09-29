@@ -55,10 +55,7 @@ export function registerSlackMessageActionHandler(
     providerAccountId?: string;
   },
 ): void {
-  // Buttons carry index-suffixed ids (gantry_message_action:<i>) because
-  // Slack rejects duplicate action_ids in one block; the bare id still
-  // matches for any legacy message that predates the suffix.
-  app.action(/^gantry_message_action(:\d+)?$/, async (args: any) => {
+  app.action(/^gantry_message_action:\d+$/, async (args: any) => {
     const action = args.action as { value?: string };
     const body = args.body as {
       channel?: { id?: string };

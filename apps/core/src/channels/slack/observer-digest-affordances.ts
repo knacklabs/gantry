@@ -149,7 +149,7 @@ export function slackObserverDigestBlocks(
 }
 
 /**
- * Parse a Slack `gantry_message_action` button value into an observer_feedback
+ * Parse an indexed Slack message-action button value into an observer_feedback
  * action. Returns null for any other action kind or a malformed shape.
  */
 export function parseSlackObserverFeedback(value: unknown): {
