@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: pure removal of legacy/compat code, may exceed the fix file limit or touch interface paths",
   "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
   "branch": "fix/the-old-mcp-tool-capability-binding-is-k",
   "done_when": "mcp_tool is gone from the binding kind union and from every branch and test, and stored definitions using it are rejected by the existing generic validation",
