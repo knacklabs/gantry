@@ -4,27 +4,21 @@
   "done_when": "forge.toml sets workers = \"codex\" with Codex models for build, fix and lite, matching the owner's setup elsewhere, and forge doctor passes",
   "kind": "fix",
   "review": {
-    "commit": "ccb39a90f297a77d1bef2dde08f8b5773fd6b070",
-    "dismissals": [
-      {
-        "because": "forge.toml:5 the change is one settings file; Forge itself reads it and forge doctor passes on it, and the client's own test suite has no Forge behaviour to exercise",
-        "finding": 1,
-        "from_base": false
-      }
-    ],
+    "commit": "f0cc9c7c1ed0b8d9b8bc8014e892dc988f722fc3",
+    "dismissals": [],
     "findings": [
       {
-        "body": "The required end-to-end regression test is missing. The suite wired through package.json:86\u201388 runs unit and integration tests, but none invokes Forge to verify this worker/model selection or `forge doctor`. The existing Forge workflow invokes `forge hook pr-check` (.github/workflows/forge.yml:47), which does not supply that test. Add suite-wired coverage through Forge's real command entry point that verifies Codex selection for build, fix and lite and checks doctor success; reverting the worker selection to Claude must fail it.",
+        "body": "The required suite-wired test through Forge's real command entry point is missing. package.json:86\u201388 runs unit and integration suites, neither of which exercises this configuration through Forge. .github/workflows/forge.yml:47 invokes only `forge hook pr-check`. Consequently, reverting the worker selection to Claude would not fail the required regression test. Add coverage that verifies Codex worker/model selection for build, fix and lite and checks `forge doctor` success. The recorded manual doctor pass does not satisfy the explicit automated-test requirement.",
         "file": "forge.toml",
         "line": 5,
         "priority": "P1",
         "title": "Not done: end-to-end coverage for Codex worker selection and forge doctor"
       }
     ],
-    "status": "clean",
-    "tree": "f6620a878c67730e785706accb7d13f7d5e47981bbc66d31f4474fb2cf3eb999"
+    "status": "blocked",
+    "tree": "31e10fbaae80de534744b26f43330ae99a584fa5bbbf078e416bc2b0eb749c28"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-28T01:57:08+00:00",
@@ -32,6 +26,10 @@
     },
     {
       "at": "2026-09-28T01:58:34+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T03:58:13+00:00",
       "step": "review"
     }
   ],
