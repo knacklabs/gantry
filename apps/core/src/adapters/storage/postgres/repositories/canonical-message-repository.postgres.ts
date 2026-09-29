@@ -411,7 +411,14 @@ export class PostgresCanonicalMessageRepository {
   ): Promise<CanonicalOpsMessageRow[]> {
     if (ids.length === 0) return [];
     const rows = await this.listMessages(
-      { jids: [scope.conversationId], ids, limit: ids.length },
+      {
+        jids: [scope.conversationId],
+        ids,
+        appId: CANONICAL_APP_ID,
+        providerAccountId: scope.providerAccountId,
+        exactProviderAccountId: true,
+        limit: ids.length,
+      },
       'inbound',
       scope,
     );
@@ -573,24 +580,31 @@ export class PostgresCanonicalMessageRepository {
       .where(
         and(
           admissionScope
-            ? exists(
-                this.db
-                  .select({ id: items.id })
-                  .from(items)
-                  .where(
-                    and(
-                      eq(items.messageId, m.id),
-                      eq(items.appId, admissionScope.appId),
-                      eq(items.conversationId, admissionScope.conversationId),
-                      admissionScope.threadId === null
-                        ? isNull(items.threadId)
-                        : eq(items.threadId, admissionScope.threadId),
-                      admissionScope.agentId === null
-                        ? isNull(items.agentId)
-                        : eq(items.agentId, admissionScope.agentId),
-                      sql`${items.providerAccountId} IS NOT DISTINCT FROM ${admissionScope.providerAccountId}`,
+            ? and(
+                messageConversationFilter(
+                  m,
+                  jids,
+                  admissionScope.providerAccountId,
+                ),
+                exists(
+                  this.db
+                    .select({ id: items.id })
+                    .from(items)
+                    .where(
+                      and(
+                        eq(items.messageId, m.id),
+                        eq(items.appId, admissionScope.appId),
+                        eq(items.conversationId, admissionScope.conversationId),
+                        admissionScope.threadId === null
+                          ? isNull(items.threadId)
+                          : eq(items.threadId, admissionScope.threadId),
+                        admissionScope.agentId === null
+                          ? isNull(items.agentId)
+                          : eq(items.agentId, admissionScope.agentId),
+                        sql`${items.providerAccountId} IS NOT DISTINCT FROM ${admissionScope.providerAccountId}`,
+                      ),
                     ),
-                  ),
+                ),
               )
             : messageConversationFilter(m, jids, input.providerAccountId),
           input.appId ? eq(m.appId, input.appId) : undefined,

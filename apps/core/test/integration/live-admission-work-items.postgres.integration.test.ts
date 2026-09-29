@@ -111,6 +111,23 @@ maybeDescribe('live admission work items (Postgres)', () => {
         [item.messageId],
       ),
     ).toEqual([]);
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id: 'item-foreign-conversation-read',
+      appId,
+      agentId: item.agentId,
+      conversationId: 'tg:foreign-admission-read',
+      providerAccountId: item.providerAccountId,
+      queueJid: 'tg:foreign-admission-read',
+      messageId: item.messageId,
+      idempotencyKey: 'delivery:foreign-admission-read',
+    });
+    expect(
+      await runtime.ops.getMessagesByIds(
+        { ...scope, conversationId: 'tg:foreign-admission-read' },
+        [item.messageId],
+      ),
+    ).toEqual([]);
   });
 
   it('gives each message to one turn in database receive order, including a late arrival', async () => {
@@ -232,7 +249,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toEqual(['item:initial', 'item:follow-up']);
   });
 
-  it('retries input after a silent turn failure and keeps input after a delivered reply', async () => {
+  it('delivers non-default app and account input through a real turn, retrying only before reply', async () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
@@ -249,14 +266,12 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const agentId = agentIdForFolder(folder);
     const channel = createFakeChannelRuntime((jid) => jid === chatJid);
     let mode: 'silent' | 'delivered' | 'success' = 'silent';
-    const presented: string[][] = [];
+    const presented: string[] = [];
     const app = createRuntimeApp({
       opsRepository: runtime.ops,
       ensureCredentialBinding: async () => ({ created: false }),
-      runAgent: async (_group, _input, _onProcess, onOutput, options) => {
-        presented.push(
-          options.turnMessages?.map((message) => message.content) ?? [],
-        );
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
         if (mode === 'silent')
           return { status: 'error', error: 'runner failed' };
         await onOutput?.({
@@ -303,6 +318,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       return result.item;
     };
     const first = await save('msg:failure-before', 'before output');
+    expect(first).toMatchObject({ appId, providerAccountId });
     expect(
       await app.processGroupMessages(first.queueJid, {
         existingRunId: 'run:failure-before',
@@ -314,7 +330,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
         existingRunId: 'run:retry',
       }),
     ).toBe(true);
-    expect(presented).toEqual([['before output'], ['before output']]);
+    expect(presented).toHaveLength(2);
+    expect(presented[0]).toContain('before output');
+    expect(presented[1]).toContain('before output');
     expect(
       channel.streaming.some((entry) =>
         entry.text.includes('The reply reached the user.'),
@@ -337,11 +355,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
         existingRunId: 'run:next',
       }),
     ).toBe(true);
-    expect(presented).toEqual([
-      ['before output'],
-      ['before output'],
-      ['after output'],
-    ]);
+    expect(presented).toHaveLength(3);
+    expect(presented[2]).toContain('after output');
     const table = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
     const { rows } = await runtime.service.pool.query<{
       id: string;
@@ -355,6 +370,32 @@ maybeDescribe('live admission work items (Postgres)', () => {
         { id: second.id, consumed_by: 'turn:failure-after' },
       ]),
     );
+
+    const unreadable = await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id: 'item:unreadable-turn',
+      appId,
+      agentId,
+      conversationId: chatJid,
+      providerAccountId,
+      queueJid: first.queueJid,
+      messageId: 'message:unreadable-turn',
+      idempotencyKey: 'delivery:unreadable-turn',
+    });
+    expect(unreadable.outcome).toBe('enqueued');
+    await expect(
+      app.processGroupMessages(first.queueJid, {
+        existingRunId: 'run:unreadable-turn',
+      }),
+    ).rejects.toThrow('Taken input has no scoped message row');
+    expect(presented).toHaveLength(3);
+    expect(
+      await liveTurns.takeInput({
+        scope: unreadable.item,
+        consumedBy: 'turn:after-unreadable',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: unreadable.item.id }]);
   });
 
   it('delivers unanswered input after worker recovery without repeating answered input', async () => {
@@ -370,7 +411,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       maxRetries: 0,
       baseRetryMs: 25,
     });
-    const delivered: string[][] = [];
+    const delivered: string[] = [];
     const channel = createFakeChannelRuntime((jid) =>
       jid.startsWith(`app:${appId}:`),
     );
@@ -379,10 +420,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
         queue: runtimeQueue,
         opsRepository: runtime.ops,
         ensureCredentialBinding: async () => ({ created: false }),
-        runAgent: async (_group, _input, _onProcess, onOutput, options) => {
-          delivered.push(
-            options.turnMessages?.map((message) => message.content) ?? [],
-          );
+        runAgent: async (_group, input, _onProcess, onOutput) => {
+          delivered.push(input.prompt);
           const output = {
             status: 'success' as const,
             result: 'The answer was delivered.',
@@ -569,14 +608,11 @@ maybeDescribe('live admission work items (Postgres)', () => {
         warn: () => undefined,
       });
       await vi.advanceTimersByTimeAsync(20_000);
-      await vi.waitFor(
-        () =>
-          expect(delivered).toEqual([
-            ['answered request'],
-            ['unanswered request'],
-          ]),
-        { timeout: 10_000 },
-      );
+      await vi.waitFor(() => expect(delivered).toHaveLength(2), {
+        timeout: 10_000,
+      });
+      expect(delivered[0]).toContain('answered request');
+      expect(delivered[1]).toContain('unanswered request');
       expect(
         channel.streaming.some((entry) =>
           entry.text.includes('The answer was delivered.'),

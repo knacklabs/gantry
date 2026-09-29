@@ -401,7 +401,7 @@ maybeDescribe(
       const firstCanFinish = new Promise<void>((resolve) => {
         releaseFirst = resolve;
       });
-      const presented: string[][] = [];
+      const presented: string[] = [];
       const continued: string[] = [];
       const channel = createFakeChannelRuntime(
         (candidate) => candidate === jid,
@@ -430,10 +430,8 @@ maybeDescribe(
             queue,
             opsRepository: runtime.ops,
             ensureCredentialBinding: async () => ({ created: false }),
-            runAgent: async (_group, _input, onProcess, onOutput, options) => {
-              presented.push(
-                options.turnMessages?.map((message) => message.content) ?? [],
-              );
+            runAgent: async (_group, input, onProcess, onOutput) => {
+              presented.push(input.prompt);
               onProcess(
                 {
                   pid: 0,
@@ -556,6 +554,8 @@ maybeDescribe(
           'first runner input',
         );
         await firstStarted;
+        handles[0]!.stopAdmission();
+        await handles[0]!.admissionLoop?.done;
         start(workers[1]!);
         const followUp = await save(
           'message:worker-active-follow-up',
@@ -581,10 +581,10 @@ maybeDescribe(
           () => channel.outbound.length > 0,
           'reply after follow-up',
         );
-        expect(presented).toEqual([
-          ['first request'],
-          ['first request', 'follow-up request'],
-        ]);
+        expect(presented).toHaveLength(2);
+        expect(presented[0]).toContain('first request');
+        expect(presented[1]).toContain('first request');
+        expect(presented[1]).toContain('follow-up request');
         expect(continued[0]).toContain('follow-up request');
         const { rows } = await runtime.service.pool.query<{
           id: string;
@@ -984,7 +984,6 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       conversationKind: 'dm',
       agentConfig: { model: 'opus', timeout: 5_000 },
     };
-    await app.registerGroup(chatJid, route);
     const inbound = {
       id: 'msg-live-e2e-real-runner',
       chat_jid: chatJid,
@@ -997,19 +996,19 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       is_bot_message: false,
       external_message_id: 'telegram-live-e2e-real-runner-1',
     };
-    await runtime.ops.storeMessage(inbound);
-    await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
-      id: 'item-live-e2e-real-runner',
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(inbound, {
       appId: 'default',
       agentId: agentIdForFolder(folder),
-      conversationId: chatJid,
-      queueJid: chatJid,
-      messageId: inbound.id,
-      messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(inbound)),
-      idempotencyKey: 'telegram-live-e2e-real-runner-1',
+    });
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    await app.registerGroup(chatJid, {
+      ...route,
+      providerAccountId: admitted.item.providerAccountId ?? undefined,
     });
 
-    expect(messageQueue.enqueueMessageCheck(chatJid)).toBe(true);
+    expect(messageQueue.enqueueMessageCheck(admitted.item.queueJid)).toBe(true);
 
     await waitForLiveE2e(
       () =>
@@ -1026,13 +1025,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     expect(finalText).toContain(inboundText);
     expect(
       await runtime.repositories.liveTurns.takeInput({
-        scope: {
-          appId: 'default',
-          conversationId: chatJid,
-          threadId: null,
-          agentId: agentIdForFolder(folder),
-          providerAccountId: null,
-        },
+        scope: admitted.item,
         limit: 10,
         consumedBy: 'history',
       }),
