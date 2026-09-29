@@ -1,0 +1,14 @@
+{
+  "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
+  "branch": "fix/the-sdk-still-branches-on-typing-events",
+  "done_when": "packages/sdk/src/session-events.ts always expects orderedEnvelope on typing events, the old branch is deleted, and the tests that pinned it are updated",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T06:59:23+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The SDK still branches on typing events without ordering info, a shape no producer emits any more"
+}
