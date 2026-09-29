@@ -65,6 +65,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const enqueue = (id: string, messageCursor: string) =>
       liveTurns.enqueueLiveAdmissionWorkItem({
         ...base,
+        appId: 'app-consume-order',
         id,
         queueJid,
         conversationId: queueJid,
