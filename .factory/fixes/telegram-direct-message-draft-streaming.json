@@ -6,7 +6,13 @@
   "kind": "fix",
   "review": {
     "commit": "cd91dfa1b043714f45f19a6ec5e10c244a31c2fa",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/src/channels/telegram/channel-delivery.ts:237 owner's standing rule (2026-09-29): pure legacy/dead-code deletions get no end-to-end guard tests; the unchanged group-streaming path keeps passing its existing tests",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The retained group streaming tests in apps/core/test/unit/channels/telegram.test.ts:3989 call TelegramChannel directly with a mocked grammy bot. The capability test in apps/core/test/unit/bootstrap/channel-wiring.test.ts:3579 also uses a mocked sink. No end-to-end test exercises the runtime routing in apps/core/src/channels/register-builtins.ts:147 through this group delivery path. The required real-entry-point test for group streaming is missing.",
@@ -16,10 +22,10 @@
         "title": "Not done: group streaming still passes its tests"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "dfc01ea85ac8b8a122c83ec74ef5af5eb213be143c7020dcbfe75f1e70fbc1a7"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T16:37:56+00:00",
