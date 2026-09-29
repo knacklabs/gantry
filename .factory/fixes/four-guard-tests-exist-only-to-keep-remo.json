@@ -1,0 +1,14 @@
+{
+  "base": "32b1f190f7b9f9fd8f473b9902b1f7c10b80a425",
+  "branch": "fix/four-guard-tests-exist-only-to-keep-remo",
+  "done_when": "The four legacy guard tests are deleted, nothing else references them, and the full suite passes",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T15:25:01+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Four guard tests exist only to keep removed legacy names out of code and docs; the owner chose to delete them"
+}
