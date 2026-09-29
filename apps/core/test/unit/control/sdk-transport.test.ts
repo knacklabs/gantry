@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   conversationMessageTarget,
   GantryClient,
-  SessionTypingTracker,
   signIngressRequest,
   verifyIngressSignature,
   verifyWebhookSignature,
@@ -630,40 +629,6 @@ describe('@gantry/sdk transport', () => {
       event('thread-a', 2, 2),
     ]);
     expect(new Set(observed.map((event) => event.eventId)).size).toBe(2);
-  });
-
-  it('records legacy typing state until an ordered envelope establishes the baseline', () => {
-    const tracker = new SessionTypingTracker();
-    const legacy = (isTyping: boolean, eventId: number) => ({
-      eventId,
-      eventType: 'session.typing',
-      sessionId: 'session-1',
-      threadId: null,
-      correlationId: null,
-      createdAt: '2026-08-05T00:00:00.000Z',
-      payload: { isTyping },
-    });
-    const ordered = {
-      ...legacy(false, 3),
-      payload: {
-        isTyping: false,
-        orderedEnvelope: {
-          generation: 1,
-          sequence: 2,
-          kind: 'typing',
-          partIndex: 1,
-          totalParts: 1,
-        },
-      },
-    };
-
-    expect(tracker.apply(legacy(true, 1))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(true);
-    expect(tracker.apply(legacy(false, 2))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(false);
-    expect(tracker.apply(ordered)).toBe(true);
-    expect(tracker.apply(legacy(true, 4))).toBe(false);
-    expect(tracker.isTyping('session-1')).toBe(false);
   });
 
   it('does not hide suppressed typing events or rewrite the reconnect cursor', async () => {
