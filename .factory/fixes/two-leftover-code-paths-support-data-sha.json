@@ -4,18 +4,18 @@
   "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
   "kind": "fix",
   "review": {
-    "commit": "9f26e660610aa1c2944b5adf31de9301c82d9392",
+    "commit": "1eda723dcb4fc24a296b44c40402051086869c59",
     "dismissals": [],
     "findings": [
       {
-        "body": "The completion requirement remains unmet. In packages/sdk/src/session-events.ts:109\u2013114, typing events without orderedEnvelope still update typing state before an ordered baseline exists. Existing tests explicitly require this legacy behavior at apps/core/test/unit/control/sdk-transport.test.ts:660\u2013663 and apps/core/test/unit/channels/app.test.ts:518. Also, apps/core/src/cli/memory.ts:280 still declares the snapshot optional, and lines 314\u2013316 retain the no-snapshot display fallback. Remove these remaining compatibility paths and update their tests; neither omission requires another task.",
+        "body": "The SDK completion requirement is still unmet. In packages/sdk/src/session-events.ts:109\u2013114, a typing event without orderedEnvelope still updates typing state and returns true before an ordered baseline exists. apps/core/test/unit/control/sdk-transport.test.ts:660\u2013663 and apps/core/test/unit/channels/app.test.ts:518 explicitly require this legacy behavior. Remove that compatibility path and update its tests so the SDK always requires ordering information. This work is part of the stated fix and has no demonstrated dependency on another task.",
         "file": ".factory/fixes/two-leftover-code-paths-support-data-sha.json",
         "line": 4,
         "priority": "P1",
         "title": "Not done: The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope"
       },
       {
-        "body": "The changed test supplies a snapshot through a mocked memory service and calls buildMemoryReviewCreatedNotification directly (lines 53\u201356 and 77\u201383). Its new Berlin assertion also passes with the previous snapshot-aware renderer, so it does not establish removal of legacy support. There is no corresponding Playwright flow through the running API and real database for either completion item. Moreover, package.json:86 runs only unit and integration suites. Add the required end-to-end coverage to the repository test command, exercising persisted review rendering and ordered typing behavior through the real user entry points.",
+        "body": "The only changed test injects a snapshot through a mocked memory service (lines 53\u201356) and directly calls the notification helper (lines 77\u201383). The new Berlin assertion also passes with the previous snapshot-aware renderer, so it cannot detect restoration of the removed fallback. Neither completion item has the required Playwright user flow through a running API and real database. package.json:86 runs only unit and integration suites, and the CLI coverage mocks the API at apps/core/test/unit/cli/memory-review-command.test.ts:15\u201324. Add meaningful end-to-end coverage for both contracts and include it in the repository test command.",
         "file": "apps/core/test/unit/jobs/memory-dreaming-job-outcome.test.ts",
         "line": 88,
         "priority": "P1",
@@ -23,7 +23,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "081ed5e40973d3999c1cdd704e682d1cceeddb4324bd3098fbe023cd745b1aba"
+    "tree": "81eea305c642676063e2a94c99cf4977ee777819c1f37cb28959a3be80964fae"
   },
   "status": "fixing",
   "steps": [
@@ -33,6 +33,10 @@
     },
     {
       "at": "2026-09-29T06:55:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:08:12+00:00",
       "step": "review"
     }
   ],
