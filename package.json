@@ -105,7 +105,6 @@
     "@clack/prompts": "^1.2.0",
     "@gantry/contracts": "file:packages/contracts",
     "@grammyjs/auto-retry": "^2.0.2",
-    "@grammyjs/stream": "^1.0.1",
     "@langchain/core": "1.1.48",
     "@langchain/langgraph-checkpoint-postgres": "1.0.3",
     "@langchain/mcp-adapters": "1.1.3",
