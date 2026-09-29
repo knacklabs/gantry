@@ -1,0 +1,14 @@
+{
+  "base": "01bd1e28d4359aff8826b4af09f6bd9e4d7c3866",
+  "branch": "fix/the-owner-wants-every-code-review-to-run",
+  "done_when": "forge.toml [models.review] sets model = \"gpt-6-sol\" and effort = \"high\", and forge doctor passes on the pinned release",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T14:17:35+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The owner wants every code review to run on GPT-6 Sol at high effort, but myclaw's forge.toml still reviews with gpt-6-astra"
+}
