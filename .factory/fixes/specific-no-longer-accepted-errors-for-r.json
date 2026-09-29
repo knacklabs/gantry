@@ -5,7 +5,13 @@
   "kind": "fix",
   "review": {
     "commit": "fe1c5fafc51c9b69900d975c07292b1820d04a12",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/unit/runner/mcp/specific-no-longer-accepted-errors-for-r.test.ts:43 this fix only deletes field-specific rejection messages for fields that no longer exist; there is no behaviour left to regress end to end, and the model-facing part (the scheduler tool schema no longer advertising required_tools) is covered by this real MCP SDK test",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The new test verifies schema discovery through the real MCP SDK, but never exercises the running application's jobs API, IPC processing, or MCP startup. No replacement regression covers the deleted field-specific errors or environment-variable guards. Restoring those deleted behaviors would leave this test passing. Existing HTTP validation coverage checks unrelated fields such as `model` (apps/core/test/unit/control/job-trigger.test.ts:1057), so it does not close this gap. Add suite-wired tests through the real entry points that fail when the removed special cases return, including startup with the obsolete environment variable present. This is required by the explicit end-to-end test audit.",
@@ -15,10 +21,10 @@
         "title": "Not done: End-to-end regression tests for removed job and scheduler fields"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "4de53f24fd64ac3d91aedd0b9a9d4d1293d00c543ce8d4b4bba38ac5bcba2457"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T06:31:50+00:00",
