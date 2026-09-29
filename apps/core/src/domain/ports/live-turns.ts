@@ -132,6 +132,9 @@ export interface LiveAdmissionWorkItem {
   queueJid: string;
   messageId: string;
   messageCursor: string;
+  receiveOrder: number | null;
+  consumedAt: string | null;
+  consumedBy: string | null;
   senderUserId: string | null;
   senderDisplayName: string | null;
   idempotencyKey: string;
@@ -195,6 +198,13 @@ export interface LiveAdmissionClaimInput {
 }
 
 export interface LiveAdmissionWorkItemRepository {
+  takeInput(input: {
+    queueJid: string;
+    consumedBy: string;
+    limit: number;
+  }): Promise<LiveAdmissionWorkItem[]>;
+  releaseInput(input: { consumedBy: string }): Promise<number>;
+  consumeAll(input: { queueJid: string; consumedBy: string }): Promise<number>;
   /**
    * Durable message-backed admission. The idempotency key is provider delivery
    * identity; replaying a webhook/socket event returns the existing row instead

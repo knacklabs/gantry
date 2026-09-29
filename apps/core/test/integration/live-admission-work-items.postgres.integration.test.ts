@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import {
+  PostgresStorageService,
+  quotePostgresIdentifier,
+} from '@core/adapters/storage/postgres/storage-service.js';
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { PostgresLiveTurnRepository } from '@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
@@ -50,6 +53,75 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
   afterAll(async () => {
     await runtime?.cleanup();
+  });
+
+  it('gives each message to one turn in database receive order across two connections, including a late arrival', async () => {
+    const secondService = new PostgresStorageService(
+      process.env.GANTRY_TEST_DATABASE_URL!,
+      runtime.schemaName,
+    );
+    const second = new PostgresLiveTurnRepository(secondService.db);
+    const queueJid = 'tg:consumption-crossing';
+    const enqueue = (id: string, messageCursor: string) =>
+      liveTurns.enqueueLiveAdmissionWorkItem({
+        ...base,
+        id,
+        queueJid,
+        conversationId: queueJid,
+        messageId: `message:${id}`,
+        messageCursor,
+        idempotencyKey: `delivery:${id}`,
+        now: '2000-01-01T00:00:00.000Z',
+      });
+
+    try {
+      await enqueue('receive-first', '2030-01-01T00:00:00.000Z::first');
+      await enqueue('receive-second', '1990-01-01T00:00:00.000Z::second');
+      const first = await liveTurns.takeInput({
+        queueJid,
+        consumedBy: 'turn-1',
+        limit: 10,
+      });
+      expect(first.map((item) => item.id)).toEqual([
+        'receive-first',
+        'receive-second',
+      ]);
+      expect(first[0]?.receiveOrder).toBeLessThan(first[1]!.receiveOrder!);
+      expect(Date.parse(first[0]!.createdAt)).toBeGreaterThan(
+        Date.parse('2000-01-01T00:00:00.000Z'),
+      );
+
+      await enqueue('receive-late', '1980-01-01T00:00:00.000Z::late');
+      expect(
+        await second.takeInput({ queueJid, consumedBy: 'turn-2', limit: 10 }),
+      ).toMatchObject([{ id: 'receive-late', consumedBy: 'turn-2' }]);
+      expect(
+        await second.takeInput({ queueJid, consumedBy: 'turn-3', limit: 10 }),
+      ).toEqual([]);
+
+      expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(2);
+      expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(0);
+      expect(
+        await liveTurns.takeInput({
+          queueJid,
+          consumedBy: 'turn-4',
+          limit: 10,
+        }),
+      ).toMatchObject([{ id: 'receive-first' }, { id: 'receive-second' }]);
+      expect(await liveTurns.releaseInput({ consumedBy: 'turn-2' })).toBe(1);
+      expect(await second.consumeAll({ queueJid, consumedBy: 'history' })).toBe(
+        1,
+      );
+      expect(
+        await liveTurns.takeInput({
+          queueJid,
+          consumedBy: 'turn-5',
+          limit: 10,
+        }),
+      ).toEqual([]);
+    } finally {
+      await secondService.close();
+    }
   });
 
   it('deduplicates provider delivery by idempotency key', async () => {
@@ -208,7 +280,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).resolves.toMatchObject({ outcome: 'enqueued' });
   });
 
-  it('deletes only expired terminal work items', async () => {
+  it('keeps unconsumed items during the terminal retention sweep', async () => {
+    // The sweep used to delete every expired terminal row. A terminal row can
+    // still be waiting for a turn, so only consumed rows now expire.
     const appId = 'app-terminal-retention';
     const oldAt = '2026-07-03T00:00:00.000Z';
     const recentAt = '2026-07-05T00:00:00.000Z';
@@ -243,7 +317,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
       rows.map(([id, state, updatedAt, endedAt]) =>
         runtime.service.pool.query(
           `UPDATE ${tableName}
-           SET state = $2, updated_at = $3, ended_at = $4
+           SET state = $2, updated_at = $3, ended_at = $4,
+               consumed_at = CASE WHEN $2 IN ('completed', 'failed') THEN $3::timestamptz ELSE NULL END,
+               consumed_by = CASE WHEN $2 IN ('completed', 'failed') THEN 'prior-turn' ELSE NULL END
            WHERE id = $1`,
           [id, state, updatedAt, endedAt],
         ),
@@ -252,13 +328,14 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
     await expect(
       liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(cutoff),
-    ).resolves.toEqual({ deleted: 3, more: false });
+    ).resolves.toEqual({ deleted: 2, more: false });
 
     const remaining = await runtime.service.pool.query<{ id: string }>(
       `SELECT id FROM ${tableName} WHERE app_id = $1 ORDER BY id`,
       [appId],
     );
     expect(remaining.rows.map(({ id }) => id)).toEqual([
+      'retention-old-canceled',
       'retention-old-claimed',
       'retention-old-deferred',
       'retention-old-queued',

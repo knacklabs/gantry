@@ -1,4 +1,13 @@
-import { and, count, eq, inArray, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from 'drizzle-orm';
 
 import type {
   LiveAdmissionWorkItem,
@@ -36,6 +45,9 @@ function toLiveAdmissionWorkItem(
     queueJid: row.queueJid,
     messageId: row.messageId,
     messageCursor: row.messageCursor,
+    receiveOrder: row.receiveOrder,
+    consumedAt: row.consumedAt,
+    consumedBy: row.consumedBy,
     senderUserId: row.senderUserId,
     senderDisplayName: row.senderDisplayName,
     idempotencyKey: row.idempotencyKey,
@@ -102,7 +114,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     return { outcome: 'overloaded' };
   }
   const now = input.now ?? currentIso();
-  const row: LiveAdmissionWorkItemRow = {
+  const row: typeof items.$inferInsert = {
     id: input.id,
     appId: input.appId,
     agentId: input.agentId ?? null,
@@ -126,7 +138,6 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     failureCount: 0,
     deferUntil: null,
     deferredReason: null,
-    createdAt: now,
     updatedAt: now,
     claimedAt: null,
     endedAt: null,
@@ -137,7 +148,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
-    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(row) };
+    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(inserted[0]!) };
   }
   const conflicting = await findLiveAdmissionWorkItemByIdempotencyKey(
     db,
@@ -149,6 +160,63 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     throw new Error('Live admission work item conflict was not replayable.');
   }
   return { outcome: 'replayed', item: conflictReplay };
+}
+
+export async function takeInput(
+  db: CanonicalDb,
+  input: { queueJid: string; consumedBy: string; limit: number },
+): Promise<LiveAdmissionWorkItem[]> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  return db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.queueJid, input.queueJid), isNull(items.consumedAt)))
+      .orderBy(asc(items.receiveOrder), asc(items.id))
+      .limit(Math.max(1, Math.floor(input.limit)))
+      .for('update', { skipLocked: true });
+    if (candidates.length === 0) return [];
+    const rows = await tx
+      .update(items)
+      .set({ consumedAt: sql`clock_timestamp()`, consumedBy: input.consumedBy })
+      .where(
+        inArray(
+          items.id,
+          candidates.map(({ id }) => id),
+        ),
+      )
+      .returning();
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return candidates.map(({ id }) => toLiveAdmissionWorkItem(byId.get(id)!));
+  });
+}
+
+export async function releaseInput(
+  db: CanonicalDb,
+  input: { consumedBy: string },
+): Promise<number> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .update(items)
+    .set({ consumedAt: null, consumedBy: null })
+    .where(
+      and(eq(items.consumedBy, input.consumedBy), isNotNull(items.consumedAt)),
+    )
+    .returning({ id: items.id });
+  return rows.length;
+}
+
+export async function consumeAll(
+  db: CanonicalDb,
+  input: { queueJid: string; consumedBy: string },
+): Promise<number> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .update(items)
+    .set({ consumedAt: sql`clock_timestamp()`, consumedBy: input.consumedBy })
+    .where(and(eq(items.queueJid, input.queueJid), isNull(items.consumedAt)))
+    .returning({ id: items.id });
+  return rows.length;
 }
 
 export async function claimLiveAdmissionWorkItems(
@@ -370,6 +438,7 @@ export async function deleteExpiredTerminalLiveAdmissionWorkItems(
           SELECT ${items.id}
           FROM ${items}
           WHERE ${items.state} IN ('completed', 'failed', 'canceled')
+            AND ${items.consumedAt} IS NOT NULL
             AND coalesce(${items.endedAt}, ${items.updatedAt}) < ${cutoffIso}
           ORDER BY coalesce(${items.endedAt}, ${items.updatedAt}) ASC, ${items.id} ASC
           LIMIT ${LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE}

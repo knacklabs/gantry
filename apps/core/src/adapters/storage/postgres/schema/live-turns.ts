@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   index,
   integer,
   jsonb,
@@ -143,6 +144,14 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     queueJid: text('queue_jid').notNull(),
     messageId: text('message_id').notNull(),
     messageCursor: text('message_cursor').notNull(),
+    receiveOrder: bigint('receive_order', { mode: 'number' }).default(
+      sql`nextval('live_admission_receive_order_seq'::regclass)`,
+    ),
+    consumedAt: timestamp('consumed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    consumedBy: text('consumed_by'),
     senderUserId: text('sender_user_id'),
     senderDisplayName: text('sender_display_name'),
     idempotencyKey: text('idempotency_key').notNull(),
@@ -170,7 +179,9 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',
-    }).notNull(),
+    })
+      .notNull()
+      .default(sql`clock_timestamp()`),
     updatedAt: timestamp('updated_at', {
       withTimezone: true,
       mode: 'string',
@@ -188,6 +199,9 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     idempotencyUnique: uniqueIndex(
       'uq_live_admission_work_items_idempotency',
     ).on(table.idempotencyKey),
+    unconsumedByQueueIdx: index('idx_live_admission_work_items_unconsumed')
+      .on(table.queueJid, table.receiveOrder)
+      .where(sql`${table.consumedAt} IS NULL`),
     activeByAppIdx: index('idx_live_admission_work_items_active_by_app')
       .on(table.appId)
       .where(sql`${table.state} IN ('queued', 'claimed', 'deferred')`),

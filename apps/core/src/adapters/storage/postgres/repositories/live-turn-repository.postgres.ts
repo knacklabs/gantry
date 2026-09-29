@@ -35,11 +35,14 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { activeRunLeaseFence } from './run-lease-fence.postgres.js';
 import {
   claimLiveAdmissionWorkItems,
+  consumeAll,
   deleteExpiredTerminalLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
   renewLiveAdmissionWorkItemClaim,
+  releaseInput,
   settleLiveAdmissionWorkItem,
+  takeInput,
 } from './live-admission-work-item-repository.postgres.js';
 import { getOldestWaitingLiveAdmission as queryOldestWaitingLiveAdmission } from './live-waiting-admission-query.postgres.js';
 import {
@@ -96,6 +99,25 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     private readonly commandNotifier?: LiveTurnCommandNotifier,
     private readonly maxLiveAdmissionBacklog = 100,
   ) {}
+
+  async takeInput(input: {
+    queueJid: string;
+    consumedBy: string;
+    limit: number;
+  }): Promise<LiveAdmissionWorkItem[]> {
+    return takeInput(this.db, input);
+  }
+
+  async releaseInput(input: { consumedBy: string }): Promise<number> {
+    return releaseInput(this.db, input);
+  }
+
+  async consumeAll(input: {
+    queueJid: string;
+    consumedBy: string;
+  }): Promise<number> {
+    return consumeAll(this.db, input);
+  }
 
   async enqueueLiveAdmissionWorkItem(
     input: EnqueueLiveAdmissionWorkItemInput,
