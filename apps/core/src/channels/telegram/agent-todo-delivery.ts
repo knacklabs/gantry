@@ -69,13 +69,13 @@ export async function renderTelegramAgentTodo(input: {
 
 export async function renderTelegramChannelAgentTodo(
   input: Omit<Parameters<typeof renderTelegramAgentTodo>[0], 'todoKey'> & {
-    buildDraftStreamKey: (jid: string, threadId?: string) => string;
+    buildStreamKey: (jid: string, threadId?: string) => string;
   },
 ): Promise<boolean> {
   const threadId = input.render.threadId ?? undefined;
   return renderTelegramAgentTodo({
     ...input,
-    todoKey: input.buildDraftStreamKey(
+    todoKey: input.buildStreamKey(
       `${input.jid}:${input.render.cardKind ?? 'todo'}`,
       threadId,
     ),
