@@ -23,6 +23,7 @@ import {
   DEFAULT_PERMISSION_POLICY_ID,
 } from '@core/adapters/storage/postgres/seeds.js';
 import type { ChannelWiring } from '@core/app/bootstrap/channel-wiring-types.js';
+import { createChannelMessageActionRouter } from '@core/app/bootstrap/channel-message-action-router.js';
 import { registerRuntimeMemoryReviewMessageAction } from '@core/app/bootstrap/runtime-memory-review-message-action.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
 import { registerSlackMessageActionHandler } from '@core/channels/slack/channel-message-action-handler.js';
@@ -31,7 +32,6 @@ import type {
   ProviderAccountId,
   ProviderId,
 } from '@core/domain/provider/provider.js';
-import type { OnMemoryReviewMessageAction } from '@core/domain/types.js';
 import { createPendingMemoryReview } from '@core/memory/app-memory-review-create.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
 import { registerMemoryLlmClient } from '@core/memory/memory-llm-port.js';
@@ -151,7 +151,7 @@ maybeDescribe(
           providerAccountId,
         },
       };
-      let reviewAction: OnMemoryReviewMessageAction | undefined;
+      const messageActionRouter = createChannelMessageActionRouter();
       registerRuntimeMemoryReviewMessageAction(
         {
           getRuntimeAppId: () => DEFAULT_APP_ID,
@@ -165,9 +165,8 @@ maybeDescribe(
               threadId: input.threadId,
               userId: input.userId,
             }),
-          setMemoryReviewMessageActionHandler: (handler) => {
-            reviewAction = handler;
-          },
+          setMemoryReviewMessageActionHandler:
+            messageActionRouter.setMemoryReviewHandler,
         } as ChannelWiring,
         { getConversationRoutes: () => routes },
       );
@@ -196,7 +195,7 @@ maybeDescribe(
         },
         {
           providerAccountId,
-          onMessageAction: (action) => reviewAction!(action),
+          onMessageAction: messageActionRouter.handle,
         },
       );
       click = async (reviewId) => {
