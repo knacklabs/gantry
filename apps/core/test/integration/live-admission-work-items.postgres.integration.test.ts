@@ -405,6 +405,12 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const appId = 'channel-app-scope';
     const chatJid = 'tg:channel-app-scope';
     const folder = 'channel_app_scope';
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'channel-app-scope',
+      chatJid,
+      workspaceFolder: folder,
+    });
     const presented: string[] = [];
     const channel = createFakeChannelRuntime((jid) => jid === chatJid);
     const app = createRuntimeApp({
@@ -514,14 +520,11 @@ maybeDescribe('live admission work items (Postgres)', () => {
     };
     const beforeApp = makeApp();
     const app = makeApp(queue);
-    const workerBefore = 'restart-worker-before';
     const workerAfter = 'restart-worker-after';
-    for (const worker of [workerBefore, workerAfter]) {
-      await runtime.repositories.workerCoordination.registerWorker({
-        id: worker,
-        bootNonce: worker,
-      });
-    }
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerAfter,
+      bootNonce: workerAfter,
+    });
     const leaseDeps = {
       liveTurns,
       coordination: runtime.repositories.workerCoordination,
@@ -566,7 +569,12 @@ maybeDescribe('live admission work items (Postgres)', () => {
         followUp: 'follow-up after reply',
       },
     ];
-    for (const scenario of cases) {
+    for (const [index, scenario] of cases.entries()) {
+      const workerBefore = `restart-worker-before-${index}`;
+      await runtime.repositories.workerCoordination.registerWorker({
+        id: workerBefore,
+        bootNonce: workerBefore,
+      });
       await runtime.control.ensureAppSession({
         appId,
         conversationId: scenario.answered ? 'answered' : 'unanswered',
