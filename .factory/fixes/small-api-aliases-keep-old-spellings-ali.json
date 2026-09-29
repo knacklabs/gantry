@@ -6,7 +6,23 @@
   "kind": "fix",
   "review": {
     "commit": "f1fc0f377ed564d967ca04592717b48a395d4c4c",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/src/channels/slack/channel-message-action-handler.ts:58 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/unit/control/memory-review-routes.test.ts:169 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 2,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/src/control/server/routes/jobs.ts:435 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 3,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "No test sends an indexed button action through the registered Slack receiver and verifies that the bare ID is no longer dispatched. The existing Postgres flow calls the captured handler directly at apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts:203, bypassing the changed matcher. An end-to-end receiver test is needed to catch a restored optional suffix.",
@@ -30,10 +46,10 @@
         "title": "Not done: end-to-end test for the runId query alias"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "4abefe97ea94e3ce5d22446f0e89061d779761564b7c0dfafbe6d13780cf77ee"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T16:36:56+00:00",
