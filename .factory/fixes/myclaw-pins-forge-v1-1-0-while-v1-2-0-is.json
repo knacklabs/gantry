@@ -1,0 +1,14 @@
+{
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/myclaw-pins-forge-v1-1-0-while-v1-2-0-is",
+  "done_when": "forge.toml pins v1.2.0, forge sync's generated files are committed, [models.review] stays gpt-6-sol high, and forge doctor passes",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T17:59:16+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "myclaw pins Forge v1.1.0 while v1.2.0 is released, which carries the upgrade and review-loop fixes"
+}
