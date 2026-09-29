@@ -3,7 +3,7 @@
   "branch": "fix/five-tests-only-re-check-one-off-data-mi",
   "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T15:24:35+00:00",
