@@ -1,0 +1,14 @@
+{
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/settings-and-diagnostics-code-still-spec",
+  "done_when": "runtime-settings-compact, settings-revision-document and execution-diagnostics no longer mention those removed fields, and the tests that pinned the messages are updated",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T16:37:26+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Settings and diagnostics code still special-cases removed fields (provider_connections, bindings, agents.*.bindings, and the old denial keys grantable and recovery_kind)"
+}
