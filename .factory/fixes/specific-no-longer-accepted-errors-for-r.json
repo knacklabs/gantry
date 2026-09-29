@@ -3,7 +3,7 @@
   "branch": "fix/specific-no-longer-accepted-errors-for-r",
   "done_when": "The jobs API, IPC task parsing and scheduler MCP tools no longer mention groupScope, group_scope, requiredTools, required_tools or GANTRY_GROUP_FOLDER; the tool schema no longer advertises required_tools; tests updated",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T06:31:50+00:00",
