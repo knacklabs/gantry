@@ -133,11 +133,10 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       },
       {
         type: 'object',
+        additionalProperties: false,
         required: ['decision'],
         properties: {
           decision: { type: 'string', enum: ['approve', 'reject'] },
-          // Accepted-and-ignored for approve/reject (kept for back-compat).
-          editedValue: { type: 'string' },
           reason: { type: 'string' },
         },
       },

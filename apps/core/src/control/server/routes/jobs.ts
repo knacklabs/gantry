@@ -432,10 +432,7 @@ export async function handleJobRoutes(
       const result = await ctx.jobManagement.listJobEvents({
         appId: auth.appId,
         jobId: jobRoute.jobId,
-        runId:
-          url.searchParams.get('run') ||
-          url.searchParams.get('runId') ||
-          undefined,
+        runId: url.searchParams.get('run') || undefined,
         eventType: url.searchParams.get('eventType') || undefined,
         sinceId: parsePositiveInt(url.searchParams.get('sinceId')),
         since: url.searchParams.get('since') || undefined,
