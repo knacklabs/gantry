@@ -43,6 +43,7 @@ function toLiveAdmissionWorkItem(
     agentSessionId: row.agentSessionId,
     conversationId: row.conversationId,
     threadId: row.threadId,
+    providerAccountId: row.providerAccountId,
     queueJid: row.queueJid,
     messageId: row.messageId,
     messageCursor: row.messageCursor,
@@ -122,6 +123,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     agentSessionId: input.agentSessionId ?? null,
     conversationId: input.conversationId,
     threadId: input.threadId ?? null,
+    providerAccountId: input.providerAccountId ?? null,
     queueJid: input.queueJid,
     messageId: input.messageId,
     messageCursor: input.messageCursor,
@@ -182,6 +184,7 @@ export async function takeInput(
           input.scope.agentId === null
             ? isNull(items.agentId)
             : eq(items.agentId, input.scope.agentId),
+          sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
           isNull(items.consumedAt),
         ),
       )
@@ -237,6 +240,7 @@ export async function consumeAll(
         input.scope.agentId === null
           ? isNull(items.agentId)
           : eq(items.agentId, input.scope.agentId),
+        sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
         isNull(items.consumedAt),
       ),
     )

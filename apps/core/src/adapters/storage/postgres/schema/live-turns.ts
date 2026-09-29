@@ -141,6 +141,7 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     agentSessionId: text('agent_session_id'),
     conversationId: text('conversation_id').notNull(),
     threadId: text('thread_id'),
+    providerAccountId: text('provider_account_id'),
     queueJid: text('queue_jid').notNull(),
     messageId: text('message_id').notNull(),
     messageCursor: text('message_cursor').notNull(),
@@ -205,6 +206,7 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
         table.conversationId,
         table.threadId,
         table.agentId,
+        table.providerAccountId,
         table.receiveOrder,
       )
       .where(sql`${table.consumedAt} IS NULL`),

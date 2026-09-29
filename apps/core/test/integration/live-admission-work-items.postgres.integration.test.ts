@@ -67,6 +67,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationId: queueJid,
       threadId: null,
       agentId: null,
+      providerAccountId: null,
     };
     const enqueue = (id: string, messageCursor: string) =>
       liveTurns.enqueueLiveAdmissionWorkItem({
@@ -136,6 +137,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationId,
       threadId: null,
       agentId: null,
+      providerAccountId: null,
     };
     for (const appId of [scope.appId, 'app-consume-scope-b']) {
       await liveTurns.enqueueLiveAdmissionWorkItem({
@@ -164,6 +166,51 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toMatchObject([{ id: 'item-app-consume-scope-b' }]);
   });
 
+  it('keeps input separate for two provider accounts on the same route', async () => {
+    const route = {
+      appId: 'app-consume-account-scope',
+      conversationId: 'tg:shared-account-route',
+      threadId: null,
+      agentId: null,
+    };
+    for (const account of ['account-a', 'account-b']) {
+      for (const index of [1, 2]) {
+        const id = `${account}-${index}`;
+        await liveTurns.enqueueLiveAdmissionWorkItem({
+          ...base,
+          ...route,
+          id,
+          providerAccountId: account,
+          queueJid: route.conversationId,
+          messageId: `message:${id}`,
+          idempotencyKey: `delivery:${id}`,
+        });
+      }
+    }
+
+    const scopeA = { ...route, providerAccountId: 'account-a' };
+    expect(
+      await liveTurns.takeInput({
+        scope: scopeA,
+        consumedBy: 'account-a-turn',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: 'account-a-1' }]);
+    expect(
+      await liveTurns.consumeAll({
+        scope: scopeA,
+        consumedBy: 'account-a-history',
+      }),
+    ).toBe(1);
+    expect(
+      await liveTurns.takeInput({
+        scope: { ...route, providerAccountId: 'account-b' },
+        consumedBy: 'account-b-turn',
+        limit: 10,
+      }),
+    ).toMatchObject([{ id: 'account-b-1' }, { id: 'account-b-2' }]);
+  });
+
   it('gives overlapping consumers disjoint input in receive order', async () => {
     const secondService = new PostgresStorageService(
       process.env.GANTRY_TEST_DATABASE_URL!,
@@ -175,6 +222,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationId: 'tg:consume-concurrent',
       threadId: null,
       agentId: null,
+      providerAccountId: null,
     };
     try {
       for (let index = 0; index < 4; index++) {
@@ -1066,6 +1114,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       agentId: 'agent:atomic_agent',
       conversationId: 'tg:live-admission-atomic',
       threadId: null,
+      providerAccountId: 'channel-providerAccount:default:telegram',
       // Provider-account-scoped queue key + message id (provider accounts
       // replaced provider connections; unset accounts fall back to
       // channel-providerAccount:<app>:<provider>).

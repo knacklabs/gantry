@@ -10617,6 +10617,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "provider_account_id": {
+          "name": "provider_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "queue_jid": {
           "name": "queue_jid",
           "type": "text",
@@ -10809,6 +10815,12 @@
             },
             {
               "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_account_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

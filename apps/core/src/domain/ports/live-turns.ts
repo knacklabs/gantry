@@ -129,6 +129,7 @@ export interface LiveAdmissionWorkItem {
   agentSessionId: string | null;
   conversationId: string;
   threadId: string | null;
+  providerAccountId: string | null;
   queueJid: string;
   messageId: string;
   messageCursor: string;
@@ -202,6 +203,7 @@ export interface LiveAdmissionInputScope {
   conversationId: string;
   threadId: string | null;
   agentId: string | null;
+  providerAccountId: string | null;
 }
 
 export interface LiveAdmissionWorkItemRepository {
@@ -227,6 +229,7 @@ export interface LiveAdmissionWorkItemRepository {
     agentSessionId?: string | null;
     conversationId: string;
     threadId?: string | null;
+    providerAccountId?: string | null;
     queueJid: string;
     messageId: string;
     messageCursor: string;
