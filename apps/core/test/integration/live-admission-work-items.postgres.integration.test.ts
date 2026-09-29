@@ -59,6 +59,53 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await runtime?.cleanup();
   });
 
+  it('reads a taken message using the scope saved by real admission', async () => {
+    const appId = 'app-real-admission-read';
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'msg-real-admission-read',
+        chat_jid: 'tg:real-admission-read',
+        provider: 'telegram',
+        sender: 'user-real-admission-read',
+        sender_name: 'Reader',
+        content: 'read this saved message',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Expected a saved admission item');
+    const { item } = admitted;
+    const scope = {
+      appId: item.appId,
+      conversationId: item.conversationId,
+      threadId: item.threadId,
+      agentId: item.agentId,
+      providerAccountId: item.providerAccountId,
+    };
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:real-admission-read',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: item.id, messageId: item.messageId }]);
+    expect(
+      (await runtime.ops.getMessagesByIds(scope, [item.messageId])).map(
+        (message) => message.id,
+      ),
+    ).toEqual(['msg-real-admission-read']);
+    expect(
+      await runtime.ops.getMessagesByIds(
+        { ...scope, appId: 'app-other-admission-read' },
+        [item.messageId],
+      ),
+    ).toEqual([]);
+  });
+
   it('gives each message to one turn in database receive order, including a late arrival', async () => {
     const queueJid = 'tg:consumption-crossing';
     const scope = {

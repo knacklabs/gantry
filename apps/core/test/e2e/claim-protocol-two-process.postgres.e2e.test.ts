@@ -214,13 +214,7 @@ maybeDescribe(
   () => {
     let runtime: PostgresIntegrationRuntime;
     const chatJid = 'tg:two-process-input';
-    const scope = {
-      appId: 'default',
-      conversationId: chatJid,
-      threadId: null,
-      agentId: null,
-      providerAccountId: null,
-    };
+    const appId = 'default';
 
     beforeAll(async () => {
       runtime = await createPostgresIntegrationRuntime({
@@ -233,32 +227,37 @@ maybeDescribe(
     });
 
     it('delivers each saved message once in receive order, including one saved after the first take', async () => {
-      const save = async (id: string): Promise<void> => {
-        const timestamp = nowIso();
-        await runtime.ops.storeMessage({
-          id,
-          chat_jid: chatJid,
-          provider: 'telegram',
-          sender: 'user-two-process',
-          sender_name: 'User',
-          content: id,
-          timestamp,
-          is_from_me: false,
-          is_bot_message: false,
-          external_message_id: id,
-        });
-        await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
-          id: `item:${id}`,
-          appId: scope.appId,
-          conversationId: chatJid,
-          queueJid: chatJid,
-          messageId: id,
-          messageCursor: JSON.stringify({ timestamp, id }),
-          idempotencyKey: `admission:${id}`,
-        });
+      // Real admission supplies the canonical message ID and provider account used by the reader.
+      const save = async (id: string, conversationId = chatJid) => {
+        const result = await runtime.ops.storeMessageWithLiveAdmission(
+          {
+            id,
+            chat_jid: conversationId,
+            provider: 'telegram',
+            sender: 'user-two-process',
+            sender_name: 'User',
+            content: id,
+            timestamp: nowIso(),
+            is_from_me: false,
+            is_bot_message: false,
+            external_message_id: id,
+          },
+          { appId },
+        );
+        expect(result?.outcome).toBe('enqueued');
+        if (!result || result.outcome === 'overloaded')
+          throw new Error('Expected a saved admission item');
+        return result.item;
       };
-      await save('message:first');
-      await save('message:second');
+      const firstSaved = await save('message:first');
+      const secondSaved = await save('message:second');
+      const scope = {
+        appId: firstSaved.appId,
+        conversationId: firstSaved.conversationId,
+        threadId: firstSaved.threadId,
+        agentId: firstSaved.agentId,
+        providerAccountId: firstSaved.providerAccountId,
+      };
 
       const script = `
       (async () => {
@@ -316,19 +315,17 @@ maybeDescribe(
         runWorker('turn:first-worker'),
         runWorker('turn:second-worker'),
       ]);
-      expect([...first.items, ...second.items].sort()).toEqual([
-        'item:message:first',
-        'item:message:second',
-      ]);
-      expect([...first.messages, ...second.messages].sort()).toEqual([
-        'message:first',
-        'message:second',
-      ]);
+      expect([...first.items, ...second.items].sort()).toEqual(
+        [firstSaved.id, secondSaved.id].sort(),
+      );
+      expect([...first.messages, ...second.messages].sort()).toEqual(
+        [firstSaved.messageId, secondSaved.messageId].sort(),
+      );
 
-      await save('message:late');
+      const lateSaved = await save('message:late');
       expect(await runWorker('turn:late-worker')).toEqual({
-        items: ['item:message:late'],
-        messages: ['message:late'],
+        items: [lateSaved.id],
+        messages: [lateSaved.messageId],
       });
       expect(await runWorker('turn:empty-worker')).toEqual({
         items: [],
@@ -337,25 +334,17 @@ maybeDescribe(
       expect(
         (
           await runtime.ops.getMessagesByIds(scope, [
-            'message:second',
-            'message:first',
+            secondSaved.messageId,
+            firstSaved.messageId,
           ])
         ).map(({ id }) => id),
       ).toEqual(['message:second', 'message:first']);
-      await runtime.ops.storeMessage({
-        id: 'message:foreign',
-        chat_jid: 'tg:another-conversation',
-        provider: 'telegram',
-        sender: 'another-user',
-        sender_name: 'Another user',
-        content: 'private',
-        timestamp: nowIso(),
-        is_from_me: false,
-        is_bot_message: false,
-        external_message_id: 'message:foreign',
-      });
+      const foreignSaved = await save(
+        'message:foreign',
+        'tg:another-conversation',
+      );
       expect(
-        await runtime.ops.getMessagesByIds(scope, ['message:foreign']),
+        await runtime.ops.getMessagesByIds(scope, [foreignSaved.messageId]),
       ).toEqual([]);
     }, 60_000);
   },

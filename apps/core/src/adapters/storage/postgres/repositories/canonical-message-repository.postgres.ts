@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
   isNull,
@@ -409,16 +410,11 @@ export class PostgresCanonicalMessageRepository {
     ids: readonly string[],
   ): Promise<CanonicalOpsMessageRow[]> {
     if (ids.length === 0) return [];
-    const rows = await this.listInboundMessages({
-      jids: [scope.conversationId],
-      ids,
-      appId: scope.appId,
-      exactProviderAccountId: true,
-      threadId: scope.threadId,
-      hasThreadFilter: true,
-      providerAccountId: scope.providerAccountId,
-      limit: ids.length,
-    });
+    const rows = await this.listMessages(
+      { jids: [scope.conversationId], ids, limit: ids.length },
+      'inbound',
+      scope,
+    );
     const byId = new Map(rows.map((row) => [row.id, row]));
     return ids.flatMap((id) => {
       const row = byId.get(id);
@@ -435,6 +431,7 @@ export class PostgresCanonicalMessageRepository {
   private async listMessages(
     input: MessageListInput,
     direction: 'inbound' | 'all',
+    admissionScope?: LiveAdmissionInputScope,
   ): Promise<CanonicalOpsMessageRow[]> {
     const jids = input.jids;
     if (jids.length === 0) return [];
@@ -463,6 +460,7 @@ export class PostgresCanonicalMessageRepository {
       : '';
     const threadId = input.threadId?.trim() || null;
     const m = pgSchema.messagesPostgres;
+    const items = pgSchema.liveAdmissionWorkItemsPostgres;
     const p = pgSchema.messagePartsPostgres;
     const firstPart = this.db
       .select({ payloadJson: p.payloadJson })
@@ -574,7 +572,27 @@ export class PostgresCanonicalMessageRepository {
       .leftJoinLateral(firstPart, sql`true`)
       .where(
         and(
-          messageConversationFilter(m, jids, input.providerAccountId),
+          admissionScope
+            ? exists(
+                this.db
+                  .select({ id: items.id })
+                  .from(items)
+                  .where(
+                    and(
+                      eq(items.messageId, m.id),
+                      eq(items.appId, admissionScope.appId),
+                      eq(items.conversationId, admissionScope.conversationId),
+                      admissionScope.threadId === null
+                        ? isNull(items.threadId)
+                        : eq(items.threadId, admissionScope.threadId),
+                      admissionScope.agentId === null
+                        ? isNull(items.agentId)
+                        : eq(items.agentId, admissionScope.agentId),
+                      sql`${items.providerAccountId} IS NOT DISTINCT FROM ${admissionScope.providerAccountId}`,
+                    ),
+                  ),
+              )
+            : messageConversationFilter(m, jids, input.providerAccountId),
           input.appId ? eq(m.appId, input.appId) : undefined,
           input.exactProviderAccountId
             ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
