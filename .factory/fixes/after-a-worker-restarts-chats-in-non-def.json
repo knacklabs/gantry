@@ -3,7 +3,7 @@
   "branch": "fix/after-a-worker-restarts-chats-in-non-def",
   "done_when": "A restarted worker reloads routes for every app it serves, and a recovered turn in a non-default app is processed; a Postgres test covers restart with a non-default app route",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T16:36:26+00:00",
