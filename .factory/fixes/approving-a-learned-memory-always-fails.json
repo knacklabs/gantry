@@ -3,7 +3,7 @@
   "branch": "fix/approving-a-learned-memory-always-fails",
   "done_when": "Approving a candidate-backed memory review saves the memory; the review card reports the real outcome (approved, failed with reason, or already decided); a Postgres test covers approving a candidate-backed review end to end",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T07:39:00+00:00",
