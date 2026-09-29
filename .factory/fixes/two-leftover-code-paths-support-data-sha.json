@@ -1,0 +1,14 @@
+{
+  "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
+  "branch": "fix/two-leftover-code-paths-support-data-sha",
+  "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T06:31:31+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Two leftover code paths support data shapes the product no longer produces: memory reviews without a snapshot, and SDK typing events without ordering info"
+}
