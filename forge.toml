@@ -2,21 +2,25 @@
 version = "v1.1.0"
 repo = "client"
 signoff = "docs/decisions/0034-client-signoff.md"
-workers = "claude"
+workers = "codex"
 test = "npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test'"
 checks = ["tests", "forge-pr-check"]
 interfaces = ["**/routes/**", "**/*.controller.*", "**/migrations/**", "**/schema.*", "**/*.schema.*", "**/cli.*"]
 
 [models.build]
-model = "opus"
-effort = "high"
+model = "gpt-6-sol"
+effort = "medium"
+subagents = "gpt-6-luna"
+subagent_effort = "max"
 
 [models.fix]
-model = "opus"
-effort = "high"
+model = "gpt-6-sol"
+effort = "medium"
+subagents = "gpt-6-luna"
+subagent_effort = "max"
 
 [models.lite]
-model = "sonnet"
+model = "gpt-6-sol"
 effort = "medium"
 
 [models.grill.codex]

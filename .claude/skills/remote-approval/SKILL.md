@@ -1,13 +1,13 @@
 ---
 name: remote-approval
-description: Start a named Remote Control Claude Code session in a chosen checkout for an action the human must take from the Claude mobile app. Stories in every Forge repo can be approved from the one main chat; use this when another action needs its own session.
+description: Start a named Remote Control Claude Code session in a chosen checkout so the human can approve or act from the Claude mobile app, e.g. a story approval that only that checkout's hooks record. Use when the human is away from the laptop and an action must happen in a session other than the current one.
 ---
 
-# Remote Control session
+# Remote approval session
 
-Use this when an action must happen in a session in a specific checkout, and the human isn't at
-the laptop. Stories in every Forge repo can be approved from the one main chat without opening
-another session.
+Use this when something must happen in a session whose hooks come from a specific checkout, and the
+human isn't at the laptop. Example: approving a story, which only the story checkout's Plan Mode
+hook records. Never record an approval any other way.
 
 ## Start it
 
@@ -25,7 +25,7 @@ cd <checkout> && exec claude remote-control --name "<name>"
 
 The human reads the name on a phone, so it must say what the chat is for:
 
-- `<plain-English thing> <action>`, e.g. `Client migration check`;
+- `<plain-English thing> <action>`, e.g. `Payments story approval` or `Client migration check`;
 - no IDs, hashes or branch names;
 - under about 30 characters.
 
@@ -34,7 +34,9 @@ The human reads the name on a phone, so it must say what the chat is for:
 Send one message with:
 
 - the name and the link;
-- the exact sentence to say there, e.g. "Check the client migration result";
+- the exact sentence to say there, e.g. "Show plans/<KEY>.md in Plan Mode and exit Plan Mode with it
+  as the plan";
 - what happens after they act.
 
-Then check the result yourself.
+Then check the result yourself: for an approval, `forge next` should no longer say the story is
+waiting.
