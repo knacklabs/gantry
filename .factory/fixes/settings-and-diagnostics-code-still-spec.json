@@ -4,7 +4,7 @@
   "branch": "fix/settings-and-diagnostics-code-still-spec",
   "done_when": "runtime-settings-compact, settings-revision-document and execution-diagnostics no longer mention those removed fields, and the tests that pinned the messages are updated",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-29T16:37:26+00:00",
