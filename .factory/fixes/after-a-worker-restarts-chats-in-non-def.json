@@ -4,26 +4,33 @@
   "done_when": "A restarted worker reloads routes for every app it serves, and a recovered turn in a non-default app is processed; a Postgres test covers restart with a non-default app route",
   "kind": "fix",
   "review": {
-    "commit": "3be66fbb2413cd0b975941f49054a86a5fedb8ff",
+    "commit": "36c2ce0251ecbda977c9db35bbeed2ea5acb37a5",
     "dismissals": [],
     "findings": [
       {
-        "body": "Removing the default-app filter makes `getAllConversationRoutes()` return other apps' routes, but startup calls settings reconciliation before `app.loadState()` (`apps/core/src/app/bootstrap/startup.ts:197`). When desired state is authoritative, reconciliation deletes every returned route absent from that app's settings (`apps/core/src/config/settings/desired-state-service.ts:382`). A default-app worker restart can therefore delete the non-default route before it reloads, so the recovered turn cannot be processed. Scope that deletion to the reconciled app while allowing the worker to reload the routes it serves.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts",
-        "line": 237,
+        "body": "The route is reloaded, but the production admission loop still claims work only for the worker's runtime app ID. `startRuntimeServices` passes `channelWiring.getRuntimeAppId()` to the loop (apps/core/src/app/bootstrap/runtime-services.ts:1139); the production channel wiring defaults that ID to `default` (apps/core/src/app/bootstrap/channel-wiring.ts:89), and the Postgres claim filters on `items.appId` (apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts:270). A queued turn for a non-default app therefore remains unclaimed. The test makes it process by starting its own loop with `APP_ID` here.",
+        "file": "apps/core/test/integration/restart-route-reload.postgres.integration.test.ts",
+        "line": 227,
         "priority": "P1",
-        "title": "Not done: A restarted worker reloads routes for every app it serves, and a recovered turn in a non-default app is processed"
+        "title": "Not done: A restarted worker reloads routes for every app it serves, and a recovered turn in a non-default app is processed; a Postgres test"
       },
       {
-        "body": "The test creates a runtime app and calls `processLiveAdmissionWorkItem()` directly with a mocked queue. It never runs worker startup, reconciliation, the durable claim loop, or an agent turn, so it passes despite the startup route deletion above. Its `tg:route-recovery` JID also does not identify the non-default app; the agent runner derives the app from an `app:<id>:<conversation>` JID and otherwise uses `default` (`apps/core/src/runtime/group-agent-runner.ts:119`). Add a Postgres test through the worker entry point that restarts with a non-default route and observes the recovered turn being processed.",
+        "body": "The test calls `runStartup` directly, then manually wires the queue and starts `startLiveAdmissionWorkLoop` with the non-default app ID. It does not enter Forge's worker command or its production live-execution setup, so it passes while the production worker leaves that turn unclaimed. Run the Postgres scenario through the worker entry point and assert that the recovered turn is processed.",
         "file": "apps/core/test/integration/restart-route-reload.postgres.integration.test.ts",
-        "line": 166,
+        "line": 225,
         "priority": "P1",
         "title": "Not done: A Postgres worker-restart test for a recovered non-default app turn"
+      },
+      {
+        "body": "This query now exposes other apps' routes to `exportCurrentDesiredState`, which still reads every route and filters entries only by agent folder (apps/core/src/config/settings/desired-state-current-export.ts:50, 72). It also exports bare route keys as conversations (line 426). If another app has a bare route using the same agent folder, exporting the default app can add that app's route and provider account to the default settings document. Apply the app-scoped route filter to export as well.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts",
+        "line": 237,
+        "priority": "P2",
+        "title": "Scope settings export to its app before using the widened route list"
       }
     ],
     "status": "blocked",
-    "tree": "be4293d0d6b2b67ee8f849f2dbfcc91129a84162258bad301afb3a56e19f3b06"
+    "tree": "4d7ab423dd0843a30361b873d1b32bd4969106d6d9826a024eedbe8c949ebd5c"
   },
   "status": "fixing",
   "steps": [
@@ -33,6 +40,10 @@
     },
     {
       "at": "2026-09-29T17:17:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T18:50:12+00:00",
       "step": "review"
     }
   ],
