@@ -277,7 +277,7 @@ interface ReviewDetail {
   proposal?: { action?: string };
   proposedChange?: { action?: string };
   applyOutcome?: string;
-  reviewSnapshot?: {
+  reviewSnapshot: {
     conflict?: { active?: ReviewClaimDetail; incoming?: ReviewClaimDetail };
     proposedCanonical?: {
       kind: string;
@@ -292,7 +292,7 @@ interface ReviewDetail {
       sourceUri?: string;
       text: string;
     }[];
-  } | null;
+  };
 }
 
 function formatClaim(claim: ReviewClaimDetail): string {
@@ -311,10 +311,6 @@ function formatReviewDetail(review: ReviewDetail): string {
     `Created: ${s(review.createdAt)}`,
   ];
   const snapshot = review.reviewSnapshot;
-  if (!snapshot) {
-    lines.push('', '(no immutable snapshot captured for this review)');
-    return lines.join('\n');
-  }
   const active = snapshot.conflict?.active;
   if (active) lines.push('', 'Now (active claim):', formatClaim(active));
   const incoming = snapshot.conflict?.incoming;
