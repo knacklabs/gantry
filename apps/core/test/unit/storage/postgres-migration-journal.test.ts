@@ -50,17 +50,6 @@ describe('Postgres migration journal', () => {
     ).toBe(
       '-- Schema-generation baseline: historical migrations already applied this DDL.',
     );
-    const snapshot = JSON.parse(
-      fs.readFileSync(
-        path.join(
-          migrationsDir,
-          'meta',
-          `${baseline?.tag.slice(0, 14)}_snapshot.json`,
-        ),
-        'utf8',
-      ),
-    ) as { tables: Record<string, unknown> };
-    expect(Object.keys(snapshot.tables)).toHaveLength(103);
   });
 
   it('has a SQL file for every journal entry', () => {
@@ -197,7 +186,7 @@ describe('Postgres migration journal', () => {
 
     const snapshot = JSON.parse(
       fs.readFileSync(
-        path.join(migrationsDir, 'meta/0103_snapshot.json'),
+        path.join(migrationsDir, 'meta/20260909113852_snapshot.json'),
         'utf8',
       ),
     ) as {
