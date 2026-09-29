@@ -24,12 +24,9 @@
 - Automatic boundary evidence must use the canonical conversation/user memory
   subject before persistence; do not save evidence under provider topic/thread
   ids.
-- Boundary extraction prior-memory retrieval must use the app-memory hydration
-  read path with exact app, agent, and subject scope; never load
-  prompt context through legacy `MemoryRepository.listMemoryItems`.
-- The production legacy `MemoryRepository` must not expose list/search reads;
-  keep any future diagnostic legacy read path explicitly non-runtime and guarded
-  by architecture tests.
+- Boundary extraction retrieves prior items through
+  `loadBoundaryExtractionAppMemoryItems`, scoped to the session's app, agent,
+  and user or conversation subject.
 - Encoded session-scope components from `makeSessionScopeKey` must be decoded
   before becoming app-memory identities. Decode the conversation/group
   component only; do not turn child topic/thread components into memory scope.
@@ -158,11 +155,9 @@
 - New boundary digests with zero extracted facts must carry typed extraction
   metadata, such as `empty_qualified` and `no_qualifying_facts`, rather than
   leaving operators to infer whether extraction failed.
-- `empty_qualified` is the only successful zero-fact status. Legacy array-only
-  extractors that return `[]` are successful qualified-empty extraction with
-  `no_qualifying_facts`; auth failures, sensitive-material blocks, extractor
-  failures, and explicit unavailable outcomes must use explicit non-success
-  statuses.
+- `empty_qualified` is the only successful zero-fact status. Auth failures,
+  sensitive-material blocks, extractor failures, and explicit unavailable
+  outcomes must use explicit non-success statuses.
 - Boundary extraction prompts must enforce per-part, per-turn, and total
   transcript budgets before LLM calls, and large text/code/tool payloads should
   be structurally summarized instead of forwarded verbatim.
