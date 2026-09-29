@@ -6,7 +6,13 @@
   "kind": "fix",
   "review": {
     "commit": "74766317ac98f2530aa961217babf79198f5e644",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/unit/control/specific-no-longer-accepted-errors-for-r.test.ts:35 owner's standing rule (2026-09-29): no tests may name removed fields, and end-to-end tests proving a pure deletion stays deleted are dismissed; current behaviour (unknown fields rejected) is covered with neutral names",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The HTTP test sends `unexpectedField`, which already received the same generic response before this fix; restoring the deleted field-specific errors would leave it passing. The IPC test calls the parser directly, and the scheduler tests capture schemas/handlers rather than exercising the MCP entry point. No remaining behavioral test verifies that discovery omits `required_tools` or that startup succeeds with `GANTRY_GROUP_FOLDER` present. This fails the explicit end-to-end regression-test requirement. Add suite-wired tests through the real API, IPC and MCP entry points that exercise the removed names, verify generic handling and advertised schemas, and cover startup with the obsolete environment variable. These tests must fail when the corresponding old behavior returns.",
@@ -16,10 +22,10 @@
         "title": "Not done: End-to-end regression tests for removed job and scheduler fields"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "9e117ad41f928de945bfe510d07d12aceee9018d253285a0779e7c4479ca6e94"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T06:31:50+00:00",
