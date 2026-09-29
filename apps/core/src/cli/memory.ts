@@ -131,6 +131,7 @@ function reviewErrorMessage(err: unknown): string {
 // labelled line/row. The CLI's own structural newlines live between fields and
 // are never passed through here. --json is left raw (JSON.stringify escapes
 // control chars).
+/* eslint-disable no-control-regex -- strips terminal control sequences on purpose */
 function sanitizeTerminal(value: string): string {
   return value
     .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') // OSC ... (BEL | ST)
@@ -138,6 +139,7 @@ function sanitizeTerminal(value: string): string {
     .replace(/[\t\r\n]+/g, ' ') // collapse line breaks + tabs → space
     .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ''); // remaining C0/C1 controls
 }
+/* eslint-enable no-control-regex */
 
 function short(value: string | undefined, max = 32): string {
   if (!value) return '—';
