@@ -4,18 +4,18 @@
   "done_when": "forge.toml [models.review] sets model = \"gpt-6-sol\" and effort = \"high\", and forge doctor passes on the pinned release",
   "kind": "fix",
   "review": {
-    "commit": "8013ae04a8e74efbdd0852aa80bd619d6876c20b",
+    "commit": "9826bb71aa01471754bfd080c9ba8da736ba1709",
     "dismissals": [],
     "findings": [
       {
-        "body": "The two review settings are correct, but the branch provides no successful `forge doctor` result for the pinned v1.1.0 release. The Forge workflow at `.github/workflows/forge.yml:38-47` installs that release and runs only `forge hook pr-check`. The required doctor check remains unverified.",
+        "body": "Both settings are correct, but the required `forge doctor` check remains unverified. `.github/workflows/forge.yml:38-47` installs Forge v1.1.0 and runs only `forge hook pr-check`; the branch's fix record also marks the doctor check unresolved. Run `forge doctor` on the pinned release and provide a passing result.",
         "file": "forge.toml",
         "line": 36,
         "priority": "P1",
         "title": "Not done: forge.toml [models.review] sets model = \"gpt-6-sol\" and effort = \"high\", and forge doctor passes on the pinned release"
       },
       {
-        "body": "No suite-wired test exercises this setting through Forge's command entry point. `package.json:86-88` runs Gantry's unit and integration suites, while `.github/workflows/forge.yml:47` runs `forge hook pr-check` against the base branch's configuration. Changing the review model back to `gpt-6-astra` would therefore leave the required regression test absent.",
+        "body": "The change adds no suite-wired test that checks the effective review model and effort through a Forge command. `package.json:86-88` runs Gantry's unit and integration suites, and `.github/workflows/forge.yml:32-47` runs Forge's PR check against the base branch's configuration. Reverting this setting would therefore leave the required regression test passing. Add a test that uses Forge's command entry point and fails when either review setting changes.",
         "file": "forge.toml",
         "line": 35,
         "priority": "P1",
@@ -23,7 +23,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "dd7f54f69bf64fc5148fa07f4f4f7c2fd311dc02ea13cb40fb2138d66968ab05"
+    "tree": "886fdc7f30e5b3c1063f9cbad87c809c8be800a91d02ab64372701c4c15c35c2"
   },
   "status": "fixing",
   "steps": [
@@ -33,6 +33,10 @@
     },
     {
       "at": "2026-09-29T14:23:22+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T14:39:01+00:00",
       "step": "review"
     }
   ],
