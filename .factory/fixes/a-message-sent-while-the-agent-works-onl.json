@@ -3,11 +3,22 @@
   "branch": "fix/a-message-sent-while-the-agent-works-onl",
   "done_when": "docs/specs/steer-running-answer.md is saved, cold-read and confirmed, and TURN-2 is on the roadmap",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "commit": "f9e5c79e8d49405a0f309002250e495a1cdaa971",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "4e89761ae8e6a2eaa611936fe417b0d1e4b95b39afca31babb435747f8c10b03"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T06:17:22+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T06:27:41+00:00",
+      "step": "review"
     }
   ],
   "why": "A message sent while the agent works only gets answered after the first reply, as a second reply; the steering spec must be saved and confirmed before its story"
