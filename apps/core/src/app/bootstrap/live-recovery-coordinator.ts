@@ -10,6 +10,7 @@ import type {
   LiveAdmissionInputScope,
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
+import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -397,8 +398,11 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     providerAccountId: parsed.providerAccountId ?? null,
   };
   const consumer = `command:${randomUUID()}`;
-  const messages: NewMessage[] = [];
-  const itemIds: string[] = [];
+  const batch: Array<{
+    message: NewMessage;
+    itemId: string;
+    receiveOrder: number | null;
+  }> = [];
   try {
     for (let index = 0; index < 1; index += 1) {
       const [item] = await input.inputRepository.takeInput({
@@ -409,15 +413,14 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      messages.push(message);
-      itemIds.push(item.id);
+      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
       if (input.isActiveControlMessage?.(message)) break;
     }
-    const controlIndex = messages.findIndex(
-      (message) => input.isActiveControlMessage?.(message) === true,
+    const controlIndex = batch.findIndex(
+      ({ message }) => input.isActiveControlMessage?.(message) === true,
     );
     if (controlIndex >= 0 && input.handleActiveControlMessage) {
-      const command = messages[controlIndex]!;
+      const command = batch[controlIndex]!.message;
       if (await input.handleActiveControlMessage(command)) {
         input.setAgentCursor(
           input.queueJid,
@@ -427,9 +430,11 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         return true;
       }
     }
-    const replayMessages =
-      controlIndex < 0 ? messages : messages.slice(0, controlIndex);
-    const replayItemIds = itemIds.slice(0, replayMessages.length);
+    const replayBatch = orderBatchForPresentation(
+      controlIndex < 0 ? batch : batch.slice(0, controlIndex),
+    );
+    const replayMessages = replayBatch.map(({ message }) => message);
+    const replayItemIds = replayBatch.map(({ itemId }) => itemId);
     const routed = await routeScopeActiveLiveTurnAdmission({
       scope: input.scope,
       queueJid: input.queueJid,
@@ -469,7 +474,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         'Failed to acknowledge recovered continuation receipt',
       );
     });
-    if (messages.length > 0) {
+    if (batch.length > 0) {
       input.enqueueMessageCheck?.(input.queueJid);
     }
     return true;

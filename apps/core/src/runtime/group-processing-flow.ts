@@ -15,6 +15,27 @@ import { logger } from '../infrastructure/logging/logger.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
+function providerSecond(timestamp: string): number {
+  const parsed = Date.parse(timestamp);
+  return Math.floor(
+    (Number.isNaN(parsed) ? Number(timestamp) * 1000 : parsed) / 1000,
+  );
+}
+
+export function orderBatchForPresentation<
+  T extends { message: NewMessage; receiveOrder: number | null },
+>(batch: T[]): T[] {
+  return [...batch].sort((left, right) => {
+    const timeOrder =
+      providerSecond(left.message.timestamp) -
+      providerSecond(right.message.timestamp);
+    if (Number.isFinite(timeOrder) && timeOrder !== 0) return timeOrder;
+    return left.receiveOrder !== null && right.receiveOrder !== null
+      ? left.receiveOrder - right.receiveOrder
+      : 0;
+  });
+}
+
 export async function takeGroupTurnInput(input: {
   repository: Pick<LiveAdmissionWorkItemRepository, 'takeInput'>;
   messages: Pick<RuntimeMessageRepository, 'getMessagesByIds'>;
@@ -30,7 +51,10 @@ export async function takeGroupTurnInput(input: {
   activeThreadId?: string;
   latestMessageReactionTarget?: { messageRef: string; threadId?: string };
 }> {
-  const missedMessages: NewMessage[] = [];
+  const takenMessages: Array<{
+    message: NewMessage;
+    receiveOrder: number | null;
+  }> = [];
   for (let index = 0; index < input.maxMessages; index += 1) {
     const [item] = await input.repository.takeInput({
       scope: input.scope,
@@ -42,7 +66,7 @@ export async function takeGroupTurnInput(input: {
       item.messageId,
     ]);
     if (!message) throw new Error('Taken input has no scoped message row');
-    missedMessages.push(message);
+    takenMessages.push({ message, receiveOrder: item.receiveOrder });
     if (
       extractSessionCommand(message.content, input.triggerPattern) ||
       message.responseSchema !== undefined ||
@@ -50,14 +74,17 @@ export async function takeGroupTurnInput(input: {
     )
       break;
   }
-  const lastTaken = missedMessages[missedMessages.length - 1];
+  const lastTaken = takenMessages[takenMessages.length - 1]?.message;
   const hasMore =
-    missedMessages.length === input.maxMessages ||
+    takenMessages.length === input.maxMessages ||
     (lastTaken !== undefined &&
       (extractSessionCommand(lastTaken.content, input.triggerPattern) !==
         null ||
         lastTaken.responseSchema !== undefined ||
         lastTaken.agentControls !== undefined));
+  const missedMessages = orderBatchForPresentation(takenMessages).map(
+    ({ message }) => message,
+  );
   const { activeThreadId, reactionTarget } = resolveGroupReactionTarget({
     chatJid: input.chatJid,
     routeThreadId: input.threadId ?? undefined,
