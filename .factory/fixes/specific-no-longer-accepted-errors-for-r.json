@@ -3,11 +3,30 @@
   "branch": "fix/specific-no-longer-accepted-errors-for-r",
   "done_when": "The jobs API, IPC task parsing and scheduler MCP tools no longer mention groupScope, group_scope, requiredTools, required_tools or GANTRY_GROUP_FOLDER; the tool schema no longer advertises required_tools; tests updated",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "fe1c5fafc51c9b69900d975c07292b1820d04a12",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new test verifies schema discovery through the real MCP SDK, but never exercises the running application's jobs API, IPC processing, or MCP startup. No replacement regression covers the deleted field-specific errors or environment-variable guards. Restoring those deleted behaviors would leave this test passing. Existing HTTP validation coverage checks unrelated fields such as `model` (apps/core/test/unit/control/job-trigger.test.ts:1057), so it does not close this gap. Add suite-wired tests through the real entry points that fail when the removed special cases return, including startup with the obsolete environment variable present. This is required by the explicit end-to-end test audit.",
+        "file": "apps/core/test/unit/runner/mcp/specific-no-longer-accepted-errors-for-r.test.ts",
+        "line": 43,
+        "priority": "P1",
+        "title": "Not done: End-to-end regression tests for removed job and scheduler fields"
+      }
+    ],
+    "status": "blocked",
+    "tree": "4de53f24fd64ac3d91aedd0b9a9d4d1293d00c543ce8d4b4bba38ac5bcba2457"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T06:31:50+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T06:53:31+00:00",
+      "step": "review"
     }
   ],
   "why": "Specific 'no longer accepted' errors for removed job and scheduler fields keep old field names alive, and required_tools is still shown to the model as a deprecated tool parameter"
