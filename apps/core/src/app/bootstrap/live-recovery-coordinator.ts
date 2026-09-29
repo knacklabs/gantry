@@ -1,10 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
-import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
+import type {
+  LiveAdmissionWorkItemRepository,
+  LiveAdmissionInputScope,
+} from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
@@ -356,14 +360,15 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   liveRunId: string;
   chatJid: string;
   threadId: string | null;
-  replayCursor: string;
   messageFetchPageSize: number;
   timezone: string;
-  getMessagesSince?: (
-    conversationJid: string,
-    sinceCursor: string,
-    limit?: number,
-    options?: { threadId?: string | null; providerAccountId?: string | null },
+  inputRepository: Pick<
+    LiveAdmissionWorkItemRepository,
+    'takeInput' | 'releaseInput' | 'consumeAll'
+  >;
+  getMessagesByIds: (
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
   ) => Promise<NewMessage[]>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
@@ -383,76 +388,93 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
 }): Promise<boolean> {
-  const replay = input.getMessagesSince
-    ? await collectPendingMessagesSince({
-        getMessagesSince: input.getMessagesSince,
-        chatJid: input.chatJid,
-        sinceCursor: input.replayCursor,
-        pageSize: input.messageFetchPageSize,
-        options: {
-          threadId: input.threadId,
-          providerAccountId: parseAgentThreadQueueKey(input.queueJid)
-            .providerAccountId,
-        },
-      })
-    : undefined;
-  const messages = replay?.messages;
-  if (messages?.length && input.handleActiveControlMessage) {
-    const nextMessage = messages[0];
-    if (await input.handleActiveControlMessage(nextMessage)) {
-      input.setAgentCursor(
-        input.queueJid,
-        encodeGroupMessageCursor(toGroupMessageCursor(nextMessage)),
-      );
-      await input.saveState();
-      return true;
+  const parsed = parseAgentThreadQueueKey(input.queueJid);
+  const scope: LiveAdmissionInputScope = {
+    appId: input.scope.appId,
+    conversationId: input.scope.conversationId,
+    threadId: input.threadId,
+    agentId: parsed.agentId ?? null,
+    providerAccountId: parsed.providerAccountId ?? null,
+  };
+  const consumer = `command:${randomUUID()}`;
+  const messages: NewMessage[] = [];
+  const itemIds: string[] = [];
+  try {
+    for (let index = 0; index < 1; index += 1) {
+      const [item] = await input.inputRepository.takeInput({
+        scope,
+        limit: 1,
+        consumedBy: consumer,
+      });
+      if (!item) break;
+      const [message] = await input.getMessagesByIds(scope, [item.messageId]);
+      if (!message) throw new Error('Taken input has no scoped message row');
+      messages.push(message);
+      itemIds.push(item.id);
+      if (input.isActiveControlMessage?.(message)) break;
     }
-  }
-  const controlIndex = messages?.findIndex(
-    (message) => input.isActiveControlMessage?.(message) === true,
-  );
-  const replayMessages =
-    controlIndex === undefined || controlIndex < 0
-      ? messages
-      : messages?.slice(0, controlIndex);
-  const routed = await routeScopeActiveLiveTurnAdmission({
-    scope: input.scope,
-    queueJid: input.queueJid,
-    liveRunId: input.liveRunId,
-    continuation: buildLiveTurnContinuation({
-      queueJid: input.queueJid,
-      sinceCursor: input.replayCursor,
-      messages: replayMessages,
-      timezone: input.timezone,
-      setAgentCursor: input.setAgentCursor,
-      saveState: input.saveState,
-    }),
-    routeMessage: input.routeMessage,
-    completeSessionAgentRun: input.completeSessionAgentRun,
-  });
-  const { providerAccountId, threadId } = parseAgentThreadQueueKey(
-    input.queueJid,
-  );
-  void acknowledgeContinuationReceipt({
-    jid: input.chatJid,
-    messages: replayMessages,
-    ...(providerAccountId || threadId
-      ? {
-          options: {
-            ...(providerAccountId ? { providerAccountId } : {}),
-            ...(threadId ? { threadId } : {}),
-          },
-        }
-      : {}),
-    addReaction: input.addReaction,
-  }).catch((err) => {
-    logger.warn(
-      { err, chatJid: input.chatJid, queueJid: input.queueJid },
-      'Failed to acknowledge recovered continuation receipt',
+    const controlIndex = messages.findIndex(
+      (message) => input.isActiveControlMessage?.(message) === true,
     );
-  });
-  if (routed && (replay?.hasMore || (controlIndex ?? -1) >= 0)) {
-    input.enqueueMessageCheck?.(input.queueJid);
+    if (controlIndex >= 0 && input.handleActiveControlMessage) {
+      const command = messages[controlIndex]!;
+      if (await input.handleActiveControlMessage(command)) {
+        input.setAgentCursor(
+          input.queueJid,
+          encodeGroupMessageCursor(toGroupMessageCursor(command)),
+        );
+        await input.saveState();
+        return true;
+      }
+    }
+    const replayMessages =
+      controlIndex < 0 ? messages : messages.slice(0, controlIndex);
+    const replayItemIds = itemIds.slice(0, replayMessages.length);
+    const routed = await routeScopeActiveLiveTurnAdmission({
+      scope: input.scope,
+      queueJid: input.queueJid,
+      liveRunId: input.liveRunId,
+      continuation: buildLiveTurnContinuation({
+        queueJid: input.queueJid,
+        messages: replayMessages,
+        itemIds: replayItemIds,
+        timezone: input.timezone,
+        setAgentCursor: input.setAgentCursor,
+        saveState: input.saveState,
+      }),
+      routeMessage: input.routeMessage,
+      completeSessionAgentRun: input.completeSessionAgentRun,
+    });
+    if (!routed) {
+      await input.inputRepository.releaseInput({ consumedBy: consumer });
+      return false;
+    }
+    void acknowledgeContinuationReceipt({
+      jid: input.chatJid,
+      messages: replayMessages,
+      ...(parsed.providerAccountId || parsed.threadId
+        ? {
+            options: {
+              ...(parsed.providerAccountId
+                ? { providerAccountId: parsed.providerAccountId }
+                : {}),
+              ...(parsed.threadId ? { threadId: parsed.threadId } : {}),
+            },
+          }
+        : {}),
+      addReaction: input.addReaction,
+    }).catch((err) => {
+      logger.warn(
+        { err, chatJid: input.chatJid, queueJid: input.queueJid },
+        'Failed to acknowledge recovered continuation receipt',
+      );
+    });
+    if (messages.length > 0) {
+      input.enqueueMessageCheck?.(input.queueJid);
+    }
+    return true;
+  } catch (err) {
+    await input.inputRepository.releaseInput({ consumedBy: consumer });
+    throw err;
   }
-  return routed;
 }

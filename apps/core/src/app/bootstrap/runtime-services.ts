@@ -30,7 +30,7 @@ import {
   type MessageLoopDeps,
 } from '../../runtime/message-loop.js';
 // prettier-ignore
-import { enqueueJobTrigger, markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import { markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { registerWorkerInstance } from '../../jobs/worker-identity.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
@@ -82,7 +82,7 @@ import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 // prettier-ignore
-import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, startRuntimePermissionCardReconciliation, setupPermissionCardProfile } from './runtime-services-permission-card.js';
+import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
   queueActiveCompactionForRuntime,
@@ -493,6 +493,7 @@ export async function startRuntimeServices(
   );
   app.queue.setProcessMessagesFn(
     buildLiveAdmissionProcessor({
+      inputRepository: liveTurns,
       liveTurnAuthority,
       app,
       opsRepository: resolved.opsRepository,
@@ -1118,6 +1119,8 @@ export async function startRuntimeServices(
     return;
   }
   const messageLoopDeps: MessageLoopDeps = {
+    appId: channelWiring.getRuntimeAppId(),
+    inputRepository: liveTurns,
     getConversationRoutes: () => app.getConversationRoutes(),
     getOrRecoverCursor: app.getOrRecoverCursor,
     setAgentCursor: (chatJid, timestamp) =>
@@ -1129,8 +1132,6 @@ export async function startRuntimeServices(
       channelWiring.setTyping(chatJid, isTyping, options),
     sendProgressUpdate: async (chatJid, text, options) =>
       void (await channelWiring.sendProgressUpdate(chatJid, text, options)),
-    addReaction: (chatJid, messageRef, emoji, options) =>
-      channelWiring.addReaction(chatJid, messageRef, emoji, options),
     queue: liveMessageQueue,
     handleActiveControlCommand,
     opsRepository: resolved.opsRepository,

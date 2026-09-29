@@ -16,6 +16,11 @@ import type { ConversationRoute } from '@core/domain/types.js';
 import { processBrowserIpcRequest } from '@core/runtime/ipc-browser-handler.js';
 import { validateAgentToolRuntimeRules } from '@core/application/agents/agent-tool-runtime-rules.js';
 import { nowIso } from '@core/shared/time/datetime.js';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '@core/shared/message-cursor.js';
 
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
@@ -203,6 +208,158 @@ maybeDescribe('two-process worker claim protocol (Postgres)', () => {
     60_000,
   );
 });
+
+maybeDescribe(
+  'no message is lost or given twice across two workers (Postgres)',
+  () => {
+    let runtime: PostgresIntegrationRuntime;
+    const chatJid = 'tg:two-process-input';
+    const scope = {
+      appId: 'default',
+      conversationId: chatJid,
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    };
+
+    beforeAll(async () => {
+      runtime = await createPostgresIntegrationRuntime({
+        schemaPrefix: 'two_proc_input',
+      });
+    }, 60_000);
+
+    afterAll(async () => {
+      await runtime?.cleanup();
+    });
+
+    it('delivers each saved message once in receive order, including one saved after the first take', async () => {
+      const save = async (id: string): Promise<void> => {
+        const timestamp = nowIso();
+        await runtime.ops.storeMessage({
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          sender: 'user-two-process',
+          sender_name: 'User',
+          content: id,
+          timestamp,
+          is_from_me: false,
+          is_bot_message: false,
+          external_message_id: id,
+        });
+        await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
+          id: `item:${id}`,
+          appId: scope.appId,
+          conversationId: chatJid,
+          queueJid: chatJid,
+          messageId: id,
+          messageCursor: JSON.stringify({ timestamp, id }),
+          idempotencyKey: `admission:${id}`,
+        });
+      };
+      await save('message:first');
+      await save('message:second');
+
+      const script = `
+      (async () => {
+        const { PostgresStorageService } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/storage-service.ts'))});
+        const { PostgresLiveTurnRepository } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts'))});
+        const { PostgresCanonicalMessageRepository } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts'))});
+        const service = new PostgresStorageService(process.env.GANTRY_TEST_DATABASE_URL, process.env.INPUT_SCHEMA);
+        try {
+          const scope = ${JSON.stringify(scope)};
+          const items = await new PostgresLiveTurnRepository(service.db).takeInput({ scope, limit: 2, consumedBy: process.env.INPUT_CONSUMER });
+          const messages = await new PostgresCanonicalMessageRepository(service.db).getMessagesByIds(scope, items.map(item => item.messageId));
+          process.stdout.write(JSON.stringify({ items: items.map(item => item.id), messages: messages.map(message => message.id) }) + '\\n');
+        } finally {
+          await service.close();
+        }
+      })().catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
+    `;
+      const runWorker = (
+        consumer: string,
+      ): Promise<{ items: string[]; messages: string[] }> =>
+        new Promise((resolve, reject) => {
+          const child = spawn(tsxBin, ['-e', script], {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              INPUT_SCHEMA: runtime.schemaName,
+              INPUT_CONSUMER: consumer,
+            },
+          });
+          let stdout = '';
+          let stderr = '';
+          child.stdout.on('data', (chunk) => {
+            stdout += String(chunk);
+          });
+          child.stderr.on('data', (chunk) => {
+            stderr += String(chunk);
+          });
+          child.on('error', reject);
+          child.on('close', (code) => {
+            if (code !== 0) return reject(new Error(stderr));
+            try {
+              resolve(
+                JSON.parse(stdout.trim()) as {
+                  items: string[];
+                  messages: string[];
+                },
+              );
+            } catch {
+              reject(new Error(`Invalid worker result: ${stdout} ${stderr}`));
+            }
+          });
+        });
+
+      const [first, second] = await Promise.all([
+        runWorker('turn:first-worker'),
+        runWorker('turn:second-worker'),
+      ]);
+      expect([...first.items, ...second.items].sort()).toEqual([
+        'item:message:first',
+        'item:message:second',
+      ]);
+      expect([...first.messages, ...second.messages].sort()).toEqual([
+        'message:first',
+        'message:second',
+      ]);
+
+      await save('message:late');
+      expect(await runWorker('turn:late-worker')).toEqual({
+        items: ['item:message:late'],
+        messages: ['message:late'],
+      });
+      expect(await runWorker('turn:empty-worker')).toEqual({
+        items: [],
+        messages: [],
+      });
+      expect(
+        (
+          await runtime.ops.getMessagesByIds(scope, [
+            'message:second',
+            'message:first',
+          ])
+        ).map(({ id }) => id),
+      ).toEqual(['message:second', 'message:first']);
+      await runtime.ops.storeMessage({
+        id: 'message:foreign',
+        chat_jid: 'tg:another-conversation',
+        provider: 'telegram',
+        sender: 'another-user',
+        sender_name: 'Another user',
+        content: 'private',
+        timestamp: nowIso(),
+        is_from_me: false,
+        is_bot_message: false,
+        external_message_id: 'message:foreign',
+      });
+      expect(
+        await runtime.ops.getMessagesByIds(scope, ['message:foreign']),
+      ).toEqual([]);
+    }, 60_000);
+  },
+);
 
 interface LiveTempRuntime {
   root: string;
@@ -570,7 +727,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       agentConfig: { model: 'opus', timeout: 5_000 },
     };
     await app.registerGroup(chatJid, route);
-    await runtime.ops.storeMessage({
+    const inbound = {
       id: 'msg-live-e2e-real-runner',
       chat_jid: chatJid,
       provider: 'telegram',
@@ -581,6 +738,17 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       is_from_me: false,
       is_bot_message: false,
       external_message_id: 'telegram-live-e2e-real-runner-1',
+    };
+    await runtime.ops.storeMessage(inbound);
+    await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'item-live-e2e-real-runner',
+      appId: 'default',
+      agentId: agentIdForFolder(folder),
+      conversationId: chatJid,
+      queueJid: chatJid,
+      messageId: inbound.id,
+      messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(inbound)),
+      idempotencyKey: 'telegram-live-e2e-real-runner-1',
     });
 
     expect(messageQueue.enqueueMessageCheck(chatJid)).toBe(true);
@@ -598,6 +766,19 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       .join('\n');
     expect(finalText).toContain('live e2e child saw:');
     expect(finalText).toContain(inboundText);
+    expect(
+      await runtime.repositories.liveTurns.takeInput({
+        scope: {
+          appId: 'default',
+          conversationId: chatJid,
+          threadId: null,
+          agentId: agentIdForFolder(folder),
+          providerAccountId: null,
+        },
+        limit: 10,
+        consumedBy: 'history',
+      }),
+    ).toEqual([]);
 
     const childRecord = JSON.parse(
       fs.readFileSync(temp.recordPath, 'utf-8'),
@@ -685,6 +866,75 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         RUNTIME_EVENT_TYPES.RUN_COMPLETED,
       ]),
     );
+
+    // A settings/state reload may restore an old marker. The record remains
+    // authoritative, so a later saved item still reaches the same user once.
+    await runtime.ops.setRouterState(
+      'last_agent_timestamp',
+      JSON.stringify({
+        [chatJid]: JSON.stringify({
+          timestamp: '9999-01-01T00:00:00Z',
+          id: 'z',
+        }),
+      }),
+    );
+    await app.loadState();
+    const lateMessage = {
+      ...inbound,
+      id: 'msg-live-e2e-after-reload',
+      content: 'after settings reload',
+      timestamp: nowIso(),
+      external_message_id: 'telegram-live-e2e-after-reload',
+    };
+    await runtime.ops.storeMessage(lateMessage);
+    await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'item-live-e2e-after-reload',
+      appId: 'default',
+      agentId: agentIdForFolder(folder),
+      conversationId: chatJid,
+      queueJid: chatJid,
+      messageId: lateMessage.id,
+      messageCursor: encodeGroupMessageCursor(
+        toGroupMessageCursor(lateMessage),
+      ),
+      idempotencyKey: lateMessage.external_message_id,
+    });
+    expect(messageQueue.enqueueMessageCheck(chatJid)).toBe(true);
+    await waitForLiveE2e(
+      () =>
+        fakeChannel.outbound.some((message) =>
+          message.text.includes('after settings reload'),
+        ),
+      'reply after settings reload',
+    );
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.includes('after settings reload'),
+      ),
+    ).toHaveLength(1);
+    messageQueue.enqueueMessageCheck(chatJid);
+    await waitForLiveE2e(
+      async () =>
+        (
+          await runtime.repositories.liveTurns.takeInput({
+            scope: {
+              appId: 'default',
+              conversationId: chatJid,
+              threadId: null,
+              agentId: agentIdForFolder(folder),
+              providerAccountId: null,
+            },
+            limit: 10,
+            consumedBy: 'history',
+          })
+        ).length === 0,
+      'all reloaded input consumed',
+    );
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.includes('after settings reload'),
+      ),
+    ).toHaveLength(1);
   }, 60_000);
 });
 

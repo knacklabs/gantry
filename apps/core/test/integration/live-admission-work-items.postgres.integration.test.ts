@@ -20,6 +20,10 @@ import type {
 } from '@core/domain/provider/provider.js';
 import { parseAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
+import {
+  recoverPendingMessages,
+  type MessageLoopDeps,
+} from '@core/runtime/message-loop.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -55,12 +59,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await runtime?.cleanup();
   });
 
-  it('gives each message to one turn in database receive order across two connections, including a late arrival', async () => {
-    const secondService = new PostgresStorageService(
-      process.env.GANTRY_TEST_DATABASE_URL!,
-      runtime.schemaName,
-    );
-    const second = new PostgresLiveTurnRepository(secondService.db);
+  it('gives each message to one turn in database receive order, including a late arrival', async () => {
     const queueJid = 'tg:consumption-crossing';
     const scope = {
       appId: 'app-consume-order',
@@ -82,134 +81,191 @@ maybeDescribe('live admission work items (Postgres)', () => {
         now: '2000-01-01T00:00:00.000Z',
       });
 
-    try {
-      await enqueue('receive-first', '2030-01-01T00:00:00.000Z::first');
-      await enqueue('receive-second', '1990-01-01T00:00:00.000Z::second');
-      const first = await liveTurns.takeInput({
+    await enqueue('receive-first', '2030-01-01T00:00:00.000Z::first');
+    await enqueue('receive-second', '1990-01-01T00:00:00.000Z::second');
+    const first = await liveTurns.takeInput({
+      scope,
+      consumedBy: 'turn-1',
+      limit: 10,
+    });
+    expect(first.map((item) => item.id)).toEqual([
+      'receive-first',
+      'receive-second',
+    ]);
+    expect(first[0]?.receiveOrder).toBeLessThan(first[1]!.receiveOrder!);
+    expect(Date.parse(first[0]!.createdAt)).toBeGreaterThan(
+      Date.parse('2000-01-01T00:00:00.000Z'),
+    );
+
+    await enqueue('receive-late', '1980-01-01T00:00:00.000Z::late');
+    expect(
+      await liveTurns.takeInput({ scope, consumedBy: 'turn-2', limit: 10 }),
+    ).toMatchObject([{ id: 'receive-late', consumedBy: 'turn-2' }]);
+    expect(
+      await liveTurns.takeInput({ scope, consumedBy: 'turn-3', limit: 10 }),
+    ).toEqual([]);
+
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-1' })).toBe(2);
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-1' })).toBe(0);
+    expect(
+      await liveTurns.takeInput({
         scope,
-        consumedBy: 'turn-1',
+        consumedBy: 'turn-4',
         limit: 10,
-      });
-      expect(first.map((item) => item.id)).toEqual([
-        'receive-first',
-        'receive-second',
-      ]);
-      expect(first[0]?.receiveOrder).toBeLessThan(first[1]!.receiveOrder!);
-      expect(Date.parse(first[0]!.createdAt)).toBeGreaterThan(
-        Date.parse('2000-01-01T00:00:00.000Z'),
-      );
-
-      await enqueue('receive-late', '1980-01-01T00:00:00.000Z::late');
-      expect(
-        await second.takeInput({ scope, consumedBy: 'turn-2', limit: 10 }),
-      ).toMatchObject([{ id: 'receive-late', consumedBy: 'turn-2' }]);
-      expect(
-        await second.takeInput({ scope, consumedBy: 'turn-3', limit: 10 }),
-      ).toEqual([]);
-
-      expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(2);
-      expect(await second.releaseInput({ consumedBy: 'turn-1' })).toBe(0);
-      expect(
-        await liveTurns.takeInput({
-          scope,
-          consumedBy: 'turn-4',
-          limit: 10,
-        }),
-      ).toMatchObject([{ id: 'receive-first' }, { id: 'receive-second' }]);
-      expect(await liveTurns.releaseInput({ consumedBy: 'turn-2' })).toBe(1);
-      expect(await second.consumeAll({ scope, consumedBy: 'history' })).toBe(1);
-      expect(
-        await liveTurns.takeInput({
-          scope,
-          consumedBy: 'turn-5',
-          limit: 10,
-        }),
-      ).toEqual([]);
-    } finally {
-      await secondService.close();
-    }
+      }),
+    ).toMatchObject([{ id: 'receive-first' }, { id: 'receive-second' }]);
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-2' })).toBe(1);
+    expect(await liveTurns.consumeAll({ scope, consumedBy: 'history' })).toBe(
+      1,
+    );
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn-5',
+        limit: 10,
+      }),
+    ).toEqual([]);
   });
 
-  it('keeps consumption inside its application when two apps share a route', async () => {
-    const conversationId = 'tg:shared-consumption-route';
+  it('wakes and takes an unconsumed completed message after restart', async () => {
+    const appId = 'app-restart-unconsumed';
+    const queueJid = 'tg:restart-unconsumed';
+    const id = 'item-restart-unconsumed';
     const scope = {
-      appId: 'app-consume-scope-a',
-      conversationId,
+      appId,
+      conversationId: queueJid,
       threadId: null,
       agentId: null,
       providerAccountId: null,
     };
-    for (const appId of [scope.appId, 'app-consume-scope-b']) {
-      await liveTurns.enqueueLiveAdmissionWorkItem({
-        ...base,
-        appId,
-        id: `item-${appId}`,
-        conversationId,
-        queueJid: conversationId,
-        messageId: `message-${appId}`,
-        idempotencyKey: `delivery-${appId}`,
-      });
-    }
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id,
+      appId,
+      conversationId: queueJid,
+      queueJid,
+      messageId: 'message-restart-unconsumed',
+      idempotencyKey: 'delivery-restart-unconsumed',
+    });
+    const [claimed] = await liveTurns.claimLiveAdmissionWorkItems({
+      appId,
+      workerInstanceId: 'worker-before-restart',
+      claimToken: 'claim-before-restart',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+    });
+    expect(claimed?.id).toBe(id);
+    expect(
+      await liveTurns.settleLiveAdmissionWorkItem({
+        id,
+        workerInstanceId: 'worker-before-restart',
+        claimToken: 'claim-before-restart',
+        state: 'completed',
+      }),
+    ).toBe(true);
 
+    const afterRestart = new PostgresLiveTurnRepository(runtime.service.db);
+    const enqueueMessageCheck = vi.fn(() => true);
+    await recoverPendingMessages({
+      appId,
+      inputRepository: afterRestart,
+      queue: { enqueueMessageCheck },
+    } as unknown as MessageLoopDeps);
+    expect(enqueueMessageCheck).toHaveBeenCalledExactlyOnceWith(queueJid);
     expect(
-      await liveTurns.takeInput({ scope, consumedBy: 'scope-a', limit: 10 }),
-    ).toMatchObject([{ id: 'item-app-consume-scope-a' }]);
-    expect(await liveTurns.consumeAll({ scope, consumedBy: 'scope-a' })).toBe(
-      0,
-    );
+      (
+        await afterRestart.takeInput({
+          scope,
+          consumedBy: 'turn:restarted',
+          limit: 10,
+        })
+      ).map((item) => item.id),
+    ).toEqual([id]);
     expect(
-      await liveTurns.takeInput({
-        scope: { ...scope, appId: 'app-consume-scope-b' },
-        consumedBy: 'scope-b',
+      await afterRestart.takeInput({
+        scope,
+        consumedBy: 'turn:next',
         limit: 10,
       }),
-    ).toMatchObject([{ id: 'item-app-consume-scope-b' }]);
+    ).toEqual([]);
   });
 
-  it('keeps input separate for two provider accounts on the same route', async () => {
-    const route = {
-      appId: 'app-consume-account-scope',
-      conversationId: 'tg:shared-account-route',
-      threadId: null,
-      agentId: null,
-    };
-    for (const account of ['account-a', 'account-b']) {
-      for (const index of [1, 2]) {
-        const id = `${account}-${index}`;
-        await liveTurns.enqueueLiveAdmissionWorkItem({
-          ...base,
-          ...route,
-          id,
-          providerAccountId: account,
-          queueJid: route.conversationId,
-          messageId: `message:${id}`,
-          idempotencyKey: `delivery:${id}`,
-        });
+  it.each([
+    {
+      axis: 'application',
+      first: { appId: 'app-scope-a' },
+      second: { appId: 'app-scope-b' },
+    },
+    {
+      axis: 'account',
+      first: { providerAccountId: 'account-a' },
+      second: { providerAccountId: 'account-b' },
+    },
+    {
+      axis: 'thread',
+      first: { threadId: 'thread-a' },
+      second: { threadId: 'thread-b' },
+    },
+    {
+      axis: 'agent',
+      first: { agentId: 'agent:scope-a' },
+      second: { agentId: 'agent:scope-b' },
+    },
+  ])(
+    'keeps consumption inside its $axis scope',
+    async ({ axis, first, second }) => {
+      const common = {
+        appId: `app-consume-scope-${axis}`,
+        conversationId: `tg:consume-scope-${axis}`,
+        threadId: null,
+        agentId: null,
+        providerAccountId: null,
+      };
+      const firstScope = { ...common, ...first };
+      const secondScope = { ...common, ...second };
+      for (const [name, scope] of [
+        ['first', firstScope],
+        ['second', secondScope],
+      ] as const) {
+        for (const index of [1, 2]) {
+          const id = `${axis}-${name}-${index}`;
+          await liveTurns.enqueueLiveAdmissionWorkItem({
+            ...base,
+            ...scope,
+            id,
+            queueJid: scope.conversationId,
+            messageId: `message:${id}`,
+            idempotencyKey: `delivery:${id}`,
+          });
+        }
       }
-    }
 
-    const scopeA = { ...route, providerAccountId: 'account-a' };
-    expect(
-      await liveTurns.takeInput({
-        scope: scopeA,
-        consumedBy: 'account-a-turn',
-        limit: 1,
-      }),
-    ).toMatchObject([{ id: 'account-a-1' }]);
-    expect(
-      await liveTurns.consumeAll({
-        scope: scopeA,
-        consumedBy: 'account-a-history',
-      }),
-    ).toBe(1);
-    expect(
-      await liveTurns.takeInput({
-        scope: { ...route, providerAccountId: 'account-b' },
-        consumedBy: 'account-b-turn',
-        limit: 10,
-      }),
-    ).toMatchObject([{ id: 'account-b-1' }, { id: 'account-b-2' }]);
-  });
+      expect(
+        (
+          await liveTurns.takeInput({
+            scope: firstScope,
+            consumedBy: `${axis}-first-turn`,
+            limit: 1,
+          })
+        ).map((item) => item.id),
+      ).toEqual([`${axis}-first-1`]);
+      expect(
+        await liveTurns.consumeAll({
+          scope: firstScope,
+          consumedBy: `${axis}-first-history`,
+        }),
+      ).toBe(1);
+      expect(
+        (
+          await liveTurns.takeInput({
+            scope: secondScope,
+            consumedBy: `${axis}-second-turn`,
+            limit: 10,
+          })
+        ).map((item) => item.id),
+      ).toEqual([`${axis}-second-1`, `${axis}-second-2`]);
+    },
+  );
 
   it('gives overlapping consumers disjoint input in receive order', async () => {
     const secondService = new PostgresStorageService(
@@ -414,8 +470,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
   });
 
   it('keeps unconsumed items during the terminal retention sweep', async () => {
-    // The sweep used to delete every expired terminal row. A terminal row can
-    // still be waiting for a turn, so only consumed rows now expire.
     const appId = 'app-terminal-retention';
     const oldAt = '2026-07-03T00:00:00.000Z';
     const recentAt = '2026-07-05T00:00:00.000Z';
@@ -1115,9 +1169,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationId: 'tg:live-admission-atomic',
       threadId: null,
       providerAccountId: 'channel-providerAccount:default:telegram',
-      // Provider-account-scoped queue key + message id (provider accounts
-      // replaced provider connections; unset accounts fall back to
-      // channel-providerAccount:<app>:<provider>).
       queueJid:
         'tg:live-admission-atomic::agent:agent%3Aatomic_agent::provider_account:channel-providerAccount%3Adefault%3Atelegram',
       messageId:

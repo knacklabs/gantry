@@ -40,6 +40,7 @@ import {
   deleteExpiredTerminalLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
+  listUnconsumedLiveAdmissionQueueJids,
   renewLiveAdmissionWorkItemClaim,
   releaseInput,
   settleLiveAdmissionWorkItem,
@@ -107,6 +108,12 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     limit: number;
   }): Promise<LiveAdmissionWorkItem[]> {
     return takeInput(this.db, input);
+  }
+
+  async listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]> {
+    return listUnconsumedLiveAdmissionQueueJids(this.db, input);
   }
 
   async releaseInput(input: { consumedBy: string }): Promise<number> {

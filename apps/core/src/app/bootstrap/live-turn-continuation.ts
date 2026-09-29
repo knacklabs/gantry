@@ -16,6 +16,7 @@ export function buildLiveTurnContinuation(input: {
   queueJid: string;
   sinceCursor?: string;
   messages: readonly NewMessage[] | undefined;
+  itemIds: readonly string[];
   timezone: string;
   onRouted?: () => Promise<void> | void;
   setAgentCursor?: (queueJid: string, cursor: string) => void;
@@ -37,10 +38,7 @@ export function buildLiveTurnContinuation(input: {
     text: formatMessages(messages, input.timezone),
     senderUserIds: resolveNonSelfSenderIds(messages),
     idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
-      queueJid: input.queueJid,
-      sinceCursor: input.sinceCursor ?? '',
-      cursorAfter,
-      messages,
+      itemIds: input.itemIds,
     }),
     cursorAfter,
     onRouted:

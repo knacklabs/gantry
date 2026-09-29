@@ -207,6 +207,19 @@ export async function takeInput(
   });
 }
 
+export async function listUnconsumedLiveAdmissionQueueJids(
+  db: CanonicalDb,
+  input: { appId: string },
+): Promise<string[]> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .selectDistinct({ queueJid: items.queueJid })
+    .from(items)
+    .where(and(eq(items.appId, input.appId), isNull(items.consumedAt)))
+    .orderBy(asc(items.queueJid));
+  return rows.map(({ queueJid }) => queueJid);
+}
+
 export async function releaseInput(
   db: CanonicalDb,
   input: { consumedBy: string },

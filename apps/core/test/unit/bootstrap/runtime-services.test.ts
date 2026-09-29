@@ -1373,7 +1373,15 @@ describe('startRuntimeServices', () => {
   it('routes a follow-up to the active owner without minting an orphan run (pre-check)', async () => {
     const app = makeApp();
     const channelWiring = makeChannelWiring();
-    const liveTurns = new FakeLiveTurns();
+    const liveTurns = Object.assign(new FakeLiveTurns(), {
+      takeInput: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { id: 'item-follow-up', messageId: 'msg-follow-up' },
+        ])
+        .mockResolvedValue([]),
+      releaseInput: vi.fn(async () => 0),
+    });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
       heartbeatWorker: vi.fn(async () => true),
@@ -1410,7 +1418,7 @@ describe('startRuntimeServices', () => {
           })),
           createSessionAgentRun,
           completeSessionAgentRun,
-          getMessagesSince: vi.fn(async () => [
+          getMessagesByIds: vi.fn(async () => [
             {
               id: 'msg-follow-up',
               chat_jid: 'tg:primary',
@@ -1455,13 +1463,7 @@ describe('startRuntimeServices', () => {
           liveTurnId: 'turn-existing',
           commandType: 'continuation',
           idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
-            queueJid: 'tg:primary',
-            sinceCursor: '',
-            cursorAfter: JSON.stringify({
-              timestamp: 'cursor-after-follow-up',
-              id: 'msg-follow-up',
-            }),
-            messages: [{ id: 'msg-follow-up' }],
+            itemIds: ['item-follow-up'],
           }),
           payload: expect.objectContaining({
             text: expect.stringContaining('same follow-up'),
@@ -1478,7 +1480,15 @@ describe('startRuntimeServices', () => {
   it('queues active /compact for later command processing without live continuation injection', async () => {
     const app = makeApp();
     const channelWiring = makeChannelWiring();
-    const liveTurns = new FakeLiveTurns();
+    const liveTurns = Object.assign(new FakeLiveTurns(), {
+      takeInput: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { id: 'item-compact', messageId: 'msg-compact' },
+        ])
+        .mockResolvedValue([]),
+      releaseInput: vi.fn(async () => 0),
+    });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
       heartbeatWorker: vi.fn(async () => true),
@@ -1512,9 +1522,7 @@ describe('startRuntimeServices', () => {
     app.setAgentCursor = vi.fn((_queueJid: string, nextCursor: string) => {
       cursor = nextCursor;
     });
-    const getMessagesSince = vi.fn(async (_chatJid: string, since: string) =>
-      since === compactCursor ? [] : [compactMessage],
-    );
+    const getMessagesByIds = vi.fn(async () => [compactMessage]);
 
     await startRuntimeServices(
       {
@@ -1532,7 +1540,7 @@ describe('startRuntimeServices', () => {
             agentSessionId: 'session-main',
           })),
           createSessionAgentRun: vi.fn(async () => 'agent-run:live-1'),
-          getMessagesSince,
+          getMessagesByIds,
         } as any,
         getToolRepository: vi.fn(() => ({}) as any),
         getWorkerCoordinationRepository: vi.fn(() => coordination as any),
@@ -1560,11 +1568,9 @@ describe('startRuntimeServices', () => {
         compactCursor,
       );
       expect(app.saveState).toHaveBeenCalledOnce();
-      expect(getMessagesSince).toHaveBeenLastCalledWith(
-        'tg:primary',
-        compactCursor,
-        expect.any(Number),
-        { threadId: null, providerAccountId: undefined },
+      expect(getMessagesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: 'tg:primary' }),
+        ['msg-compact'],
       );
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledTimes(1);
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
@@ -1733,11 +1739,13 @@ describe('startRuntimeServices', () => {
     }
   });
 
-  it('restores the replay cursor before enqueueing a recovered live turn', async () => {
+  it('releases the failed turn input before enqueueing a recovered live turn', async () => {
     vi.useFakeTimers();
     const app = makeApp();
     const channelWiring = makeChannelWiring();
-    const liveTurns = new FakeLiveTurns();
+    const liveTurns = Object.assign(new FakeLiveTurns(), {
+      releaseInput: vi.fn(async () => 1),
+    });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
       heartbeatWorker: vi.fn(async () => true),
@@ -1818,11 +1826,12 @@ describe('startRuntimeServices', () => {
     try {
       await vi.advanceTimersByTimeAsync(20_000);
 
-      expect(app.setAgentCursor).toHaveBeenCalledWith(
-        'tg:primary',
-        'cursor-before-run',
-      );
-      expect(app.saveState).toHaveBeenCalled();
+      // The old contract rewound a marker. The record now releases this turn's
+      // input and leaves the marker written for the later T3 removal.
+      expect(liveTurns.releaseInput).toHaveBeenCalledWith({
+        consumedBy: 'turn:agent-run:lost',
+      });
+      expect(app.setAgentCursor).not.toHaveBeenCalled();
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
       expect(liveTurns.turns.get('turn-lost')?.state).toBe('recovered');
       expect(liveTurns.commands).toEqual(
@@ -1949,7 +1958,9 @@ describe('startRuntimeServices', () => {
     vi.useFakeTimers();
     const app = makeApp();
     const channelWiring = makeChannelWiring();
-    const liveTurns = new FakeLiveTurns();
+    const liveTurns = Object.assign(new FakeLiveTurns(), {
+      releaseInput: vi.fn(async () => 1),
+    });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
       heartbeatWorker: vi.fn(async () => true),

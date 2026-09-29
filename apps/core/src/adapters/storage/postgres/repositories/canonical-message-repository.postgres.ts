@@ -14,6 +14,7 @@ import {
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
+import type { LiveAdmissionInputScope } from '../../../../domain/ports/live-turns.js';
 import { agentIdForFolder as normalizeAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import {
   fallbackProviderAccountId,
@@ -93,6 +94,9 @@ export interface MessageSaveWithExecutorResult {
 
 interface MessageListInput {
   jids: string[];
+  ids?: readonly string[];
+  appId?: string;
+  exactProviderAccountId?: boolean;
   providerAccountId?: string | null;
   after?: { timestamp: string; chatJid: string; id: string };
   before?: { timestamp: string; chatJid: string; id: string };
@@ -400,6 +404,28 @@ export class PostgresCanonicalMessageRepository {
     return this.listMessages(input, 'inbound');
   }
 
+  async getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<CanonicalOpsMessageRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.listInboundMessages({
+      jids: [scope.conversationId],
+      ids,
+      appId: scope.appId,
+      exactProviderAccountId: true,
+      threadId: scope.threadId,
+      hasThreadFilter: true,
+      providerAccountId: scope.providerAccountId,
+      limit: ids.length,
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [row] : [];
+    });
+  }
+
   async listContextMessages(
     input: MessageListInput,
   ): Promise<CanonicalOpsMessageRow[]> {
@@ -549,6 +575,11 @@ export class PostgresCanonicalMessageRepository {
       .where(
         and(
           messageConversationFilter(m, jids, input.providerAccountId),
+          input.appId ? eq(m.appId, input.appId) : undefined,
+          input.exactProviderAccountId
+            ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
+            : undefined,
+          input.ids ? inArray(m.id, [...input.ids]) : undefined,
           directionFilter,
           afterFilter,
           beforeFilter,

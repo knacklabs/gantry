@@ -207,6 +207,9 @@ export interface LiveAdmissionInputScope {
 }
 
 export interface LiveAdmissionWorkItemRepository {
+  listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]>;
   takeInput(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
