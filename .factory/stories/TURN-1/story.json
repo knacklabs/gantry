@@ -1,0 +1,12 @@
+{
+  "doc": "plans/TURN-1.md",
+  "status": "planning",
+  "steps": [
+    {
+      "at": "2026-09-29T05:25:01+00:00",
+      "step": "start"
+    }
+  ],
+  "title": "One message, one turn",
+  "touches": 0
+}
