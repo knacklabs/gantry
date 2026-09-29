@@ -103,6 +103,7 @@ export function createGroupTurnChannelActions(input: {
   chatJid: string;
   groupName: string;
   providerAccountId?: string;
+  runId?: string;
   activeThreadId?: string;
   streamGeneration: () => number;
   progressGeneration: () => number;
@@ -112,10 +113,14 @@ export function createGroupTurnChannelActions(input: {
   const sendMessageToChannel = async (
     text: string,
     options?: MessageSendOptions,
-  ): Promise<void> =>
-    void (await (options
-      ? input.channelRuntime.sendMessage(input.chatJid, text, options)
+  ): Promise<void> => {
+    const sendOptions = input.runId
+      ? { ...options, runId: input.runId }
+      : options;
+    return void (await (sendOptions
+      ? input.channelRuntime.sendMessage(input.chatJid, text, sendOptions)
       : input.channelRuntime.sendMessage(input.chatJid, text)));
+  };
   const finalizingProgressGenerations = new Set<number>();
   const sendProgressToChannel = createProgressChannelSender({
     channelRuntime: input.channelRuntime,

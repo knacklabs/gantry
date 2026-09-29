@@ -550,6 +550,7 @@ export interface JobPermissionCardRetiredRow {
 }
 
 export interface MessageSendOptions {
+  runId?: string;
   threadId?: string;
   providerAccountId?: string;
   agentId?: string;

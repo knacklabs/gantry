@@ -7,7 +7,6 @@ import type {
   OnBrainDreamReviewMessageAction,
   MessageSendOptions,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -96,6 +95,7 @@ export type ChannelStreamResetOptions = ChannelAccountOptions & {
 
 export interface DurableOutboundAttemptInput {
   appId: AppId;
+  runId?: string;
   chatJid: string;
   threadId?: string;
   providerAccountId?: string;

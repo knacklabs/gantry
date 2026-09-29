@@ -20,10 +20,17 @@ import type {
 } from '@core/domain/provider/provider.js';
 import { parseAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
+import { type MessageLoopDeps } from '@core/runtime/message-loop.js';
+import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import {
-  recoverPendingMessages,
-  type MessageLoopDeps,
-} from '@core/runtime/message-loop.js';
+  buildLiveAdmissionProcessor,
+  startLiveExecutionServices,
+} from '@core/app/bootstrap/live-execution.js';
+import { claimLiveTurnExecution } from '@core/application/live-turns/live-turn-lease-service.js';
+import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
+import { GroupQueue } from '@core/runtime/group-queue.js';
+import { createFakeChannelRuntime } from '../harness/fake-channel.js';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -174,68 +181,396 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toEqual([]);
   });
 
-  it('wakes and takes an unconsumed completed message after restart', async () => {
-    const appId = 'app-restart-unconsumed';
-    const queueJid = 'tg:restart-unconsumed';
-    const id = 'item-restart-unconsumed';
+  it('returns unanswered follow-ups with their turn after a failed reply', async () => {
     const scope = {
-      appId,
-      conversationId: queueJid,
+      appId: 'app-follow-up-retry',
+      conversationId: 'tg:follow-up-retry',
       threadId: null,
       agentId: null,
       providerAccountId: null,
     };
-    await liveTurns.enqueueLiveAdmissionWorkItem({
-      ...base,
-      id,
-      appId,
-      conversationId: queueJid,
-      queueJid,
-      messageId: 'message-restart-unconsumed',
-      idempotencyKey: 'delivery-restart-unconsumed',
-    });
-    const [claimed] = await liveTurns.claimLiveAdmissionWorkItems({
-      appId,
-      workerInstanceId: 'worker-before-restart',
-      claimToken: 'claim-before-restart',
-      claimExpiresAt: toIso(nowMs() + 60_000),
-      limit: 1,
-    });
-    expect(claimed?.id).toBe(id);
+    for (const id of ['initial', 'follow-up']) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        ...base,
+        id: `item:${id}`,
+        appId: scope.appId,
+        conversationId: scope.conversationId,
+        queueJid: scope.conversationId,
+        messageId: `message:${id}`,
+        idempotencyKey: `delivery:${id}`,
+      });
+    }
     expect(
-      await liveTurns.settleLiveAdmissionWorkItem({
-        id,
-        workerInstanceId: 'worker-before-restart',
-        claimToken: 'claim-before-restart',
-        state: 'completed',
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:retry-run',
+        limit: 1,
       }),
-    ).toBe(true);
+    ).toMatchObject([{ id: 'item:initial' }]);
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:retry-run/command:follow-up',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: 'item:follow-up' }]);
 
-    const afterRestart = new PostgresLiveTurnRepository(runtime.service.db);
-    const enqueueMessageCheck = vi.fn(() => true);
-    await recoverPendingMessages({
-      appId,
-      inputRepository: afterRestart,
-      queue: { enqueueMessageCheck },
-    } as unknown as MessageLoopDeps);
-    expect(enqueueMessageCheck).toHaveBeenCalledExactlyOnceWith(queueJid);
+    expect(
+      await liveTurns.releaseInput({
+        consumedBy: 'turn:retry-run',
+        includeFollowUps: true,
+      }),
+    ).toBe(2);
     expect(
       (
-        await afterRestart.takeInput({
+        await liveTurns.takeInput({
           scope,
-          consumedBy: 'turn:restarted',
-          limit: 10,
+          consumedBy: 'turn:next-run',
+          limit: 2,
         })
       ).map((item) => item.id),
-    ).toEqual([id]);
-    expect(
-      await afterRestart.takeInput({
-        scope,
-        consumedBy: 'turn:next',
-        limit: 10,
-      }),
-    ).toEqual([]);
+    ).toEqual(['item:initial', 'item:follow-up']);
   });
+
+  it('retries input after a silent turn failure and keeps input after a delivered reply', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const folder = 'failure_boundary';
+    const agentId = agentIdForFolder(folder);
+    const chatJid = 'tg:failure-boundary';
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    let mode: 'silent' | 'delivered' | 'success' = 'silent';
+    const presented: string[][] = [];
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, _input, _onProcess, onOutput, options) => {
+        presented.push(
+          options.turnMessages?.map((message) => message.content) ?? [],
+        );
+        if (mode === 'silent')
+          return { status: 'error', error: 'runner failed' };
+        await onOutput?.({
+          status: 'success',
+          result: 'The reply reached the user.',
+        });
+        return mode === 'delivered'
+          ? { status: 'error', error: 'runner failed after output' }
+          : { status: 'success', result: 'The reply reached the user.' };
+      },
+    });
+    app.setChannelRuntime({
+      ...channel.runtime,
+      supportsStreaming: () => true,
+    });
+    await app.registerGroup(chatJid, {
+      name: 'Failure boundary',
+      folder,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const save = async (id: string, content: string) => {
+      const result = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          sender: 'person',
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId: 'default', agentId },
+      );
+      expect(result?.outcome).toBe('enqueued');
+      if (!result || result.outcome === 'overloaded')
+        throw new Error('Admission failed');
+      return result.item;
+    };
+    const first = await save('msg:failure-before', 'before output');
+    expect(
+      await app.processGroupMessages(chatJid, {
+        existingRunId: 'run:failure-before',
+      }),
+    ).toBe(false);
+    mode = 'success';
+    expect(
+      await app.processGroupMessages(chatJid, { existingRunId: 'run:retry' }),
+    ).toBe(true);
+    expect(presented).toEqual([['before output'], ['before output']]);
+    expect(
+      channel.streaming.some((entry) =>
+        entry.text.includes('The reply reached the user.'),
+      ),
+    ).toBe(true);
+
+    const second = await save('msg:failure-after', 'after output');
+    mode = 'delivered';
+    expect(
+      await app.processGroupMessages(chatJid, {
+        existingRunId: 'run:failure-after',
+      }),
+    ).toBe(false);
+    expect(
+      await liveTurns.hasDeliveredOutputForRun({ runId: 'run:failure-after' }),
+    ).toBe(true);
+    mode = 'success';
+    expect(
+      await app.processGroupMessages(chatJid, { existingRunId: 'run:next' }),
+    ).toBe(true);
+    expect(presented).toEqual([
+      ['before output'],
+      ['before output'],
+      ['after output'],
+    ]);
+    const table = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    const { rows } = await runtime.service.pool.query<{
+      id: string;
+      consumed_by: string | null;
+    }>(`SELECT id, consumed_by FROM ${table} WHERE id = ANY($1)`, [
+      [first.id, second.id],
+    ]);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: first.id, consumed_by: 'turn:retry' },
+        { id: second.id, consumed_by: 'turn:failure-after' },
+      ]),
+    );
+  });
+
+  it('delivers unanswered input after worker recovery without repeating answered input', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const folder = 'restart_boundary';
+    const queue = new GroupQueue({
+      maxMessageRuns: 2,
+      maxJobRuns: 1,
+      maxRetries: 0,
+      baseRetryMs: 25,
+    });
+    const delivered: string[][] = [];
+    const channel = createFakeChannelRuntime((jid) =>
+      jid.startsWith('tg:restart-'),
+    );
+    const makeApp = (runtimeQueue?: GroupQueue) => {
+      const runtimeApp = createRuntimeApp({
+        queue: runtimeQueue,
+        opsRepository: runtime.ops,
+        ensureCredentialBinding: async () => ({ created: false }),
+        runAgent: async (_group, _input, _onProcess, onOutput, options) => {
+          delivered.push(
+            options.turnMessages?.map((message) => message.content) ?? [],
+          );
+          const output = {
+            status: 'success' as const,
+            result: 'The answer was delivered.',
+          };
+          await onOutput?.(output);
+          return output;
+        },
+      });
+      runtimeApp.setChannelRuntime({
+        ...channel.runtime,
+        supportsStreaming: () => true,
+      });
+      return runtimeApp;
+    };
+    const beforeApp = makeApp();
+    const app = makeApp(queue);
+    const workerBefore = 'restart-worker-before';
+    const workerAfter = 'restart-worker-after';
+    for (const worker of [workerBefore, workerAfter]) {
+      await runtime.repositories.workerCoordination.registerWorker({
+        id: worker,
+        bootNonce: worker,
+      });
+    }
+    const leaseDeps = {
+      liveTurns,
+      coordination: runtime.repositories.workerCoordination,
+      workerInstanceId: workerAfter,
+    };
+    const authority = new LiveTurnAuthority({
+      leaseDeps,
+      slotCapacity: () => 2,
+    });
+    queue.setLiveTurnRunnerRegistrar((jid, hooks, routing) =>
+      authority.registerLocalRunner(jid, hooks, routing),
+    );
+    const processor = buildLiveAdmissionProcessor({
+      inputRepository: liveTurns,
+      liveTurnAuthority: authority,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: (jid) => {
+        queue.enqueueMessageCheck(jid);
+      },
+      warn: () => undefined,
+    });
+    queue.setProcessMessagesFn((jid, context) => processor(jid, context));
+    const cases = [
+      {
+        jid: 'tg:restart-unanswered',
+        content: 'unanswered request',
+        answered: false,
+      },
+      {
+        jid: 'tg:restart-answered',
+        content: 'answered request',
+        answered: true,
+      },
+    ];
+    for (const scenario of cases) {
+      await beforeApp.registerGroup(scenario.jid, {
+        name: 'Restart boundary',
+        folder,
+        trigger: 'Andy',
+        added_at: toIso(nowMs()),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      });
+      const context = await runtime.ops.getAgentTurnContext({
+        agentFolder: folder,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        conversationJid: scenario.jid,
+        threadId: null,
+        hydrateMemory: false,
+      });
+      expect(context?.agentSessionId).toBeTruthy();
+      const runId = await runtime.ops.createSessionAgentRun({
+        agentSessionId: context!.agentSessionId,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        cause: 'message',
+      });
+      expect(runId).toBeTruthy();
+      const saved = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id: `message:${scenario.jid}`,
+          chat_jid: scenario.jid,
+          provider: 'telegram',
+          sender: 'person',
+          content: scenario.content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId: 'default', agentId: agentIdForFolder(folder) },
+      );
+      expect(saved?.outcome).toBe('enqueued');
+      if (!saved || saved.outcome === 'overloaded' || !runId)
+        throw new Error('Restart setup failed');
+      const claimed = await claimLiveTurnExecution({
+        deps: { ...leaseDeps, workerInstanceId: workerBefore },
+        turnId: `turn:${scenario.jid}`,
+        scope: {
+          appId: 'default',
+          agentSessionId: context!.agentSessionId,
+          conversationId: scenario.jid,
+          threadId: null,
+        },
+        runId,
+        pendingMessage: {
+          kind: 'message_cursor',
+          queueJid: scenario.jid,
+          cursorBefore: '',
+        },
+        slotCapacity: 2,
+        leaseTtlMs: 1_000,
+        now: toIso(nowMs() - 60_000),
+      });
+      expect(claimed.outcome).toBe('claimed');
+      if (scenario.answered) {
+        expect(
+          await beforeApp.processGroupMessages(scenario.jid, {
+            existingRunId: runId,
+          }),
+        ).toBe(true);
+        expect(await liveTurns.hasDeliveredOutputForRun({ runId })).toBe(true);
+      } else {
+        const taken = await liveTurns.takeInput({
+          scope: {
+            appId: 'default',
+            conversationId: scenario.jid,
+            threadId: null,
+            agentId: agentIdForFolder(folder),
+            providerAccountId: null,
+          },
+          consumedBy: `turn:${runId}`,
+          limit: 1,
+        });
+        expect(taken.map((item) => item.id)).toEqual([saved.item.id]);
+      }
+    }
+    await app.loadState();
+    const messageLoopDeps: MessageLoopDeps = {
+      appId: 'default',
+      inputRepository: liveTurns,
+      getConversationRoutes: app.getConversationRoutes,
+      getOrRecoverCursor: app.getOrRecoverCursor,
+      setAgentCursor: app.setAgentCursor,
+      saveState: app.saveState,
+      hasChannel: channel.runtime.hasChannel,
+      setTyping: channel.runtime.setTyping,
+      sendProgressUpdate: channel.runtime.sendProgressUpdate,
+      queue,
+      opsRepository: runtime.ops,
+    };
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const handle = startLiveExecutionServices({
+        appId: 'default',
+        app,
+        liveTurnAuthority: authority,
+        liveTurnLeaseDeps: leaseDeps,
+        messageLoopDeps,
+        recoveryCoordinator: undefined,
+        isEligibleToRecoverLiveTurn: () => true,
+        alertNoEligibleLiveTurnRecoverer: undefined,
+        startLiveAdmissionWorkLoop: () => ({
+          stop: async () => undefined,
+          trigger: () => undefined,
+          done: new Promise<void>(() => undefined),
+        }),
+        registerActiveAdmissionLoop: () => undefined,
+        registerActiveRecoveryLoop: () => undefined,
+        onPollingCrash: (error) => {
+          throw error;
+        },
+        info: () => undefined,
+        warn: () => undefined,
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.waitFor(
+        () =>
+          expect(delivered).toEqual([
+            ['answered request'],
+            ['unanswered request'],
+          ]),
+        { timeout: 10_000 },
+      );
+      expect(
+        channel.streaming.some((entry) =>
+          entry.text.includes('The answer was delivered.'),
+        ),
+      ).toBe(true);
+      handle.stopAdmission();
+      handle.stopRecovery();
+    } finally {
+      vi.useRealTimers();
+      await queue.shutdown(500);
+      await beforeApp.queue.shutdown(500);
+    }
+  }, 60_000);
 
   it.each([
     {

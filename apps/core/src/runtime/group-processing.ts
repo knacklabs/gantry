@@ -131,6 +131,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         finalizingProgressGenerations,
       } = createGroupTurnChannelActions({
         channelRuntime: deps.channelRuntime,
+        runId: options.existingRunId,
         chatJid,
         groupName: group.name,
         providerAccountId: group.providerAccountId,
@@ -214,7 +215,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
       if (cmdResult.handled) {
         if (!cmdResult.success)
-          await inputRepository.releaseInput({ consumedBy: inputConsumer });
+          await inputRepository.releaseInput({
+            consumedBy: inputConsumer,
+            includeFollowUps: true,
+          });
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
         return (sendProgressToChannel.retire(), cmdResult.success);
       }
@@ -523,7 +527,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
             const message: NewMessage = {
-              id: `streamed-outbound:${randomUUID()}`,
+              id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
               chat_jid: chatJid,
               sender: 'gantry',
               sender_name: 'Gantry',
@@ -752,7 +756,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             groupName: group.name,
             queueJid,
             releaseInput: () =>
-              inputRepository.releaseInput({ consumedBy: inputConsumer }),
+              inputRepository.releaseInput({
+                consumedBy: inputConsumer,
+                includeFollowUps: true,
+              }),
             deps,
             acknowledgeFailedTurn:
               options.finalRetry === true &&
@@ -770,7 +777,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             activeThreadId,
             outputSentToUser,
             groupName: group.name,
-            storeMessage: (message) => ops().storeMessage(message),
+            storeMessage: (message) =>
+              ops().storeMessage({
+                ...message,
+                id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
+              }),
             log: logger,
           });
           const finalization = await finalizeGroupAgentUserVisibleOutput({
@@ -831,7 +842,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
     } catch (err) {
       if (!outputSentToUser) {
-        await inputRepository.releaseInput({ consumedBy: inputConsumer });
+        await inputRepository.releaseInput({
+          consumedBy: inputConsumer,
+          includeFollowUps: true,
+        });
       }
       throw err;
     }

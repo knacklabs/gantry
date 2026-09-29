@@ -15,6 +15,15 @@ import type {
 } from '../domain/ports/live-turns.js';
 import type { SessionCommand } from '../session/session-commands.js';
 import {
+  extractSessionCommand,
+  isSessionCommandAllowed,
+} from '../session/session-commands.js';
+import {
+  isSenderControlAllowed,
+  loadSenderControlAllowlist,
+} from '../platform/sender-allowlist.js';
+import { buildTriggerPattern } from '../shared/trigger-pattern.js';
+import {
   makeAgentThreadQueueKey,
   normalizeThreadQueueId,
   parseAgentThreadQueueKey,
@@ -24,7 +33,7 @@ export interface MessageLoopDeps {
   appId?: string;
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
-    'listUnconsumedLiveAdmissionQueueJids'
+    'listUnconsumedLiveAdmissionQueueJids' | 'consumeInputItem'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
   getOrRecoverCursor: (chatJid: string) => Promise<string> | string;
@@ -256,6 +265,57 @@ export async function processLiveAdmissionWorkItem(
     !deps.hasChannel(chatJid, { providerAccountId: group.providerAccountId })
   ) {
     return 'listener_degraded';
+  }
+  if (deps.handleActiveControlCommand && deps.opsRepository?.getMessagesByIds) {
+    const [message] = await deps.opsRepository.getMessagesByIds(
+      {
+        appId: item.appId,
+        conversationId: item.conversationId,
+        threadId: item.threadId,
+        agentId: item.agentId,
+        providerAccountId: item.providerAccountId,
+      },
+      [item.messageId],
+    );
+    const command =
+      message &&
+      extractSessionCommand(
+        message.content,
+        buildTriggerPattern(group.trigger ?? ''),
+      );
+    if (
+      message &&
+      (command?.kind === 'stop' || command?.kind === 'new') &&
+      isSessionCommandAllowed(
+        message.is_from_me === true,
+        isSenderControlAllowed(
+          chatJid,
+          message.sender,
+          loadSenderControlAllowlist(),
+          group.folder,
+        ),
+      ) &&
+      (await deps.handleActiveControlCommand({
+        chatJid,
+        queueJid: item.queueJid,
+        group,
+        message,
+        command,
+      }))
+    ) {
+      if (
+        !(await deps.inputRepository?.consumeInputItem({
+          id: item.id,
+          consumedBy: 'control',
+        }))
+      ) {
+        logger.warn(
+          { itemId: item.id },
+          'Active control message was handled but its admission item was already consumed',
+        );
+      }
+      return 'completed';
+    }
   }
   return enqueueMessageCheck(deps, item.queueJid);
 }

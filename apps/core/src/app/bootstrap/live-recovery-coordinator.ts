@@ -318,6 +318,8 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
     cursorAfter?: string | null;
+    commandId?: string;
+    expectedTurnId?: string;
   }) => Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'>;
   completeSessionAgentRun?: (input: {
     runId: string;
@@ -359,13 +361,15 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   scope: LiveTurnScope;
   queueJid: string;
   liveRunId: string;
+  ownerTurnId: string;
+  ownerRunId: string;
   chatJid: string;
   threadId: string | null;
   messageFetchPageSize: number;
   timezone: string;
   inputRepository: Pick<
     LiveAdmissionWorkItemRepository,
-    'takeInput' | 'releaseInput' | 'consumeAll'
+    'takeInput' | 'releaseInput' | 'consumeAll' | 'consumeInputItem'
   >;
   getMessagesByIds: (
     scope: LiveAdmissionInputScope,
@@ -397,7 +401,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     agentId: parsed.agentId ?? null,
     providerAccountId: parsed.providerAccountId ?? null,
   };
-  const consumer = `command:${randomUUID()}`;
+  const commandId = randomUUID();
+  const consumer = `turn:${input.ownerRunId}/command:${commandId}`;
   const batch: Array<{
     message: NewMessage;
     itemId: string;
@@ -422,6 +427,11 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     if (controlIndex >= 0 && input.handleActiveControlMessage) {
       const command = batch[controlIndex]!.message;
       if (await input.handleActiveControlMessage(command)) {
+        await input.inputRepository.consumeInputItem({
+          id: batch[controlIndex]!.itemId,
+          consumedBy: 'control',
+          expectedConsumedBy: consumer,
+        });
         input.setAgentCursor(
           input.queueJid,
           encodeGroupMessageCursor(toGroupMessageCursor(command)),
@@ -447,7 +457,12 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         setAgentCursor: input.setAgentCursor,
         saveState: input.saveState,
       }),
-      routeMessage: input.routeMessage,
+      routeMessage: (message) =>
+        input.routeMessage({
+          ...message,
+          commandId,
+          expectedTurnId: input.ownerTurnId,
+        }),
       completeSessionAgentRun: input.completeSessionAgentRun,
     });
     if (!routed) {

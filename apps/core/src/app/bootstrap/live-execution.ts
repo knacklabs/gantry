@@ -117,7 +117,7 @@ interface AdmissionApp {
 export function buildLiveAdmissionProcessor(input: {
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
-    'takeInput' | 'releaseInput' | 'consumeAll'
+    'takeInput' | 'releaseInput' | 'consumeAll' | 'consumeInputItem'
   >;
   liveTurnAuthority: LiveTurnAuthority | undefined;
   app: AdmissionApp;
@@ -164,30 +164,36 @@ export function buildLiveAdmissionProcessor(input: {
     threadId: string | null,
     route: ActiveControlRoute,
   ): Promise<boolean> =>
-    routeScopeActiveLiveTurnAdmissionFromCursor({
-      scope,
-      queueJid,
-      liveRunId,
-      chatJid,
-      threadId,
-      messageFetchPageSize,
-      timezone,
-      inputRepository: input.inputRepository!,
-      getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
-      setAgentCursor: app.setAgentCursor,
-      saveState: app.saveState,
-      enqueueMessageCheck: input.enqueueMessageCheck,
-      ...createActiveCompactRouteHandlers({
-        route,
-        chatJid,
+    (async () => {
+      const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
+      if (!owner?.runId) return false;
+      return routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope,
         queueJid,
-        handleActiveControlCommand: input.handleActiveControlCommand,
-      }),
-      routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
-      completeSessionAgentRun:
-        opsRepository.completeSessionAgentRun?.bind(opsRepository),
-      addReaction: input.addReaction,
-    });
+        liveRunId,
+        ownerTurnId: owner.id,
+        ownerRunId: owner.runId,
+        chatJid,
+        threadId,
+        messageFetchPageSize,
+        timezone,
+        inputRepository: input.inputRepository!,
+        getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
+        setAgentCursor: app.setAgentCursor,
+        saveState: app.saveState,
+        enqueueMessageCheck: input.enqueueMessageCheck,
+        ...createActiveCompactRouteHandlers({
+          route,
+          chatJid,
+          queueJid,
+          handleActiveControlCommand: input.handleActiveControlCommand,
+        }),
+        routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
+        completeSessionAgentRun:
+          opsRepository.completeSessionAgentRun?.bind(opsRepository),
+        addReaction: input.addReaction,
+      });
+    })();
 
   return async (
     queueJid: string,
@@ -687,9 +693,16 @@ async function resumeRecoveredTurn(input: {
       limit: 5000,
     });
   if (turn.runId) {
-    await liveTurnLeaseDeps.liveTurns.releaseInput({
-      consumedBy: `turn:${turn.runId}`,
-    });
+    if (
+      !(await liveTurnLeaseDeps.liveTurns.hasDeliveredOutputForRun({
+        runId: turn.runId,
+      }))
+    ) {
+      await liveTurnLeaseDeps.liveTurns.releaseInput({
+        consumedBy: `turn:${turn.runId}`,
+        includeFollowUps: true,
+      });
+    }
   }
   app.queue.enqueueMessageCheck(queueJid);
   await markPendingContinuationCommandsApplied({

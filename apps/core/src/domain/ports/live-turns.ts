@@ -215,7 +215,15 @@ export interface LiveAdmissionWorkItemRepository {
     consumedBy: string;
     limit: number;
   }): Promise<LiveAdmissionWorkItem[]>;
-  releaseInput(input: { consumedBy: string }): Promise<number>;
+  consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean>;
+  releaseInput(input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+  }): Promise<number>;
   consumeAll(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
@@ -322,6 +330,7 @@ export interface LiveTurnRepository {
   }): Promise<LiveTurn | null>;
   getActiveLiveTurn(input: { scope: LiveTurnScope }): Promise<LiveTurn | null>;
   getLiveTurnById(id: string): Promise<LiveTurn | null>;
+  hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean>;
   /**
    * Stop routing: resolve the non-terminal turn that registered `aliasJid`
    * among its durable stop aliases.

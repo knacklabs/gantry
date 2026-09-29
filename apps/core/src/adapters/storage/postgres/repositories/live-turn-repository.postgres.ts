@@ -37,6 +37,7 @@ import { activeRunLeaseFence } from './run-lease-fence.postgres.js';
 import {
   claimLiveAdmissionWorkItems,
   consumeAll,
+  consumeInputItem,
   deleteExpiredTerminalLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
@@ -116,8 +117,50 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     return listUnconsumedLiveAdmissionQueueJids(this.db, input);
   }
 
-  async releaseInput(input: { consumedBy: string }): Promise<number> {
+  async consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean> {
+    return consumeInputItem(this.db, input);
+  }
+
+  async releaseInput(input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+  }): Promise<number> {
     return releaseInput(this.db, input);
+  }
+
+  async hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean> {
+    const deliveries = pgSchema.outboundDeliveriesPostgres;
+    const deliveryItems = pgSchema.outboundDeliveryItemsPostgres;
+    const sentDelivery = await this.db
+      .select({ id: deliveryItems.id })
+      .from(deliveryItems)
+      .innerJoin(deliveries, eq(deliveryItems.deliveryId, deliveries.id))
+      .where(
+        and(
+          eq(deliveries.runId, input.runId),
+          inArray(deliveryItems.status, ['sent', 'partially_delivered']),
+        ),
+      )
+      .limit(1);
+    if (sentDelivery.length > 0) return true;
+
+    const messages = pgSchema.messagesPostgres;
+    const prefix = `streamed-outbound:${input.runId}:`;
+    const sentStream = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          sql`left(${messages.id}, ${prefix.length}) = ${prefix}`,
+          inArray(messages.deliveryStatus, ['sent', 'partially_sent']),
+        ),
+      )
+      .limit(1);
+    return sentStream.length > 0;
   }
 
   async consumeAll(input: {

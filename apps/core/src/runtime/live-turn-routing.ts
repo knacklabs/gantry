@@ -36,6 +36,7 @@ export async function routeLiveContinuation(input: {
   text: string;
   senderUserIds?: readonly string[] | null;
   commandId: string;
+  expectedTurnId?: string;
   idempotencyKey: string;
   cursorAfter?: string | null;
   createdByWorkerId?: string | null;
@@ -43,6 +44,8 @@ export async function routeLiveContinuation(input: {
 }): Promise<LiveContinuationRouteResult> {
   const turn = await input.liveTurns.getActiveLiveTurn({ scope: input.scope });
   if (!turn) return { outcome: 'no_active_turn' };
+  if (input.expectedTurnId && turn.id !== input.expectedTurnId)
+    return { outcome: 'no_active_turn' };
   if (
     turn.requiredContinuationUserId &&
     !continuationSenderMatchesRequiredUser(

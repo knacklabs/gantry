@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  or,
   sql,
 } from 'drizzle-orm';
 
@@ -222,17 +223,49 @@ export async function listUnconsumedLiveAdmissionQueueJids(
 
 export async function releaseInput(
   db: CanonicalDb,
-  input: { consumedBy: string },
+  input: { consumedBy: string; includeFollowUps?: boolean },
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const followUpPrefix = `${input.consumedBy}/command:`;
   const rows = await db
     .update(items)
     .set({ consumedAt: null, consumedBy: null })
     .where(
-      and(eq(items.consumedBy, input.consumedBy), isNotNull(items.consumedAt)),
+      and(
+        input.includeFollowUps
+          ? or(
+              eq(items.consumedBy, input.consumedBy),
+              sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`,
+            )
+          : eq(items.consumedBy, input.consumedBy),
+        isNotNull(items.consumedAt),
+      ),
     )
     .returning({ id: items.id });
   return rows.length;
+}
+
+export async function consumeInputItem(
+  db: CanonicalDb,
+  input: { id: string; consumedBy: string; expectedConsumedBy?: string },
+): Promise<boolean> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .update(items)
+    .set({ consumedAt: sql`clock_timestamp()`, consumedBy: input.consumedBy })
+    .where(
+      and(
+        eq(items.id, input.id),
+        input.expectedConsumedBy
+          ? or(
+              eq(items.consumedBy, input.expectedConsumedBy),
+              isNull(items.consumedAt),
+            )
+          : isNull(items.consumedAt),
+      ),
+    )
+    .returning({ id: items.id });
+  return rows.length === 1;
 }
 
 export async function consumeAll(

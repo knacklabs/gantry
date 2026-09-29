@@ -1488,6 +1488,7 @@ describe('startRuntimeServices', () => {
         ])
         .mockResolvedValue([]),
       releaseInput: vi.fn(async () => 0),
+      consumeInputItem: vi.fn(async () => true),
     });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
@@ -1586,6 +1587,93 @@ describe('startRuntimeServices', () => {
       await shutdownLiveTurnAuthority();
     }
   });
+
+  it.each(['/stop', '/new'])(
+    'handles %s on another worker before routing model text',
+    async (content) => {
+      const app = makeApp();
+      const channelWiring = makeChannelWiring();
+      const liveTurns = Object.assign(new FakeLiveTurns(), {
+        takeInput: vi
+          .fn()
+          .mockResolvedValueOnce([
+            { id: `item:${content}`, messageId: `message:${content}` },
+          ])
+          .mockResolvedValue([]),
+        releaseInput: vi.fn(async () => 0),
+        consumeInputItem: vi.fn(async () => true),
+      });
+      const coordination = Object.assign(new FakeCoordination(), {
+        registerWorker: vi.fn(async () => {}),
+        heartbeatWorker: vi.fn(async () => true),
+      });
+      liveTurns.coordination = coordination;
+      await liveTurns.claimLiveTurn({
+        id: 'turn-existing',
+        scope: {
+          appId: 'default',
+          agentSessionId: 'session-main',
+          conversationId: 'tg:primary',
+          threadId: null,
+        },
+        workerInstanceId: 'worker-other',
+        runId: 'agent-run:other',
+      });
+      const message = {
+        id: `message:${content}`,
+        chat_jid: 'tg:primary',
+        sender: 'owner',
+        content,
+        timestamp: '2026-09-29T10:00:00Z',
+        is_from_me: true,
+        is_bot_message: false,
+      };
+      await startRuntimeServices(
+        { app, channelWiring },
+        {
+          startSchedulerLoop: vi.fn() as any,
+          startIpcWatcher: vi.fn() as any,
+          writeGroupsSnapshot: vi.fn() as any,
+          opsRepository: {
+            getAgentTurnContext: vi.fn(async () => ({
+              appId: 'default',
+              agentId: 'agent-main',
+              agentSessionId: 'session-main',
+            })),
+            getMessagesByIds: vi.fn(async () => [message]),
+          } as any,
+          getToolRepository: vi.fn(() => ({}) as any),
+          getWorkerCoordinationRepository: vi.fn(() => coordination as any),
+          getLiveTurnRepository: vi.fn(() => liveTurns as any),
+          recoverPendingMessages: vi.fn() as any,
+          logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+          exit: vi.fn() as any,
+        },
+      );
+      try {
+        const processMessages = vi.mocked(app.queue.setProcessMessagesFn as any)
+          .mock.calls[0]?.[0] as (queueJid: string) => Promise<boolean>;
+        await expect(processMessages('tg:primary')).resolves.toBe(true);
+        expect(liveTurns.consumeInputItem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: `item:${content}`,
+            consumedBy: 'control',
+          }),
+        );
+        expect(liveTurns.commands).toEqual([
+          expect.objectContaining({
+            commandType: 'stop',
+            liveTurnId: 'turn-existing',
+          }),
+        ]);
+        expect(app.processGroupMessages).not.toHaveBeenCalled();
+      } finally {
+        stopLiveTurnRecoveryLoop();
+        await stopLiveAdmissionLoop(0);
+        await shutdownLiveTurnAuthority();
+      }
+    },
+  );
 
   it('cancels the precreated run on live-turn capacity deferral', async () => {
     const app = makeApp();
@@ -1745,6 +1833,7 @@ describe('startRuntimeServices', () => {
     const channelWiring = makeChannelWiring();
     const liveTurns = Object.assign(new FakeLiveTurns(), {
       releaseInput: vi.fn(async () => 1),
+      hasDeliveredOutputForRun: vi.fn(async () => false),
     });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),
@@ -1830,6 +1919,7 @@ describe('startRuntimeServices', () => {
       // input and leaves the marker written for the later T3 removal.
       expect(liveTurns.releaseInput).toHaveBeenCalledWith({
         consumedBy: 'turn:agent-run:lost',
+        includeFollowUps: true,
       });
       expect(app.setAgentCursor).not.toHaveBeenCalled();
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
@@ -1960,6 +2050,7 @@ describe('startRuntimeServices', () => {
     const channelWiring = makeChannelWiring();
     const liveTurns = Object.assign(new FakeLiveTurns(), {
       releaseInput: vi.fn(async () => 1),
+      hasDeliveredOutputForRun: vi.fn(async () => false),
     });
     const coordination = Object.assign(new FakeCoordination(), {
       registerWorker: vi.fn(async () => {}),

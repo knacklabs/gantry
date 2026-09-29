@@ -663,7 +663,16 @@ export async function startRuntimeServices(
       !app.queue.isGroupActive(queueJid) &&
       !liveTurnAuthority?.ownsQueue(queueJid)
     ) {
-      return false;
+      const scope =
+        liveTurnAuthority &&
+        (await liveTurnScopeForQueue({
+          app,
+          opsRepository: resolved.opsRepository,
+          executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+          queueJid,
+        }));
+      if (!scope || !(await liveTurnAuthority.getActiveLiveTurn(scope)))
+        return false;
     }
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
@@ -706,6 +715,7 @@ export async function startRuntimeServices(
         queueJid,
         threadId,
         message,
+        stopGroup: liveMessageQueue.stopGroup,
       });
     }
     const stopped = await liveMessageQueue.stopGroup(queueJid);
@@ -865,6 +875,7 @@ export async function startRuntimeServices(
       });
       const started = await outboundDeliveryService.enqueue({
         appId: target.appId as never,
+        runId: input.runId as never,
         conversationId: target.conversationId as never,
         threadId: canonicalThreadIdFor({
           jid: input.chatJid,

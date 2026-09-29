@@ -363,13 +363,16 @@ export class LiveTurnAuthority {
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
     cursorAfter?: string | null;
+    commandId?: string;
+    expectedTurnId?: string;
   }): Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'> {
     const result = await routeLiveContinuation({
       liveTurns: this.deps.leaseDeps.liveTurns,
       scope: input.scope,
       text: input.text,
       senderUserIds: input.senderUserIds,
-      commandId: globalThis.crypto.randomUUID(),
+      commandId: input.commandId ?? globalThis.crypto.randomUUID(),
+      expectedTurnId: input.expectedTurnId,
       idempotencyKey: input.idempotencyKey,
       cursorAfter: input.cursorAfter,
       createdByWorkerId: this.deps.leaseDeps.workerInstanceId,

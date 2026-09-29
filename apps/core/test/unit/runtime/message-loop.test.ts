@@ -6,6 +6,7 @@ import {
   type MessageLoopDeps,
 } from '@core/runtime/message-loop.js';
 import type { LiveAdmissionWorkItem } from '@core/domain/ports/live-turns.js';
+import { GroupQueue } from '@core/runtime/group-queue.js';
 
 function workItem(
   overrides: Partial<LiveAdmissionWorkItem> = {},
@@ -100,6 +101,64 @@ describe('durable admission wakeup', () => {
       'tg:team::agent:team',
     );
     expect(read).not.toHaveBeenCalled();
+  });
+
+  it('interrupts an active turn when its own authorized stop message arrives', async () => {
+    const queue = new GroupQueue();
+    let finishRun: () => void = () => undefined;
+    let markStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const running = new Promise<void>((resolve) => {
+      finishRun = resolve;
+    });
+    queue.setProcessMessagesFn(async () => {
+      markStarted();
+      await running;
+      return true;
+    });
+    const queueJid = 'tg:team::agent:team';
+    queue.enqueueMessageCheck(queueJid);
+    await started;
+    queue.registerProcess(
+      queueJid,
+      { pid: 9_999_991, killed: false, kill: vi.fn() } as never,
+      'run',
+      'team',
+    );
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true as never);
+    const { input } = deps();
+    const consumeInputItem = vi.fn(async () => true);
+    input.queue = queue;
+    input.inputRepository = { consumeInputItem } as never;
+    input.opsRepository = {
+      getMessagesByIds: vi.fn(async () => [
+        {
+          id: 'message-1',
+          chat_jid: 'tg:team',
+          sender: 'user',
+          content: '/stop',
+          timestamp: '2026-09-29T00:00:00Z',
+          is_from_me: true,
+          is_bot_message: false,
+        },
+      ]),
+    } as never;
+    input.handleActiveControlCommand = async ({ command }) =>
+      command.kind === 'stop' && queue.stopGroup(queueJid);
+    try {
+      await processLiveAdmissionWorkItem(input, workItem());
+      expect(kill).toHaveBeenCalledWith(-9_999_991, 'SIGTERM');
+      expect(consumeInputItem).toHaveBeenCalledWith({
+        id: 'work-1',
+        consumedBy: 'control',
+      });
+    } finally {
+      kill.mockRestore();
+      finishRun();
+      await queue.shutdown();
+    }
   });
 
   it('rejects a work item whose queue identity does not match its scope', async () => {
