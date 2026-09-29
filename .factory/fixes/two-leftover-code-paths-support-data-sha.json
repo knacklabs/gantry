@@ -6,7 +6,18 @@
   "kind": "fix",
   "review": {
     "commit": "1481923490c49dc9c087857a60b417226d31af14",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts:115 owner's standing rule (2026-09-29): pure legacy deletions get no end-to-end guard tests; the current-behaviour snapshot test passes host-side",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "packages/sdk/src/session-events.ts:109 owner's standing rule (2026-09-29): no tests may name removed shapes, and end-to-end tests of a pure deletion are dismissed; ordered typing events stay covered by the existing transport tests",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The new test calls creation, listing, and rendering functions directly; it does not exercise the required running API and Playwright user flow. Its valid-snapshot assertions also remain true if the removed no-snapshot fallbacks are restored. Existing CLI coverage mocks the API at apps/core/test/unit/cli/memory-review-command.test.ts:15. Add regression-sensitive coverage through the required entry points and include it in the repository test command; package.json:86 currently runs only unit and integration suites.",
@@ -23,10 +34,10 @@
         "title": "Not done: End-to-end coverage for rejecting unordered SDK typing events"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "6c8b28645fca87e49a78e8d10db360c3870e9484022024138252fa428eba7054"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T06:31:31+00:00",
