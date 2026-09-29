@@ -4,11 +4,30 @@
   "branch": "fix/the-old-mcp-tool-capability-binding-is-k",
   "done_when": "mcp_tool is gone from the binding kind union and from every branch and test, and stored definitions using it are rejected by the existing generic validation",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "commit": "aa7a244ae1702658841cd289e94e0f29d54e994d",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new Postgres test writes a definition, then calls `semanticCapabilityFromToolCatalogItem` directly. It does not exercise the running API or agent selection path. That path calls the parser in `apps/core/src/application/agents/agent-tool-runtime-rules.ts:135-149` and is where an invalid stored capability must be rejected. The duplicate unit test also calls the parser directly, so neither test would catch a wiring regression that lets an unsupported binding reach an agent. Add an end-to-end flow through the running API with a real database and assert the stored definition is rejected.",
+        "file": "apps/core/test/integration/the-old-mcp-tool-capability-binding-is-k.postgres.integration.test.ts",
+        "line": 60,
+        "priority": "P1",
+        "title": "Not done: end-to-end test that stored unsupported bindings cannot reach an agent"
+      }
+    ],
+    "status": "blocked",
+    "tree": "57a577e6064f1e59469608ee2c634f6dea1342f2eaeff271ae1135ac74e03789"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T16:38:26+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T17:05:41+00:00",
+      "step": "review"
     }
   ],
   "why": "The old mcp_tool capability binding is kept only to be rejected, yet seven files still branch on it"
