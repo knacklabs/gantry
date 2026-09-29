@@ -1,0 +1,14 @@
+{
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/telegram-direct-message-draft-streaming",
+  "done_when": "The unreachable Telegram DM draft-streaming code, its state and its tests are deleted, the @grammyjs/stream dependency is removed with the lockfile updated by npm, and group streaming still passes its tests",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-09-29T16:37:56+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Telegram direct-message draft streaming can never run, because streaming is only enabled for group chats, but its code and dependency remain"
+}
