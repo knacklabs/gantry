@@ -1,10 +1,78 @@
 {
   "branch": "task/TURN-1-T1",
-  "status": "working",
+  "review": {
+    "commit": "80ec4f6c4f668765195e7438b79b82370205bc77",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "chunk 1/2:\n\nThe new consumed-only condition is evaluated in the unlocked `expired` subquery, while the outer DELETE checks only IDs. If `releaseInput` clears an expired terminal item's consumption concurrently, the sweep can select its previously consumed version, wait for release to commit, and then delete the now-unconsumed item. PostgreSQL rechecks the outer DELETE condition after concurrent updates; the ID still matches ([transaction isolation documentation](https://www.postgresql.org/docs/current/transaction-iso.html)). Lock candidates before selecting them or repeat the consumption condition on the DELETE target, and cover this interleaving with two connections.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
+        "line": 441,
+        "priority": "P1",
+        "title": "Recheck consumption when deleting retention candidates"
+      },
+      {
+        "body": "chunk 1/2:\n\nThe added consumption test performs every operation sequentially: the first take finishes at lines 81\u201385 before the second connection takes at line 97. It would still pass if the row locking were removed. It also calls the repository directly and never exercises settings reload, restart, or delivery through the real entry point. The required proof that messages are neither doubled nor left unconsumed is therefore missing. Add overlapping consumption coverage and the prescribed end-to-end lifecycle scenarios; the review contract explicitly keeps missing tests at P1.",
+        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
+        "line": 81,
+        "priority": "P1",
+        "title": "Not done: two-worker, settings-reload and restart tests"
+      },
+      {
+        "body": "chunk 1/2:\n\nThese methods provide the storage primitives, but Done-when item 2 is not yet delivered. The current admission entry point still reads through `getOrRecoverCursor` and `collectPendingMessagesSince` in `apps/core/src/runtime/message-loop.ts:497\u2013509`; it does not use this consumption record. T2 must switch readers, failure handling and recovery together, and T4 must release unconfirmed mid-turn input. This is P2 advice because T1 explicitly requires no production caller and those integrations belong to later tasks.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts",
+        "line": 108,
+        "priority": "P2",
+        "title": "Later: complete message delivery and failure recovery in T2 and T4"
+      },
+      {
+        "body": "chunk 2/2:\n\nThe new API accepts only queueJid, although queue keys do not include appId (apps/core/src/shared/thread-queue-key.ts:21\u201334). Admission stores appId separately when constructing those keys (canonical-message-repository.postgres.ts:366\u2013375). The implementation filters only by queueJid and consumedAt (live-admission-work-item-repository.postgres.ts:174,217), so two applications with the same route key have their messages taken or consumed together. Require application scope in takeInput and consumeAll and enforce it in their queries before callers adopt this port.",
+        "file": "apps/core/src/domain/ports/live-turns.ts",
+        "line": 202,
+        "priority": "P1",
+        "title": "Include application scope in the consumption port"
+      },
+      {
+        "body": "chunk 2/2:\n\nEvery takeInput call in this test finishes before the next starts. Consequently, removing the row lock from the implementation would still pass this test, despite allowing overlapping consumers to return the same messages. Add a PostgreSQL test that overlaps takes on two connections against the same pending items and asserts disjoint returned IDs, complete coverage, and receive order.",
+        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
+        "line": 97,
+        "priority": "P1",
+        "title": "Not done: concurrent two-connection consumption test"
+      },
+      {
+        "body": "chunk 2/2:\n\nThe added crossing test directly calls repositories; it never starts a runtime turn, produces a reply, reloads settings, or restarts a worker. It therefore cannot prove the required before/after-reply failure behavior or consumption across two workers, settings reload, and restart. Existing coverage does not supply that proof: claim-protocol-two-process.postgres.e2e.test.ts:638\u2013643 still asserts the old cursor, and boot-restart.agent-e2e.test.ts:114\u2013143 checks agent configuration survival. Add the required message-lifecycle scenarios through the real entry point, asserting delivery counts and persisted consumption. The review contract explicitly keeps missing tests at P1.",
+        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
+        "line": 58,
+        "priority": "P1",
+        "title": "Not done: no-loss/no-duplication end-to-end tests"
+      },
+      {
+        "body": "chunk 2/2:\n\nThese operations have no production callers yet, as intended for T1. Runtime processing still wires getMessagesSince (apps/core/src/runtime/group-processing.ts:98), so adding this port does not itself make late messages reach the model or distinguish failures before and after a reply. Done-when 2 remains dependent on T2's atomic reader/writer switch and recovery handling, plus T4's runner delivery confirmations. Track that functional gap with those tasks rather than treating this repository addition as completion of the item.",
+        "file": "apps/core/src/domain/ports/live-turns.ts",
+        "line": 201,
+        "priority": "P2",
+        "title": "Later: T2 and T4 must complete the no-loss/no-duplication behavior"
+      },
+      {
+        "body": "chunk 2/2:\n\nThe branch adds plans/TURN-1.md and plans/TURN-1.read.md, outside the explicitly permitted paths. These contain the entire seven-task story and historical review dispositions; neither is required to implement or test T1's storage contract. Move them to a separately scoped documentation change. The port and integration-test changes are needed by this task and do not have the same issue.",
+        "file": "plans/TURN-1.md",
+        "line": 1,
+        "priority": "P2",
+        "title": "Remove the unrelated story-plan additions from this scoped change"
+      }
+    ],
+    "status": "blocked",
+    "tree": "bc8685ce692cf792d808d8947a87f84616516dc0425175e28c97a84699bb9d7a"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T05:36:45+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-09-29T06:11:18+00:00",
+      "step": "review"
     }
   ]
 }
