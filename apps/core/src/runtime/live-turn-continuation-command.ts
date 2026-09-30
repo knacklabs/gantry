@@ -30,16 +30,44 @@ export async function applyLiveContinuationCommand(
       ? command.payload.threadId
       : null;
   if (!hooks.applyContinuation({ text, sequence: command.seq, threadId })) {
-    await liveTurns.releaseInput({
-      consumedBy: `turn:${registration.runId}/command:${command.id}`,
-    });
-    const rejected = await liveTurns.markLiveTurnCommandRejected({
-      id: command.id,
-      reason: 'Runner no longer accepts this continuation.',
-      fence: registration.fence,
-    });
-    return rejected ? 'rejected' : 'retry';
+    return (await releaseLiveContinuationCommand(
+      command,
+      registration,
+      liveTurns,
+    ))
+      ? 'rejected'
+      : 'retry';
   }
   hooks.onContinuationApplied?.();
   return 'applied';
+}
+
+/**
+ * Reject a continuation the runner can no longer take and return its input for
+ * the next turn. The fenced reject goes first so an input is never released
+ * after the command was applied.
+ */
+export async function releaseLiveContinuationCommand(
+  command: LiveTurnCommand,
+  registration: {
+    hooks: LiveTurnLocalRunnerHooks | null;
+    runId: string;
+    fence: LiveTurnLeaseFence;
+  },
+  liveTurns: Pick<
+    LiveTurnCoordinationRepository,
+    'releaseInput' | 'markLiveTurnCommandRejected'
+  >,
+): Promise<boolean> {
+  const rejected = await liveTurns.markLiveTurnCommandRejected({
+    id: command.id,
+    reason: 'Runner no longer accepts this continuation.',
+    fence: registration.fence,
+  });
+  if (!rejected) return false;
+  await liveTurns.releaseInput({
+    consumedBy: `turn:${registration.runId}/command:${command.id}`,
+  });
+  registration.hooks?.requeueInput?.();
+  return true;
 }

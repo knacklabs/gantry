@@ -26,7 +26,10 @@ import {
   routeLiveStop,
 } from './live-turn-routing.js';
 import { writeResolvedInteractionResponse } from './interaction-resolution-response.js';
-import { applyLiveContinuationCommand } from './live-turn-continuation-command.js';
+import {
+  applyLiveContinuationCommand,
+  releaseLiveContinuationCommand,
+} from './live-turn-continuation-command.js';
 import {
   hostExecutionSlotHolderId,
   hostExecutionSlotKey,
@@ -57,6 +60,8 @@ export interface LiveTurnLocalRunnerHooks {
   onContinuationApplied?: () => void;
   /** A durable interaction resolution arrived for this turn. */
   onInteractionResolved?: (payload: Record<string, unknown>) => boolean;
+  /** Released input is waiting; schedule the next turn for this queue. */
+  requeueInput?: () => void;
 }
 
 interface ActiveLiveTurnRegistration {
@@ -524,6 +529,18 @@ export class LiveTurnAuthority {
           limit: 1,
         });
       const command = pending[0];
+      if (command?.commandType === 'continuation') {
+        // The runner is done, so this follow-up goes to the next turn.
+        if (
+          !(await releaseLiveContinuationCommand(
+            command,
+            registration,
+            this.deps.leaseDeps.liveTurns,
+          ))
+        )
+          return;
+        continue;
+      }
       if (!command || command.commandType !== 'interaction_resolved') return;
       const result = this.applyInteractionResolvedCommand(queueJid, command);
       if (result !== 'applied') {

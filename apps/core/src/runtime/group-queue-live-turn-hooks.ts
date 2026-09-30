@@ -18,6 +18,7 @@ export function createLiveTurnLocalRunnerHooks(input: {
   runnerControlPort: ContinuationRunnerControlPort;
   closeStdin: () => void;
   stopGroup: () => void;
+  requeueInput: () => void;
 }): LiveTurnLocalRunnerHooks {
   return {
     applyContinuation: ({ text, sequence, threadId }) => {
@@ -38,5 +39,6 @@ export function createLiveTurnLocalRunnerHooks(input: {
     },
     applyCloseStdin: input.closeStdin,
     applyStop: input.stopGroup,
+    requeueInput: input.requeueInput,
   };
 }

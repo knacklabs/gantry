@@ -1301,7 +1301,7 @@ describe('startRuntimeServices', () => {
     }
   });
 
-  it('returns false when live-turn finalization leaves pending commands for another owner', async () => {
+  it('completes the turn and releases a continuation still pending at finalization', async () => {
     const app = makeApp();
     const channelWiring = makeChannelWiring();
     const liveTurns = new FakeLiveTurns();
@@ -1310,6 +1310,8 @@ describe('startRuntimeServices', () => {
       heartbeatWorker: vi.fn(async () => true),
     });
     liveTurns.coordination = coordination;
+    const releaseInput = vi.fn(async () => 1);
+    Object.assign(liveTurns, { releaseInput });
     app.processGroupMessages = vi.fn(async () => {
       const turn = [...liveTurns.turns.values()][0];
       await liveTurns.appendLiveTurnCommand({
@@ -1356,12 +1358,15 @@ describe('startRuntimeServices', () => {
       const processMessages = vi.mocked(app.queue.setProcessMessagesFn as any)
         .mock.calls[0]?.[0] as (queueJid: string) => Promise<boolean>;
 
-      await expect(processMessages('tg:primary')).resolves.toBe(false);
+      await expect(processMessages('tg:primary')).resolves.toBe(true);
       expect(liveTurns.commands[0]).toEqual(
-        expect.objectContaining({ status: 'pending' }),
+        expect.objectContaining({ status: 'rejected' }),
       );
+      expect(releaseInput).toHaveBeenCalledWith({
+        consumedBy: 'turn:agent-run:live-1/command:cmd-pending',
+      });
       expect([...liveTurns.turns.values()][0]).toEqual(
-        expect.objectContaining({ state: 'claimed' }),
+        expect.objectContaining({ state: 'completed' }),
       );
     } finally {
       stopLiveTurnRecoveryLoop();

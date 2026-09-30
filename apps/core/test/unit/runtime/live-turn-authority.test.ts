@@ -207,8 +207,8 @@ describe('LiveTurnAuthority', () => {
     expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
   });
 
-  it('releases the owner without finalizing when routed continuations are still pending', async () => {
-    const { authority, liveTurns, coordination } = makeAuthority();
+  it('returns routed continuations still pending at turn end to the next turn', async () => {
+    const { authority, liveTurns } = makeAuthority();
     const admission = await authority.admit({
       queueJid: QUEUE_JID,
       scope: makeScope(),
@@ -222,20 +222,20 @@ describe('LiveTurnAuthority', () => {
       text: 'pending follow-up',
       idempotencyKey: 'continuation:pending',
     });
+    const released: string[] = [];
+    Object.assign(liveTurns, {
+      releaseInput: async ({ consumedBy }: { consumedBy: string }) =>
+        released.push(consumedBy),
+    });
 
     await expect(authority.finalize(QUEUE_JID, 'completed')).resolves.toBe(
-      false,
+      true,
     );
-    expect(authority.ownsQueue(QUEUE_JID)).toBe(false);
-    expect(liveTurns.turns.get('turn-1')?.state).toBe('claimed');
-    expect(liveTurns.commands[0]?.status).toBe('pending');
-    expect(coordination.leases).toContainEqual(
-      expect.objectContaining({
-        runId: 'run-1',
-        status: 'released',
-      }),
-    );
-    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+    expect(liveTurns.turns.get('turn-1')?.state).toBe('completed');
+    expect(liveTurns.commands[0]?.status).toBe('rejected');
+    expect(released).toEqual([
+      `turn:run-1/command:${liveTurns.commands[0]?.id}`,
+    ]);
     await authority.shutdown();
   });
 

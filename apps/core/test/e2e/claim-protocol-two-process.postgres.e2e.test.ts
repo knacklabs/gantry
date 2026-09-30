@@ -572,31 +572,36 @@ maybeDescribe(
           );
         }, 'unanswered input released after failure');
         workers[1]!.queue.enqueueMessageCheck(first.queueJid);
+        // Both workers race for the next turn. It may take both messages, or the
+        // other worker may route one to it as a follow-up; a follow-up still
+        // pending when that turn ends is left for the turn after.
+        const retried = () => [...presented.slice(1), ...continued.slice(1)];
+        const takenByTurns = async () => {
+          const { rows } = await runtime.service.pool.query<{
+            consumed_by: string | null;
+          }>(`SELECT consumed_by FROM ${table} WHERE id = ANY($1)`, [
+            [first.id, followUp.id],
+          ]);
+          return (
+            rows.length === 2 &&
+            rows.every((row) => row.consumed_by?.startsWith('turn:'))
+          );
+        };
         await waitForLiveE2e(
-          () => channel.outbound.length > 0,
+          async () =>
+            retried().some((text) => text.includes('follow-up request')) &&
+            channel.outbound.length === presented.length - 1 &&
+            (await takenByTurns()),
           'reply after follow-up',
         );
-        expect(presented).toHaveLength(2);
         expect(presented[0]).toContain('first request');
-        expect(presented[1]).toContain('first request');
-        expect(presented[1]).toContain('follow-up request');
-        expect(continued[0]).toContain('follow-up request');
-        const { rows } = await runtime.service.pool.query<{
-          id: string;
-          consumed_at: Date | null;
-          consumed_by: string | null;
-        }>(
-          `SELECT id, consumed_at, consumed_by FROM ${table} WHERE id = ANY($1)`,
-          [[first.id, followUp.id]],
-        );
-        expect(rows).toHaveLength(2);
         expect(
-          rows.every(
-            (row) =>
-              row.consumed_at !== null && row.consumed_by?.startsWith('turn:'),
-          ),
+          presented.slice(1).some((prompt) => prompt.includes('first request')),
         ).toBe(true);
-        expect(channel.outbound).toHaveLength(1);
+        expect(
+          retried().filter((text) => text.includes('follow-up request')),
+        ).toHaveLength(1);
+        expect(continued[0]).toContain('follow-up request');
       } finally {
         releaseFirst();
         for (const handle of handles) {
@@ -1140,13 +1145,13 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     reloadSettings.credentialBroker.mode = 'none';
     reloadSettings.agent.defaultModel = 'opus';
     reloadSettings.providerAccounts[providerAccountId] = {
-      agentId: agentIdForFolder(folder),
+      agentId: folder,
       provider: 'telegram',
       label: 'Telegram',
-      runtimeSecretRefs: {},
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
     };
     ensureConfiguredConversationBinding(reloadSettings, {
-      agentId: agentIdForFolder(folder),
+      agentId: folder,
       agentName: route.name,
       agentFolder: folder,
       jid: chatJid,
@@ -1154,6 +1159,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       trigger: route.trigger,
       requiresTrigger: route.requiresTrigger,
     });
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', 'live-e2e-token');
     saveRuntimeSettings(temp.runtimeHome, reloadSettings);
     const loadState = vi.spyOn(app, 'loadState');
     const watcher = startSettingsReloadWatcher({
@@ -1175,6 +1181,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     } finally {
       watcher.close();
       loadState.mockRestore();
+      vi.unstubAllEnvs();
     }
     const lateMessage = {
       ...inbound,
@@ -1227,9 +1234,11 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         message.text.includes('after settings reload'),
       ),
     ).toHaveLength(1);
+    // The child echoes its prompt, and later prompts quote the first message
+    // as recent context; count only replies to it as the current message.
     expect(
       fakeChannel.outbound.filter((message) =>
-        message.text.includes(inboundText),
+        message.text.split('<current_message')[1]?.includes(inboundText),
       ),
     ).toHaveLength(1);
   }, 60_000);
