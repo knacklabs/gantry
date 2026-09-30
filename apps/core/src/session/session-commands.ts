@@ -364,9 +364,9 @@ export async function handleSessionCommand(opts: {
         `Failed to process messages before ${command.raw}. Try again.`,
       );
       if (preOutputSent) {
-        // Output was already sent — don't retry or it will duplicate.
-        // Advance cursor past pre-command messages, leave command pending.
-        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
+        // Output was already sent, so a retry would duplicate it. The user was
+        // told to try again, so the command is consumed with its batch.
+        deps.advanceCursor(cmdMsg);
         return { handled: true, success: true };
       }
       return { handled: true, success: false };

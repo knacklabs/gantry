@@ -83,16 +83,22 @@ export async function takeGroupTurnInput(input: {
       break;
   }
   const lastTaken = takenMessages[takenMessages.length - 1]?.message;
-  const hasMore =
-    takenMessages.length === input.maxMessages ||
-    (lastTaken !== undefined &&
-      (extractSessionCommand(lastTaken.content, input.triggerPattern) !==
-        null ||
-        lastTaken.responseSchema !== undefined ||
-        lastTaken.agentControls !== undefined));
-  const missedMessages = orderBatchForPresentation(takenMessages).map(
-    ({ message }) => message,
-  );
+  const endsAtControl =
+    lastTaken !== undefined &&
+    (extractSessionCommand(lastTaken.content, input.triggerPattern) !== null ||
+      lastTaken.responseSchema !== undefined ||
+      lastTaken.agentControls !== undefined);
+  const hasMore = takenMessages.length === input.maxMessages || endsAtControl;
+  // The command or control message that ended the take stays last, so its
+  // handler sees every earlier-received message before it.
+  const missedMessages = (
+    endsAtControl
+      ? [
+          ...orderBatchForPresentation(takenMessages.slice(0, -1)),
+          takenMessages[takenMessages.length - 1]!,
+        ]
+      : orderBatchForPresentation(takenMessages)
+  ).map(({ message }) => message);
   const { activeThreadId, reactionTarget } = resolveGroupReactionTarget({
     chatJid: input.chatJid,
     routeThreadId: input.threadId ?? undefined,

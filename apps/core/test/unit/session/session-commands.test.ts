@@ -1944,7 +1944,7 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('advances cursor to last pre-command message when pre-processing fails after output was sent', async () => {
+  it('consumes the command after telling the user when pre-command output was sent before a failure', async () => {
     // Covers lines 264-265: preOutputSent=true branch
     const deps = makeDeps({
       runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
@@ -1965,11 +1965,9 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    // When pre-command fails but output was already sent, cursor advances
-    // to the last pre-command message and returns success:true (no retry)
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '99' }),
+      expect.objectContaining({ timestamp: '100' }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process'),

@@ -72,6 +72,64 @@ it('presents a taken batch by provider second and receive order', async () => {
   expect(takeInput).toHaveBeenCalledTimes(4);
 });
 
+it('keeps the command that ended the take last in the presented batch', async () => {
+  const messages = [
+    {
+      id: 'question',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: 'question',
+      timestamp: '2026-09-29T10:00:02.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+    {
+      id: 'command',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: '/commands',
+      timestamp: '2026-09-29T10:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+  ];
+  const items = messages.map((message, index) => ({
+    id: `item-${message.id}`,
+    messageId: message.id,
+    receiveOrder: index + 1,
+  }));
+  const result = await takeGroupTurnInput({
+    repository: {
+      takeInput: vi.fn(async () => {
+        const item = items.shift();
+        return item ? [item] : [];
+      }),
+    } as never,
+    messages: {
+      getMessagesByIds: vi.fn(async (_scope, ids: readonly string[]) =>
+        messages.filter((message) => ids.includes(message.id)),
+      ),
+    } as never,
+    scope: {
+      appId: 'app',
+      conversationId: 'tg:batch',
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    },
+    consumer: 'turn:batch',
+    maxMessages: 10,
+    triggerPattern: /^!$/,
+    chatJid: 'tg:batch',
+  });
+
+  expect(result.missedMessages.map((message) => message.id)).toEqual([
+    'question',
+    'command',
+  ]);
+  expect(result.hasMore).toBe(true);
+});
+
 function makeInput(
   overrides: Partial<Parameters<typeof handleFailure>[0]> = {},
 ) {
