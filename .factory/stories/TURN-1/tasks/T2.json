@@ -2,40 +2,40 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "f96daccd259de3ff8a9500a09370f741b9b2bfd5ef4bd2eaa210c1a50bc44818",
-    "commit": "5818428462031863633ee9d8d2b7bb466906c845",
+    "changed": "7a2dd777f45efd24c49f0404f387c1fd0d29b759b48eb7683852801b02c53da8",
+    "commit": "5fb55de7ebf4b1f329a4a2b805c372b2d6465e64",
     "dismissals": [],
     "findings": [
       {
-        "body": "After a continuation is durably appended, this call can still fail while settling the newly created run. The catch at line 506 then releases the follow-up item even though its command remains queued for the owner. The owner may receive it and a later turn may take it again; a retry can also attach the item to a different command ID, leaving it stranded when the original command is rejected. This is distinct from the dismissed marker-write failure: `completeSessionAgentRun` remains awaited after the durable append. Keep the item consumed once routing succeeds and cover a settlement failure after append.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 358,
+        "body": "Active `/stop` and `/new` run before this path checks whether their admission item was already consumed. A recovery wake can route and consume the item through the live-turn router while an admission worker still holds its claim; `takeInput` permits claimed items. The admission worker can then execute the same command again, and the failed `consumeInputItem` call only logs after the side effect. Claim the item for control handling before executing the command, and cover this two-worker race.",
+        "file": "apps/core/src/runtime/message-loop.ts",
+        "line": 298,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "This branch releases command input whenever the handler returns `success: false`, even if its reply reached the user. For example, `session-commands.ts:305-313` sends `/new failed. The session is unchanged.` and returns `success: false` when clearing the session fails. The send at group-processing.ts:193-196 sets `outputSentToUser`, but this branch ignores it, so the queue retries `/new`, can send the notice twice, and may reset the session on a later retry without another user command. Preserve consumed input after a delivered command failure notice.",
-        "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 219,
-        "priority": "P1",
-        "title": "Keep a failed session command consumed after its notice"
+        "body": "This path treats a successful continuation-file write as delivery and marks the command applied. The unchanged `continuation-input.ts:65-84` only writes a file; it provides no confirmation that the runner read it before closing. Such a follow-up remains consumed without reaching the model or the next turn. The story assigns runner delivery confirmation and release of unconfirmed commands to T4.",
+        "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
+        "line": 38,
+        "priority": "P2",
+        "title": "Later: T4 must confirm that the runner read a follow-up"
       },
       {
-        "body": "When an active turn requires a particular continuation sender, `live-turn-routing.ts:50-56` rejects another sender. This router takes only the oldest item at lines 422-427 and releases it here on rejection. Every subsequent wake takes that same rejected item again, so a later item from the required sender cannot reach the waiting runner on a single admission worker. Defer the rejected item until the active turn ends, or otherwise let later eligible items be examined.",
+        "body": "The router takes only the oldest item. If an active turn requires a particular continuation sender, `live-turn-routing.ts:50-56` rejects an item from another sender and this branch releases it. Every subsequent wake takes that same item again, preventing a later item from the required sender from reaching the waiting runner on a single admission worker. Defer the rejected item until the turn ends or examine later eligible items.",
         "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 478,
+        "line": 485,
         "priority": "P2",
         "title": "Do not let a rejected follow-up block the required sender"
       },
       {
-        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in the unchanged `group-session-command-runner.ts:39-53` omit it. This fallback then selects `default` for a normal channel JID in a non-default app. Those command runs can resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the command runner options.",
+        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in unchanged `group-session-command-runner.ts:39-53` omit it. This fallback selects `default` for a normal channel JID owned by a non-default app, so those runs can resolve provider configuration and agent session context in the wrong app.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "This added task-status file contains review findings and dismissals. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason for including it.",
+        "body": "This added task-status file contains prior review findings and status. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason for including it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -43,7 +43,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "ca1f3374a178f253396f79c1fd6251463581cedda807a0d4d9723e7bc90162aa"
+    "tree": "2014781e179b2f88c9397259fda036dd0c772974c757d430ae384cbd85675e0d"
   },
   "status": "fixing",
   "steps": [
@@ -93,6 +93,10 @@
     },
     {
       "at": "2026-09-30T16:04:31+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T16:48:19+00:00",
       "step": "review"
     }
   ]
