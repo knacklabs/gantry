@@ -105,12 +105,8 @@ describe('handleFailure', () => {
     );
   });
 
-  it.each([
-    { outputSentToUser: true },
-    { acknowledgeFailedTurn: true },
-    { preserveCursor: true },
-  ])(
-    'keeps consumed input after output or terminal failure: %j',
+  it.each([{ outputSentToUser: true }, { failureNoticeDelivered: true }])(
+    'keeps consumed input once the user saw output or the failure notice: %j',
     async (override) => {
       const input = makeInput(override);
 

@@ -64,6 +64,8 @@ let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
   "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
+const FINAL_RETRY_FAILED_MESSAGE =
+  "I couldn't finish your request after several tries. Please send it again.";
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -718,28 +720,31 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             options.finalRetry === true &&
             (isFailoverEligibleError(lastAgentError) ||
               isMissingProviderSessionError(lastAgentError));
-          // Keep consumed input only after the user sees the exhausted notice.
+          // The last retry keeps its input only once a reply or this notice reached the user.
+          const sendFinalNotice =
+            options.finalRetry === true &&
+            !outputSentToUser &&
+            (failoverExhausted || !deps.queue.isShuttingDown?.());
           let failureNoticeDelivered = false;
-          if (failoverExhausted && !outputSentToUser) {
+          if (sendFinalNotice) {
             logger.error(
               { group: group.name, error: lastAgentError },
-              'Provider failover exhausted after retries; dropping turn to stop replay storm, notifying user',
+              'Final retry failed; notifying user',
             );
             const noticeOptions = buildMessageOptions();
             const noticeSettlement = await settleDeliveryAttempt(
               () =>
                 sendMessageToChannel(
-                  PROVIDER_FAILOVER_EXHAUSTED_MESSAGE,
+                  failoverExhausted
+                    ? PROVIDER_FAILOVER_EXHAUSTED_MESSAGE
+                    : FINAL_RETRY_FAILED_MESSAGE,
                   noticeOptions,
                 ),
-              {
-                scope: 'runtime-provider-failover-exhausted',
-                target: chatJid,
-              },
+              { scope: 'runtime-final-retry-failed', target: chatJid },
             ).catch((err) => {
               logger.error(
                 { err, group: group.name },
-                'Failed to send provider failover exhausted notice',
+                'Failed to send final retry failure notice',
               );
               return 'not_delivered' as const;
             });
@@ -749,9 +754,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               terminal: true,
             });
           }
-          const userInformed = outputSentToUser || failureNoticeDelivered;
           resultOk = await handleFailure({
             outputSentToUser,
+            failureNoticeDelivered,
             groupName: group.name,
             queueJid,
             releaseInput: () =>
@@ -760,11 +765,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 includeFollowUps: true,
               }),
             deps,
-            acknowledgeFailedTurn:
-              options.finalRetry === true &&
-              !deps.queue.isShuttingDown?.() &&
-              (!failoverExhausted || userInformed),
-            preserveCursor: failoverExhausted && userInformed,
             logger,
           });
         } else {

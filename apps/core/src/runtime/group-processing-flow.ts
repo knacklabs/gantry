@@ -209,8 +209,7 @@ export function createGroupTurnProgressSenders(input: {
 
 export async function handleFailure(input: {
   outputSentToUser: boolean;
-  acknowledgeFailedTurn?: boolean;
-  preserveCursor?: boolean;
+  failureNoticeDelivered?: boolean;
   groupName: string;
   queueJid: string;
   releaseInput: () => Promise<number>;
@@ -229,19 +228,11 @@ export async function handleFailure(input: {
     );
     return true;
   }
-  if (input.acknowledgeFailedTurn) {
+  if (input.failureNoticeDelivered) {
     await input.deps.saveState();
     input.logger.warn(
       { group: input.groupName },
-      'Agent error on final retry, preserving consumed input to prevent stale replay',
-    );
-    return true;
-  }
-  if (input.preserveCursor) {
-    await input.deps.saveState();
-    input.logger.warn(
-      { group: input.groupName },
-      'Agent infrastructure error, preserving consumed input to prevent stale replay',
+      'Agent error on final retry, user notified; preserving consumed input to prevent stale replay',
     );
     return true;
   }

@@ -2481,7 +2481,41 @@ describe('createGroupProcessor', () => {
       // And an error is logged for observability.
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ group: group.name }),
-        expect.stringContaining('Provider failover exhausted'),
+        expect.stringContaining('Final retry failed'),
+      );
+    });
+
+    it('tells the user and keeps consumed input when an ordinary error ends the final retry', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'tool crashed',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      expect(result).toBe(true);
+      expect(deps.getInputRepository?.().releaseInput).not.toHaveBeenCalled();
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining("couldn't finish your request"),
       );
     });
 
@@ -2535,7 +2569,7 @@ describe('createGroupProcessor', () => {
       // The undeliverable notice is logged at error level for observability.
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ group: group.name }),
-        'Failed to send provider failover exhausted notice',
+        'Failed to send final retry failure notice',
       );
     });
 
