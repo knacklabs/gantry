@@ -2,39 +2,40 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "e59e10d07948d0770fae179ab1c5b0d78eea862ae06a6e234d1d96dd93614cfe",
-    "commit": "295f4d57eb5b408632052ffa8b10aebcec55d1af",
-    "dismissals": [
-      {
-        "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed; the progress card shows the failed state",
-        "finding": 1,
-        "from_base": false
-      }
-    ],
+    "changed": "f96daccd259de3ff8a9500a09370f741b9b2bfd5ef4bd2eaa210c1a50bc44818",
+    "commit": "5818428462031863633ee9d8d2b7bb466906c845",
+    "dismissals": [],
     "findings": [
       {
-        "body": "A question followed by an authorized `/commands` is answered through the pre-command runner (`session-commands.ts:335-340`). If sending the help list then fails (`session-commands.ts:367-369`), this catch releases both admission items because its separate `outputSentToUser` flag was never set by the pre-command answer. The next turn can answer the question again. Track delivered pre-command output before deciding whether to release input, and cover this failure path in a test.",
-        "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 843,
+        "body": "After a continuation is durably appended, this call can still fail while settling the newly created run. The catch at line 506 then releases the follow-up item even though its command remains queued for the owner. The owner may receive it and a later turn may take it again; a retry can also attach the item to a different command ID, leaving it stranded when the original command is rejected. This is distinct from the dismissed marker-write failure: `completeSessionAgentRun` remains awaited after the durable append. Keep the item consumed once routing succeeds and cover a settlement failure after append.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 358,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "`routeScopeActiveLiveTurnAdmission` appends the durable continuation before awaiting `onRouted` (`live-recovery-coordinator.ts:333-343`). That callback still saves the old marker (`live-turn-continuation.ts:39-43`). If saving fails, this catch releases the admission item while the continuation remains queued for the owner. The owner can receive it, and a later turn can take the released item again. Keep the item consumed once the command is durably queued, regardless of marker-write failure.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 499,
+        "body": "This branch releases command input whenever the handler returns `success: false`, even if its reply reached the user. For example, `session-commands.ts:305-313` sends `/new failed. The session is unchanged.` and returns `success: false` when clearing the session fails. The send at group-processing.ts:193-196 sets `outputSentToUser`, but this branch ignores it, so the queue retries `/new`, can send the notice twice, and may reset the session on a later retry without another user command. Preserve consumed input after a delivered command failure notice.",
+        "file": "apps/core/src/runtime/group-processing.ts",
+        "line": 219,
         "priority": "P1",
-        "title": "Do not release a follow-up after queuing its continuation"
+        "title": "Keep a failed session command consumed after its notice"
       },
       {
-        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs assembled in the unchanged `group-session-command-runner.ts:39-53` omit it. The changed runner falls back to the JID or `default` here. For a non-default app using a normal channel JID, a session-command run therefore resolves provider configuration and agent session context in the wrong app.",
+        "body": "When an active turn requires a particular continuation sender, `live-turn-routing.ts:50-56` rejects another sender. This router takes only the oldest item at lines 422-427 and releases it here on rejection. Every subsequent wake takes that same rejected item again, so a later item from the required sender cannot reach the waiting runner on a single admission worker. Defer the rejected item until the active turn ends, or otherwise let later eligible items be examined.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 478,
+        "priority": "P2",
+        "title": "Do not let a rejected follow-up block the required sender"
+      },
+      {
+        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in the unchanged `group-session-command-runner.ts:39-53` omit it. This fallback then selects `default` for a normal channel JID in a non-default app. Those command runs can resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the command runner options.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "This added task-status file records review findings and dismissals. It is outside the permitted paths, is not needed for the runtime switch or its required tests, and the supplied handoff gives no reason for including it.",
+        "body": "This added task-status file contains review findings and dismissals. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason for including it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -42,7 +43,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "f97aa093213b41b8ac798d80e973214a2f173cf6c9b67c879120ffbcab94643c"
+    "tree": "ca1f3374a178f253396f79c1fd6251463581cedda807a0d4d9723e7bc90162aa"
   },
   "status": "fixing",
   "steps": [
@@ -88,6 +89,10 @@
     },
     {
       "at": "2026-09-30T15:14:22+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T16:04:31+00:00",
       "step": "review"
     }
   ]
