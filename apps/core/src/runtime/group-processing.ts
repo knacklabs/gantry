@@ -226,6 +226,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           getMemorySettings: () => config.getRuntimeSettingsForConfig().memory,
         }),
       });
+      // A refused command's notice doesn't answer the batch it hands on.
+      if (!cmdResult.handled) outputSentToUser = false;
       if (cmdResult.handled) {
         const done = cmdResult.success || (await settleFailedInput());
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);

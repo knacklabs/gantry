@@ -543,6 +543,27 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).rejects.toThrow('send failed');
     expect(presented).toHaveLength(4);
     expect(presented[3]).toContain('one more?');
+    app.setChannelRuntime(channel.runtime);
+    const refusedQuestion = await save(
+      'msg:question-before-refused-failure',
+      'will this fail? after a refusal',
+      'person',
+    );
+    await save('msg:refused-then-failed', '/compact', 'person');
+    expect(
+      await app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:refused-then-failed',
+      }),
+    ).toBe(false);
+    expect(
+      (
+        await liveTurns.takeInput({
+          scope: question,
+          consumedBy: 'turn:after-refused-failure',
+          limit: 10,
+        })
+      ).map((item) => item.id),
+    ).toContain(refusedQuestion.id);
     expect(
       await liveTurns.takeInput({
         scope: question,
