@@ -2,107 +2,56 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "a83ba61e1f23033c53d873640428db6e10e720f45f78600cc175784cb9ed56de",
-    "commit": "0905ff48d65a70246ed99c7cf4a8361ee6f237ae",
+    "changed": "3d51e072efcbfb90ce1497c0c1c9ce0c1259fda24674fa300d60cc27eaaa3137",
+    "commit": "2022d912d3dc6749424fbd9e421e0e52a1c72968",
     "dismissals": [
       {
         "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed; the progress card shows the failed state",
         "finding": 1,
         "from_base": false
-      },
-      {
-        "because": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts:463 the routeMessage passed to the helper is a wrapper that spreads the message and adds commandId and expectedTurnId (lines 464-468), so authority receives the consumed commandId",
-        "finding": 2,
-        "from_base": false
-      },
-      {
-        "because": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:275 owner decision 2026-09-29: the two-process e2e scope is accepted as cross-process claim exclusion plus the in-process two-worker runtime flow",
-        "finding": 3,
-        "from_base": false
-      },
-      {
-        "because": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts:818 owner-adopted test policy 2026-09-30 (AGENTS.md Review rules): Postgres integration is the main proof for recovery and consumption contracts; this path passes host-side (integration 419/419, e2e 28/28)",
-        "finding": 4,
-        "from_base": false
-      },
-      {
-        "because": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts:325 owner-adopted test policy 2026-09-30 (AGENTS.md Review rules): Postgres integration is the main proof for recovery and consumption contracts; this path passes host-side (integration 419/419, e2e 28/28)",
-        "finding": 5,
-        "from_base": false
-      },
-      {
-        "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed, so there is no later-turn delivery to test",
-        "finding": 6,
-        "from_base": false
-      },
-      {
-        "because": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:360 commit 20381cc12 records the host-side functional run (typecheck, unit 1721/1721, Postgres integration 419/419, e2e 28/28, follow-up interleave 10/10 and 3/3 forced) covering late arrival, failure before/after output and recovery; the coordinator built this round directly",
-        "finding": 7,
-        "from_base": false
       }
     ],
     "findings": [
       {
-        "body": "On the final retry of an ordinary runner error, `acknowledgeFailedTurn` is true even when no reply or failure notice was delivered. `handleFailure` then keeps the input consumed, so recovery cannot give the unanswered message to another turn. Release input whenever no output reached the user.",
+        "body": "New evidence beyond the prior failure-path review: a batch containing a normal message followed by a session command is consumed under one turn consumer. If processing the earlier message sends partial output and then fails, `handleSessionCommand` deliberately leaves the command pending (`apps/core/src/session/session-commands.ts:366-370`) and returns `success: true`. This branch treats that result as fully handled and releases no item, so the command can never reach the next turn. Release the command's admission item in that path and test the mixed batch.",
         "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 763,
+        "line": 218,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "The follow-up is consumed under the `commandId` passed here, but `routeScopeActiveLiveTurnAdmission` drops that field when it calls `routeMessage` at lines 335\u2013342. `LiveTurnAuthority.routeMessage` therefore generates a different command ID. If the runner rejects the continuation or finishes while it is pending, `releaseLiveContinuationCommand` releases by the appended command ID and matches no consumed item. The follow-up remains stranded. Forward `commandId` and `expectedTurnId` through the routing helper.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 466,
+        "body": "New evidence beyond the provider-timestamp ordering ruling: a normal message can be received before a slash command whose provider timestamp is older by a second. The take loop consumes both in receive order, but this sort moves the command first. `handleSessionCommand` then handles an immediate command such as `/commands` without processing the normal message (`apps/core/src/session/session-commands.ts:297-300`); both items remain consumed. Preserve admission receive order for the batch.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 34,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "The spawned processes only call `takeInput` and `getMessagesByIds`, then exit. The active-turn follow-up case uses two worker objects in one process, a fake runner, and an IPC callback that merely records the write. It never proves that a real runner receives the follow-up and that replies across two processes leave no message dropped or doubled.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 275,
-        "priority": "P1",
-        "title": "Not done: two-process no-loss/no-duplication test"
+        "body": "Ordinary turns now supply `admissionAppId`, but the pre-command and compaction runs built by `createSessionCommandAgentRunners` omit it (`apps/core/src/runtime/group-session-command-runner.ts:38-55`). For a non-default app using a normal channel JID, this fallback selects `default`, so those runs resolve provider configuration and agent session context in the wrong app.",
+        "file": "apps/core/src/runtime/group-agent-runner.ts",
+        "line": 121,
+        "priority": "P2",
+        "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "The restart message test constructs claimed turns and injects a fake runner in an integration test. The real-runner end-to-end case exercises a successful turn and settings reload, but no crashed worker recovery. There is no end-to-end proof through the real turn entry point that restart delivers unanswered input while leaving answered input consumed.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 818,
-        "priority": "P1",
-        "title": "Not done: restart recovery end-to-end test"
+        "body": "This hook returns success immediately after writing a continuation file. The file writer only places JSON on disk (`apps/core/src/runtime/continuation-input.ts:65-83`); it does not establish that the model read it. A runner that finishes between the write and its next read can leave an applied command whose item remains consumed, because normal finalization releases only pending continuations (`apps/core/src/runtime/live-turn-authority.ts:523-541`). The story assigns runner delivery IDs and release of unconfirmed commands to T4, so this remains a T4 dependency.",
+        "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
+        "line": 38,
+        "priority": "P2",
+        "title": "Later: T4 must confirm runner delivery before retaining follow-up input"
       },
       {
-        "body": "The added before- and after-output cases invoke `app.processGroupMessages` with an injected runner. The real-runner end-to-end case covers success only. The required test still needs to drive the spawned runner and delivery path through failures on both sides of output, then assert which input the next turn receives.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 325,
-        "priority": "P1",
-        "title": "Not done: failure before/after output end-to-end test"
-      },
-      {
-        "body": "The integration failure case retries without `finalRetry`; the final-retry tests cover a provider failure notice instead. No test drives an ordinary final retry that fails without delivering output and verifies that a later turn receives its input. That case would expose the consumption loss at `group-processing.ts:763`.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 325,
-        "priority": "P1",
-        "title": "Not done: final-retry failure before output test"
-      },
-      {
-        "body": "The supplied commit-message evidence says the branch's last commit has no `Functional check:` paragraph. This user-facing change requires a recorded exercise of late arrival, failure before and after output, and recovery, with the observed results.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 360,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "This added file contains prior review findings and task status. It is outside the permitted paths and does not support the runtime switch, migration, required tests, or decision amendment.",
+        "body": "This added task-status file records previous review findings and dismissals. It is outside the permitted paths and does not support the runtime switch, migration, required tests, or decision amendment; no need for it is identified in the supplied handoff.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
-        "title": "Remove the unneeded review-state file outside scope"
+        "title": "Remove the unrelated review-state file outside scope"
       }
     ],
-    "status": "clean",
-    "tree": "719ceb9989de436d18da46332949f504fb85ac6db05518c85fd17bcd2e40d783"
+    "status": "blocked",
+    "tree": "3218a55d0f75ff68d91acf0c2636f02eafaa29263aecd716e62381ebb10adf2b"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-09-29T07:49:52+00:00",
@@ -134,6 +83,10 @@
     },
     {
       "at": "2026-09-30T10:30:45+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T14:01:09+00:00",
       "step": "review"
     }
   ]
