@@ -647,15 +647,18 @@ export class GantryClient {
           path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}${querySuffix(input)}`,
         }),
       decide: (reviewId: string, input: MemoryReviewDecisionInput) => {
-        const { decision, editedValue, reason, ...subject } = input;
+        const { decision, reason, agentId, subjectType, subjectId, appId } =
+          input;
         return this.transport.request<OpenApi.DecideMemoryReviewResponse>({
           method: 'POST',
           // The subject boundary rides on the query; the body carries only the
           // decision so reviewer identity stays key-derived server-side.
-          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision${querySuffix(subject)}`,
+          path: `/v1/memory/reviews/${encodeURIComponent(reviewId)}/decision${querySuffix({ agentId, subjectType, subjectId, appId })}`,
           body: {
             decision,
-            ...(editedValue === undefined ? {} : { editedValue }),
+            ...(decision === 'edit_approve'
+              ? { editedValue: input.editedValue }
+              : {}),
             ...(reason === undefined ? {} : { reason }),
           },
         });

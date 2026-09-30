@@ -1,0 +1,38 @@
+{
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: deletes five tests that pinned one-off migrations and keeps one current-behaviour storage health check; tests only, no production change",
+  "base": "32b1f190f7b9f9fd8f473b9902b1f7c10b80a425",
+  "branch": "fix/five-tests-only-re-check-one-off-data-mi",
+  "done_when": "The tests that pin one-off data migrations are deleted, any test-only helpers they alone used are removed, and the full suite passes",
+  "kind": "fix",
+  "review": {
+    "commit": "47ee0dd6eeae598ade4c222412506bd1c187b600",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "9d634193653d8e614ab2e9d70831d881a06eb9304731a7d8a3875eb0ecd5e8d5"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T15:24:35+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T15:48:05+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:03:13+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:21:34+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:40:25+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Five tests only re-check one-off data migrations that already ran on the only live database, keeping legacy data shapes alive in the test suite"
+}

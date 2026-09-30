@@ -33,9 +33,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
     this.interactionCallbacksEnabled =
       options.interactionCallbacks ?? options.inbound !== false;
     this.clearPollingRetryTimer();
-    const runtime = createTelegramBotRuntime(this.botToken);
-    this.bot = runtime.bot;
-    this.draftStreamApi = runtime.draftStreamApi;
+    this.bot = createTelegramBotRuntime(this.botToken);
     registerTelegramBotCommands(this.bot, ASSISTANT_NAME);
 
     const callbackChannel: TelegramCallbackChannel = {

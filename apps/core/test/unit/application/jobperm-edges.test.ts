@@ -23,10 +23,7 @@ vi.mock(
   () => ({ requestPermissionApproval }),
 );
 vi.mock('@core/channels/telegram/bot-setup.js', () => ({
-  createTelegramBotRuntime: () => ({
-    bot: telegramCardBot.bot,
-    draftStreamApi: undefined,
-  }),
+  createTelegramBotRuntime: () => telegramCardBot.bot,
   registerTelegramBotCommands: vi.fn(),
 }));
 

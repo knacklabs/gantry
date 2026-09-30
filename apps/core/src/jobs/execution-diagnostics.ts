@@ -233,15 +233,6 @@ export function updateDiagnosticsFromRuntimeEvent(
     ) {
       return;
     }
-    // Hard cutover (0113): a payload carrying BOTH the typed action and any
-    // removed legacy field is a dual-writing producer - reject it loudly.
-    if (
-      'grantable' in payload ||
-      'recovery_action' in payload ||
-      'recovery_kind' in payload
-    ) {
-      return;
-    }
     const action = parseJobSetupActionValue(payload.action);
     if (!action) return;
     const typedDenial: JobToolDenial = {
