@@ -22,11 +22,21 @@ BEGIN
   END IF;
 
   FOR work_item IN
-    SELECT id, queue_jid, message_cursor
+    SELECT id, queue_jid, conversation_id, thread_id, agent_id,
+      provider_account_id, message_cursor
     FROM live_admission_work_items
     WHERE consumed_at IS NULL
   LOOP
-    saved_marker := markers ->> work_item.queue_jid;
+    saved_marker := COALESCE(
+      NULLIF(markers ->> work_item.queue_jid, ''),
+      NULLIF(markers ->> CASE
+        WHEN NULLIF(work_item.provider_account_id, '') IS NOT NULL THEN
+          regexp_replace(work_item.queue_jid, '::agent:[^:]+', '')
+        WHEN NULLIF(work_item.thread_id, '') IS NOT NULL THEN
+          split_part(work_item.queue_jid, '::agent:', 1)
+        WHEN work_item.agent_id IS NOT NULL THEN work_item.conversation_id
+      END, '')
+    );
     IF saved_marker IS NULL OR saved_marker = '' THEN
       CONTINUE;
     END IF;
