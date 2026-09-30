@@ -2,7 +2,7 @@
 
 # Discovery reference
 
-The worked example, question bank and customer call script for
+The worked example, pre-meeting brief, recap, question bank and customer call script for
 [the Discovery section](SKILL.md#discovery). Open it only when you need it.
 
 ## Worked example
@@ -79,6 +79,42 @@ are where the time goes.
 Once every story from the spec is done and the date has passed, `forge next` lists the check, and
 `forge spec measure <slug> --result "<measured result>"` records it in a fix.
 
+## Pre-meeting brief
+
+One page in `docs/context/`, drafted from the prospect's website before the first meeting.
+
+```markdown
+# <Prospect>: pre-meeting brief
+- Likely jobs: <what their people do each week>
+- Their terms: <words the site uses for their work>
+
+### <short problem title> (guess)
+- Job: <guess>
+- Workaround: <guess>
+- Cost: unknown
+
+## First five questions
+1. <about the last time a guessed problem happened>
+```
+
+## Recap
+
+Drafted in `docs/context/` the same day as the meeting, for the customer to confirm.
+
+```markdown
+# <Prospect>: recap of <YYYY-MM-DD>
+- Your problem: <in their words>
+- What it costs: <in their numbers>
+- The demo will cover: <the one task, start to finish>
+- Who signs off: <name and role>
+- Still to find out: <each open "ask the client" question>
+- Demo date: <YYYY-MM-DD>
+```
+
+Their reply is the source of the Demo workflow and Sign-off person answers:
+`- Demo workflow: <task> (client, <YYYY-MM-DD>)` and
+`- Sign-off person: <name, role> (client, <YYYY-MM-DD>)`.
+
 ## Question bank
 
 Ask one question per turn, about a past event, choosing the one that fills a missing card field.
@@ -99,9 +135,11 @@ Ask what happened before asking what the customer wants built.
 2. Ask one question about the last time the problem happened, with its `Why I ask:` line.
 3. Follow that event through the workaround, cost, people, frequency and evidence, one question
    per turn, skipping fields already answered.
-4. Read the card back in the customer's words, ask for corrections, and write what is still
+4. Ask for the spreadsheet or form they use today; keep only its column headers, never its rows.
+   Write each word they use for their work under `## Words they use`.
+5. Read the card back in the customer's words, ask for corrections, and write what is still
    missing as `unknown`.
-5. End discovery before talking about solutions. Then offer neutral choices for facts, or a
+6. End discovery before talking about solutions. Then offer neutral choices for facts, or a
    separate decision with the recommendation first.
 
 ## Bad-to-better questions

@@ -1,0 +1,2 @@
+plans/roadmap.json merge=forge-roadmap
+apps/core/src/adapters/storage/postgres/schema/migrations/meta/*_snapshot.json linguist-generated

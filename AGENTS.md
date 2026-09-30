@@ -15,7 +15,8 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 ### The flow
 
 1. A story starts as one short doc: `forge story new <KEY> "<title>"`.
-2. It gets one cold read (`forge read <KEY>`) and one approval from the human.
+2. It gets rounds of cold read (`forge read <KEY>`) until one finds nothing, then one approval
+   from the human.
 3. Each task runs in its own branch and worktree: `forge task start <KEY>/<TASK>`, then
    `forge work <KEY>/<TASK>`.
 4. `forge close <item>` closes it when the tests pass and the review finds no serious problem.
@@ -42,8 +43,21 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 - Write for humans in plain English: no IDs, hashes or jargon in questions, pull request
   summaries or the board.
 - A story is approved through Plan Mode: exit Plan Mode with the text of the story doc that
-  `forge next` names, unchanged, as the plan. The approval matches its "What changes for you" and
-  "Done when" sections exactly, so a summary or a rewrite records nothing. There is no other
-  approval step.
+  `forge next` names, unchanged, as the plan: from its title down to `## For the builders`, or the
+  whole doc when it has no such heading. The approval matches its "What changes for you" and
+  "Done when" sections exactly, so a summary or a rewrite records nothing, and an edit below
+  `## For the builders` needs no new approval. There is no other approval step.
 - Run long `forge work` runs in the background and keep watching them.
 <!-- forge:end -->
+
+## Review rules
+
+The owner's rules for reviewing changes in this repo (details: `apps/core/AGENTS.md` testing section, `docs/review-instructions.md`).
+
+- **Test levels.** Unit tests for pure rules; Postgres integration tests as the main proof for storage, consumption, migration and recovery contracts; one automated end-to-end test per user-visible behaviour that a Done-when item changes, not one per function.
+- **No end-to-end tests for deletions, config or docs.** A pure removal of legacy or dead code, a settings change, or a docs change is proven by the check the item names. Don't report missing end-to-end tests for them.
+- **No legacy in tests.** Tests must not name removed fields, flags, spellings or shapes, even to prove they stay gone. Current-behaviour tests use neutral, behaviour-based names.
+- **No legacy support.** The product is early stage; don't ask for back-compat, fallbacks or dual reads.
+- **One owner test per behaviour,** at the strongest level that can observe it; don't ask to replay the same scenario at every layer.
+- **Forge records aren't evidence gaps.** Don't report references inside `.factory/` records; agents never edit them.
+- **Live Slack or Telegram checks** are only run when the owner asks; don't require them.
