@@ -1,34 +1,48 @@
 {
   "branch": "task/TURN-1-T2",
   "review": {
-    "commit": "12a5209538be44053358d5a04d570e09625fb8a2",
+    "commit": "625082ca87162ebc1398b8303cd2d01755ea9109",
     "dismissals": [],
     "findings": [
       {
-        "body": "chunk 1/3:\n\nRecovery releases every follow-up consumed by the failed run, even when the runner received that follow-up and sent its reply before crashing. The item becomes available to the next turn and can be presented twice. Release only follow-ups that were not confirmed as handled.",
+        "body": "chunk 1/3:\n\nRecovery releases every follow-up consumed by the failed run, even when the runner received it and replied before crashing. The delivered-output check protects only the turn's initial input, so the next turn can receive an answered follow-up again. Release only follow-ups that were not confirmed as handled.",
         "file": "apps/core/src/app/bootstrap/live-execution.ts",
         "line": 696,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 1/3:\n\nAn ordinary exhausted final retry sets acknowledgeFailedTurn even when no reply or failure notice was delivered. handleFailure then returns without releasing the consumed input. The next turn cannot take the unanswered message.",
-        "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 194,
+        "body": "chunk 1/3:\n\nOn an ordinary exhausted final retry, acknowledgeFailedTurn is true even if no reply or failure notice was delivered. handleFailure then preserves the consumed input, leaving the unanswered message unavailable to the next turn.",
+        "file": "apps/core/src/runtime/group-processing.ts",
+        "line": 763,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 1/3:\n\nThe added child workers call takeInput and getMessagesByIds directly, then exit. They never run admission, deliver a continuation to a runner, or send a reply. The active-turn follow-up case uses workers in one process with a stubbed runner. These tests cannot detect loss or duplication during the required two-process owner handoff.",
+        "body": "chunk 1/3:\n\nThe migration looks up a marker only by the work item's exact queue_jid. Existing marker recovery also supports older base conversation and thread keys (runtime-app.ts:404\u2013418), while admission items use agent- and provider-qualified queue keys (canonical-message-repository.postgres.ts:377\u2013382). An already-read item whose saved marker is under a base key remains unconsumed and replays after the switch. The backfill test seeds only an exact queue key.",
+        "file": "apps/core/src/adapters/storage/postgres/schema/migrations/20260929081005_backfill_live_admission_consumption.sql",
+        "line": 29,
+        "priority": "P1",
+        "title": "Not done: backfill from the saved marker"
+      },
+      {
+        "body": "chunk 1/3:\n\nThe spawned child workers take repository input and fetch messages, then exit without admitting a turn, delivering a continuation, or sending a reply. The active-turn follow-up test constructs both workers in one process with callback runners. These tests cannot detect loss or duplication during the required cross-process handoff through reply.",
         "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
         "line": 275,
         "priority": "P1",
         "title": "Not done: two-process no-loss/no-duplication test"
       },
       {
-        "body": "chunk 1/3:\n\ntakeInput selects items by receiveOrder, but this sort gives provider timestamps precedence. A delayed attachment or a provider timestamp that moves backward can appear before an earlier received message in the agent's batch. Use receiveOrder for items that have it.",
+        "body": "chunk 1/3:\n\nThe supplied Functional check describes existing Postgres scenarios for callable completion and a missing-runner follow-up, while saying Postgres will be rerun later. It does not describe exercising the covered two-worker, settings-reload, restart, and before/after-output failure paths as a user would, so it skips material parts of this story.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 834,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "chunk 1/3:\n\ntakeInput selects by receiveOrder, but this presentation sort gives provider timestamps precedence. A delayed attachment or a provider timestamp that moves backward can place a later-received message before an earlier one in the agent's batch. Use receiveOrder when it is available.",
         "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 29,
+        "line": 31,
         "priority": "P2",
         "title": "Present taken messages in receive order"
       },
@@ -40,29 +54,36 @@
         "title": "Remove the review-state file outside the allowed scope"
       },
       {
-        "body": "chunk 3/3:\n\nAn active turn's follow-up is marked consumed by takeInput before the runner confirms it reached the model. The owner marks a continuation applied after calling the local hook, but group-queue-live-turn-hooks.ts can return without writing when the runner is no longer active. If the turn ends in that window, the follow-up is absent from later takes and ordinary terminal handling does not release it. Release follow-ups that were not confirmed as received by the runner.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 416,
+        "body": "chunk 3/3:\n\nA final retry with a generic runner error and no delivered reply sets `acknowledgeFailedTurn` and returns here without calling `releaseInput`. Those work items remain consumed, so a later turn cannot take the unanswered messages. The new unit test explicitly expects this preservation, leaving the required before-reply recovery untested.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 232,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 3/3:\n\nCallable-agent completions are admitted with triggerDecision.requiresTrigger=false (async-delegated-agent-follow-up.ts:117), but this turn-start check uses only the message text and route trigger policy. In a mention-required conversation without a qualifying thread root, the completion has no mention, so the already-consumed item is treated as history and never reaches the agent. Preserve the trusted admission decision when checking this input.",
-        "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 225,
-        "priority": "P1",
-        "title": "Not done: No message is lost or given twice"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe cross-process portion tests only repository takeInput/getMessagesByIds. The added active-turn test constructs both workers in one process and replaces the runner control port and agent with callbacks. It therefore cannot fail when separate processes lose or duplicate a follow-up between admission, owner command delivery, and reply. Extend the process-spawned test through the live entry point and assert the delivered messages and replies.",
+        "body": "chunk 3/3:\n\nThe new subprocess test runs only `takeInput` and `getMessagesByIds`; it never starts admission, a live turn, or a reply in either process. The follow-up scenario below uses two worker objects in one process. Together they do not test the required two-process delivery path for dropped or doubled messages through the real entry point.",
         "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 404,
+        "line": 275,
         "priority": "P1",
-        "title": "Not done: two-process e2e"
+        "title": "Not done: two-process end-to-end no-loss test"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe supplied functional check cites existing Postgres scenarios for callable completion and a missing runner, then says Postgres will be rerun. It does not describe exercising the covered two-worker, settings-reload, restart, or before- and after-reply failure flows as a user would. The check therefore skips material parts of this change's required behavior.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 217,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "chunk 3/3:\n\n`takeInput` returns work items in database receive order, but this sort gives provider timestamps precedence. A delayed media message or a provider timestamp that runs behind the local clock can therefore be shown to the agent before an earlier received message. The added unit test even expects this reordering. Preserve `receiveOrder` when presenting the batch.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 32,
+        "priority": "P2",
+        "title": "Present the batch in receive order"
       }
     ],
     "status": "blocked",
-    "tree": "45a471d4d750364252bf96415aade4f87b9c5dc01e2943736c4e6aba38077cf7"
+    "tree": "a5071e2319ff48ad8960a43fc5f915bb2e4d3772d4ca1d197160dd010b3dcc2f"
   },
   "status": "fixing",
   "steps": [
@@ -80,6 +101,10 @@
     },
     {
       "at": "2026-09-30T00:55:04+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T02:26:05+00:00",
       "step": "review"
     }
   ]
