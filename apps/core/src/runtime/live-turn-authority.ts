@@ -26,6 +26,7 @@ import {
   routeLiveStop,
 } from './live-turn-routing.js';
 import { writeResolvedInteractionResponse } from './interaction-resolution-response.js';
+import { applyLiveContinuationCommand } from './live-turn-continuation-command.js';
 import {
   hostExecutionSlotHolderId,
   hostExecutionSlotKey,
@@ -42,12 +43,12 @@ import {
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 
 export interface LiveTurnLocalRunnerHooks {
-  /** Write the continuation into the local runner's IPC input. */
+  /** Return whether the continuation reached the local runner's IPC input. */
   applyContinuation: (input: {
     text: string;
     sequence: number;
     threadId: string | null;
-  }) => void;
+  }) => boolean;
   /** Close the local runner's stdin (end of turn input). */
   applyCloseStdin: () => void;
   /** Stop the local runner (SIGTERM path). */
@@ -225,10 +226,10 @@ export class LiveTurnAuthority {
           !!this.active.get(queueJid)?.hooks,
         handlers: {
           continuation: (command) =>
-            this.applyContinuationCommand(
-              queueJid,
-              command.payload,
-              command.seq,
+            applyLiveContinuationCommand(
+              command,
+              this.active.get(queueJid),
+              this.deps.leaseDeps.liveTurns,
             ),
           stop: () => this.applyLocalHook(queueJid, 'applyStop'),
           close_stdin: () => this.applyLocalHook(queueJid, 'applyCloseStdin'),
@@ -657,23 +658,6 @@ export class LiveTurnAuthority {
     for (const queueJid of this.active.keys()) {
       void this.tick(queueJid);
     }
-  }
-
-  private applyContinuationCommand(
-    queueJid: string,
-    payload: Record<string, unknown>,
-    sequence: number,
-  ): LiveTurnCommandApplyResult {
-    const registration = this.active.get(queueJid);
-    const hooks = registration?.hooks;
-    if (!hooks) return 'retry';
-    const text = typeof payload.text === 'string' ? payload.text : null;
-    if (!text) return 'rejected';
-    const threadId =
-      typeof payload.threadId === 'string' ? payload.threadId : null;
-    hooks.applyContinuation({ text, sequence, threadId });
-    hooks.onContinuationApplied?.();
-    return 'applied';
   }
 
   private applyInteractionResolvedCommand(

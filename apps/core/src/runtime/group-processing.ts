@@ -22,6 +22,7 @@ import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
   createGroupTurnChannelActions,
   createGroupTurnProgressSenders,
+  hasTakenGroupTurnTrigger,
   handleFailure,
   resetGroupStreamingForTurn,
   resolveGroupTurnFinalProgressState,
@@ -33,7 +34,6 @@ import {
   createGroupDoneProgressSender,
   sendGroupFinalProgress,
 } from './group-final-progress-action.js';
-import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
   createResponseProgressSenders,
   startInitialGroupProgress,
@@ -103,6 +103,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     try {
       const {
         missedMessages,
+        permitsUnmentionedCompletion,
         hasMore,
         activeThreadId,
         latestMessageReactionTarget,
@@ -222,17 +223,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         return (sendProgressToChannel.retire(), cmdResult.success);
       }
       if (
-        !(await groupTurnHasRequiredTrigger({
+        !(await hasTakenGroupTurnTrigger({
           group,
           chatJid,
           triggerPattern: config.getTriggerPattern(group.trigger),
           messages: missedMessages,
-          continuation: {
-            threadId,
-            hasPriorCursor: true,
-            messageRepository: opsRepository,
-            pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
-          },
+          permitsUnmentionedCompletion,
+          threadId,
+          messageRepository: opsRepository,
+          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))
       ) {
         deps.setCursor(queueJid, cursorForMessage(latestMessage));

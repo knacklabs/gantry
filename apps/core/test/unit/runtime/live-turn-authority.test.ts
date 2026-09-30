@@ -103,6 +103,7 @@ function makeHooks(): {
     hooks: {
       applyContinuation: ({ text, sequence }) => {
         log.continuations.push({ text, sequence });
+        return true;
       },
       applyCloseStdin: () => {
         log.closes += 1;

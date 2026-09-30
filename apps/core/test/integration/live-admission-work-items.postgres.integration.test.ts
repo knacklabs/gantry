@@ -28,6 +28,8 @@ import {
 } from '@core/app/bootstrap/live-execution.js';
 import { claimLiveTurnExecution } from '@core/application/live-turns/live-turn-lease-service.js';
 import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
+import { createLiveTurnLocalRunnerHooks } from '@core/runtime/group-queue-live-turn-hooks.js';
+import { routeScopeActiveLiveTurnAdmissionFromCursor } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
@@ -481,6 +483,244 @@ maybeDescribe('live admission work items (Postgres)', () => {
         limit: 1,
       }),
     ).toEqual([]);
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a callable-agent completion in a mention-required group', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const chatJid = 'tg:-callable-completion';
+    const folder = 'callable_completion';
+    const providerAccountId = 'channel-providerAccount:default:telegram';
+    await runtime.control.ensureAppSession({
+      appId: 'default',
+      conversationId: 'callable-completion',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'Completion received.' });
+        return { status: 'success', result: 'Completion received.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Callable completion',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: true,
+      conversationKind: 'group',
+      agentConfig: { model: 'opus' },
+    });
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'callable-agent-follow-up:mention-required',
+        chat_jid: chatJid,
+        provider: 'telegram',
+        providerAccountId,
+        sender: 'gantry:callable-agent',
+        content: 'The delegated work is complete.',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      {
+        appId: 'default',
+        agentId: agentIdForFolder(folder),
+        providerAccountId,
+        triggerDecision: {
+          source: 'callable_agent_follow_up',
+          requiresTrigger: false,
+          taskId: 'mention-required',
+        },
+      },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    expect(
+      await app.processGroupMessages(admitted.item.queueJid, {
+        existingRunId: 'run:callable-completion',
+        admissionAppId: 'default',
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('The delegated work is complete.');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Completion received.'),
+      ),
+    ).toBe(true);
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a follow-up to the next turn when its runner is gone', async () => {
+    const appId = 'runner-gone';
+    const folder = 'runner_gone';
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'I got the follow-up.' });
+        return { status: 'success', result: 'I got the follow-up.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Runner gone',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const context = await runtime.ops.getAgentTurnContext({
+      agentFolder: folder,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      conversationJid: chatJid,
+      providerAccountId,
+      threadId: null,
+      hydrateMemory: false,
+    });
+    if (!context) throw new Error('Missing agent session');
+    const runId = await runtime.ops.createSessionAgentRun({
+      agentSessionId: context.agentSessionId,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      cause: 'message',
+    });
+    if (!runId) throw new Error('Missing agent run');
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'msg:runner-gone-follow-up',
+        chat_jid: chatJid,
+        provider: 'app',
+        providerAccountId,
+        sender: 'person',
+        content: 'Please include this follow-up.',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId, agentId: agentIdForFolder(folder) },
+    );
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Follow-up admission failed');
+    const workerId = 'runner-gone-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerId,
+      bootNonce: workerId,
+    });
+    const authority = new LiveTurnAuthority({
+      leaseDeps: {
+        liveTurns,
+        coordination: runtime.repositories.workerCoordination,
+        workerInstanceId: workerId,
+      },
+      slotCapacity: () => 1,
+    });
+    const scope = {
+      appId,
+      agentSessionId: context.agentSessionId,
+      conversationId: chatJid,
+      threadId: null,
+    };
+    const turnId = 'turn:runner-gone';
+    expect(
+      await authority.admit({
+        queueJid: admitted.item.queueJid,
+        scope,
+        turnId,
+        runId,
+      }),
+    ).toMatchObject({ outcome: 'claimed' });
+    const writeContinuationInput = vi.fn();
+    await authority.registerLocalRunner(
+      admitted.item.queueJid,
+      createLiveTurnLocalRunnerHooks({
+        groupJid: chatJid,
+        state: {
+          active: false,
+          idleWaiting: false,
+          isTaskRun: false,
+          workspaceFolder: folder,
+          threadId: null,
+          continuationHandler: null,
+        },
+        runnerControlPort: {
+          writeContinuationInput,
+          writeCloseSignal: vi.fn(),
+        },
+        closeStdin: vi.fn(),
+        stopGroup: vi.fn(),
+      }),
+    );
+    expect(
+      await routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope,
+        queueJid: admitted.item.queueJid,
+        liveRunId: '',
+        ownerTurnId: turnId,
+        ownerRunId: runId,
+        chatJid,
+        threadId: null,
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        inputRepository: liveTurns,
+        getMessagesByIds: (inputScope, ids) =>
+          runtime.ops.getMessagesByIds(inputScope, ids),
+        setAgentCursor: () => undefined,
+        saveState: () => undefined,
+        routeMessage: (message) => authority.routeMessage(message),
+      }),
+    ).toBe(true);
+    await authority.drainQueue(admitted.item.queueJid);
+    expect(writeContinuationInput).not.toHaveBeenCalled();
+    expect(await authority.finalize(admitted.item.queueJid, 'completed')).toBe(
+      true,
+    );
+    expect(
+      await app.processGroupMessages(admitted.item.queueJid, {
+        existingRunId: 'run:runner-gone-next',
+        admissionAppId: appId,
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('Please include this follow-up.');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('I got the follow-up.'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: admitted.item,
+        consumedBy: 'turn:runner-gone-third',
+        limit: 1,
+      }),
+    ).toEqual([]);
+    await authority.shutdown();
     await app.queue.shutdown(500);
   });
 

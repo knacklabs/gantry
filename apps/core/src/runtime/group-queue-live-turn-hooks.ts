@@ -22,9 +22,10 @@ export function createLiveTurnLocalRunnerHooks(input: {
   return {
     applyContinuation: ({ text, sequence, threadId }) => {
       const { state } = input;
-      if (!state.active || !state.workspaceFolder || state.isTaskRun) return;
+      if (!state.active || !state.workspaceFolder || state.isTaskRun)
+        return false;
       const incomingThreadId = normalizeThreadQueueId(threadId) || null;
-      if (state.threadId !== incomingThreadId) return;
+      if (state.threadId !== incomingThreadId) return false;
       state.idleWaiting = false;
       input.runnerControlPort.writeContinuationInput({
         workspaceFolder: state.workspaceFolder,
@@ -33,6 +34,7 @@ export function createLiveTurnLocalRunnerHooks(input: {
         threadId: incomingThreadId,
       });
       state.continuationHandler?.();
+      return true;
     },
     applyCloseStdin: input.closeStdin,
     applyStop: input.stopGroup,
