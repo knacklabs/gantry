@@ -1,89 +1,75 @@
 {
   "branch": "task/TURN-1-T2",
   "review": {
-    "commit": "625082ca87162ebc1398b8303cd2d01755ea9109",
+    "commit": "c50cb79035db3da9655b5393a665128862a78026",
     "dismissals": [],
     "findings": [
       {
-        "body": "chunk 1/3:\n\nRecovery releases every follow-up consumed by the failed run, even when the runner received it and replied before crashing. The delivered-output check protects only the turn's initial input, so the next turn can receive an answered follow-up again. Release only follow-ups that were not confirmed as handled.",
-        "file": "apps/core/src/app/bootstrap/live-execution.ts",
-        "line": 696,
-        "priority": "P1",
-        "title": "Not done: No message is lost or given twice"
-      },
-      {
-        "body": "chunk 1/3:\n\nOn an ordinary exhausted final retry, acknowledgeFailedTurn is true even if no reply or failure notice was delivered. handleFailure then preserves the consumed input, leaving the unanswered message unavailable to the next turn.",
+        "body": "chunk 1/3:\n\nAn ordinary final retry sets acknowledgeFailedTurn even when the runner sent no reply or failure notice. handleFailure then keeps the turn's input consumed, so the unanswered message cannot reach a later turn. Release input unless output was delivered.",
         "file": "apps/core/src/runtime/group-processing.ts",
         "line": 763,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 1/3:\n\nThe migration looks up a marker only by the work item's exact queue_jid. Existing marker recovery also supports older base conversation and thread keys (runtime-app.ts:404\u2013418), while admission items use agent- and provider-qualified queue keys (canonical-message-repository.postgres.ts:377\u2013382). An already-read item whose saved marker is under a base key remains unconsumed and replays after the switch. The backfill test seeds only an exact queue key.",
-        "file": "apps/core/src/adapters/storage/postgres/schema/migrations/20260929081005_backfill_live_admission_consumption.sql",
-        "line": 29,
+        "body": "chunk 1/3:\n\nRestart recovery releases every follow-up consumed by the failed run, including one the runner received and answered before crashing. The delivered-output check protects only the initial input. The next turn can therefore receive an answered follow-up again; recovery needs to retain follow-ups confirmed as handled.",
+        "file": "apps/core/src/app/bootstrap/live-execution.ts",
+        "line": 696,
         "priority": "P1",
-        "title": "Not done: backfill from the saved marker"
+        "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "chunk 1/3:\n\nThe spawned child workers take repository input and fetch messages, then exit without admitting a turn, delivering a continuation, or sending a reply. The active-turn follow-up test constructs both workers in one process with callback runners. These tests cannot detect loss or duplication during the required cross-process handoff through reply.",
+        "body": "chunk 1/3:\n\nThe subprocess workers only call takeInput and getMessagesByIds, then exit. They never admit a turn or deliver a reply. The active-turn follow-up scenario uses two worker objects in one process, so these tests cannot detect loss or duplication across a real process handoff through reply.",
         "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
         "line": 275,
         "priority": "P1",
         "title": "Not done: two-process no-loss/no-duplication test"
       },
       {
-        "body": "chunk 1/3:\n\nThe supplied Functional check describes existing Postgres scenarios for callable completion and a missing-runner follow-up, while saying Postgres will be rerun later. It does not describe exercising the covered two-worker, settings-reload, restart, and before/after-output failure paths as a user would, so it skips material parts of this story.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 834,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "chunk 1/3:\n\ntakeInput selects by receiveOrder, but this presentation sort gives provider timestamps precedence. A delayed attachment or a provider timestamp that moves backward can place a later-received message before an earlier one in the agent's batch. Use receiveOrder when it is available.",
-        "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 31,
-        "priority": "P2",
-        "title": "Present taken messages in receive order"
-      },
-      {
-        "body": "chunk 1/3:\n\nThis added file records a prior review result and task status. It is outside the permitted paths and is unnecessary for the runtime switch, migration, tests, or decision update.",
-        "file": ".factory/stories/TURN-1/tasks/T2.json",
-        "line": 3,
-        "priority": "P2",
-        "title": "Remove the review-state file outside the allowed scope"
-      },
-      {
-        "body": "chunk 3/3:\n\nA final retry with a generic runner error and no delivered reply sets `acknowledgeFailedTurn` and returns here without calling `releaseInput`. Those work items remain consumed, so a later turn cannot take the unanswered messages. The new unit test explicitly expects this preservation, leaving the required before-reply recovery untested.",
-        "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 232,
-        "priority": "P1",
-        "title": "Not done: No message is lost or given twice"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe new subprocess test runs only `takeInput` and `getMessagesByIds`; it never starts admission, a live turn, or a reply in either process. The follow-up scenario below uses two worker objects in one process. Together they do not test the required two-process delivery path for dropped or doubled messages through the real entry point.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 275,
-        "priority": "P1",
-        "title": "Not done: two-process end-to-end no-loss test"
-      },
-      {
-        "body": "chunk 3/3:\n\nThe supplied functional check cites existing Postgres scenarios for callable completion and a missing runner, then says Postgres will be rerun. It does not describe exercising the covered two-worker, settings-reload, restart, or before- and after-reply failure flows as a user would. The check therefore skips material parts of this change's required behavior.",
+        "body": "chunk 1/3:\n\nThe supplied Functional check says the covered paths were reviewed and that the focused Postgres command could not run. It does not describe exercising the two-worker, settings-reload, restart, or before- and after-reply failure paths as a user would, leaving material covered behavior out of the required check.",
         "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
         "line": 217,
         "priority": "P1",
         "title": "Not done: functional check"
       },
       {
-        "body": "chunk 3/3:\n\n`takeInput` returns work items in database receive order, but this sort gives provider timestamps precedence. A delayed media message or a provider timestamp that runs behind the local clock can therefore be shown to the agent before an earlier received message. The added unit test even expects this reordering. Preserve `receiveOrder` when presenting the batch.",
+        "body": "chunk 1/3:\n\ntakeInput selects work items by receiveOrder, but this presentation sort gives provider timestamps precedence. A delayed attachment or a provider timestamp that moves backward can put a later-received message before an earlier one in the agent's batch. Use receiveOrder when available.",
         "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 32,
+        "line": 31,
         "priority": "P2",
-        "title": "Present the batch in receive order"
+        "title": "Present taken messages in receive order"
+      },
+      {
+        "body": "chunk 1/3:\n\nThis added file records review findings and task status. It is outside the permitted paths and is unnecessary for the runtime switch, migration, tests, or decision update.",
+        "file": ".factory/stories/TURN-1/tasks/T2.json",
+        "line": 1,
+        "priority": "P2",
+        "title": "Remove the review-state file outside the allowed scope"
+      },
+      {
+        "body": "chunk 3/3:\n\nOn the final retry of an ordinary runner error, `acknowledgeFailedTurn` is true even when no output or failure notice was delivered. `handleFailure` then returns without releasing the consumed input. The next turn cannot take the unanswered message, contrary to the required before-reply failure behavior.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 232,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe continuation is marked applied as soon as the host hook writes to runner input. That boolean does not confirm that either runner actually supplied the message to the model. A follow-up accepted near turn completion can therefore remain consumed when the runner exits without reading it, leaving nothing for the next turn to take. The required runner-level delivery confirmation is absent from this path.",
+        "file": "apps/core/src/runtime/live-turn-continuation-command.ts",
+        "line": 43,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "chunk 3/3:\n\nThe added case calls `app.loadState()` after changing the saved marker. It does not reload runtime settings or exercise the settings reload entry point, so it cannot detect a dropped or duplicated admission item during the required settings reload path.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 1128,
+        "priority": "P1",
+        "title": "Not done: settings reload"
       }
     ],
     "status": "blocked",
-    "tree": "a5071e2319ff48ad8960a43fc5f915bb2e4d3772d4ca1d197160dd010b3dcc2f"
+    "tree": "5c3abda8f9817e237a68ce9e90a5d104ffdfcb6ed3732fe2097779cf50fee4b5"
   },
   "status": "fixing",
   "steps": [
@@ -105,6 +91,10 @@
     },
     {
       "at": "2026-09-30T02:26:05+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T03:33:30+00:00",
       "step": "review"
     }
   ]
