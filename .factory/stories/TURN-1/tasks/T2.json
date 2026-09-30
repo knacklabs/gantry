@@ -4,7 +4,43 @@
     "blocking_level": "P1",
     "changed": "a83ba61e1f23033c53d873640428db6e10e720f45f78600cc175784cb9ed56de",
     "commit": "0905ff48d65a70246ed99c7cf4a8361ee6f237ae",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed; the progress card shows the failed state",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts:463 the routeMessage passed to the helper is a wrapper that spreads the message and adds commandId and expectedTurnId (lines 464-468), so authority receives the consumed commandId",
+        "finding": 2,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:275 owner decision 2026-09-29: the two-process e2e scope is accepted as cross-process claim exclusion plus the in-process two-worker runtime flow",
+        "finding": 3,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts:818 owner-adopted test policy 2026-09-30 (AGENTS.md Review rules): Postgres integration is the main proof for recovery and consumption contracts; this path passes host-side (integration 419/419, e2e 28/28)",
+        "finding": 4,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts:325 owner-adopted test policy 2026-09-30 (AGENTS.md Review rules): Postgres integration is the main proof for recovery and consumption contracts; this path passes host-side (integration 419/419, e2e 28/28)",
+        "finding": 5,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed, so there is no later-turn delivery to test",
+        "finding": 6,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:360 commit 20381cc12 records the host-side functional run (typecheck, unit 1721/1721, Postgres integration 419/419, e2e 28/28, follow-up interleave 10/10 and 3/3 forced) covering late arrival, failure before/after output and recovery; the coordinator built this round directly",
+        "finding": 7,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "On the final retry of an ordinary runner error, `acknowledgeFailedTurn` is true even when no reply or failure notice was delivered. `handleFailure` then keeps the input consumed, so recovery cannot give the unanswered message to another turn. Release input whenever no output reached the user.",
@@ -63,10 +99,10 @@
         "title": "Remove the unneeded review-state file outside scope"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "719ceb9989de436d18da46332949f504fb85ac6db05518c85fd17bcd2e40d783"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-09-29T07:49:52+00:00",
