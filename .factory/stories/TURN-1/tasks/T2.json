@@ -2,47 +2,68 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "289a7098a2cc410a3f33d8e14a59a073f5969acb71c2da91f65e8d9fd38d4458",
-    "commit": "32a5750e233141ac01b87057fa751ba5f9159cb3",
+    "changed": "c6e2d0b7893f71fb0da4c27b940fd12f41ec1295c373b95905607d4655ab1c67",
+    "commit": "f1f0d6193357bf993b6dfa2b09ef1704cf46d3cf",
     "dismissals": [],
     "findings": [
       {
-        "body": "The session-command send wrapper marks any notice as `outputSentToUser`. If a batch contains an earlier user message followed by a denied command, `session-commands.ts:274-279` sends an access-denied notice and then lets the normal turn process the batch. If that agent turn fails before replying, `settleFailedInput` sees the notice as delivered output and keeps the earlier message consumed. The same problem occurs when pre-command processing fails before producing an answer but sends its failure notice. Track whether the input received an answer separately from command notices, and release unanswered input.",
+        "body": "A pre-command agent run can fail without answering an earlier question. `session-commands.ts:348-362` then sends a failure notice and returns `success: false`. The send wrapper sets `outputSentToUser` for that notice, so this settlement keeps both messages consumed instead of returning the unanswered question to the next turn. The changed integration test at `live-admission-work-items.postgres.integration.test.ts:505-528` supplies new evidence: it asserts success and no remaining input for exactly this no-reply failure. Track an answer separately from command notices and test that the question is retried.",
         "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 206,
+        "line": 232,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "Recovery releases the turn's input whenever `hasDeliveredOutputForRun` finds no durable delivery. On the streaming path, unchanged `group-output-buffer.ts:115-165` sends the final chunk before calling the new transcript persistence callback in `group-processing.ts:533-551`. A worker that dies after the final chunk reaches the user but before that callback commits leaves no delivery row or sent transcript for this check. Recovery then releases the answered input and the next turn can answer it again. The restart test covers a completed reply, not this delivery-to-persistence boundary.",
+        "body": "The follow-up worker commits `takeInput` before it appends a continuation command. If that worker dies between this take and the append at line 466, the item remains consumed under the owner run but has no command. The owner can finish normally; its finalization examines pending commands, and recovery wakes only unconsumed items, so no later turn sees the follow-up. The two-worker test does not exercise this crash boundary. Consume and link the command atomically, or reclaim unlinked follow-up consumers when the owner finishes.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 431,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "Recovery releases the turn's input when it finds no durable sent record. On the streaming path, unchanged `group-output-buffer.ts:115-165` sends the final chunk before the callback in `group-processing.ts:535-559` persists its sent transcript; `channel-wiring.ts:659-678` adds no durable streaming delivery record. A worker dying in that interval has already replied, but this check returns false and releases the input for another answer. The restart test covers a persisted reply, not this boundary.",
         "file": "apps/core/src/app/bootstrap/live-execution.ts",
         "line": 701,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "A successful continuation-file write returns `true` and the command is marked applied. The unchanged `continuation-input.ts:65-84` only writes the file; it cannot establish that either runner read the text before closing. The item can therefore stay consumed without reaching the model or the next turn. The Tasks table assigns runner confirmation and release of unconfirmed commands to T4.",
+        "body": "This helper marks a continuation rejected before its separate `releaseInput` call. If that release fails, the command pump no longer retries the rejected command, normal turn finalization finds no pending command, and the item stays consumed although the runner refused it. The same loss occurs across a process death in this gap when the owner completes. Rejecting and releasing must be one durable transition, or finalization must reclaim rejected commands whose items remain consumed.",
+        "file": "apps/core/src/runtime/live-turn-continuation-command.ts",
+        "line": 68,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "Returning true here confirms only that `continuation-input.ts:65-84` wrote a file. The command pump then marks the command applied, even if the runner closes before reading it; its item can remain consumed without reaching the model or the next turn. The Tasks table assigns runner confirmation and release of unconfirmed commands to T4.",
         "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
         "line": 38,
         "priority": "P2",
         "title": "Later: T4 must confirm that the runner read a follow-up"
       },
       {
-        "body": "This path releases a follow-up rejected by the active turn. It always takes only the oldest unconsumed item, while `live-turn-routing.ts:50-56` rejects a sender other than `requiredContinuationUserId`. Each wake can take and release that same older item, so a later message from the required sender cannot reach the waiting runner until the turn ends. Defer the ineligible item for this turn or examine later eligible items.",
+        "body": "This path releases an item rejected for the active turn, then the next wake takes the oldest unconsumed item again. `live-turn-routing.ts:49-56` rejects a sender other than `requiredContinuationUserId`, so that older item can be taken and released on every wake while a later message from the required sender waits until the turn ends. Defer the ineligible item for this turn or examine later eligible items.",
         "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
         "line": 487,
         "priority": "P2",
         "title": "Do not let a rejected follow-up block the required sender"
       },
       {
-        "body": "Ordinary turns now pass `admissionAppId`, but unchanged `group-session-command-runner.ts:39-53` omits it from pre-command and compaction runs. For a normal channel JID owned by a non-default app, this fallback chooses `default`, so those runs can resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the command runner options.",
+        "body": "The catch releases a taken `/stop` or `/new` when its handler throws, including after the command has already stopped the run or reset the session but a marker save or receipt send fails. The next wake can execute that command again. The changed `message-loop.ts:299-319` explicitly keeps an active command consumed on a throw because a partial effect may have occurred; this route needs the same outcome tracking.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 517,
+        "priority": "P2",
+        "title": "Keep active control input consumed after a partial command effect"
+      },
+      {
+        "body": "Ordinary turns now use `admissionAppId` here, but unchanged `group-session-command-runner.ts:39-53` omits it from pre-command and compaction run options. For a normal channel JID owned by a non-default app, those runs fall back to `default`, potentially selecting the wrong app's provider configuration or session. Pass the admission app ID through the command runner options.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "This added task-status file contains previous review findings and status. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason to include it.",
+        "body": "This added task-status file records review state and prior findings. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason to include it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -50,7 +71,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "f6d0366a42325e868cd8751608d9461b7e1462828ced0d9321b66531b7becfca"
+    "tree": "535d3e81df9c9760f95f73c9ee7601ac244abc95a6ff23b6ec46707750f2a7bb"
   },
   "status": "fixing",
   "steps": [
@@ -108,6 +129,10 @@
     },
     {
       "at": "2026-09-30T18:41:47+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T19:49:10+00:00",
       "step": "review"
     }
   ]
