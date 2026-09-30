@@ -127,6 +127,8 @@ OIDC sign-in and a monitoring stack.
 Forge's package ships a short how-to per concern for this stack in `forge/templates/conventions/`:
 `stack.md`, `backend.md`, `api.md`, `database.md`, `frontend.md`, `testing.md` and `security.md`.
 Open one only when your task touches its concern; the rules on this page apply either way.
+The repo's own rules, its AGENTS.md House rules and conventions, win where they differ from these
+default-stack conventions, which apply only to a repo on the default stack.
 
 ## APIs
 
