@@ -47,3 +47,15 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
   approval step.
 - Run long `forge work` runs in the background and keep watching them.
 <!-- forge:end -->
+
+## Review rules
+
+The owner's rules for reviewing changes in this repo (details: `apps/core/AGENTS.md` testing section, `docs/review-instructions.md`).
+
+- **Test levels.** Unit tests for pure rules; Postgres integration tests as the main proof for storage, consumption, migration and recovery contracts; one automated end-to-end test per user-visible behaviour that a Done-when item changes, not one per function.
+- **No end-to-end tests for deletions, config or docs.** A pure removal of legacy or dead code, a settings change, or a docs change is proven by the check the item names. Don't report missing end-to-end tests for them.
+- **No legacy in tests.** Tests must not name removed fields, flags, spellings or shapes, even to prove they stay gone. Current-behaviour tests use neutral, behaviour-based names.
+- **No legacy support.** The product is early stage; don't ask for back-compat, fallbacks or dual reads.
+- **One owner test per behaviour,** at the strongest level that can observe it; don't ask to replay the same scenario at every layer.
+- **Forge records aren't evidence gaps.** Don't report references inside `.factory/` records; agents never edit them.
+- **Live Slack or Telegram checks** are only run when the owner asks; don't require them.
