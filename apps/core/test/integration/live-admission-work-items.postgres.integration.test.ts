@@ -434,6 +434,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
       ensureCredentialBinding: async () => ({ created: false }),
       runAgent: async (_group, input, _onProcess, onOutput) => {
         presented.push(input.prompt);
+        if (input.prompt.includes('will this fail?'))
+          return { status: 'error', error: 'runner failed' };
         await onOutput?.({ status: 'success', result: 'Answered.' });
         return { status: 'success', result: 'Answered.' };
       },
@@ -500,6 +502,31 @@ maybeDescribe('live admission work items (Postgres)', () => {
         message.text.includes('Session commands require admin access.'),
       ),
     ).toBe(true);
+    await save(
+      'msg:question-before-failed-compact',
+      'will this fail?',
+      'command-admin',
+    );
+    await save('msg:failed-compact', '/compact', 'command-admin');
+    expect(
+      await app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:failed-compact',
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(3);
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Failed to process messages before /compact'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: question,
+        consumedBy: 'turn:after-failed-compact',
+        limit: 10,
+      }),
+    ).toEqual([]);
+
     app.setChannelRuntime({
       ...channel.runtime,
       sendMessage: async (jid, text, options) => {
@@ -514,8 +541,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
         existingRunId: 'run:failed-help',
       }),
     ).rejects.toThrow('send failed');
-    expect(presented).toHaveLength(3);
-    expect(presented[2]).toContain('one more?');
+    expect(presented).toHaveLength(4);
+    expect(presented[3]).toContain('one more?');
     expect(
       await liveTurns.takeInput({
         scope: question,

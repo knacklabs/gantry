@@ -554,50 +554,67 @@ describe('live-turn host lease acquisition', () => {
     );
   });
 
-  it('keeps a queued follow-up consumed when saving the old marker fails', async () => {
-    const message = {
-      id: 1,
-      chat_jid: 'chat-1',
-      sender: 'user-1',
-      content: 'follow-up',
-      timestamp: '2024-01-01T00:00:01.000Z',
-      is_from_me: false,
-      sender_name: 'Ravi',
-    };
-    const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
-      message,
-    ]);
-    const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
+  it.each([
+    {
+      failing: 'saving the old marker',
+      saveState: async () => {
+        throw new Error('state store down');
+      },
+      completeSessionAgentRun: async () => undefined,
+    },
+    {
+      failing: 'settling the new run',
+      saveState: async () => undefined,
+      completeSessionAgentRun: async () => {
+        throw new Error('run store down');
+      },
+    },
+  ])(
+    'keeps a queued follow-up consumed when $failing fails',
+    async ({ saveState, completeSessionAgentRun }) => {
+      const message = {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'follow-up',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        sender_name: 'Ravi',
+      };
+      const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
+        message,
+      ]);
+      const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
 
-    await expect(
-      routeScopeActiveLiveTurnAdmissionFromCursor({
-        scope: {
-          appId: 'app:test',
-          agentSessionId: 'session-1',
-          conversationId: 'chat-1',
+      await expect(
+        routeScopeActiveLiveTurnAdmissionFromCursor({
+          scope: {
+            appId: 'app:test',
+            agentSessionId: 'session-1',
+            conversationId: 'chat-1',
+            threadId: null,
+          },
+          queueJid: 'chat-1',
+          liveRunId: 'run-new',
+          ownerTurnId: 'turn-active',
+          ownerRunId: 'run-active',
+          chatJid: 'chat-1',
           threadId: null,
-        },
-        queueJid: 'chat-1',
-        liveRunId: 'run-active',
-        ownerTurnId: 'turn-active',
-        ownerRunId: 'run-active',
-        chatJid: 'chat-1',
-        threadId: null,
-        messageFetchPageSize: 50,
-        timezone: 'UTC',
-        inputRepository,
-        getMessagesByIds,
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(async () => {
-          throw new Error('state store down');
+          messageFetchPageSize: 50,
+          timezone: 'UTC',
+          inputRepository,
+          getMessagesByIds,
+          setAgentCursor: vi.fn(),
+          saveState: vi.fn(saveState),
+          completeSessionAgentRun: vi.fn(completeSessionAgentRun),
+          routeMessage,
         }),
-        routeMessage,
-      }),
-    ).resolves.toBe(true);
+      ).resolves.toBe(true);
 
-    expect(routeMessage).toHaveBeenCalledOnce();
-    expect(releaseInput).not.toHaveBeenCalled();
-  });
+      expect(routeMessage).toHaveBeenCalledOnce();
+      expect(releaseInput).not.toHaveBeenCalled();
+    },
+  );
 
   it('finishes direct recovery routing when its continuation receipt never settles', async () => {
     const enqueueMessageCheck = vi.fn();

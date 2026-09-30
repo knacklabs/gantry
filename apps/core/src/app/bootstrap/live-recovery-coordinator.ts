@@ -341,28 +341,35 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
           cursorAfter: input.continuation.cursorAfter,
         })
       : 'no_active_turn';
+  // Once the command is durably queued, the follow-up stays consumed: a
+  // failed marker write or run settlement must not release it for a second
+  // delivery.
+  const afterQueued = (step: unknown) =>
+    routed === 'queued_to_owner'
+      ? Promise.resolve(step).catch((err) =>
+          logger.warn(
+            { err, queueJid: input.queueJid },
+            'Post-routing step failed after the follow-up was queued',
+          ),
+        )
+      : step;
   if (routed === 'queued_to_owner') {
-    // The command is durably queued, so a failed marker write must not
-    // release its input for a second delivery.
-    await Promise.resolve(input.continuation?.onRouted()).catch((err) =>
-      logger.warn(
-        { err, queueJid: input.queueJid },
-        'Failed to save routed continuation marker',
-      ),
-    );
+    await afterQueued(input.continuation?.onRouted());
   }
   // The orphan-avoidance pre-check routes a continuation BEFORE any run row is
   // created (empty liveRunId), so there is nothing to terminal-mark in that
   // case. Only settle the run when admission actually minted one.
   if (input.liveRunId) {
-    await input.completeSessionAgentRun?.({
-      runId: input.liveRunId,
-      status: routed === 'queued_to_owner' ? 'canceled' : 'failed',
-      errorSummary:
-        routed === 'queued_to_owner'
-          ? 'Live-turn admission routed the message to the active owner.'
-          : `Live-turn admission could not route to active owner: ${routed}`,
-    });
+    await afterQueued(
+      input.completeSessionAgentRun?.({
+        runId: input.liveRunId,
+        status: routed === 'queued_to_owner' ? 'canceled' : 'failed',
+        errorSummary:
+          routed === 'queued_to_owner'
+            ? 'Live-turn admission routed the message to the active owner.'
+            : `Live-turn admission could not route to active owner: ${routed}`,
+      }),
+    );
   }
   return routed === 'queued_to_owner';
 }

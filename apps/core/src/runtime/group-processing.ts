@@ -216,13 +216,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }),
       });
       if (cmdResult.handled) {
-        if (!cmdResult.success)
+        // A command turn that already told the user keeps its input.
+        const done = cmdResult.success || outputSentToUser;
+        if (!done)
           await inputRepository.releaseInput({
             consumedBy: inputConsumer,
             includeFollowUps: true,
           });
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
-        return (sendProgressToChannel.retire(), cmdResult.success);
+        return (sendProgressToChannel.retire(), done);
       }
       if (
         !(await hasTakenGroupTurnTrigger({
