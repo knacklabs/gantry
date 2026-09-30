@@ -2,40 +2,47 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "7a2dd777f45efd24c49f0404f387c1fd0d29b759b48eb7683852801b02c53da8",
-    "commit": "5fb55de7ebf4b1f329a4a2b805c372b2d6465e64",
+    "changed": "289a7098a2cc410a3f33d8e14a59a073f5969acb71c2da91f65e8d9fd38d4458",
+    "commit": "32a5750e233141ac01b87057fa751ba5f9159cb3",
     "dismissals": [],
     "findings": [
       {
-        "body": "Active `/stop` and `/new` run before this path checks whether their admission item was already consumed. A recovery wake can route and consume the item through the live-turn router while an admission worker still holds its claim; `takeInput` permits claimed items. The admission worker can then execute the same command again, and the failed `consumeInputItem` call only logs after the side effect. Claim the item for control handling before executing the command, and cover this two-worker race.",
-        "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 298,
+        "body": "The session-command send wrapper marks any notice as `outputSentToUser`. If a batch contains an earlier user message followed by a denied command, `session-commands.ts:274-279` sends an access-denied notice and then lets the normal turn process the batch. If that agent turn fails before replying, `settleFailedInput` sees the notice as delivered output and keeps the earlier message consumed. The same problem occurs when pre-command processing fails before producing an answer but sends its failure notice. Track whether the input received an answer separately from command notices, and release unanswered input.",
+        "file": "apps/core/src/runtime/group-processing.ts",
+        "line": 206,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "This path treats a successful continuation-file write as delivery and marks the command applied. The unchanged `continuation-input.ts:65-84` only writes a file; it provides no confirmation that the runner read it before closing. Such a follow-up remains consumed without reaching the model or the next turn. The story assigns runner delivery confirmation and release of unconfirmed commands to T4.",
+        "body": "Recovery releases the turn's input whenever `hasDeliveredOutputForRun` finds no durable delivery. On the streaming path, unchanged `group-output-buffer.ts:115-165` sends the final chunk before calling the new transcript persistence callback in `group-processing.ts:533-551`. A worker that dies after the final chunk reaches the user but before that callback commits leaves no delivery row or sent transcript for this check. Recovery then releases the answered input and the next turn can answer it again. The restart test covers a completed reply, not this delivery-to-persistence boundary.",
+        "file": "apps/core/src/app/bootstrap/live-execution.ts",
+        "line": 701,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "A successful continuation-file write returns `true` and the command is marked applied. The unchanged `continuation-input.ts:65-84` only writes the file; it cannot establish that either runner read the text before closing. The item can therefore stay consumed without reaching the model or the next turn. The Tasks table assigns runner confirmation and release of unconfirmed commands to T4.",
         "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
         "line": 38,
         "priority": "P2",
         "title": "Later: T4 must confirm that the runner read a follow-up"
       },
       {
-        "body": "The router takes only the oldest item. If an active turn requires a particular continuation sender, `live-turn-routing.ts:50-56` rejects an item from another sender and this branch releases it. Every subsequent wake takes that same item again, preventing a later item from the required sender from reaching the waiting runner on a single admission worker. Defer the rejected item until the turn ends or examine later eligible items.",
+        "body": "This path releases a follow-up rejected by the active turn. It always takes only the oldest unconsumed item, while `live-turn-routing.ts:50-56` rejects a sender other than `requiredContinuationUserId`. Each wake can take and release that same older item, so a later message from the required sender cannot reach the waiting runner until the turn ends. Defer the ineligible item for this turn or examine later eligible items.",
         "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 485,
+        "line": 487,
         "priority": "P2",
         "title": "Do not let a rejected follow-up block the required sender"
       },
       {
-        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in unchanged `group-session-command-runner.ts:39-53` omit it. This fallback selects `default` for a normal channel JID owned by a non-default app, so those runs can resolve provider configuration and agent session context in the wrong app.",
+        "body": "Ordinary turns now pass `admissionAppId`, but unchanged `group-session-command-runner.ts:39-53` omits it from pre-command and compaction runs. For a normal channel JID owned by a non-default app, this fallback chooses `default`, so those runs can resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the command runner options.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "This added task-status file contains prior review findings and status. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason for including it.",
+        "body": "This added task-status file contains previous review findings and status. It is outside the permitted paths, is not needed for the record switch or its tests, and the supplied handoff gives no reason to include it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -43,7 +50,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "2014781e179b2f88c9397259fda036dd0c772974c757d430ae384cbd85675e0d"
+    "tree": "f6d0366a42325e868cd8751608d9461b7e1462828ced0d9321b66531b7becfca"
   },
   "status": "fixing",
   "steps": [
@@ -97,6 +104,10 @@
     },
     {
       "at": "2026-09-30T16:48:19+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T18:41:47+00:00",
       "step": "review"
     }
   ]
