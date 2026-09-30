@@ -405,6 +405,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const appId = 'channel-app-scope';
     const chatJid = 'tg:channel-app-scope';
     const folder = 'channel_app_scope';
+    // Provider accounts are stored under the default app; this is the Telegram
+    // account a message without an explicit account resolves to.
+    const providerAccountId = 'channel-providerAccount:default:telegram';
     await runtime.control.ensureAppSession({
       appId,
       conversationId: 'channel-app-scope',
@@ -426,6 +429,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await app.registerGroup(chatJid, {
       name: 'Channel app scope',
       folder,
+      providerAccountId,
       trigger: 'Andy',
       added_at: toIso(nowMs()),
       requiresTrigger: false,
@@ -443,7 +447,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         is_from_me: false,
         is_bot_message: false,
       },
-      { appId, agentId: agentIdForFolder(folder) },
+      { appId, agentId: agentIdForFolder(folder), providerAccountId },
     );
     expect(admitted?.outcome).toBe('enqueued');
     if (!admitted || admitted.outcome === 'overloaded')
@@ -488,7 +492,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const folder = 'restart_boundary';
     const providerAccountId = `control:${appId}`;
     const queue = new GroupQueue({
-      maxMessageRuns: 2,
+      maxMessageRuns: 3,
       maxJobRuns: 1,
       maxRetries: 0,
       baseRetryMs: 25,
@@ -577,7 +581,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       });
       await runtime.control.ensureAppSession({
         appId,
-        conversationId: scenario.answered ? 'answered' : 'unanswered',
+        conversationId: scenario.jid.slice(`app:${appId}:`.length),
         chatJid: scenario.jid,
         workspaceFolder: folder,
       });
@@ -762,7 +766,10 @@ maybeDescribe('live admission work items (Postgres)', () => {
       );
       expect(
         delivered.filter((prompt) =>
-          prompt.includes('answered before follow-up'),
+          prompt
+            .split('<current_message')
+            .at(-1)
+            ?.includes('answered before follow-up'),
         ),
       ).toHaveLength(1);
       expect(
