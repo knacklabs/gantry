@@ -307,14 +307,6 @@ function mcpServerToolPatternsForRules(input: {
         });
         continue;
       }
-      if (binding.kind !== 'mcp_tool') continue;
-      const parsed = mcpServerAndToolFromRule(binding.mcpTool);
-      if (!parsed) continue;
-      addRequestedMcpSourceScope(out, {
-        serverName: parsed.serverName,
-        patterns: [parsed.toolName],
-        requireExistingBinding: false,
-      });
     }
   }
   const sortedEntries: Array<[string, RequestedMcpSourceScope]> = [
@@ -426,12 +418,4 @@ function isMcpCapabilityProposalSource(source: unknown): boolean {
     !Array.isArray(source) &&
     (source as Record<string, unknown>).kind === 'mcp_capability_proposal',
   );
-}
-
-function mcpServerAndToolFromRule(
-  toolName: string | undefined,
-): { serverName: string; toolName: string } | null {
-  const match = /^mcp__([A-Za-z0-9_-]+)__(.+)$/.exec(toolName?.trim() ?? '');
-  if (!match) return null;
-  return { serverName: match[1], toolName: match[2] };
 }

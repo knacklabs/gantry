@@ -76,11 +76,6 @@ function makeRuntimeSettings(enabled: {
   telegram: boolean;
   slack: boolean;
 }): RuntimeSettings {
-  const allowlist = {
-    default: { allow: '*', mode: 'trigger' as const },
-    agents: {},
-    logDenied: true,
-  };
   return {
     providers: {
       telegram: { enabled: enabled.telegram },
@@ -341,7 +336,7 @@ describe('createChannelWiring', () => {
       const requestPermissionApproval = vi.fn(
         async (
           _jid: string,
-          request: PermissionApprovalRequest,
+          _request: PermissionApprovalRequest,
           onPromptDelivered?: (messageId: string) => void,
         ) => {
           onPromptDelivered?.('batch-prompt-1');
@@ -543,7 +538,7 @@ describe('createChannelWiring', () => {
     const requestUserAnswer = vi.fn(
       async (
         _jid: string,
-        request: UserQuestionRequest,
+        _request: UserQuestionRequest,
         onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
       ) => {
         onPromptDelivered?.('question-prompt-1');
@@ -725,7 +720,7 @@ describe('createChannelWiring', () => {
     const responder = createUserQuestionResponder({
       findBoundChannel: () => ({}),
       asUserQuestionSurface: () => ({
-        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+        requestUserAnswer: vi.fn(async (_jid, _request, onPromptDelivered) => {
           onPromptDelivered?.('question-prompt-retry');
           return new Promise<{
             requestId: string;
@@ -798,15 +793,17 @@ describe('createChannelWiring', () => {
       const responder = createUserQuestionResponder({
         findBoundChannel: () => ({}),
         asUserQuestionSurface: () => ({
-          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
-            onPromptDelivered?.('question-prompt');
-            return new Promise<{
-              requestId: string;
-              answers: Record<string, string | string[]>;
-            }>((resolve) => {
-              resolveAnswer = resolve;
-            });
-          }),
+          requestUserAnswer: vi.fn(
+            async (_jid, _request, onPromptDelivered) => {
+              onPromptDelivered?.('question-prompt');
+              return new Promise<{
+                requestId: string;
+                answers: Record<string, string | string[]>;
+              }>((resolve) => {
+                resolveAnswer = resolve;
+              });
+            },
+          ),
           cancelPendingQuestion,
         }),
         interactionLifecycle: {
@@ -3582,7 +3579,7 @@ describe('createChannelWiring', () => {
     expect(wiring.supportsStreaming('tg:-123')).toBe(true);
   });
 
-  it('does not advertise Telegram private draft streaming', async () => {
+  it('limits Telegram streaming to group chats', async () => {
     const app = makeApp();
     const outbound = makeChannel({
       ownsJid: vi.fn((jid: string) => jid === 'tg:123'),

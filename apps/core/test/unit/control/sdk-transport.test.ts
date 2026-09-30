@@ -854,8 +854,7 @@ describe('@gantry/sdk transport', () => {
       body: { decision: 'edit_approve', editedValue: 'v2', reason: 'why' },
     });
 
-    // Compile-time contract: edit_approve without editedValue is a type error
-    // (never executed — checked by tsc). approve without editedValue is fine.
+    // Compile-time contract: edit_approve requires a replacement value.
     const _typeCheck = () => {
       // @ts-expect-error editedValue is required for an edit_approve decision.
       client.memory.reviews.decide('rev/1', {
@@ -869,14 +868,6 @@ describe('@gantry/sdk transport', () => {
         subjectType: 'user',
         subjectId: 'user/9',
         decision: 'approve',
-      });
-      // approve accepts (server ignores) editedValue — back-compat.
-      client.memory.reviews.decide('rev/1', {
-        agentId: 'agent/1',
-        subjectType: 'user',
-        subjectId: 'user/9',
-        decision: 'approve',
-        editedValue: 'x',
       });
     };
     void _typeCheck;

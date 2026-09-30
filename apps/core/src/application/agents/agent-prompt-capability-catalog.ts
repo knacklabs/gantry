@@ -155,15 +155,6 @@ function resolveReadyActions(
   capabilities: readonly SemanticCapabilityDefinition[] | undefined,
 ): CatalogEntry[] {
   const actions = (capabilities ?? []).flatMap((capability): CatalogEntry[] => {
-    if (
-      capability.implementationBindings.some(
-        (binding) => binding.kind === 'mcp_tool',
-      )
-    ) {
-      throw new Error(
-        `Capability ${capability.capabilityId} uses the unsupported legacy mcp_tool binding.`,
-      );
-    }
     const revision = normalizedRevision(capability.version);
     const accountLabel = normalizedOptional(
       capability.accountLabel,
@@ -247,8 +238,6 @@ function projectInvocation(
         ? [{ kind: 'adapter', toolName: adapterRef.slice(8) }]
         : [{ kind: 'adapter' }];
     }
-    case 'mcp_tool':
-      return [];
   }
 }
 

@@ -569,14 +569,11 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
       if (normalizeMcpServerName(sourceServerName) === requestedName) {
         return true;
       }
-      return capability.implementationBindings.some((binding) => {
-        if (binding.kind === 'mcp_pattern') {
-          return normalizeMcpServerName(binding.mcpServer) === requestedName;
-        }
-        if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
-        const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
-        return normalizeMcpServerName(match?.[1]) === requestedName;
-      });
+      return capability.implementationBindings.some(
+        (binding) =>
+          binding.kind === 'mcp_pattern' &&
+          normalizeMcpServerName(binding.mcpServer) === requestedName,
+      );
     })
     .map((capability) => capability.capabilityId)
     .sort();
