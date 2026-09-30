@@ -1974,6 +1974,51 @@ describe('handleSessionCommand', () => {
     );
   });
 
+  it('answers earlier messages before listing commands', async () => {
+    const deps = makeDeps();
+    const result = await handleSessionCommand({
+      missedMessages: [
+        makeMsg('what changed today?', { id: 'question', timestamp: '99' }),
+        makeMsg('/commands', { id: 'command', timestamp: '100' }),
+      ],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.formatMessages).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'question' })],
+      'UTC',
+    );
+    expect(deps.runAgent).toHaveBeenCalledOnce();
+    expect(deps.sendMessage).toHaveBeenLastCalledWith(
+      expect.stringContaining('/commands'),
+    );
+  });
+
+  it('refuses a command but leaves earlier messages for a normal turn', async () => {
+    const deps = makeDeps();
+    const result = await handleSessionCommand({
+      missedMessages: [
+        makeMsg('what changed today?', { id: 'question', is_from_me: false }),
+        makeMsg('/compact', { id: 'command', is_from_me: false }),
+      ],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: false });
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Session commands require admin access.',
+    );
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
+  });
+
   it('continues /new even when archiveCurrentSession throws', async () => {
     // Covers line 277: catch block for archiveCurrentSession error
     const deps = makeDeps({

@@ -40,6 +40,18 @@ import {
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
 
+const commandAdmins = vi.hoisted(() => new Set<string>());
+vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
+  return {
+    ...actual,
+    isSenderControlAllowed: (
+      ...args: Parameters<typeof actual.isSenderControlAllowed>
+    ) => commandAdmins.has(args[1]) || actual.isSenderControlAllowed(...args),
+  };
+});
+
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
 maybeDescribe('live admission work items (Postgres)', () => {
@@ -398,6 +410,103 @@ maybeDescribe('live admission work items (Postgres)', () => {
         limit: 1,
       }),
     ).toMatchObject([{ id: unreadable.item.id }]);
+  });
+
+  it('answers a question sent just before a session command exactly once', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'command-batch';
+    const folder = 'command_batch';
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const agentId = agentIdForFolder(folder);
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const presented: string[] = [];
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'Answered.' });
+        return { status: 'success', result: 'Answered.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Command batch',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    commandAdmins.add('command-admin');
+    const save = async (id: string, content: string, sender: string) => {
+      const result = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'app',
+          providerAccountId,
+          sender,
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId, agentId },
+      );
+      expect(result?.outcome).toBe('enqueued');
+      if (!result || result.outcome === 'overloaded')
+        throw new Error('Admission failed');
+      return result.item;
+    };
+
+    const question = await save(
+      'msg:question-before-help',
+      'what changed?',
+      'command-admin',
+    );
+    await save('msg:help', '/commands', 'command-admin');
+    await app.processGroupMessages(question.queueJid, {
+      existingRunId: 'run:help',
+    });
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('what changed?');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Gantry commands'),
+      ),
+    ).toBe(true);
+
+    await save('msg:question-before-refusal', 'and staging?', 'person');
+    await save('msg:refused', '/compact', 'person');
+    await app.processGroupMessages(question.queueJid, {
+      existingRunId: 'run:refused',
+    });
+    expect(presented).toHaveLength(2);
+    expect(presented[1]).toContain('and staging?');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Session commands require admin access.'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: question,
+        consumedBy: 'turn:after-commands',
+        limit: 10,
+      }),
+    ).toEqual([]);
   });
 
   it('delivers a normal channel JID in a non-default app to the turn', async () => {

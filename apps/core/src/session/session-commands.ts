@@ -264,24 +264,24 @@ export async function handleSessionCommand(opts: {
 
   if (!command || !cmdMsg) return { handled: false };
 
-  if (
-    !isSessionCommandAllowed(
-      cmdMsg.is_from_me === true,
-      deps.isSenderControlAllowlisted(cmdMsg),
-    )
-  ) {
-    // DENIED: send denial if the sender would normally be allowed to interact,
-    // then silently consume the command by advancing the cursor past it.
-    // Trade-off: other messages in the same batch are also consumed (cursor is
-    // a high-water mark). Acceptable for this narrow edge case.
+  const allowed = isSessionCommandAllowed(
+    cmdMsg.is_from_me === true,
+    deps.isSenderControlAllowlisted(cmdMsg),
+  );
+
+  const cmdIndex = missedMessages.indexOf(cmdMsg);
+  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
+
+  if (!allowed) {
     if (deps.canSenderInteract(cmdMsg)) {
       await deps.sendMessage('Session commands require admin access.');
     }
+    // Earlier messages still get a normal, trigger-checked turn.
+    if (preCommandMsgs.length > 0) return { handled: false };
     deps.advanceCursor(cmdMsg);
     return { handled: true, success: true };
   }
 
-  // AUTHORIZED: process pre-command messages first, then run the command
   logger.info({ group: groupName, command: command.raw }, 'Session command');
 
   if (command.kind === 'stop') {
@@ -292,15 +292,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
-  if (command.kind === 'commands') {
-    deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(formatSessionCommandsHelp());
-    return { handled: true, success: true };
-  }
-
-  const cmdIndex = missedMessages.indexOf(cmdMsg);
-  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
 
   // /new is the recovery path when the persisted provider session is bad.
   // Do not try to run older queued messages before clearing the session.
@@ -371,6 +362,12 @@ export async function handleSessionCommand(opts: {
       }
       return { handled: true, success: false };
     }
+  }
+
+  if (command.kind === 'commands') {
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(formatSessionCommandsHelp());
+    return { handled: true, success: true };
   }
 
   // Forward the literal slash command as the prompt (no XML formatting)
