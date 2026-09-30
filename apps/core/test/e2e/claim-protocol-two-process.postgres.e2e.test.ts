@@ -1114,7 +1114,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       ]),
     );
 
-    // A settings/state reload may restore an old marker. The record remains
+    // A settings reload may restore an old marker. The record remains
     // authoritative, so a later saved item still reaches the same user once.
     await runtime.ops.setRouterState(
       'last_agent_timestamp',
@@ -1125,7 +1125,57 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         }),
       }),
     );
-    await app.loadState();
+    const {
+      createDefaultRuntimeSettings,
+      ensureConfiguredConversationBinding,
+      saveRuntimeSettings,
+    } = await import('@core/config/settings/runtime-settings.js');
+    const { startSettingsReloadWatcher } =
+      await import('@core/runtime/settings-reload-watcher.js');
+    const providerAccountId = admitted.item.providerAccountId;
+    if (!providerAccountId) throw new Error('Missing provider account');
+    const reloadSettings = createDefaultRuntimeSettings();
+    reloadSettings.storage.postgres.urlEnv = 'GANTRY_TEST_DATABASE_URL';
+    reloadSettings.storage.postgres.schema = runtime.schemaName;
+    reloadSettings.credentialBroker.mode = 'none';
+    reloadSettings.agent.defaultModel = 'opus';
+    reloadSettings.providerAccounts[providerAccountId] = {
+      agentId: agentIdForFolder(folder),
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: {},
+    };
+    ensureConfiguredConversationBinding(reloadSettings, {
+      agentId: agentIdForFolder(folder),
+      agentName: route.name,
+      agentFolder: folder,
+      jid: chatJid,
+      displayName: route.name,
+      trigger: route.trigger,
+      requiresTrigger: route.requiresTrigger,
+    });
+    saveRuntimeSettings(temp.runtimeHome, reloadSettings);
+    const loadState = vi.spyOn(app, 'loadState');
+    const watcher = startSettingsReloadWatcher({
+      runtimeHome: temp.runtimeHome,
+      app,
+      ops: runtime.ops,
+      repositories: runtime.repositories,
+      pollIntervalMs: 20,
+    });
+    try {
+      const changedSettings = structuredClone(reloadSettings);
+      changedSettings.agent.defaultModel = 'sonnet';
+      saveRuntimeSettings(temp.runtimeHome, changedSettings);
+      await waitForLiveE2e(
+        () => loadState.mock.calls.length === 1,
+        'settings reload applied',
+      );
+      await loadState.mock.results[0]?.value;
+    } finally {
+      watcher.close();
+      loadState.mockRestore();
+    }
     const lateMessage = {
       ...inbound,
       id: 'msg-live-e2e-after-reload',
@@ -1175,6 +1225,11 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     expect(
       fakeChannel.outbound.filter((message) =>
         message.text.includes('after settings reload'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.includes(inboundText),
       ),
     ).toHaveLength(1);
   }, 60_000);
