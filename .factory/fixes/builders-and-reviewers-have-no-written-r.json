@@ -3,7 +3,7 @@
   "branch": "fix/builders-and-reviewers-have-no-written-r",
   "done_when": "apps/core/AGENTS.md and docs/review-instructions.md state the owner's test balance (unit for pure rules, Postgres integration for storage and recovery contracts, one automated e2e per user-visible Done-when behaviour, no e2e for deletions, config or docs, live channel checks only on request)",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-09-30T05:36:27+00:00",
