@@ -213,6 +213,16 @@ export function createGroupTurnProgressSenders(input: {
   };
 }
 
+const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
+  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
+const FINAL_RETRY_FAILED_MESSAGE =
+  "I couldn't finish your request after several tries. Please send it again.";
+export function finalRetryNotice(failoverExhausted: boolean): string {
+  return failoverExhausted
+    ? PROVIDER_FAILOVER_EXHAUSTED_MESSAGE
+    : FINAL_RETRY_FAILED_MESSAGE;
+}
+
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   failureNoticeDelivered?: boolean;

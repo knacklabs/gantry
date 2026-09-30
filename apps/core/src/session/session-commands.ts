@@ -10,7 +10,6 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
-  type SessionCommand,
 } from './session-command-parse.js';
 export {
   extractSessionCommand,

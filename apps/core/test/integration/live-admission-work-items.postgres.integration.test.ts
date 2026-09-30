@@ -500,6 +500,22 @@ maybeDescribe('live admission work items (Postgres)', () => {
         message.text.includes('Session commands require admin access.'),
       ),
     ).toBe(true);
+    app.setChannelRuntime({
+      ...channel.runtime,
+      sendMessage: async (jid, text, options) => {
+        if (text.includes('Gantry commands')) throw new Error('send failed');
+        return channel.runtime.sendMessage(jid, text, options);
+      },
+    });
+    await save('msg:question-before-failed-help', 'one more?', 'command-admin');
+    await save('msg:failed-help', '/commands', 'command-admin');
+    await expect(
+      app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:failed-help',
+      }),
+    ).rejects.toThrow('send failed');
+    expect(presented).toHaveLength(3);
+    expect(presented[2]).toContain('one more?');
     expect(
       await liveTurns.takeInput({
         scope: question,

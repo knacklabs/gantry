@@ -22,6 +22,7 @@ import { memoryScopeForConversationKind } from './group-run-context.js';
 import {
   createGroupTurnChannelActions,
   createGroupTurnProgressSenders,
+  finalRetryNotice,
   hasTakenGroupTurnTrigger,
   handleFailure,
   resetGroupStreamingForTurn,
@@ -62,10 +63,6 @@ import {
 } from './failover-eligibility.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
-const PROVIDER_FAILOVER_EXHAUSTED_MESSAGE =
-  "The AI provider is unavailable and your message couldn't be processed after several retries. Please try again shortly.";
-const FINAL_RETRY_FAILED_MESSAGE =
-  "I couldn't finish your request after several tries. Please send it again.";
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -193,7 +190,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           processOptions: options,
           commandOverrideRouteKey: routeContext.commandOverrideRouteKey,
           setTyping: setTurnTyping,
-          sendMessage: sendMessageToChannel,
+          sendMessage: async (text, sendOptions) => {
+            await sendMessageToChannel(text, sendOptions);
+            outputSentToUser = true;
+          },
           buildMessageOptions,
           triggerPattern: config.getTriggerPattern(group.trigger),
           getDefaultModel: () =>
@@ -735,9 +735,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             const noticeSettlement = await settleDeliveryAttempt(
               () =>
                 sendMessageToChannel(
-                  failoverExhausted
-                    ? PROVIDER_FAILOVER_EXHAUSTED_MESSAGE
-                    : FINAL_RETRY_FAILED_MESSAGE,
+                  finalRetryNotice(failoverExhausted),
                   noticeOptions,
                 ),
               { scope: 'runtime-final-retry-failed', target: chatJid },

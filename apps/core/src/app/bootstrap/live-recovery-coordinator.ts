@@ -342,7 +342,14 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
         })
       : 'no_active_turn';
   if (routed === 'queued_to_owner') {
-    await input.continuation?.onRouted();
+    // The command is durably queued, so a failed marker write must not
+    // release its input for a second delivery.
+    await Promise.resolve(input.continuation?.onRouted()).catch((err) =>
+      logger.warn(
+        { err, queueJid: input.queueJid },
+        'Failed to save routed continuation marker',
+      ),
+    );
   }
   // The orphan-avoidance pre-check routes a continuation BEFORE any run row is
   // created (empty liveRunId), so there is nothing to terminal-mark in that
