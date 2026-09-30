@@ -490,11 +490,12 @@ maybeDescribe('live admission work items (Postgres)', () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'callable-completion';
     const chatJid = 'tg:-callable-completion';
     const folder = 'callable_completion';
     const providerAccountId = 'channel-providerAccount:default:telegram';
     await runtime.control.ensureAppSession({
-      appId: 'default',
+      appId,
       conversationId: 'callable-completion',
       chatJid,
       workspaceFolder: folder,
@@ -534,7 +535,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         is_bot_message: false,
       },
       {
-        appId: 'default',
+        appId,
         agentId: agentIdForFolder(folder),
         providerAccountId,
         triggerDecision: {
@@ -550,7 +551,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     expect(
       await app.processGroupMessages(admitted.item.queueJid, {
         existingRunId: 'run:callable-completion',
-        admissionAppId: 'default',
+        admissionAppId: appId,
       }),
     ).toBe(true);
     expect(presented).toHaveLength(1);
