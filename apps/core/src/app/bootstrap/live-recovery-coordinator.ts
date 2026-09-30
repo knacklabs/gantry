@@ -425,6 +425,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     itemId: string;
     receiveOrder: number | null;
   }> = [];
+  let queued = false;
   try {
     for (let index = 0; index < 1; index += 1) {
       const [item] = await input.inputRepository.takeInput({
@@ -486,6 +487,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
       await input.inputRepository.releaseInput({ consumedBy: consumer });
       return false;
     }
+    queued = true;
     void acknowledgeContinuationReceipt({
       jid: input.chatJid,
       messages: replayMessages,
@@ -511,7 +513,9 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     }
     return true;
   } catch (err) {
-    await input.inputRepository.releaseInput({ consumedBy: consumer });
+    // A follow-up already queued to the owner is never handed back.
+    if (!queued)
+      await input.inputRepository.releaseInput({ consumedBy: consumer });
     throw err;
   }
 }

@@ -99,6 +99,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const inputConsumer = `turn:${options.existingRunId ?? randomUUID()}`;
     let outputSentToUser = false;
+    const settleFailedInput = () =>
+      handleFailure({
+        outputSentToUser,
+        groupName: group.name,
+        releaseInput: () =>
+          inputRepository.releaseInput({
+            consumedBy: inputConsumer,
+            includeFollowUps: true,
+          }),
+        logger,
+      });
     try {
       const {
         missedMessages,
@@ -216,13 +227,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }),
       });
       if (cmdResult.handled) {
-        // A command turn that already told the user keeps its input.
-        const done = cmdResult.success || outputSentToUser;
-        if (!done)
-          await inputRepository.releaseInput({
-            consumedBy: inputConsumer,
-            includeFollowUps: true,
-          });
+        const done = cmdResult.success || (await settleFailedInput());
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
         return (sendProgressToChannel.retire(), done);
       }
@@ -727,7 +732,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             options.finalRetry === true &&
             !outputSentToUser &&
             (failoverExhausted || !deps.queue.isShuttingDown?.());
-          let failureNoticeDelivered = false;
           if (sendFinalNotice) {
             logger.error(
               { group: group.name, error: lastAgentError },
@@ -748,25 +752,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               );
               return 'not_delivered' as const;
             });
-            failureNoticeDelivered = noticeSettlement !== 'not_delivered';
             applyDeliverySettlement(noticeSettlement, {
               streamed: false,
               terminal: true,
             });
           }
-          resultOk = await handleFailure({
-            outputSentToUser,
-            failureNoticeDelivered,
-            groupName: group.name,
-            queueJid,
-            releaseInput: () =>
-              inputRepository.releaseInput({
-                consumedBy: inputConsumer,
-                includeFollowUps: true,
-              }),
-            deps,
-            logger,
-          });
+          resultOk = await settleFailedInput();
         } else {
           await persistTurnAssistantTranscript({
             supportsStreamingChunks,
@@ -840,12 +831,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await cancelTurnUiTimers();
       }
     } catch (err) {
-      if (!outputSentToUser) {
-        await inputRepository.releaseInput({
-          consumedBy: inputConsumer,
-          includeFollowUps: true,
-        });
-      }
+      await settleFailedInput();
       throw err;
     }
   }

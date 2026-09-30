@@ -33,7 +33,7 @@ export interface MessageLoopDeps {
   appId?: string;
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
-    'listUnconsumedLiveAdmissionQueueJids' | 'consumeInputItem'
+    'listUnconsumedLiveAdmissionQueueJids' | 'consumeInputItem' | 'releaseInput'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
   getOrRecoverCursor: (chatJid: string) => Promise<string> | string;
@@ -294,27 +294,29 @@ export async function processLiveAdmissionWorkItem(
           loadSenderControlAllowlist(),
           group.folder,
         ),
-      ) &&
-      (await deps.handleActiveControlCommand({
+      )
+    ) {
+      // Claim before acting: a worker that loses the claim never runs the
+      // command, so two workers can't both stop or reset the session.
+      const consumedBy = `control:${item.id}`;
+      if (
+        !(await deps.inputRepository?.consumeInputItem({
+          id: item.id,
+          consumedBy,
+        }))
+      ) {
+        return 'completed';
+      }
+      // Only a clean refusal goes back; a throw may follow a partial effect.
+      const handled = await deps.handleActiveControlCommand({
         chatJid,
         queueJid: item.queueJid,
         group,
         message,
         command,
-      }))
-    ) {
-      if (
-        !(await deps.inputRepository?.consumeInputItem({
-          id: item.id,
-          consumedBy: 'control',
-        }))
-      ) {
-        logger.warn(
-          { itemId: item.id },
-          'Active control message was handled but its admission item was already consumed',
-        );
-      }
-      return 'completed';
+      });
+      if (handled) return 'completed';
+      await deps.inputRepository?.releaseInput({ consumedBy });
     }
   }
   return enqueueMessageCheck(deps, item.queueJid);

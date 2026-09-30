@@ -136,12 +136,7 @@ function makeInput(
   return {
     outputSentToUser: false,
     groupName: 'Main Agent',
-    queueJid: 'sl:C1234567890',
     releaseInput: vi.fn().mockResolvedValue(1),
-    deps: {
-      setCursor: vi.fn(),
-      saveState: vi.fn(),
-    },
     logger: {
       warn: vi.fn(),
     },
@@ -156,21 +151,17 @@ describe('handleFailure', () => {
     await expect(handleFailure(input)).resolves.toBe(false);
 
     expect(input.releaseInput).toHaveBeenCalledOnce();
-    expect(input.deps.setCursor).not.toHaveBeenCalled();
     expect(input.logger.warn).toHaveBeenCalledWith(
       { group: 'Main Agent' },
       'Agent error, released input for retry',
     );
   });
 
-  it.each([{ outputSentToUser: true }, { failureNoticeDelivered: true }])(
-    'keeps consumed input once the user saw output or the failure notice: %j',
-    async (override) => {
-      const input = makeInput(override);
+  it('keeps consumed input once the user was told', async () => {
+    const input = makeInput({ outputSentToUser: true });
 
-      await expect(handleFailure(input)).resolves.toBe(true);
+    await expect(handleFailure(input)).resolves.toBe(true);
 
-      expect(input.releaseInput).not.toHaveBeenCalled();
-    },
-  );
+    expect(input.releaseInput).not.toHaveBeenCalled();
+  });
 });

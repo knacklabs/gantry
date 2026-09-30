@@ -152,7 +152,7 @@ describe('durable admission wakeup', () => {
       expect(kill).toHaveBeenCalledWith(-9_999_991, 'SIGTERM');
       expect(consumeInputItem).toHaveBeenCalledWith({
         id: 'work-1',
-        consumedBy: 'control',
+        consumedBy: 'control:work-1',
       });
     } finally {
       kill.mockRestore();
@@ -160,6 +160,50 @@ describe('durable admission wakeup', () => {
       await queue.shutdown();
     }
   });
+
+  it.each([
+    { claimed: false, handled: true, runs: false, released: false },
+    { claimed: true, handled: false, runs: true, released: true },
+    { claimed: true, handled: 'throws', runs: true, released: false },
+  ])(
+    'claims an active stop before running it: %j',
+    async ({ claimed, handled, runs, released }) => {
+      const { input, enqueueMessageCheck } = deps();
+      const releaseInput = vi.fn(async () => 1);
+      input.inputRepository = {
+        consumeInputItem: vi.fn(async () => claimed),
+        releaseInput,
+      } as never;
+      input.opsRepository = {
+        getMessagesByIds: vi.fn(async () => [
+          {
+            id: 'message-1',
+            chat_jid: 'tg:team',
+            sender: 'user',
+            content: '/stop',
+            timestamp: '2026-09-29T00:00:00Z',
+            is_from_me: true,
+            is_bot_message: false,
+          },
+        ]),
+      } as never;
+      const handleActiveControlCommand = vi.fn(async () => {
+        if (handled === 'throws') throw new Error('stop failed midway');
+        return handled;
+      });
+      input.handleActiveControlCommand = handleActiveControlCommand;
+
+      const processed = processLiveAdmissionWorkItem(input, workItem());
+      if (handled === 'throws') await expect(processed).rejects.toThrow();
+      else await processed;
+
+      expect(handleActiveControlCommand).toHaveBeenCalledTimes(runs ? 1 : 0);
+      expect(releaseInput).toHaveBeenCalledTimes(released ? 1 : 0);
+      expect(enqueueMessageCheck).toHaveBeenCalledTimes(
+        claimed && handled === false ? 1 : 0,
+      );
+    },
+  );
 
   it('rejects a work item whose queue identity does not match its scope', async () => {
     const { input, enqueueMessageCheck } = deps();

@@ -223,16 +223,12 @@ export function finalRetryNotice(failoverExhausted: boolean): string {
     : FINAL_RETRY_FAILED_MESSAGE;
 }
 
+// The one release rule for a turn: input that reached the user is kept;
+// anything else goes back for the next turn.
 export async function handleFailure(input: {
   outputSentToUser: boolean;
-  failureNoticeDelivered?: boolean;
   groupName: string;
-  queueJid: string;
   releaseInput: () => Promise<number>;
-  deps: {
-    setCursor: (chatJid: string, timestamp: string) => void;
-    saveState: () => Promise<void> | void;
-  };
   logger: {
     warn(payload: Record<string, unknown>, message: string): void;
   };
@@ -240,15 +236,7 @@ export async function handleFailure(input: {
   if (input.outputSentToUser) {
     input.logger.warn(
       { group: input.groupName },
-      'Agent error after output was sent, preserving consumed input to prevent duplicates',
-    );
-    return true;
-  }
-  if (input.failureNoticeDelivered) {
-    await input.deps.saveState();
-    input.logger.warn(
-      { group: input.groupName },
-      'Agent error on final retry, user notified; preserving consumed input to prevent stale replay',
+      'Turn failed after the user was told, keeping its input',
     );
     return true;
   }

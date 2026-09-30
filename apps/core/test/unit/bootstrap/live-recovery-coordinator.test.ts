@@ -616,6 +616,49 @@ describe('live-turn host lease acquisition', () => {
     },
   );
 
+  it('keeps a queued follow-up consumed when a later wakeup step throws', async () => {
+    const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
+      {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'follow-up',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        sender_name: 'Ravi',
+      },
+    ]);
+
+    await expect(
+      routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope: {
+          appId: 'app:test',
+          agentSessionId: 'session-1',
+          conversationId: 'chat-1',
+          threadId: null,
+        },
+        queueJid: 'chat-1',
+        liveRunId: '',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
+        chatJid: 'chat-1',
+        threadId: null,
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        inputRepository,
+        getMessagesByIds,
+        setAgentCursor: vi.fn(),
+        saveState: vi.fn(),
+        enqueueMessageCheck: () => {
+          throw new Error('queue closed');
+        },
+        routeMessage: vi.fn(async () => 'queued_to_owner' as const),
+      }),
+    ).rejects.toThrow('queue closed');
+
+    expect(releaseInput).not.toHaveBeenCalled();
+  });
+
   it('finishes direct recovery routing when its continuation receipt never settles', async () => {
     const enqueueMessageCheck = vi.fn();
     const message = {
