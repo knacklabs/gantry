@@ -2,8 +2,8 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "3d51e072efcbfb90ce1497c0c1c9ce0c1259fda24674fa300d60cc27eaaa3137",
-    "commit": "2022d912d3dc6749424fbd9e421e0e52a1c72968",
+    "changed": "e2ebd9dd1e9b9019f2e7ebe9b55deb67fd488cb2567d2524bd36d5b76756e0b8",
+    "commit": "c3fb1cc7c8297d9aa836c82ddc3a529f4de2bb57",
     "dismissals": [
       {
         "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed; the progress card shows the failed state",
@@ -13,35 +13,35 @@
     ],
     "findings": [
       {
-        "body": "New evidence beyond the prior failure-path review: a batch containing a normal message followed by a session command is consumed under one turn consumer. If processing the earlier message sends partial output and then fails, `handleSessionCommand` deliberately leaves the command pending (`apps/core/src/session/session-commands.ts:366-370`) and returns `success: true`. This branch treats that result as fully handled and releases no item, so the command can never reach the next turn. Release the command's admission item in that path and test the mixed batch.",
+        "body": "New evidence beyond the earlier ordering review: when a normal question is received before an authorized `/commands`, the new take loop consumes both items and keeps the command last, but `handleSessionCommand` returns for `/commands` before processing earlier messages (`apps/core/src/session/session-commands.ts:296-300`). This branch releases the batch only when the handler returns `success: false`. The question never reaches the agent, and the next wake cannot take it again. Process the earlier input or release its admission item.",
         "file": "apps/core/src/runtime/group-processing.ts",
         "line": 218,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "New evidence beyond the provider-timestamp ordering ruling: a normal message can be received before a slash command whose provider timestamp is older by a second. The take loop consumes both in receive order, but this sort moves the command first. `handleSessionCommand` then handles an immediate command such as `/commands` without processing the normal message (`apps/core/src/session/session-commands.ts:297-300`); both items remain consumed. Preserve admission receive order for the batch.",
-        "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 34,
+        "body": "New evidence beyond the prior functional-check dismissal: the check claimed for the question \u2192 `/commands` flow stops at this assertion of batch order and `hasMore`. It never invokes the session command handler or checks whether the question reaches an agent or remains available. The handler's immediate `/commands` return consumes that question, so the claimed user flow was not exercised through its outcome. Add a test through the admission and command path that asserts the question is delivered exactly once.",
+        "file": "apps/core/test/unit/runtime/group-processing-flow.test.ts",
+        "line": 126,
         "priority": "P1",
-        "title": "Not done: No message is lost or given twice"
+        "title": "Not done: functional check"
       },
       {
-        "body": "Ordinary turns now supply `admissionAppId`, but the pre-command and compaction runs built by `createSessionCommandAgentRunners` omit it (`apps/core/src/runtime/group-session-command-runner.ts:38-55`). For a non-default app using a normal channel JID, this fallback selects `default`, so those runs resolve provider configuration and agent session context in the wrong app.",
+        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in `apps/core/src/runtime/group-session-command-runner.ts:38-55` omit it. For a non-default app using a normal channel JID, this fallback selects `default`, so those runs resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the session-command runner options.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "This hook returns success immediately after writing a continuation file. The file writer only places JSON on disk (`apps/core/src/runtime/continuation-input.ts:65-83`); it does not establish that the model read it. A runner that finishes between the write and its next read can leave an applied command whose item remains consumed, because normal finalization releases only pending continuations (`apps/core/src/runtime/live-turn-authority.ts:523-541`). The story assigns runner delivery IDs and release of unconfirmed commands to T4, so this remains a T4 dependency.",
+        "body": "The new boolean acknowledgement becomes `true` immediately after a continuation file is written. The writer only renames JSON into place (`apps/core/src/runtime/continuation-input.ts:65-83`); it does not confirm that the model read it. If the runner finishes before its next read, the command can be marked applied while its admission item stays consumed. The coordinator assigns per-follow-up delivery confirmation to T4; this remains that task's dependency.",
         "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
         "line": 38,
         "priority": "P2",
         "title": "Later: T4 must confirm runner delivery before retaining follow-up input"
       },
       {
-        "body": "This added task-status file records previous review findings and dismissals. It is outside the permitted paths and does not support the runtime switch, migration, required tests, or decision amendment; no need for it is identified in the supplied handoff.",
+        "body": "This added task-status file records review findings and dismissals. It is outside the permitted paths and is not needed for the runtime switch, migration, required tests, or decision amendment; the supplied handoff gives no reason for including it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -49,7 +49,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "3218a55d0f75ff68d91acf0c2636f02eafaa29263aecd716e62381ebb10adf2b"
+    "tree": "8f14b30b8f7e5ec16fbbc8dcf8b1ae79b7e4278fab559821b563a31c3c27d59f"
   },
   "status": "fixing",
   "steps": [
@@ -87,6 +87,10 @@
     },
     {
       "at": "2026-09-30T14:01:09+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T14:23:12+00:00",
       "step": "review"
     }
   ]
