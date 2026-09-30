@@ -26,10 +26,7 @@ import {
   routeLiveStop,
 } from './live-turn-routing.js';
 import { writeResolvedInteractionResponse } from './interaction-resolution-response.js';
-import {
-  applyLiveContinuationCommand,
-  releaseLiveContinuationCommand,
-} from './live-turn-continuation-command.js';
+import * as continuationCommand from './live-turn-continuation-command.js';
 import {
   hostExecutionSlotHolderId,
   hostExecutionSlotKey,
@@ -231,7 +228,7 @@ export class LiveTurnAuthority {
           !!this.active.get(queueJid)?.hooks,
         handlers: {
           continuation: (command) =>
-            applyLiveContinuationCommand(
+            continuationCommand.applyLiveContinuationCommand(
               command,
               this.active.get(queueJid),
               this.deps.leaseDeps.liveTurns,
@@ -532,7 +529,7 @@ export class LiveTurnAuthority {
       if (command?.commandType === 'continuation') {
         // The runner is done, so this follow-up goes to the next turn.
         if (
-          !(await releaseLiveContinuationCommand(
+          !(await continuationCommand.releaseLiveContinuationCommand(
             command,
             registration,
             this.deps.leaseDeps.liveTurns,
