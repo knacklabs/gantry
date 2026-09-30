@@ -2,8 +2,8 @@
   "branch": "task/TURN-1-T2",
   "review": {
     "blocking_level": "P1",
-    "changed": "e2ebd9dd1e9b9019f2e7ebe9b55deb67fd488cb2567d2524bd36d5b76756e0b8",
-    "commit": "c3fb1cc7c8297d9aa836c82ddc3a529f4de2bb57",
+    "changed": "e59e10d07948d0770fae179ab1c5b0d78eea862ae06a6e234d1d96dd93614cfe",
+    "commit": "295f4d57eb5b408632052ffa8b10aebcec55d1af",
     "dismissals": [
       {
         "because": "apps/core/src/runtime/group-processing.ts:763 plans/TURN-1.md line 91 and owner decision 2026-09-29: the final retry keeps its input consumed; the progress card shows the failed state",
@@ -13,35 +13,28 @@
     ],
     "findings": [
       {
-        "body": "New evidence beyond the earlier ordering review: when a normal question is received before an authorized `/commands`, the new take loop consumes both items and keeps the command last, but `handleSessionCommand` returns for `/commands` before processing earlier messages (`apps/core/src/session/session-commands.ts:296-300`). This branch releases the batch only when the handler returns `success: false`. The question never reaches the agent, and the next wake cannot take it again. Process the earlier input or release its admission item.",
+        "body": "A question followed by an authorized `/commands` is answered through the pre-command runner (`session-commands.ts:335-340`). If sending the help list then fails (`session-commands.ts:367-369`), this catch releases both admission items because its separate `outputSentToUser` flag was never set by the pre-command answer. The next turn can answer the question again. Track delivered pre-command output before deciding whether to release input, and cover this failure path in a test.",
         "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 218,
+        "line": 843,
         "priority": "P1",
         "title": "Not done: No message is lost or given twice"
       },
       {
-        "body": "New evidence beyond the prior functional-check dismissal: the check claimed for the question \u2192 `/commands` flow stops at this assertion of batch order and `hasMore`. It never invokes the session command handler or checks whether the question reaches an agent or remains available. The handler's immediate `/commands` return consumes that question, so the claimed user flow was not exercised through its outcome. Add a test through the admission and command path that asserts the question is delivered exactly once.",
-        "file": "apps/core/test/unit/runtime/group-processing-flow.test.ts",
-        "line": 126,
+        "body": "`routeScopeActiveLiveTurnAdmission` appends the durable continuation before awaiting `onRouted` (`live-recovery-coordinator.ts:333-343`). That callback still saves the old marker (`live-turn-continuation.ts:39-43`). If saving fails, this catch releases the admission item while the continuation remains queued for the owner. The owner can receive it, and a later turn can take the released item again. Keep the item consumed once the command is durably queued, regardless of marker-write failure.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 499,
         "priority": "P1",
-        "title": "Not done: functional check"
+        "title": "Do not release a follow-up after queuing its continuation"
       },
       {
-        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs built in `apps/core/src/runtime/group-session-command-runner.ts:38-55` omit it. For a non-default app using a normal channel JID, this fallback selects `default`, so those runs resolve provider configuration and agent session context in the wrong app. Pass the admission app ID through the session-command runner options.",
+        "body": "Ordinary turns pass `admissionAppId`, but the pre-command and compaction runs assembled in the unchanged `group-session-command-runner.ts:39-53` omit it. The changed runner falls back to the JID or `default` here. For a non-default app using a normal channel JID, a session-command run therefore resolves provider configuration and agent session context in the wrong app.",
         "file": "apps/core/src/runtime/group-agent-runner.ts",
         "line": 121,
         "priority": "P2",
         "title": "Pass the admission app ID to session-command agent runs"
       },
       {
-        "body": "The new boolean acknowledgement becomes `true` immediately after a continuation file is written. The writer only renames JSON into place (`apps/core/src/runtime/continuation-input.ts:65-83`); it does not confirm that the model read it. If the runner finishes before its next read, the command can be marked applied while its admission item stays consumed. The coordinator assigns per-follow-up delivery confirmation to T4; this remains that task's dependency.",
-        "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
-        "line": 38,
-        "priority": "P2",
-        "title": "Later: T4 must confirm runner delivery before retaining follow-up input"
-      },
-      {
-        "body": "This added task-status file records review findings and dismissals. It is outside the permitted paths and is not needed for the runtime switch, migration, required tests, or decision amendment; the supplied handoff gives no reason for including it.",
+        "body": "This added task-status file records review findings and dismissals. It is outside the permitted paths, is not needed for the runtime switch or its required tests, and the supplied handoff gives no reason for including it.",
         "file": ".factory/stories/TURN-1/tasks/T2.json",
         "line": 1,
         "priority": "P2",
@@ -49,7 +42,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "8f14b30b8f7e5ec16fbbc8dcf8b1ae79b7e4278fab559821b563a31c3c27d59f"
+    "tree": "f97aa093213b41b8ac798d80e973214a2f173cf6c9b67c879120ffbcab94643c"
   },
   "status": "fixing",
   "steps": [
@@ -91,6 +84,10 @@
     },
     {
       "at": "2026-09-30T14:23:12+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T15:14:22+00:00",
       "step": "review"
     }
   ]
