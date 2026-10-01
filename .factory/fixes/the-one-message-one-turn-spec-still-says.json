@@ -3,11 +3,32 @@
   "branch": "fix/the-one-message-one-turn-spec-still-says",
   "done_when": "docs/specs/one-message-one-turn.md says a batch is consumed in receive order and shown by platform time then receive order, matching the owner's 2026-09-29 choice",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "cbb378dd6a8c8d7cec0dca48f8b7cc22992a034dd81ee4132e5a6f045d0aa12e",
+    "commit": "4546ed1a9639a4202ed67614a12466d6f5ad42a1",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new presentation rule conflicts with AC1 in this same file at line 57, which still requires the turn to contain all messages \u201cin receive order.\u201d For a photo saved after its later question, the Behaviour section requires photo-first presentation while AC1 still requires question-first order. Update AC1 to distinguish consumption in receive order from presentation by platform time, then receive number, so the acceptance criterion no longer preserves the behavior this fix addresses.",
+        "file": "docs/specs/one-message-one-turn.md",
+        "line": 35,
+        "priority": "P1",
+        "title": "Not done: docs/specs/one-message-one-turn.md says a batch is consumed in receive order and shown by platform time then receive order,"
+      }
+    ],
+    "status": "blocked",
+    "tree": "127ac0ba04f0496f4775f09252d5199df4456e9f7de71a792cae8a180e87ab7d"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:24:51+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T11:20:17+00:00",
+      "step": "review"
     }
   ],
   "why": "The one-message-one-turn spec still says batches are shown in receive order, but the owner chose platform time"
