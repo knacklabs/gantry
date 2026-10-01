@@ -48,6 +48,8 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
   "Done when" sections exactly, so a summary or a rewrite records nothing, and an edit below
   `## For the builders` needs no new approval. There is no other approval step.
 - Run long `forge work` runs in the background and keep watching them.
+- Put the rules every review of this repo must follow under `## Review rules`, outside the
+  forge:begin and forge:end lines. Forge's review reads them from the default branch.
 <!-- forge:end -->
 
 ## Review rules
