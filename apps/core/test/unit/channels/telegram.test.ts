@@ -162,6 +162,8 @@ import {
   TelegramChannel,
   TelegramChannelOpts,
 } from '@core/channels/telegram/channel-adapter.js';
+import { connectProviderAccountChannels } from '@core/channels/provider-account-channel-connect.js';
+import type { Provider } from '@core/channels/provider-registry.js';
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import { writeTelegramFetchResponseToFile } from '@core/channels/telegram-file-download.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
@@ -2058,6 +2060,83 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.getFile).not.toHaveBeenCalled();
       expect(opts.onMessage).not.toHaveBeenCalled();
+    });
+
+    it('delivers a photo for a chat bound only to the second account sharing the bot', async () => {
+      const onMessage = vi.fn(
+        async (_jid: string, msg: { providerAccountId?: string }) =>
+          msg.providerAccountId === 'telegram_second' ? 'stored' : 'dropped',
+      );
+      const opts = createTestOpts({
+        onMessage,
+        conversationRoutes: vi.fn(() => ({
+          'tg:100200300': {
+            name: 'Second Account Group',
+            folder: 'second-account',
+            trigger: '@Andy',
+            added_at: '2024-01-01T00:00:00.000Z',
+            providerAccountId: 'telegram_second',
+          },
+        })),
+      });
+      const sharedBot = { bot_token: 'env:TELEGRAM_BOT_TOKEN' };
+      await connectProviderAccountChannels({
+        provider: {
+          id: 'telegram',
+          // Only the first account owns the shared bot's inbound transport.
+          create: async (accountOpts: TelegramChannelOpts) =>
+            accountOpts.providerAccountId === 'telegram_default'
+              ? new TelegramChannel('test-token', accountOpts)
+              : null,
+        } as unknown as Provider,
+        appId: 'app-one',
+        runtimeSettings: {
+          providerAccounts: {
+            telegram_default: {
+              provider: 'telegram',
+              agentId: 'agent:one',
+              runtimeSecretRefs: sharedBot,
+            },
+            telegram_second: {
+              provider: 'telegram',
+              agentId: 'agent:two',
+              runtimeSecretRefs: sharedBot,
+            },
+          },
+          runtime: {},
+        },
+        channelOpts: opts,
+        inboundEnabled: true,
+        connectedChannels: [],
+        connectedChannelLeases: [],
+        inboundLeasePrefix: 'runtime:provider-inbound',
+        logger: { info: vi.fn(), warn: vi.fn() },
+      });
+
+      await triggerMediaMessage(
+        'message:photo',
+        createMediaCtx({
+          caption: 'Look at this',
+          extra: { photo: [{ file_id: 'photo_id', width: 800 }] },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(
+          onMessage.mock.calls.filter(
+            ([, msg]) => msg.providerAccountId === 'telegram_second',
+          ),
+        ).toEqual([
+          [
+            'tg:100200300',
+            expect.objectContaining({
+              content: expect.stringMatching(
+                /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_1\.jpg\) Look at this$/,
+              ),
+            }),
+          ],
+        ]),
+      );
+      expect(currentBot().api.getFile).toHaveBeenCalledTimes(1);
     });
 
     it('does not download media when multiple matching group route folders exist', async () => {
