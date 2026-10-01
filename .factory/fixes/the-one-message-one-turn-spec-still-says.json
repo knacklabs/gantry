@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/the-one-message-one-turn-spec-still-says",
+  "done_when": "docs/specs/one-message-one-turn.md says a batch is consumed in receive order and shown by platform time then receive order, matching the owner's 2026-09-29 choice",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:24:51+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The one-message-one-turn spec still says batches are shown in receive order, but the owner chose platform time"
+}
