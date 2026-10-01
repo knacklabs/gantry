@@ -43,6 +43,7 @@ import {
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
   listUnconsumedLiveAdmissionQueueJids,
+  nextLiveAdmissionDueAt,
   renewLiveAdmissionWorkItemClaim,
   releaseInput,
   settleLiveAdmissionWorkItem,
@@ -104,11 +105,9 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     private readonly maxLiveAdmissionBacklog = 100,
   ) {}
 
-  async takeInput(input: {
-    scope: LiveAdmissionInputScope;
-    consumedBy: string;
-    limit: number;
-  }): Promise<LiveAdmissionWorkItem[]> {
+  async takeInput(
+    input: Parameters<typeof takeInput>[1],
+  ): Promise<LiveAdmissionWorkItem[]> {
     return takeInput(this.db, input);
   }
 
@@ -184,6 +183,12 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     input: LiveAdmissionClaimInput,
   ): Promise<LiveAdmissionWorkItem[]> {
     return claimLiveAdmissionWorkItems(this.db, input);
+  }
+
+  async nextLiveAdmissionDueAt(input: {
+    appId: string;
+  }): Promise<string | null> {
+    return nextLiveAdmissionDueAt(this.db, input);
   }
 
   async renewLiveAdmissionWorkItemClaim(

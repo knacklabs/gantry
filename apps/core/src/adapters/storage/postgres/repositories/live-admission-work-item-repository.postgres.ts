@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  min,
   ne,
   or,
   sql,
@@ -222,7 +223,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
 
 export async function takeInput(
   db: CanonicalDb,
-  input: { scope: LiveAdmissionInputScope; consumedBy: string; limit: number },
+  input: Parameters<LiveAdmissionWorkItemRepository['takeInput']>[0],
 ): Promise<LiveAdmissionWorkItem[]> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   return db.transaction(async (tx) => {
@@ -241,6 +242,9 @@ export async function takeInput(
             : eq(items.agentId, input.scope.agentId),
           sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
           isNull(items.consumedAt),
+          input.excludeWaiting
+            ? sql`NOT (${items.state} = 'deferred' AND ${items.deferredReason} IS NOT DISTINCT FROM ${QUIET_WINDOW_REASON} AND coalesce(${items.deferUntil} > clock_timestamp(), false))`
+            : undefined,
         ),
       )
       .orderBy(asc(items.receiveOrder), asc(items.id))
@@ -449,6 +453,18 @@ export async function claimLiveAdmissionWorkItems(
       .filter((row): row is LiveAdmissionWorkItemRow => Boolean(row))
       .map(toLiveAdmissionWorkItem);
   });
+}
+
+export async function nextLiveAdmissionDueAt(
+  db: CanonicalDb,
+  input: { appId: string },
+): Promise<string | null> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const [row] = await db
+    .select({ dueAt: min(items.deferUntil) })
+    .from(items)
+    .where(and(eq(items.appId, input.appId), eq(items.state, 'deferred')));
+  return row?.dueAt ?? null;
 }
 
 export async function renewLiveAdmissionWorkItemClaim(

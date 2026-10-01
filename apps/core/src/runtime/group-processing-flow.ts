@@ -64,6 +64,7 @@ export async function takeGroupTurnInput(input: {
       scope: input.scope,
       limit: 1,
       consumedBy: input.consumer,
+      excludeWaiting: true,
     });
     if (!item) break;
     const [message] = await input.messages.getMessagesByIds(input.scope, [

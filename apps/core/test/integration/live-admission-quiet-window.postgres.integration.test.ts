@@ -7,6 +7,7 @@ import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import type { LiveAdmissionWorkItem } from '@core/domain/ports/live-turns.js';
 import {
   processLiveAdmissionWorkItem,
+  recoverPendingMessages,
   type MessageLoopDeps,
 } from '@core/runtime/message-loop.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
@@ -131,6 +132,16 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     // Both are due together, 1.5 s after the newest one.
     expect(older!.sinceFirst).toBe(newer!.sinceFirst);
     expect(older!.wait).toBeGreaterThan(2.45);
+    // The admission loop sleeps until exactly this time.
+    const [{ deferUntil }] = (
+      await runtime.service.pool.query<{ deferUntil: string }>(
+        `SELECT defer_until::text AS "deferUntil" FROM ${table} WHERE app_id = $1 LIMIT 1`,
+        [appId],
+      )
+    ).rows as [{ deferUntil: string }];
+    expect(
+      await runtime.repositories.liveTurns.nextLiveAdmissionDueAt({ appId }),
+    ).toBe(deferUntil);
   });
 
   it('never waits more than 6 seconds after the first message', async () => {
@@ -212,7 +223,28 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       agentConfig: { model: 'opus' },
     });
     const agentId = agentIdForFolder(folder);
+    const loopDeps = (
+      enqueueMessageCheck: MessageLoopDeps['queue']['enqueueMessageCheck'] = () =>
+        undefined,
+    ): MessageLoopDeps => ({
+      appId,
+      inputRepository: runtime.repositories.liveTurns,
+      getConversationRoutes: app.getConversationRoutes,
+      getOrRecoverCursor: app.getOrRecoverCursor,
+      setAgentCursor: app.setAgentCursor,
+      saveState: app.saveState,
+      hasChannel: () => true,
+      setTyping: async () => undefined,
+      sendProgressUpdate: async () => undefined,
+      queue: {
+        sendMessage: () => false,
+        enqueueMessageCheck,
+        closeStdin: () => undefined,
+      },
+      opsRepository: runtime.ops,
+    });
     return {
+      loopDeps,
       app,
       chatJid,
       prompts,
@@ -273,21 +305,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
 
     const stopped: string[] = [];
     const deps: MessageLoopDeps = {
-      appId: 'quiet-stop',
-      inputRepository: runtime.repositories.liveTurns,
-      getConversationRoutes: conversation.app.getConversationRoutes,
-      getOrRecoverCursor: conversation.app.getOrRecoverCursor,
-      setAgentCursor: conversation.app.setAgentCursor,
-      saveState: conversation.app.saveState,
-      hasChannel: () => true,
-      setTyping: async () => undefined,
-      sendProgressUpdate: async () => undefined,
-      queue: {
-        sendMessage: () => false,
-        enqueueMessageCheck: () => undefined,
-        closeStdin: () => undefined,
-      },
-      opsRepository: runtime.ops,
+      ...conversation.loopDeps(),
       handleActiveControlCommand: async ({ command }) => {
         stopped.push(command.kind);
         return true;
@@ -309,5 +327,36 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       existingRunId: 'run:after-stop',
     });
     expect(conversation.prompts).toEqual([]);
+  });
+
+  it('starts no turn when a recovery wake lands inside the window', async () => {
+    const conversation = await appConversation('quiet-recovery');
+    await conversation.send('m1', 'still typing', 'ann');
+    await conversation.send('m2', 'one more thing', 'bob');
+    // Hold the window open through the database clock, however slow the host.
+    await runtime.service.pool.query(
+      `UPDATE ${table} SET defer_until = clock_timestamp() + interval '1 minute' WHERE app_id = $1`,
+      ['quiet-recovery'],
+    );
+    let runs = 0;
+    const deps = conversation.loopDeps(async (queueJid) => {
+      runs += 1;
+      await conversation.app.processGroupMessages(queueJid, {
+        existingRunId: `run:recovery-${runs}`,
+      });
+    });
+
+    await recoverPendingMessages(deps);
+    expect(runs).toBe(1);
+    expect(conversation.prompts).toEqual([]);
+
+    await runtime.service.pool.query(
+      `UPDATE ${table} SET defer_until = clock_timestamp() WHERE app_id = $1`,
+      ['quiet-recovery'],
+    );
+    await recoverPendingMessages(deps);
+    expect(conversation.prompts).toHaveLength(1);
+    expect(conversation.prompts[0]).toContain('still typing');
+    expect(conversation.prompts[0]).toContain('one more thing');
   });
 });

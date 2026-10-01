@@ -214,6 +214,8 @@ export interface LiveAdmissionWorkItemRepository {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
     limit: number;
+    /** Leave items still in their quiet window; turn start sets this. */
+    excludeWaiting?: boolean;
   }): Promise<LiveAdmissionWorkItem[]>;
   consumeInputItem(input: {
     id: string;
@@ -260,6 +262,8 @@ export interface LiveAdmissionWorkItemRepository {
   claimLiveAdmissionWorkItems(
     input: LiveAdmissionClaimInput,
   ): Promise<LiveAdmissionWorkItem[]>;
+  /** When the app's earliest deferred item becomes due, or null if none. */
+  nextLiveAdmissionDueAt(input: { appId: string }): Promise<string | null>;
   renewLiveAdmissionWorkItemClaim(input: {
     id: string;
     claimToken: string;

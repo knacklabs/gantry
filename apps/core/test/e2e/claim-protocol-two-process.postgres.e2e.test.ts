@@ -997,6 +997,13 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       is_bot_message: false,
       external_message_id: 'telegram-live-e2e-real-runner-1',
     };
+    // End a saved message's quiet window through the database clock.
+    const endQuietWindow = (id: string) =>
+      runtime.service.pool.query(
+        `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+         SET defer_until = clock_timestamp() WHERE id = $1`,
+        [id],
+      );
     const admitted = await runtime.ops.storeMessageWithLiveAdmission(inbound, {
       appId: 'default',
       agentId: agentIdForFolder(folder),
@@ -1008,6 +1015,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       ...route,
       providerAccountId: admitted.item.providerAccountId ?? undefined,
     });
+    await endQuietWindow(admitted.item.id);
 
     expect(messageQueue.enqueueMessageCheck(admitted.item.queueJid)).toBe(true);
 
@@ -1200,6 +1208,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     expect(lateAdmitted?.outcome).toBe('enqueued');
     if (!lateAdmitted || lateAdmitted.outcome === 'overloaded')
       throw new Error('Admission failed');
+    await endQuietWindow(lateAdmitted.item.id);
     expect(messageQueue.enqueueMessageCheck(lateAdmitted.item.queueJid)).toBe(
       true,
     );
