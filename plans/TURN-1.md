@@ -132,6 +132,7 @@ New moving parts: none
 ## Notes
 
 - **T8 comes from T2's review (owner decision, 2026-10-01).** T2's reviews kept finding crashes between two separate writes: take then append a follow-up, reject then release it, stream the final chunk then save the transcript. These gaps moved out of T2 so that one durable rule closes them together. The design is a claim/commit split taken from a Codex design review.
+- **T8 also batches the take.** Turn start takes up to 10 items one at a time, with a claim and a message fetch for each. T8's commit rewrite takes the batch in one bounded repository call: claim in receive order, stop at a command or control message, and return the message rows. Ownership fencing stays. This is an optimisation from an external review, not a measured problem.
 - **T3 to T8 (owner decision, 2026-10-01).** T3 found that nothing durable retries a turn that fails after it starts, so deleting GroupQueue's in-memory retry would break the final-retry notice. That deletion moves to T8, together with a stored attempt count. The live-turn repository's limit (798, from 770) also comes down in T8, which removes the delivered-output check that holds those lines.
 - **Later stories**, from the same analysis:
   - Story 2, "Channel intake contract": the written adapter contract; `mentionsBot` for Telegram, Slack and Teams; media saved as a placeholder first on Telegram, Slack and Discord; saving kept in order per conversation.
