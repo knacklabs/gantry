@@ -1,0 +1,14 @@
+{
+  "base": "d5e60b49768b48afbead2e928af89a68cb117773",
+  "branch": "fix/myclaw-keeps-a-claude-md-though-forge-re",
+  "done_when": "The repo has no CLAUDE.md, and every rule it carried is in AGENTS.md",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T16:50:32+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "myclaw keeps a CLAUDE.md though Forge repos use AGENTS.md as the only instruction file"
+}
