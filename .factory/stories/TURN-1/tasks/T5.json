@@ -1,10 +1,52 @@
 {
   "branch": "task/TURN-1-T5",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "d47012b04c2759a59288592429a42c47fd64d241cfe138967bf67b1d7b2fe9f0",
+    "commit": "b06648e8193638b4168f6acda55a9bc0c919147f",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "Cancellation runs only through processLiveAdmissionWorkItem. Startup and periodic recovery instead enqueue the group directly (message-loop.ts:336\u2013349; live-execution.ts:565,580). If recovery handles /stop while earlier messages are still deferred, excludeWaiting skips those messages and takes the command alone. The normal stop handler (session-commands.ts:287\u2013293) does not consume the waiting batch. The admission worker subsequently sees the command already consumed and returns before this cancellation block, so the supposedly cancelled messages can still start a turn. Apply cancellation through the normal command path as well.",
+        "file": "apps/core/src/runtime/message-loop.ts",
+        "line": 315,
+        "priority": "P1",
+        "title": "Not done: /stop cancels a waiting batch as history"
+      },
+      {
+        "body": "This heuristic does not recognize every command accepted by the runtime parser. For a route whose trigger is Andy, `Andy /stop` is a valid command because extractSessionCommand removes the configured trigger (session-command-parse.ts:184\u2013198), but this regex assigns it a 1.5-second window. The parser also accepts whitespace after a mention-friendly bang, such as `@Andy ! stop`, which this regex misses. Determine command status using the same normalization and route trigger as the runtime parser so valid session commands consistently bypass the window.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
+        "line": 42,
+        "priority": "P1",
+        "title": "Not done: session commands never wait"
+      },
+      {
+        "body": "The burst test claims items using a clock advanced by ten seconds and invokes processGroupMessages directly. It therefore bypasses the admission scheduler that must start the batch at the promised time. The stop test likewise supplies a replacement command handler that always succeeds (lines 309\u2013312). The changed end-to-end test explicitly expires the window before enqueueing work, so it does not supply the missing proof. Add an owner end-to-end scenario through the real admission and command paths, with Postgres and fake channel/runner edges, asserting one reply after the window and cancellation without a later reply.",
+        "file": "apps/core/test/integration/live-admission-quiet-window.postgres.integration.test.ts",
+        "line": 279,
+        "priority": "P1",
+        "title": "Not done: end-to-end proof of quiet-window behavior"
+      },
+      {
+        "body": "consumeAll filters only by scope and unconsumed status (live-admission-work-item-repository.postgres.ts:335\u2013355). If another message or session command is saved after /stop but before this call executes, it is also marked stopped and never processed. For example, `/stop` followed immediately by `/status` can silently discard the status command. Bound cancellation by the stop item's receive order so later requests remain eligible.",
+        "file": "apps/core/src/runtime/message-loop.ts",
+        "line": 316,
+        "priority": "P2",
+        "title": "Limit /stop cancellation to messages preceding the command"
+      }
+    ],
+    "status": "blocked",
+    "tree": "63f3a00ffb192545592fcce04344af16ab5d255e8af3a5097f2513662367d7b7"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T07:53:51+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T18:32:27+00:00",
+      "step": "review"
     }
   ]
 }
