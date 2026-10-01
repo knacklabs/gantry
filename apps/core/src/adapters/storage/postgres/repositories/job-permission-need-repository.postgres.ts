@@ -13,6 +13,7 @@ import {
   jobPermissionCardActions,
   jobPermissionCardText,
 } from '../../../../domain/job-permission-card-actions.js';
+import { pruneSettledCardHistory } from '../../../../domain/job-permission-card-history.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '../../../../shared/ipc-interaction-lifetime.js';
 import { sha256Hex } from '../../../../shared/stable-hash.js';
@@ -128,6 +129,7 @@ export class JobPermissionNeedRepositoryPostgres {
           revision,
         );
       }
+      pruneSettledCardHistory(mutation.state.card);
       await tx
         .update(table)
         .set({
@@ -206,18 +208,19 @@ export class JobPermissionNeedRepositoryPostgres {
       .select({ payload: table.payloadJson })
       .from(table)
       .where(
-        and(eq(table.kind, 'job_permission_card'), eq(table.status, 'pending')),
+        and(
+          eq(table.kind, 'job_permission_card'),
+          eq(table.status, 'pending'),
+          // Card rows stay pending forever; only cards with an open delivery
+          // are loaded, so idle cards neither cost a parse nor starve new ones.
+          sql`(${table.payloadJson}->'revisionDeliveries' @> '[{"status":"pending"}]' OR ${table.payloadJson}->'revisionDeliveries' @> '[{"status":"ambiguous"}]')`,
+        ),
       )
       .orderBy(asc(table.createdAt))
       .limit(Math.max(1, Math.min(500, input.limit ?? 100)));
     return rows
       .map((row) => readJobPermissionCard(row.payload))
-      .filter((card): card is JobPermissionCardRecord => Boolean(card))
-      .filter((card) =>
-        card.revisionDeliveries.some((delivery) =>
-          ['pending', 'ambiguous'].includes(delivery.status),
-        ),
-      );
+      .filter((card): card is JobPermissionCardRecord => Boolean(card));
   }
 
   async getJobPermissionState(input: {

@@ -346,7 +346,7 @@ export function readJobPermissionCard(
     Array.isArray(record.revisionDeliveries) &&
     Array.isArray(record.pendingBudgets) &&
     Array.isArray(record.rerunBarriers)
-    ? (structuredClone(record) as JobPermissionCardRecord)
+    ? (record as JobPermissionCardRecord)
     : null;
 }
 

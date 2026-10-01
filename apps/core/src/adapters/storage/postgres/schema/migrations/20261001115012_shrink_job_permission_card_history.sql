@@ -1,0 +1,75 @@
+-- Settle ambiguous deliveries a newer revision already superseded, then keep
+-- only the latest revision, the one on screen, the one that opened the current
+-- message, and revisions whose delivery is still pending or ambiguous.
+-- Each card is read into variables once so a 10k-entry payload is parsed once.
+DO $$
+DECLARE
+  card record;
+  latest int;
+  deliveries jsonb;
+  openers int[];
+  kept int[];
+BEGIN
+  FOR card IN
+    SELECT id, payload_json AS payload
+    FROM pending_interactions
+    WHERE kind = 'job_permission_card'
+  LOOP
+    latest := (card.payload ->> 'revision')::int;
+    SELECT COALESCE(jsonb_agg(
+      CASE
+        WHEN delivery ->> 'status' = 'ambiguous'
+          AND (delivery ->> 'revision')::int < latest
+        THEN delivery || '{"status": "cancelled"}'::jsonb
+        ELSE delivery
+      END ORDER BY ord
+    ), '[]'::jsonb)
+    INTO deliveries
+    FROM jsonb_array_elements(card.payload -> 'revisionDeliveries')
+      WITH ORDINALITY AS d(delivery, ord);
+    openers := ARRAY(
+      SELECT (revision ->> 'revision')::int
+      FROM jsonb_array_elements(card.payload -> 'revisions') AS r(revision)
+      WHERE revision ->> 'operation' IN ('send', 'replace')
+    );
+    kept := ARRAY(
+      SELECT (delivery ->> 'revision')::int
+      FROM jsonb_array_elements(deliveries) AS d(delivery)
+      WHERE delivery ->> 'status' IN ('pending', 'ambiguous')
+    ) || ARRAY[
+      latest,
+      (card.payload ->> 'currentProviderRevision')::int,
+      (
+        SELECT (delivery ->> 'revision')::int
+        FROM jsonb_array_elements(deliveries)
+          WITH ORDINALITY AS d(delivery, ord)
+        WHERE (delivery ->> 'revision')::int = ANY (openers)
+          AND delivery ->> 'providerMessageId'
+            = card.payload ->> 'currentProviderMessageId'
+        ORDER BY ord
+        LIMIT 1
+      )
+    ];
+    UPDATE pending_interactions
+    SET payload_json = jsonb_set(
+      jsonb_set(
+        card.payload,
+        '{revisions}',
+        COALESCE((
+          SELECT jsonb_agg(revision ORDER BY ord)
+          FROM jsonb_array_elements(card.payload -> 'revisions')
+            WITH ORDINALITY AS r(revision, ord)
+          WHERE (revision ->> 'revision')::int = ANY (kept)
+        ), '[]'::jsonb)
+      ),
+      '{revisionDeliveries}',
+      COALESCE((
+        SELECT jsonb_agg(delivery ORDER BY ord)
+        FROM jsonb_array_elements(deliveries)
+          WITH ORDINALITY AS d(delivery, ord)
+        WHERE (delivery ->> 'revision')::int = ANY (kept)
+      ), '[]'::jsonb)
+    )
+    WHERE id = card.id;
+  END LOOP;
+END $$;
