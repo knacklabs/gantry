@@ -12,22 +12,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "8e1ecb1cf070c707e72a044065fce06ca95ce7bfff81b81d43c4c646466e38b9",
-    "commit": "53cc0fce67c4d389c30709390bd76d7e980527a1",
+    "changed": "2a635ebfaeb3b0970567d258d965a9991cd921ea36540aebf96026611bb2d85e",
+    "commit": "134ae91b65a0ada69d608ad60661e6cd790a6bc7",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The new comment says effort comes from Forge or the session, but line 2 still sets `plan_mode_reasoning_effort = \"high\"` at the top level. Codex treats this as an explicit Plan mode effort override ([Codex config source](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/mod.rs)). Remove it to meet the stated requirement of no top-level effort pins.",
-        "file": ".codex/config.toml",
-        "line": 1,
-        "priority": "P1",
-        "title": "Not done: .codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or \u2014"
-      }
-    ],
-    "status": "blocked",
-    "tree": "d133125456e48b127fb06ba6558be35636ed7a637775c0505d0f01011f26e46d"
+    "findings": [],
+    "status": "clean",
+    "tree": "dbf6c7e3308b0613e118482a2ba99cedb67b77e0521bcb1509e0d4a495cc4930"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T03:22:38+00:00",
@@ -35,6 +27,10 @@
     },
     {
       "at": "2026-10-01T03:39:46+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T04:19:24+00:00",
       "step": "review"
     }
   ],
