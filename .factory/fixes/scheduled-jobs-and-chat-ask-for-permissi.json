@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/scheduled-jobs-and-chat-ask-for-permissi",
+  "done_when": "docs/specs/one-permission-flow.md is a confirmed spec that makes a job an unattended turn on the same permission flow as chat, with the owner's 2026-10-01 decisions and a roadmap of stories",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T11:48:17+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Scheduled jobs and chat ask for permission in five different ways, and jobs keep breaking because of it"
+}
