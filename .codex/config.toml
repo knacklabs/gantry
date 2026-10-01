@@ -1,4 +1,5 @@
-# The model and effort come from forge.toml and the session's own choice.
+# The model and reasoning effort come from forge.toml and the session's own
+# choice; only Plan mode keeps its own effort setting below.
 plan_mode_reasoning_effort = "high"
 # Terse output: artifacts and diffs carry the substance, not prose.
 model_verbosity = "low"
