@@ -478,7 +478,6 @@ function makeDeps(
     runAgent: vi.fn().mockResolvedValue('success'),
     runSessionCompaction: vi.fn().mockResolvedValue('success'),
     closeStdin: vi.fn(),
-    advanceCursor: vi.fn(),
     formatMessages: vi.fn().mockReturnValue('<formatted>'),
     getDefaultModel: vi.fn().mockReturnValue(undefined),
     getGroupModelOverride: vi.fn().mockReturnValue(undefined),
@@ -570,9 +569,6 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('/model <alias>'),
     );
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('handles authorized /compact in main group', async () => {
@@ -611,9 +607,6 @@ describe('handleSessionCommand', () => {
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       "Compaction queued. You can keep messaging me; I'll use the compacted context when it's ready.",
-    );
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
     );
     finishCompact('success');
     await flushAsyncFinalizers();
@@ -978,9 +971,6 @@ describe('handleSessionCommand', () => {
         .invocationCallOrder[0],
     );
     expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('handles /stop by stopping current run without invoking runAgent', async () => {
@@ -998,9 +988,6 @@ describe('handleSessionCommand', () => {
     expect(deps.stopCurrentRun).toHaveBeenCalledTimes(1);
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith('Stopping current run.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('handles /stop when nothing is active', async () => {
@@ -1163,9 +1150,6 @@ describe('handleSessionCommand', () => {
       'Session commands require admin access.',
     );
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('silently consumes denied command when sender cannot interact', async () => {
@@ -1181,9 +1165,6 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.sendMessage).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('processes pre-compact messages before /compact', async () => {
@@ -1331,9 +1312,6 @@ describe('handleSessionCommand', () => {
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
   });
 
@@ -1356,12 +1334,6 @@ describe('handleSessionCommand', () => {
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
-    expect(deps.advanceCursor).not.toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '101' }),
-    );
   });
 
   it('handles /model by showing group override when present', async () => {
@@ -1499,7 +1471,6 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set thinking. Override unchanged.',
     );
@@ -1539,7 +1510,6 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear thinking override. Override unchanged.',
     );
@@ -1605,7 +1575,7 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('does not advance /permissions cursor when persistence fails', async () => {
+  it('reports a /permissions persistence failure', async () => {
     const deps = makeDeps({
       setGroupPermissionModeOverride: vi
         .fn()
@@ -1619,7 +1589,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set permission mode. Override unchanged.',
     );
@@ -1639,7 +1608,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear permission mode override. Override unchanged.',
     );
@@ -1709,7 +1677,6 @@ describe('handleSessionCommand', () => {
 
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set model to opus. Override unchanged.',
     );
@@ -1778,7 +1745,6 @@ describe('handleSessionCommand', () => {
 
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear model override. Override unchanged.',
     );
@@ -1838,7 +1804,7 @@ describe('handleSessionCommand', () => {
     expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
   });
 
-  it('/new does not archive or advance cursor when clearing rejects', async () => {
+  it('/new does not archive when clearing rejects', async () => {
     const deps = makeDeps({
       clearCurrentSession: vi.fn().mockRejectedValue(new Error('clear failed')),
     });
@@ -1853,7 +1819,6 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       '/new failed. The session is unchanged.',
     );
@@ -1907,7 +1872,6 @@ describe('handleSessionCommand', () => {
     expect(deps.prepareSessionArchive).toHaveBeenCalledWith('new-session');
     expect(finalizeArchive).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
   });
 
   it('denies unauthorized /thinking in conversation-scoped group', async () => {
@@ -1966,9 +1930,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process'),
     );
@@ -2016,7 +1977,6 @@ describe('handleSessionCommand', () => {
       'Session commands require admin access.',
     );
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
   });
 
   it('continues /new even when archiveCurrentSession throws', async () => {
@@ -2037,9 +1997,6 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
   });
 
   it('calls onSessionArchived callback during /new when provided', async () => {
@@ -2092,9 +2049,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.finishSessionCompaction).toHaveBeenCalledWith(
@@ -2121,9 +2075,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -2151,9 +2102,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -2184,9 +2132,6 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '100' }),
-    );
     await flushAsyncFinalizers();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       "Compaction ready, but memory extraction did not finish. I'll use compacted context and existing memory.",

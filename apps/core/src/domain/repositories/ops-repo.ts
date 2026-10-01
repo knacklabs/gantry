@@ -216,10 +216,6 @@ export interface RuntimeMessageRepository {
     conversationJid: string,
     options?: { providerAccountId?: string | null },
   ): Promise<Array<string | null>>;
-  getLastBotMessageCursor(
-    conversationJid: string,
-    options?: { providerAccountId?: string | null },
-  ): Promise<{ timestamp: string; id: string } | undefined>;
   getLastBotMessageTimestamp(
     conversationJid: string,
     options?: { providerAccountId?: string | null },
