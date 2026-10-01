@@ -5,20 +5,27 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "a7e72b51330c956cc6998723777da32ff53f9dcf680f34a8c8a36593660bb945",
-    "commit": "f76419216ace22c71ee190ae1f70f33ad953a5cf",
+    "changed": "ee5b9582a139619995913dee44387134875ece05be294e25751b7ea8c5b3c087",
+    "commit": "b3a2baabe4435318f01ed033a6ff068fa8f08168",
     "dismissals": [],
     "findings": [
       {
-        "body": "The new Postgres test improves the earlier unit-only proof, but still does not meet the required end-to-end boundary. It replaces internal sender authorization with a mock at lines 54\u201356, configures that mock at line 763, and directly calls storage and processGroupMessages at lines 792\u2013813. Production inbound delivery instead enters apps/core/src/app/bootstrap/channel-persistence-handlers.ts:164, while real allowlist configuration loads through apps/core/src/platform/sender-allowlist.ts:216. Thus this test can pass without proving that configuring only the root sender as allowed prevents another sender's inbound follow-up from producing a turn or reply. Add suite-run coverage through the running runtime's inbound entry point with real allowlist configuration and PostgreSQL, faking only third-party service edges.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 810,
+        "body": "An unauthorized follow-up can still receive a reply after the root's answer while its runner remains alive. apps/core/src/config/index.ts:503 keeps runners alive for 30 minutes after their last result. During that window, apps/core/src/app/bootstrap/live-execution.ts:268 routes follow-ups directly to the active owner, bypassing this gate. apps/core/src/runtime/live-turn-routing.ts:50 checks only requiredContinuationUserId, which ordinary runs leave unset (group-agent-runner.ts:583); group-queue-live-turn-hooks.ts:31 then forwards the message and starts another visible turn. The new test misses this production path because its runAgent stub immediately returns after emitting the root reply (test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:713\u2013717). Enforce sender authorization on this route and prove that Bob gets no reply when Alice's runner is still waiting after its answer.",
+        "file": "apps/core/src/runtime/group-trigger-policy.ts",
+        "line": 46,
         "priority": "P1",
-        "title": "Not done: answers a thread follow-up only when its sender may trigger the agent"
+        "title": "Not done: A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only theroot"
+      },
+      {
+        "body": "The required end-to-end proof is excluded from the close command. forge.toml:6 runs npm test, but package.json:86 selects only unit and integration suites, whose configurations exclude apps/core/test/e2e. This test runs only through test:e2e:postgres, invoked by the nightly workflow (.github/workflows/nightly-e2e.yml:93); the PR checks likewise omit it (.github/workflows/ci.yml:157\u2013160). Consequently, the supplied successful close run never exercised this test, and the branch's required checks can pass if it fails. Wire this regression into the required suite with PostgreSQL available.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 662,
+        "priority": "P1",
+        "title": "Not done: run the thread follow-up sender regression in the required suite"
       }
     ],
     "status": "blocked",
-    "tree": "0286ec321509598c8ecced09f2673a04fad33c3175c1246148c5d8171808b8f4"
+    "tree": "a6f019c7f32dc1c057c04159a0bee185bc5e85ce399e24b54b8d79471e838824"
   },
   "status": "fixing",
   "steps": [
@@ -32,6 +39,10 @@
     },
     {
       "at": "2026-10-01T12:45:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T14:03:32+00:00",
       "step": "review"
     }
   ],
