@@ -39,9 +39,6 @@ export interface MessageLoopDeps {
     | 'consumeAll'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
-  getOrRecoverCursor: (chatJid: string) => Promise<string> | string;
-  setAgentCursor: (chatJid: string, timestamp: string) => void;
-  saveState: () => Promise<void> | void;
   hasChannel: (
     chatJid: string,
     options?: { providerAccountId?: string; threadId?: string },
@@ -64,7 +61,6 @@ export interface MessageLoopDeps {
         threadId?: string | null;
         senderUserIds?: readonly string[] | null;
         idempotencyKey?: string;
-        cursorAfter?: string;
       },
     ) => boolean | Promise<boolean>;
     enqueueMessageCheck: (

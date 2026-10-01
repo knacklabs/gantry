@@ -271,13 +271,6 @@ export class PostgresRuntimeRepositoryBundle
     return this.messages.getMessageThreadIds(chatJid, options);
   }
 
-  async getLastBotMessageCursor(
-    chatJid: string,
-    options: { providerAccountId?: string | null } = {},
-  ): Promise<{ timestamp: string; id: string } | undefined> {
-    return this.messages.getLastBotMessageCursor(chatJid, options);
-  }
-
   async getLastBotMessageTimestamp(
     chatJid: string,
     options: { providerAccountId?: string | null } = {},

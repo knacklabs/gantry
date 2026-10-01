@@ -15,10 +15,6 @@ import {
   loadSenderControlAllowlist,
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../shared/message-cursor.js';
 import { archiveCurrentRuntimeSession } from './session-resume-runtime.js';
 import { saveGroupProcedureMemory } from './group-memory-commands.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
@@ -42,21 +38,6 @@ async function readMemoryUserId(
   value: MemoryUserIdValue,
 ): Promise<string | undefined> {
   return typeof value === 'function' ? value() : value;
-}
-
-export function createAdvanceCursorHandler(input: {
-  queueJid: string;
-  setCursor: (chatJid: string, timestamp: string) => void;
-  saveState: () => Promise<void> | void;
-  warn: (err: unknown) => void;
-}) {
-  return (message: Pick<NewMessage, 'timestamp' | 'id'>) => {
-    input.setCursor(
-      input.queueJid,
-      encodeGroupMessageCursor(toGroupMessageCursor(message)),
-    );
-    void Promise.resolve(input.saveState()).catch(input.warn);
-  };
 }
 
 export function createArchiveCurrentSessionHandler(input: {

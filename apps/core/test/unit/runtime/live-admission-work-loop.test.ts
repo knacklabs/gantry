@@ -71,9 +71,6 @@ function makeDeps(
         requiresTrigger: false,
       },
     }),
-    getOrRecoverCursor: () => '',
-    setAgentCursor: vi.fn(),
-    saveState: vi.fn(),
     hasChannel: () => true,
     setTyping: vi.fn(),
     sendProgressUpdate: vi.fn(),
@@ -86,7 +83,6 @@ function makeDeps(
       storeMessage: vi.fn(),
       getMessagesSince: vi.fn(async () => [replayMessage]),
       getMessageThreadIds: vi.fn(),
-      getLastBotMessageCursor: vi.fn(),
       getLastBotMessageTimestamp: vi.fn(),
     },
   };
