@@ -1498,7 +1498,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set thinking. Override unchanged.',
@@ -1538,7 +1538,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear thinking override. Override unchanged.',
@@ -1618,7 +1618,7 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set permission mode. Override unchanged.',
@@ -1638,7 +1638,7 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear permission mode override. Override unchanged.',
@@ -1707,7 +1707,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1776,7 +1776,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1850,7 +1850,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
@@ -1903,7 +1903,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.prepareSessionArchive).toHaveBeenCalledWith('new-session');
     expect(finalizeArchive).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();

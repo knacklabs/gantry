@@ -99,15 +99,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const inputConsumer = `turn:${options.existingRunId ?? randomUUID()}`;
     let outputSentToUser = false;
+    const releaseTurnInput = () =>
+      inputRepository.releaseInput({
+        consumedBy: inputConsumer,
+        includeFollowUps: true,
+      });
     const settleFailedInput = () =>
       handleFailure({
         outputSentToUser,
         groupName: group.name,
-        releaseInput: () =>
-          inputRepository.releaseInput({
-            consumedBy: inputConsumer,
-            includeFollowUps: true,
-          }),
+        releaseInput: releaseTurnInput,
         logger,
       });
     try {
@@ -229,9 +230,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       // A refused command's notice doesn't answer the batch it hands on.
       if (!cmdResult.handled) outputSentToUser = false;
       if (cmdResult.handled) {
-        const done = cmdResult.success || (await settleFailedInput());
+        // success=false means nothing was answered: the batch is retried.
+        if (!cmdResult.success) await releaseTurnInput();
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
-        return (sendProgressToChannel.retire(), done);
+        return (sendProgressToChannel.retire(), cmdResult.success);
       }
       if (
         !(await hasTakenGroupTurnTrigger({

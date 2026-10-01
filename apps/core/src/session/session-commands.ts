@@ -243,7 +243,8 @@ function normalizeBodyForComparison(value: string): string {
  * Handle session command interception in processGroupMessages.
  * Scans messages for a session command, handles auth + execution.
  * Returns { handled: true, success } if a command was found; { handled: false } otherwise.
- * success=false means the caller should retry (cursor was not advanced).
+ * success=false means nothing was answered and the caller should retry the batch;
+ * a command that told the user its outcome, even a failure, returns success=true.
  */
 export async function handleSessionCommand(opts: {
   missedMessages: NewMessage[];
@@ -310,7 +311,7 @@ export async function handleSessionCommand(opts: {
         'Failed to reset session for /new',
       );
       await deps.sendMessage('/new failed. The session is unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     runNewSessionArchiveFinalizer({
@@ -624,7 +625,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         `Failed to set model to ${resolved.alias}. Override unchanged.`,
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     const family = getModelFamily(resolved.alias);
@@ -649,7 +650,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear model override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     if (defaultModel) {
@@ -673,7 +674,7 @@ export async function handleSessionCommand(opts: {
         'Failed to persist /thinking override',
       );
       await deps.sendMessage('Failed to set thinking. Override unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     deps.advanceCursor(cmdMsg);
@@ -693,7 +694,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear thinking override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     deps.advanceCursor(cmdMsg);
@@ -721,7 +722,7 @@ export async function handleSessionCommand(opts: {
           ? 'Failed to set permission mode. Override unchanged.'
           : 'Failed to clear permission mode override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     await deps.sendMessage(

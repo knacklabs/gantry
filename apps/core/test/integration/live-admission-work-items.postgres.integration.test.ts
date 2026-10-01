@@ -502,7 +502,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         message.text.includes('Session commands require admin access.'),
       ),
     ).toBe(true);
-    await save(
+    const unanswered = await save(
       'msg:question-before-failed-compact',
       'will this fail?',
       'command-admin',
@@ -512,20 +512,23 @@ maybeDescribe('live admission work items (Postgres)', () => {
       await app.processGroupMessages(question.queueJid, {
         existingRunId: 'run:failed-compact',
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(presented).toHaveLength(3);
     expect(
       channel.outbound.some((message) =>
         message.text.includes('Failed to process messages before /compact'),
       ),
     ).toBe(true);
+    // Nothing answered the question, so the next turn gets it again.
     expect(
-      await liveTurns.takeInput({
-        scope: question,
-        consumedBy: 'turn:after-failed-compact',
-        limit: 10,
-      }),
-    ).toEqual([]);
+      (
+        await liveTurns.takeInput({
+          scope: question,
+          consumedBy: 'turn:after-failed-compact',
+          limit: 10,
+        })
+      ).map((item) => item.id),
+    ).toContain(unanswered.id);
 
     app.setChannelRuntime({
       ...channel.runtime,
