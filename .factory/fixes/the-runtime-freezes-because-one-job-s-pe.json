@@ -5,26 +5,26 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "0211ddcb33d789788a44d8d08d24d6a128edaac71869d7a3c9fc1732f203d7b5",
-    "commit": "499cfdb0c8ab09d0c310edbae3f42ddf0291fe6a",
+    "changed": "5d1cecb0b5ca827a1fe24561c867309ddb0a0e9fc6593f1bf75dca4c48de0dac",
+    "commit": "b0994c0631c3965951fc6f271a5f087e5335bc20",
     "dismissals": [],
     "findings": [
       {
-        "body": "Completed `rerunBarriers` remain unbounded; neither this pruner nor the migration touches them. The production approve-and-run-again path calls `recordRerunConsent` (apps/core/src/application/interactions/job-permission-provider-actions.ts:174), which appends a barrier for each distinct prior run (apps/core/src/application/interactions/job-permission-durability-state.ts:99). Reconciliation only sets `enqueuedAt` (apps/core/src/application/interactions/job-permission-reconciler.ts:529), and removal explicitly preserves enqueued barriers (apps/core/src/application/interactions/job-permission-durability-state.ts:135). Repeated completed handoffs therefore keep enlarging the card, which heartbeats still load and rewrite (apps/core/src/application/interactions/job-permission-provider-actions.ts:544). Safely bound completed rerun state on writes and in the migration, preserving durable enqueue idempotency.",
+        "body": "Repeated one-time requests that expire still grow the card indefinitely. This predicate leaves expired once-needs pending, and the migration excludes them too (20261001115012_shrink_job_permission_card_history.sql:112). Production creates a distinct need per once-request (job-permission-durability-wiring.ts:236\u2013239); expiry sets `cancelled` with `expiredAt` (job-permission-reconciler.ts:303\u2013304). When another run asks, `livingCardNeeds` includes every expired need (job-permission-card-projection.ts:326\u2013333), and the new revision stores all their IDs in `representedNeeds` (lines 238\u2013241), despite limiting visible rows. Pruning the number of revisions therefore does not bound their payloads, and heartbeats continue loading and rewriting the accumulated pending needs. Bound terminal once-need history on writes and in the migration while preserving the required expired receipt.",
         "file": "apps/core/src/domain/job-permission-card-history.ts",
-        "line": 45,
+        "line": 82,
         "priority": "P1",
-        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their query"
+        "title": "Not done: A job permission card stays bounded across many runs"
       },
       {
-        "body": "The new test supplies 1,001 distinct run IDs, but directly calls the heartbeat reader and `wired.reconcile()` without creating or executing scheduler runs. Delivery settlement and receipts are supplied through SQL at lines 152\u2013163, bypassing the outbound worker rather than faking only the provider edge. The idle-card test likewise calls reconciliation directly. Neither starts the actual five-second loop in apps/core/src/app/bootstrap/runtime-services-permission-card.ts:21, registered by apps/core/src/app/bootstrap/runtime-services.ts:952. Disconnecting scheduler heartbeat wiring or scheduled reconciliation would leave these tests passing. Add the required runtime-entry-point proof for repeated runs and idle-card reconciliation, using real leases, heartbeat scheduling, delivery persistence, and provider-edge fakes.",
+        "body": "The previous test gap remains. This test supplies 1,001 run IDs but directly invokes the heartbeat reader and `wired.reconcile()` without executing scheduler runs or acquiring real leases. `settleOpenCardSends` updates delivery status and inserts receipts through SQL (lines 189\u2013204), bypassing the outbound worker. The idle-card test also calls reconciliation directly. Neither exercises the scheduled loop in runtime-services-permission-card.ts:21\u201343, registered by runtime-services.ts:952. Disconnecting scheduler heartbeat wiring or scheduled reconciliation would leave these tests passing. Add the required runtime-entry-point proof for repeated runs and idle-card reconciliation using real Postgres, scheduler leases, delivery persistence, and channel/runner edge fakes.",
         "file": "apps/core/test/integration/job-permission-card-history.postgres.integration.test.ts",
-        "line": 219,
+        "line": 244,
         "priority": "P1",
         "title": "Not done: Grow a permission card past 1,000 runs through the runtime entry point"
       },
       {
-        "body": "This now meaningfully tests the monitor itself, but it starts that helper directly and observes a mocked logger. It never starts the runtime. Removing the startup registration in apps/core/src/app/index.ts:104 would leave the test passing while eliminating runtime warnings entirely. The required end-to-end proof remains missing: start the real runtime, block its main thread beyond the configured threshold, and verify the emitted warning.",
+        "body": "The previous runtime proof gap remains. This test starts the monitor helper directly and observes a mocked logger; it never starts the runtime. Removing the registration in apps/core/src/app/index.ts:104 would leave it passing while eliminating runtime warnings. Add an automated test that starts the real runtime, blocks its main thread beyond the configured threshold, and verifies the emitted warning.",
         "file": "apps/core/test/unit/infrastructure/logging/event-loop-delay-monitor.test.ts",
         "line": 12,
         "priority": "P1",
@@ -32,7 +32,7 @@
       }
     ],
     "status": "blocked",
-    "tree": "c2e054b22e5b0f2542a7bccca97ab7699faa82c7cdc456ae5063c5e6eb32ec13"
+    "tree": "2de1a789920db0f693d5b84a4d3703152f7c8b7520887e866b7b28c0c1eebe3b"
   },
   "status": "fixing",
   "steps": [
@@ -46,6 +46,10 @@
     },
     {
       "at": "2026-10-01T15:00:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T18:12:28+00:00",
       "step": "review"
     }
   ],
