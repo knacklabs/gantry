@@ -184,9 +184,14 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"run_lease_fencing_version" integer');
     expect(migration).not.toContain('"public".');
 
+    const latestTag = journal.entries.at(-1)?.tag;
+    expect(latestTag).toBeDefined();
     const snapshot = JSON.parse(
       fs.readFileSync(
-        path.join(migrationsDir, 'meta/20260929061610_snapshot.json'),
+        path.join(
+          migrationsDir,
+          `meta/${latestTag?.slice(0, 14)}_snapshot.json`,
+        ),
         'utf8',
       ),
     ) as {

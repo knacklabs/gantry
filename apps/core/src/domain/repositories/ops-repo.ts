@@ -10,7 +10,10 @@ import type { RuntimeEventType } from '../events/runtime-event-types.js';
 import type { ExecutionProviderId } from '../sessions/sessions.js';
 import type { RetiredProviderSessionReference } from '../sessions/provider-session-measurement.js';
 import type { RunLease } from '../ports/worker-coordination.js';
-import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
+import type {
+  LiveAdmissionInputScope,
+  LiveAdmissionWorkItemEnqueueResult,
+} from '../ports/live-turns.js';
 
 export interface JobUpsertInput {
   id: string;
@@ -159,6 +162,10 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]>;
   storeMessage(msg: NewMessage): Promise<void>;
   storeMessageWithLiveAdmission?(
     msg: NewMessage,

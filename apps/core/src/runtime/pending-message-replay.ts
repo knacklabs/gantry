@@ -97,20 +97,11 @@ function selectPendingMessageBatch(
 }
 
 export function buildPendingMessagesContinuationIdempotencyKey(input: {
-  queueJid: string;
-  sinceCursor: string;
-  cursorAfter: string;
-  messages: readonly Pick<NewMessage, 'id'>[];
+  itemIds: readonly string[];
 }): string {
   const hash = createHash('sha256');
-  hash.update(input.queueJid);
-  hash.update('\0');
-  hash.update(input.sinceCursor);
-  hash.update('\0');
-  hash.update(input.cursorAfter);
-  hash.update('\0');
-  for (const message of input.messages) {
-    hash.update(String(message.id));
+  for (const itemId of input.itemIds) {
+    hash.update(itemId);
     hash.update('\0');
   }
   return `continuation:${hash.digest('hex')}`;

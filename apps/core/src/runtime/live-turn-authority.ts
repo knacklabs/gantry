@@ -26,6 +26,7 @@ import {
   routeLiveStop,
 } from './live-turn-routing.js';
 import { writeResolvedInteractionResponse } from './interaction-resolution-response.js';
+import * as continuationCommand from './live-turn-continuation-command.js';
 import {
   hostExecutionSlotHolderId,
   hostExecutionSlotKey,
@@ -42,12 +43,12 @@ import {
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 
 export interface LiveTurnLocalRunnerHooks {
-  /** Write the continuation into the local runner's IPC input. */
+  /** Return whether the continuation reached the local runner's IPC input. */
   applyContinuation: (input: {
     text: string;
     sequence: number;
     threadId: string | null;
-  }) => void;
+  }) => boolean;
   /** Close the local runner's stdin (end of turn input). */
   applyCloseStdin: () => void;
   /** Stop the local runner (SIGTERM path). */
@@ -56,6 +57,8 @@ export interface LiveTurnLocalRunnerHooks {
   onContinuationApplied?: () => void;
   /** A durable interaction resolution arrived for this turn. */
   onInteractionResolved?: (payload: Record<string, unknown>) => boolean;
+  /** Released input is waiting; schedule the next turn for this queue. */
+  requeueInput?: () => void;
 }
 
 interface ActiveLiveTurnRegistration {
@@ -225,10 +228,10 @@ export class LiveTurnAuthority {
           !!this.active.get(queueJid)?.hooks,
         handlers: {
           continuation: (command) =>
-            this.applyContinuationCommand(
-              queueJid,
-              command.payload,
-              command.seq,
+            continuationCommand.applyLiveContinuationCommand(
+              command,
+              this.active.get(queueJid),
+              this.deps.leaseDeps.liveTurns,
             ),
           stop: () => this.applyLocalHook(queueJid, 'applyStop'),
           close_stdin: () => this.applyLocalHook(queueJid, 'applyCloseStdin'),
@@ -363,13 +366,16 @@ export class LiveTurnAuthority {
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
     cursorAfter?: string | null;
+    commandId?: string;
+    expectedTurnId?: string;
   }): Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'> {
     const result = await routeLiveContinuation({
       liveTurns: this.deps.leaseDeps.liveTurns,
       scope: input.scope,
       text: input.text,
       senderUserIds: input.senderUserIds,
-      commandId: globalThis.crypto.randomUUID(),
+      commandId: input.commandId ?? globalThis.crypto.randomUUID(),
+      expectedTurnId: input.expectedTurnId,
       idempotencyKey: input.idempotencyKey,
       cursorAfter: input.cursorAfter,
       createdByWorkerId: this.deps.leaseDeps.workerInstanceId,
@@ -520,6 +526,18 @@ export class LiveTurnAuthority {
           limit: 1,
         });
       const command = pending[0];
+      if (command?.commandType === 'continuation') {
+        // The runner is done, so this follow-up goes to the next turn.
+        if (
+          !(await continuationCommand.releaseLiveContinuationCommand(
+            command,
+            registration,
+            this.deps.leaseDeps.liveTurns,
+          ))
+        )
+          return;
+        continue;
+      }
       if (!command || command.commandType !== 'interaction_resolved') return;
       const result = this.applyInteractionResolvedCommand(queueJid, command);
       if (result !== 'applied') {
@@ -654,23 +672,6 @@ export class LiveTurnAuthority {
     for (const queueJid of this.active.keys()) {
       void this.tick(queueJid);
     }
-  }
-
-  private applyContinuationCommand(
-    queueJid: string,
-    payload: Record<string, unknown>,
-    sequence: number,
-  ): LiveTurnCommandApplyResult {
-    const registration = this.active.get(queueJid);
-    const hooks = registration?.hooks;
-    if (!hooks) return 'retry';
-    const text = typeof payload.text === 'string' ? payload.text : null;
-    if (!text) return 'rejected';
-    const threadId =
-      typeof payload.threadId === 'string' ? payload.threadId : null;
-    hooks.applyContinuation({ text, sequence, threadId });
-    hooks.onContinuationApplied?.();
-    return 'applied';
   }
 
   private applyInteractionResolvedCommand(

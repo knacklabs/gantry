@@ -2,6 +2,7 @@ import type { NewMessage } from '../../../../domain/repositories/domain-types.js
 import type {
   LiveAdmissionWorkItemEnqueueResult,
   LiveAdmissionWorkItemNotifier,
+  LiveAdmissionInputScope,
 } from '../../../../domain/ports/live-turns.js';
 import { decodeGroupMessageCursor } from '../../../../shared/message-cursor.js';
 import type {
@@ -227,6 +228,14 @@ export class CanonicalMessageOpsService {
       limit,
     });
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
+  }
+
+  async getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]> {
+    const rows = await this.repository.getMessagesByIds(scope, ids);
+    return rows.map((row) => this.mapMessage(row));
   }
 
   async getContextMessagesSince(

@@ -30,7 +30,7 @@ import {
   type MessageLoopDeps,
 } from '../../runtime/message-loop.js';
 // prettier-ignore
-import { enqueueJobTrigger, markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import { markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { registerWorkerInstance } from '../../jobs/worker-identity.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
@@ -82,7 +82,7 @@ import { LIVE_SEND_PROFILE_ID, OBSERVER_DIGEST_PROFILE_ID, BRAIN_REVIEW_PROFILE_
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 // prettier-ignore
-import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, startRuntimePermissionCardReconciliation, setupPermissionCardProfile } from './runtime-services-permission-card.js';
+import { dispatchRuntimePermissionCard, PERMISSION_CARD_DISPATCH_ACTIVE, setupPermissionCardProfile } from './runtime-services-permission-card.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import {
   queueActiveCompactionForRuntime,
@@ -485,6 +485,12 @@ export async function startRuntimeServices(
     ),
   );
   syncGroupSnapshots();
+  const liveScopeContext = {
+    appId: channelWiring.getRuntimeAppId(),
+    app,
+    opsRepository: resolved.opsRepository,
+    executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+  };
   app.queue.setLiveTurnRunnerRegistrar(
     liveTurnAuthority
       ? (queueJid, hooks, routing) =>
@@ -493,6 +499,8 @@ export async function startRuntimeServices(
   );
   app.queue.setProcessMessagesFn(
     buildLiveAdmissionProcessor({
+      appId: liveScopeContext.appId,
+      inputRepository: liveTurns,
       liveTurnAuthority,
       app,
       opsRepository: resolved.opsRepository,
@@ -527,9 +535,7 @@ export async function startRuntimeServices(
       if (!liveTurnAuthority)
         return app.queue.sendMessage(queueJid, text, options);
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       if (!scope) return false;
@@ -553,9 +559,7 @@ export async function startRuntimeServices(
         return;
       }
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       const routed =
@@ -571,9 +575,7 @@ export async function startRuntimeServices(
       if (app.queue.stopGroup(queueJid)) return true;
       if (!liveTurnAuthority) return false;
       const scope = await liveTurnScopeForQueue({
-        app,
-        opsRepository: resolved.opsRepository,
-        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        ...liveScopeContext,
         queueJid,
       });
       return liveTurnAuthority.routeStop({
@@ -662,7 +664,14 @@ export async function startRuntimeServices(
       !app.queue.isGroupActive(queueJid) &&
       !liveTurnAuthority?.ownsQueue(queueJid)
     ) {
-      return false;
+      const scope =
+        liveTurnAuthority &&
+        (await liveTurnScopeForQueue({
+          ...liveScopeContext,
+          queueJid,
+        }));
+      if (!scope || !(await liveTurnAuthority.getActiveLiveTurn(scope)))
+        return false;
     }
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
@@ -705,6 +714,7 @@ export async function startRuntimeServices(
         queueJid,
         threadId,
         message,
+        stopGroup: liveMessageQueue.stopGroup,
       });
     }
     const stopped = await liveMessageQueue.stopGroup(queueJid);
@@ -864,6 +874,7 @@ export async function startRuntimeServices(
       });
       const started = await outboundDeliveryService.enqueue({
         appId: target.appId as never,
+        runId: input.runId as never,
         conversationId: target.conversationId as never,
         threadId: canonicalThreadIdFor({
           jid: input.chatJid,
@@ -1118,6 +1129,8 @@ export async function startRuntimeServices(
     return;
   }
   const messageLoopDeps: MessageLoopDeps = {
+    appId: channelWiring.getRuntimeAppId(),
+    inputRepository: liveTurns,
     getConversationRoutes: () => app.getConversationRoutes(),
     getOrRecoverCursor: app.getOrRecoverCursor,
     setAgentCursor: (chatJid, timestamp) =>
@@ -1129,8 +1142,6 @@ export async function startRuntimeServices(
       channelWiring.setTyping(chatJid, isTyping, options),
     sendProgressUpdate: async (chatJid, text, options) =>
       void (await channelWiring.sendProgressUpdate(chatJid, text, options)),
-    addReaction: (chatJid, messageRef, emoji, options) =>
-      channelWiring.addReaction(chatJid, messageRef, emoji, options),
     queue: liveMessageQueue,
     handleActiveControlCommand,
     opsRepository: resolved.opsRepository,

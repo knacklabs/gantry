@@ -1,6 +1,134 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { handleFailure } from '@core/runtime/group-processing-flow.js';
+import {
+  handleFailure,
+  takeGroupTurnInput,
+} from '@core/runtime/group-processing-flow.js';
+
+it('presents a taken batch by provider second and receive order', async () => {
+  const messages = [
+    {
+      id: 'first',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: 'first',
+      timestamp: '2026-09-29T10:00:02.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+    {
+      id: 'second',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: 'second',
+      timestamp: '2026-09-29T10:00:01.900Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+    {
+      id: 'third',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: 'third',
+      timestamp: '2026-09-29T10:00:01.100Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+  ];
+  const items = messages.map((message, index) => ({
+    id: `item-${message.id}`,
+    messageId: message.id,
+    receiveOrder: index + 1,
+  }));
+  const takeInput = vi.fn(async () => {
+    const item = items.shift();
+    return item ? [item] : [];
+  });
+  const result = await takeGroupTurnInput({
+    repository: { takeInput } as never,
+    messages: {
+      getMessagesByIds: vi.fn(async (_scope, ids: readonly string[]) =>
+        messages.filter((message) => ids.includes(message.id)),
+      ),
+    } as never,
+    scope: {
+      appId: 'app',
+      conversationId: 'tg:batch',
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    },
+    consumer: 'turn:batch',
+    maxMessages: 10,
+    triggerPattern: /^!$/,
+    chatJid: 'tg:batch',
+  });
+
+  expect(result.missedMessages.map((message) => message.id)).toEqual([
+    'second',
+    'third',
+    'first',
+  ]);
+  expect(takeInput).toHaveBeenCalledTimes(4);
+});
+
+it('keeps the command that ended the take last in the presented batch', async () => {
+  const messages = [
+    {
+      id: 'question',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: 'question',
+      timestamp: '2026-09-29T10:00:02.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+    {
+      id: 'command',
+      chat_jid: 'tg:batch',
+      sender: 'person',
+      content: '/commands',
+      timestamp: '2026-09-29T10:00:01.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    },
+  ];
+  const items = messages.map((message, index) => ({
+    id: `item-${message.id}`,
+    messageId: message.id,
+    receiveOrder: index + 1,
+  }));
+  const result = await takeGroupTurnInput({
+    repository: {
+      takeInput: vi.fn(async () => {
+        const item = items.shift();
+        return item ? [item] : [];
+      }),
+    } as never,
+    messages: {
+      getMessagesByIds: vi.fn(async (_scope, ids: readonly string[]) =>
+        messages.filter((message) => ids.includes(message.id)),
+      ),
+    } as never,
+    scope: {
+      appId: 'app',
+      conversationId: 'tg:batch',
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    },
+    consumer: 'turn:batch',
+    maxMessages: 10,
+    triggerPattern: /^!$/,
+    chatJid: 'tg:batch',
+  });
+
+  expect(result.missedMessages.map((message) => message.id)).toEqual([
+    'question',
+    'command',
+  ]);
+  expect(result.hasMore).toBe(true);
+});
 
 function makeInput(
   overrides: Partial<Parameters<typeof handleFailure>[0]> = {},
@@ -8,12 +136,7 @@ function makeInput(
   return {
     outputSentToUser: false,
     groupName: 'Main Agent',
-    queueJid: 'sl:C1234567890',
-    previousCursor: 'prev-cursor',
-    deps: {
-      setCursor: vi.fn(),
-      saveState: vi.fn(),
-    },
+    releaseInput: vi.fn().mockResolvedValue(1),
     logger: {
       warn: vi.fn(),
     },
@@ -22,95 +145,23 @@ function makeInput(
 }
 
 describe('handleFailure', () => {
-  it('rolls back non-thread failures to the previous cursor', async () => {
+  it('releases a failed turn before output so the next turn can take its input', async () => {
     const input = makeInput();
 
     await expect(handleFailure(input)).resolves.toBe(false);
 
-    expect(input.deps.setCursor).toHaveBeenCalledWith(
-      'sl:C1234567890',
-      'prev-cursor',
+    expect(input.releaseInput).toHaveBeenCalledOnce();
+    expect(input.logger.warn).toHaveBeenCalledWith(
+      { group: 'Main Agent' },
+      'Agent error, released input for retry',
     );
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves the cursor for final retry failures', async () => {
-    const input = makeInput({
-      acknowledgeFailedTurn: true,
-    });
+  it('keeps consumed input once the user was told', async () => {
+    const input = makeInput({ outputSentToUser: true });
 
     await expect(handleFailure(input)).resolves.toBe(true);
 
-    expect(input.deps.setCursor).not.toHaveBeenCalled();
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
-    expect(input.logger.warn).toHaveBeenCalledWith(
-      { group: 'Main Agent' },
-      'Agent error on final retry, preserving message cursor to prevent stale replay',
-    );
-  });
-
-  it('preserves the cursor for infrastructure failures that should not replay the Slack message', async () => {
-    const input = makeInput({
-      preserveCursor: true,
-    });
-
-    await expect(handleFailure(input)).resolves.toBe(true);
-
-    expect(input.deps.setCursor).not.toHaveBeenCalled();
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
-    expect(input.logger.warn).toHaveBeenCalledWith(
-      { group: 'Main Agent' },
-      'Agent infrastructure error, preserving message cursor to prevent stale replay',
-    );
-  });
-
-  it('rolls back first thread failures to the empty cursor for retry', async () => {
-    const input = makeInput({
-      queueJid: 'sl:C1234567890::thread:1711111111.000200',
-      previousCursor: '',
-    });
-
-    await expect(handleFailure(input)).resolves.toBe(false);
-
-    expect(input.deps.setCursor).toHaveBeenCalledWith(
-      'sl:C1234567890::thread:1711111111.000200',
-      '',
-    );
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
-    expect(input.logger.warn).toHaveBeenCalledWith(
-      { group: 'Main Agent' },
-      'Agent error, rolled back message cursor for retry',
-    );
-  });
-
-  it('rolls back no-output failures during runtime shutdown', async () => {
-    const input = makeInput();
-
-    await expect(handleFailure(input)).resolves.toBe(false);
-
-    expect(input.deps.setCursor).toHaveBeenCalledWith(
-      'sl:C1234567890',
-      'prev-cursor',
-    );
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
-    expect(input.logger.warn).toHaveBeenCalledWith(
-      { group: 'Main Agent' },
-      'Agent error, rolled back message cursor for retry',
-    );
-  });
-
-  it('still rolls back thread failures when a durable previous cursor exists', async () => {
-    const input = makeInput({
-      queueJid: 'sl:C1234567890::thread:1711111111.000200',
-      previousCursor: 'prev-thread-cursor',
-    });
-
-    await expect(handleFailure(input)).resolves.toBe(false);
-
-    expect(input.deps.setCursor).toHaveBeenCalledWith(
-      'sl:C1234567890::thread:1711111111.000200',
-      'prev-thread-cursor',
-    );
-    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
+    expect(input.releaseInput).not.toHaveBeenCalled();
   });
 });
