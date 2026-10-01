@@ -2514,6 +2514,34 @@
       "spec": "docs/specs/steer-running-answer.md",
       "status": "pending",
       "order": 125
+    },
+    {
+      "key": "PERMFLOW-1",
+      "title": "One permission gate on the host that asks only when needed",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 126
+    },
+    {
+      "key": "PERMFLOW-2",
+      "title": "Saved approvals by capability or program, per conversation, in one store",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 127
+    },
+    {
+      "key": "PERMFLOW-3",
+      "title": "Jobs run as unattended turns on the chat prompt and run loop",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 128
+    },
+    {
+      "key": "PERMFLOW-4",
+      "title": "Remove the old job, card and setup machinery and keep records bounded",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 129
     }
   ],
   "epics": [
