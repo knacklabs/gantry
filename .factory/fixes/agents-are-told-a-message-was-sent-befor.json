@@ -3,11 +3,39 @@
   "branch": "fix/agents-are-told-a-message-was-sent-befor",
   "done_when": "send_message returns the host's real delivery result or a clear not-confirmed note, and a rate-limited IPC request waits for the next pass instead of being archived, proven by host and runner tests",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "90f0435bb63fb3536a0cc5c81e7f5134eb2b873026648f55a617fa16f4f7dc71",
+    "commit": "dbea90b894893b99ce2d2d8eb8418b58d254f99a",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The deferral fix omits the browser IPC lane. In apps/core/src/runtime/ipc-browser-requests.ts:129\u2013131, an authorized request over quota still throws after being claimed, and line 228 archives it. The watcher still invokes that processor at apps/core/src/runtime/ipc.ts:460. Consequently, a rate-limited browser IPC request is discarded rather than waiting for another pass, leaving the Done-when requirement unmet. Apply the deferral before claiming or consuming the request and prove subsequent processing.",
+        "file": "apps/core/src/runtime/ipc.ts",
+        "line": 486,
+        "priority": "P1",
+        "title": "Not done: rate-limited IPC requests still get archived"
+      },
+      {
+        "body": "The new runner test manually supplies a signed failure response, while the host tests manufacture requests and inspect responses independently. No test exercises send_message through the real runtime to the host and back, and no runner test covers successful confirmation or the not-confirmed timeout note. Changing the timeout branch back to 'Message sent.' would leave these tests green. apps/core/AGENTS.md:110 and docs/review-instructions.md:30\u201335 require owner end-to-end coverage through the real runtime and Postgres with a fake channel and runner. Add that coverage for delivery reporting and quota deferral; the successful close run does not supply the missing assertions.",
+        "file": "apps/core/test/unit/runner/mcp/messaging.test.ts",
+        "line": 424,
+        "priority": "P1",
+        "title": "Not done: end-to-end proof of delivery reporting and quota deferral"
+      }
+    ],
+    "status": "blocked",
+    "tree": "a92bb51653eb50e6ff81ee67163f6b3c1a3dabd9145b6ab7339473e836f20778"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:17:17+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T21:49:59+00:00",
+      "step": "review"
     }
   ],
   "why": "Agents are told a message was sent before it is delivered, and overloaded messages are thrown away"
