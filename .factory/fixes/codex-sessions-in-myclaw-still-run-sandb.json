@@ -1,0 +1,14 @@
+{
+  "base": "1ebc5b261cc652580ee74969fc7202343fb2ec4a",
+  "branch": "fix/codex-sessions-in-myclaw-still-run-sandb",
+  "done_when": ".codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or effort pins",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T03:22:38+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Codex sessions in myclaw still run sandboxed and pinned to an old model after the owner gave Codex full access"
+}
