@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/the-runtime-freezes-because-one-job-s-pe",
+  "done_when": "A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their payload, a migration shrinks existing oversized cards, and the runtime warns when its main thread is blocked, proven by tests including one that grows a card past 1,000 runs",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:51:07+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The runtime freezes because one job's permission card grows forever and is reloaded every 5 seconds"
+}
