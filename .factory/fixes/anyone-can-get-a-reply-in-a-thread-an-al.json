@@ -3,11 +3,32 @@
   "branch": "fix/anyone-can-get-a-reply-in-a-thread-an-al",
   "done_when": "A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the root sender is allowed and another person's follow-up gets no reply",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "05c48a328495411d14ea07fcac3da15a6131b938848a208e0e74ea9565b6824f",
+    "commit": "771bd9d3a929cb274ddcdae2823b2da8f0ddc505",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The only added proof is a unit test that calls createGroupProcessor directly, mocks sender authorization (this file, lines 110\u2013118 and 820\u2013822), substitutes in-memory input/storage (lines 290\u2013339), and asserts that mocked spawnAgent was not called. It meaningfully exercises the new gate, but does not satisfy the explicit requirement for runtime Done-when items to have end-to-end proof through the real entry point. Add a suite-run test using the running runtime and real database: configure only the root sender as allowed, establish their triggered thread, submit another person's follow-up through inbound delivery, and verify that no turn or reply results. Fake only third-party service edges.",
+        "file": "apps/core/test/unit/runtime/group-processing.test.ts",
+        "line": 825,
+        "priority": "P1",
+        "title": "Not done: A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the\u6839\u539f\u59cb\u5141"
+      }
+    ],
+    "status": "blocked",
+    "tree": "0de809a1eea7ab38052a2c0b726c9a16436089fac0e7ca76a06f692ddd28ef45"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:04:20+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T11:38:57+00:00",
+      "step": "review"
     }
   ],
   "why": "Anyone can get a reply in a thread an allowed person started, because the thread check never looks at who sent the new message"
