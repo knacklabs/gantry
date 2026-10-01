@@ -146,6 +146,8 @@ const telegramProvider: Provider = {
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
   canStreamToJid: (jid: string) => jid.startsWith('tg:-'),
   formatting: 'telegram-markdown-v2',
+  // Bot API sendMessage text: 1-4096 characters (https://core.telegram.org/bots/api#sendmessage).
+  maxInboundTextLength: TELEGRAM_MESSAGE_MAX_LENGTH,
   promptPresentation: {
     label: 'Telegram',
     formattingDescription: 'Telegram renders a limited HTML subset',
@@ -174,6 +176,9 @@ const slackProvider: Provider = {
   folderPrefix: 'slack_',
   isGroupJid: () => true,
   formatting: 'mrkdwn',
+  // Slack truncates message text past 40,000 characters
+  // (https://api.slack.com/methods/chat.postMessage).
+  maxInboundTextLength: 40_000,
   promptPresentation: {
     label: 'Slack',
     formattingDescription: 'Slack renders mrkdwn',
@@ -230,6 +235,9 @@ const discordProvider: Provider = {
   folderPrefix: 'discord_',
   isGroupJid: (jid: string) => jid.startsWith('dc:'),
   formatting: 'markdown-native',
+  // Discord message content: up to 2000 characters
+  // (https://discord.com/developers/docs/resources/message#create-message).
+  maxInboundTextLength: DISCORD_MESSAGE_MAX_LENGTH,
   promptPresentation: {
     label: 'Discord',
     formattingDescription: 'Discord renders markdown',

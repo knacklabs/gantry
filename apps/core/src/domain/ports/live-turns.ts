@@ -249,6 +249,8 @@ export interface LiveAdmissionWorkItemRepository {
     senderDisplayName?: string | null;
     idempotencyKey: string;
     triggerDecision?: Record<string, unknown>;
+    /** Quiet window before the turn may start; omitted or 0 means due now. */
+    quietWindowMs?: number;
     now?: string;
   }): Promise<LiveAdmissionWorkItemEnqueueResult>;
   /**

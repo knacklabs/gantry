@@ -33,7 +33,10 @@ export interface MessageLoopDeps {
   appId?: string;
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
-    'listUnconsumedLiveAdmissionQueueJids' | 'consumeInputItem' | 'releaseInput'
+    | 'listUnconsumedLiveAdmissionQueueJids'
+    | 'consumeInputItem'
+    | 'releaseInput'
+    | 'consumeAll'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
   getOrRecoverCursor: (chatJid: string) => Promise<string> | string;
@@ -267,16 +270,16 @@ export async function processLiveAdmissionWorkItem(
     return 'listener_degraded';
   }
   if (deps.handleActiveControlCommand && deps.opsRepository?.getMessagesByIds) {
-    const [message] = await deps.opsRepository.getMessagesByIds(
-      {
-        appId: item.appId,
-        conversationId: item.conversationId,
-        threadId: item.threadId,
-        agentId: item.agentId,
-        providerAccountId: item.providerAccountId,
-      },
-      [item.messageId],
-    );
+    const scope = {
+      appId: item.appId,
+      conversationId: item.conversationId,
+      threadId: item.threadId,
+      agentId: item.agentId,
+      providerAccountId: item.providerAccountId,
+    };
+    const [message] = await deps.opsRepository.getMessagesByIds(scope, [
+      item.messageId,
+    ]);
     const command =
       message &&
       extractSessionCommand(
@@ -306,6 +309,14 @@ export async function processLiveAdmissionWorkItem(
         }))
       ) {
         return 'completed';
+      }
+      // /stop also cancels a batch still waiting to start: its messages
+      // become history and start no turn.
+      if (command.kind === 'stop') {
+        await deps.inputRepository?.consumeAll({
+          scope,
+          consumedBy: 'stopped',
+        });
       }
       // Only a clean refusal goes back; a throw may follow a partial effect.
       const handled = await deps.handleActiveControlCommand({

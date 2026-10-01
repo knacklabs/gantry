@@ -2188,7 +2188,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         'message:channel-providerAccount:default:telegram:tg:live-admission-atomic:msg-atomic-1',
       senderUserId: 'user-atomic',
       senderDisplayName: 'Atomic User',
-      state: 'queued',
+      state: 'deferred',
       triggerDecision: {
         source: 'channel_persistence',
         requiresTrigger: false,
@@ -2264,6 +2264,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       claimToken: 'claim-token-no-notify',
       claimExpiresAt: toIso(nowMs() + 60_000),
       limit: 10,
+      now: toIso(nowMs() + 10_000),
     });
     expect(claimed.map((item) => item.id)).toContain(result?.item.id);
   });
@@ -2478,7 +2479,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       },
     });
     expect(result.liveAdmissionResult?.item).toMatchObject({
-      state: 'queued',
+      state: 'deferred',
       messageId:
         'message:channel-providerAccount:default:telegram:tg:live-admission-event-atomic:msg-event-admission-1',
     });
@@ -2499,6 +2500,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       claimToken: 'claim-token-event-admission',
       claimExpiresAt: toIso(nowMs() + 60_000),
       limit: 10,
+      now: toIso(nowMs() + 10_000),
     });
     expect(claimed.map((item) => item.id)).toContain(
       result.liveAdmissionResult?.item.id,

@@ -131,7 +131,10 @@ describe('durable admission wakeup', () => {
     const { input } = deps();
     const consumeInputItem = vi.fn(async () => true);
     input.queue = queue;
-    input.inputRepository = { consumeInputItem } as never;
+    input.inputRepository = {
+      consumeInputItem,
+      consumeAll: vi.fn(async () => 0),
+    } as never;
     input.opsRepository = {
       getMessagesByIds: vi.fn(async () => [
         {
@@ -172,6 +175,7 @@ describe('durable admission wakeup', () => {
       const releaseInput = vi.fn(async () => 1);
       input.inputRepository = {
         consumeInputItem: vi.fn(async () => claimed),
+        consumeAll: vi.fn(async () => 0),
         releaseInput,
       } as never;
       input.opsRepository = {

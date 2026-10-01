@@ -27,7 +27,10 @@ import {
 } from '../../../../shared/message-cursor.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
-import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
+import {
+  enqueueLiveAdmissionWorkItemWithExecutor,
+  quietWindowMs,
+} from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -392,6 +395,7 @@ export class PostgresCanonicalMessageRepository {
           agentId,
         ),
         triggerDecision: admission.triggerDecision,
+        quietWindowMs: quietWindowMs(msg.content, providerId),
         now: admission.now ?? msg.timestamp,
       },
       this.maxLiveAdmissionBacklog,

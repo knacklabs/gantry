@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
 } from 'drizzle-orm';
@@ -16,6 +17,7 @@ import type {
   LiveAdmissionInputScope,
   LiveAdmissionWorkItemRepository,
 } from '../../../../domain/ports/live-turns.js';
+import { getProvider } from '../../../../channels/provider-registry.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type {
@@ -28,6 +30,28 @@ type LiveAdmissionWorkItemRow =
 type EnqueueLiveAdmissionWorkItemInput = Parameters<
   LiveAdmissionWorkItemRepository['enqueueLiveAdmissionWorkItem']
 >[0];
+
+const QUIET_WINDOW_MS = 1_500;
+const NEAR_LIMIT_QUIET_WINDOW_MS = 4_000;
+const QUIET_WINDOW_CAP_SECONDS = 6;
+const QUIET_WINDOW_REASON = 'quiet_window';
+// ponytail: a session command is a slash or bang word, optionally after a
+// leading mention. Any such text skips the window; a non-command that looks
+// like one only loses the wait, never a turn.
+const SESSION_COMMAND_LIKE = /^\s*(?:(?:<@[A-Z0-9]+>|@\S+)\s+)?[/!][a-z]/i;
+
+/**
+ * How long a new message waits for the rest of its batch: none for a session
+ * command, 4 s when the text is at least 90% of the platform's length limit
+ * (probably split), otherwise 1.5 s.
+ */
+export function quietWindowMs(text: string, providerId: string): number {
+  if (SESSION_COMMAND_LIKE.test(text)) return 0;
+  const limit = getProvider(providerId)?.maxInboundTextLength;
+  return limit !== undefined && text.length >= limit * 0.9
+    ? NEAR_LIMIT_QUIET_WINDOW_MS
+    : QUIET_WINDOW_MS;
+}
 
 const LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE = 5_000;
 const LIVE_ADMISSION_RETENTION_MAX_BATCHES_PER_SWEEP = 4;
@@ -117,6 +141,23 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     return { outcome: 'overloaded' };
   }
   const now = input.now ?? currentIso();
+  const windowMs = input.quietWindowMs ?? 0;
+  // The conversation's batch: items still in their quiet window. A new
+  // message restarts the wait for all of them, capped 6 s after the first.
+  const waiting = and(
+    eq(items.appId, input.appId),
+    eq(items.conversationId, input.conversationId),
+    input.threadId == null
+      ? isNull(items.threadId)
+      : eq(items.threadId, input.threadId),
+    input.agentId == null
+      ? isNull(items.agentId)
+      : eq(items.agentId, input.agentId),
+    sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId ?? null}`,
+    eq(items.state, 'deferred'),
+    eq(items.deferredReason, QUIET_WINDOW_REASON),
+    isNull(items.consumedAt),
+  );
   const row: typeof items.$inferInsert = {
     id: input.id,
     appId: input.appId,
@@ -131,7 +172,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     senderUserId: input.senderUserId ?? null,
     senderDisplayName: input.senderDisplayName ?? null,
     idempotencyKey: input.idempotencyKey,
-    state: 'queued',
+    state: windowMs > 0 ? 'deferred' : 'queued',
     sourceKind: 'message',
     triggerDecisionJson: input.triggerDecision ?? {},
     claimWorkerInstanceId: null,
@@ -141,18 +182,31 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     retryCount: 0,
     failureCount: 0,
     deferUntil: null,
-    deferredReason: null,
+    deferredReason: windowMs > 0 ? QUIET_WINDOW_REASON : null,
     updatedAt: now,
     claimedAt: null,
     endedAt: null,
   };
   const inserted = await db
     .insert(pgSchema.liveAdmissionWorkItemsPostgres)
-    .values(row)
+    .values({
+      ...row,
+      deferUntil:
+        windowMs > 0
+          ? sql`least(clock_timestamp() + make_interval(secs => ${windowMs / 1000}), coalesce((select min(${items.createdAt}) from ${items} where ${waiting}), clock_timestamp()) + make_interval(secs => ${QUIET_WINDOW_CAP_SECONDS}))`
+          : null,
+    })
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
-    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(inserted[0]!) };
+    const item = inserted[0]!;
+    if (windowMs > 0) {
+      await db
+        .update(items)
+        .set({ deferUntil: item.deferUntil })
+        .where(and(waiting, ne(items.id, item.id)));
+    }
+    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(item) };
   }
   const conflicting = await findLiveAdmissionWorkItemByIdempotencyKey(
     db,
