@@ -1,10 +1,52 @@
 {
   "branch": "task/TURN-1-T3",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "a5a61b1981b581bf00cb57443c31e6cd281b59ec1102e966eb00824d875142d7",
+    "commit": "94dd013b9bd649d52344bcca2e0fb5a0545ee400",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The changed test still exercises `finalRetry`, while the unchanged `group-queue.ts:528-610` still counts failed turns, schedules an in-memory retry, and passes `finalRetry` to the processor. Failed turns also release their input for durable recovery (`group-processing-flow.ts:228-247` and `message-loop.ts:321-335`). T3 therefore leaves two retry owners, and a final local attempt can send a failure notice and keep input that should remain available to the next turn. Remove the queue retry path and update its tests to exercise durable recovery.",
+        "file": "apps/core/test/unit/runtime/group-processing.test.ts",
+        "line": 2338,
+        "priority": "P1",
+        "title": "Not done: No message is lost or given twice"
+      },
+      {
+        "body": "This migration deletes the old row, but the router-state port (`ops-repo.ts:365-368`) and its Postgres repository still expose only get and set. T3 expressly calls for a delete operation as well as the migration. The one-time SQL cleanup works, but that separate storage operation has not been delivered.",
+        "file": "apps/core/src/adapters/storage/postgres/schema/migrations/20261001084406_delete_last_agent_timestamp.sql",
+        "line": 1,
+        "priority": "P2",
+        "title": "Add the requested router-state delete operation"
+      },
+      {
+        "body": "This new task-status file is outside T3's permitted paths. It is not needed for the marker deletion, retry removal, or tests, and the supplied handoff gives no reason to include it.",
+        "file": ".factory/stories/TURN-1/tasks/T3.json",
+        "line": 1,
+        "priority": "P2",
+        "title": "Remove the unrelated task-status file outside scope"
+      },
+      {
+        "body": "The changed line budgets are outside T3's permitted paths. They tighten architecture limits but are not needed to delete the marker or retry loop, and the supplied handoff gives no reason for this separate policy change.",
+        "file": "scripts/architecture-map.json",
+        "line": 34,
+        "priority": "P2",
+        "title": "Remove the unrelated architecture budget edits outside scope"
+      }
+    ],
+    "status": "blocked",
+    "tree": "1651fed4edaa26ad365d0b46d6da12707bef7362a11e09b39c6a52fd85dd2fa9"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T07:53:47+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T13:31:59+00:00",
+      "step": "review"
     }
   ]
 }
