@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/one-agent-in-the-same-chat-through-two-o",
+  "done_when": "The settings check rejects one agent bound to the same chat through two accounts, with a clear message, proven by a parser test",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:17:21+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "One agent in the same chat through two of its accounts makes their allow-lists overwrite each other"
+}
