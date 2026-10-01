@@ -1,16 +1,13 @@
-# Implementation default: the GPT-5.6 flagship at medium effort — bounded
-# tasks with approved plans rarely need more; escalate effort to high for
-# migrations/cross-domain/concurrency/security-sensitive work.
-model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
+# The model and effort come from forge.toml and the session's own choice.
 plan_mode_reasoning_effort = "high"
 # Terse output: artifacts and diffs carry the substance, not prose.
 model_verbosity = "low"
 model_reasoning_summary = "concise"
 personality = "pragmatic"
-# Workspace-write by default. Needing broader access means editing this value
-# deliberately, as a diff-visible change.
-sandbox_mode = "workspace-write"
+# Full access by owner decision (2026-10-01); Forge's deny hook still blocks
+# destructive commands.
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
 web_search = "cached"
 
 # The commands the worker runs may reach the network: the
