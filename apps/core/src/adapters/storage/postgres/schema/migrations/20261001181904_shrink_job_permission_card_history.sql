@@ -97,9 +97,22 @@ BEGIN
   END LOOP;
 END $$;
 --> statement-breakpoint
--- A once-need that was applied or withdrawn (cancelled without expiring) is
--- settled unless a rerun not yet enqueued still requires it; settled needs
--- leave every per-job load.
+-- A once-need that was applied, withdrawn (cancelled without expiring) or
+-- expired before the job's three newest expiries is settled unless a rerun
+-- not yet enqueued still requires it; settled needs leave every per-job load.
+WITH expired AS (
+  SELECT id, row_number() OVER (
+    PARTITION BY app_id, payload_json ->> 'jobId'
+    ORDER BY payload_json ->> 'expiredAt' DESC,
+      payload_json ->> 'createdAt' DESC,
+      id DESC
+  ) AS newest
+  FROM pending_interactions
+  WHERE kind = 'job_permission_need'
+    AND status = 'pending'
+    AND payload_json ->> 'state' = 'cancelled'
+    AND payload_json ->> 'expiredAt' IS NOT NULL
+)
 UPDATE pending_interactions AS need
 SET status = 'resolved', resolved_at = COALESCE(need.resolved_at, now())
 WHERE need.kind = 'job_permission_need'
@@ -111,6 +124,7 @@ WHERE need.kind = 'job_permission_need'
       need.payload_json ->> 'state' = 'cancelled'
       AND need.payload_json ->> 'expiredAt' IS NULL
     )
+    OR need.id IN (SELECT id FROM expired WHERE newest > 3)
   )
   AND NOT EXISTS (
     SELECT 1

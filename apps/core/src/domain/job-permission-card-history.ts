@@ -1,10 +1,12 @@
 import type {
   JobPermissionCardRecord,
   JobPermissionDurabilityState,
+  JobPermissionNeedRecord,
 } from './ports/job-permission-durability.js';
 
 const MAX_RESUMED_RUN_BUDGETS = 20;
 const MAX_ENQUEUED_RERUN_BARRIERS = 20;
+const EXPIRED_RECEIPT_NEEDS = 3;
 
 // Keeps the latest revision, the one on screen, the one that opened the
 // current message (its confirmation time decides edit vs replace), and every
@@ -62,12 +64,34 @@ export function pruneSettledCardHistory(card: JobPermissionCardRecord): void {
   );
 }
 
-// A once-need answers a single request, so once it is applied or withdrawn
-// (cancelled without expiring) it is never shown on the card or matched by
-// another request. It stays live while a rerun not yet enqueued requires it.
+// Only expired needs (always once-needs) set expiredAt. The card keeps the
+// newest few as its "expired, will ask again next run" receipt; older ones
+// leave the card and settle.
+export function staleExpiredNeedIds(
+  needs: readonly JobPermissionNeedRecord[],
+): Set<string> {
+  return new Set(
+    needs
+      .filter((need) => need.state === 'cancelled' && need.expiredAt)
+      .sort(
+        (left, right) =>
+          right.expiredAt!.localeCompare(left.expiredAt!) ||
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.id.localeCompare(left.id),
+      )
+      .slice(EXPIRED_RECEIPT_NEEDS)
+      .map((need) => need.id),
+  );
+}
+
+// A once-need answers a single request, so once it is applied, withdrawn
+// (cancelled without expiring) or an expiry older than the card's receipt, it
+// is never shown on the card or matched by another request. It stays live
+// while a rerun not yet enqueued requires it.
 export function settledOnceNeedIds(
   state: JobPermissionDurabilityState,
 ): Set<string> {
+  const stale = staleExpiredNeedIds(state.needs);
   const gating = new Set(
     state.card.rerunBarriers
       .filter((barrier) => !barrier.enqueuedAt)
@@ -79,7 +103,8 @@ export function settledOnceNeedIds(
         (need) =>
           need.grant === 'once' &&
           (need.state === 'applied' ||
-            (need.state === 'cancelled' && !need.expiredAt)) &&
+            (need.state === 'cancelled' && !need.expiredAt) ||
+            stale.has(need.id)) &&
           !gating.has(need.id),
       )
       .map((need) => need.id),

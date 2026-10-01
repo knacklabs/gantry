@@ -65,7 +65,8 @@ maybeDescribe('job permission card history', () => {
         authorizeActor: async () => true,
         releaseSlot: async () => true,
         acquireSlot: async () => true,
-        isRunAlive: async () => true,
+        // Runs named dead-* ended while their request waited.
+        isRunAlive: async ({ runId }) => !runId.startsWith('dead-'),
         revalidate: async (input) => ({
           kind: 'approved',
           grantAtoms: [...input.renderedGrantAtoms],
@@ -135,7 +136,7 @@ maybeDescribe('job permission card history', () => {
     return current!;
   }
 
-  function attachOnce(jobId: string, run: number) {
+  function attachOnce(jobId: string, run: number, runId = `run-${run}`) {
     return service.attachNeed({
       appId: APP_ID,
       jobId,
@@ -146,10 +147,10 @@ maybeDescribe('job permission card history', () => {
       grant: 'once',
       renderedGrantAtoms: [],
       waiter: {
-        id: `waiter:run-${run}`,
+        id: `waiter:${runId}`,
         requestId: `request-${run}`,
-        runId: `run-${run}`,
-        runLeaseToken: `lease:run-${run}`,
+        runId,
+        runLeaseToken: `lease:${runId}`,
         runLeaseFencingVersion: 1,
       },
     });
@@ -482,12 +483,40 @@ maybeDescribe('job permission card history', () => {
     });
   });
 
+  it('keeps only the newest expired once-requests on the card across hundreds of runs', async () => {
+    const jobId = 'job-once-expiring';
+    // Every run ends before anyone answers, so each one-time request expires.
+    for (let run = 1; run <= 300; run += 1) {
+      await attachOnce(jobId, run, `dead-run-${run}`);
+      for (let tick = 0; tick < 3; tick += 1) {
+        await settleOpenCardSends('expiring-message');
+        await service.reconcile();
+      }
+      if (run % 100 === 0) {
+        expect(await openNeedRows(jobId)).toBeLessThanOrEqual(3);
+      }
+    }
+
+    const { card, needs } = await state(jobId);
+    expect(needs.map(({ canonicalIdentity }) => canonicalIdentity)).toEqual(
+      expect.arrayContaining(['request-298', 'request-299', 'request-300']),
+    );
+    expect(needs).toHaveLength(3);
+    expect(needs.every(({ expiredAt }) => Boolean(expiredAt))).toBe(true);
+    const latest = card.revisions.at(-1)!;
+    expect(latest.representedNeeds.length).toBeLessThanOrEqual(3);
+    // The owner still sees the expired receipt for the latest requests.
+    expect(latest).toMatchObject({ retireOutcome: 'expired' });
+    expect(latest.retiredRows).toHaveLength(3);
+  }, 600_000);
+
   it('settles existing once-needs and trims request snapshots in the migration', async () => {
     const jobId = 'job-migrate-needs';
     await attachOnce(jobId, 1);
     await attachOnce(jobId, 2);
     await attachOnce(jobId, 3);
     await attach(jobId, 'run-4');
+    for (let run = 5; run <= 8; run += 1) await attachOnce(jobId, run);
     const needs = (await state(jobId)).needs;
     const byIdentity = (identity: string) =>
       needs.find((need) => need.canonicalIdentity === identity)!;
@@ -503,10 +532,13 @@ maybeDescribe('job permission card history', () => {
       );
     await setPayload(settled.id, { state: 'applied' });
     await setPayload(gated.id, { state: 'applied' });
-    await setPayload(expired.id, {
-      state: 'cancelled',
-      expiredAt: settled.createdAt,
-    });
+    // Five expiries; the card keeps the newest three (runs 6 to 8).
+    for (const run of [3, 5, 6, 7, 8]) {
+      await setPayload(byIdentity(`request-${run}`).id, {
+        state: 'cancelled',
+        expiredAt: `2026-10-01T00:00:0${run}.000Z`,
+      });
+    }
     await setPayload(rule.id, {
       requestSnapshots: Array.from({ length: 8 }, (_, index) => ({
         requestId: `snapshot-${index + 1}`,
@@ -553,7 +585,11 @@ maybeDescribe('job permission card history', () => {
     const statuses = await needRowStatuses(jobId);
     expect(statuses.get(settled.id)).toBe('resolved');
     expect(statuses.get(gated.id)).toBe('pending');
-    expect(statuses.get(expired.id)).toBe('pending');
+    expect(statuses.get(expired.id)).toBe('resolved');
+    expect(statuses.get(byIdentity('request-5').id)).toBe('resolved');
+    for (const run of [6, 7, 8]) {
+      expect(statuses.get(byIdentity(`request-${run}`).id)).toBe('pending');
+    }
     expect(statuses.get(rule.id)).toBe('pending');
     const trimmed = (await state(jobId)).needs.find(
       (need) => need.id === rule.id,
