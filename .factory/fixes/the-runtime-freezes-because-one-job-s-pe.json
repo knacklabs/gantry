@@ -5,34 +5,34 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "1e36151dabbdaaef9ff7f51fd835fcbb570b3a8c1ee6ee126aebf3ef3d013ce7",
-    "commit": "24a19f51afefd74cb70431b3be209c284936bccf",
+    "changed": "0211ddcb33d789788a44d8d08d24d6a128edaac71869d7a3c9fc1732f203d7b5",
+    "commit": "499cfdb0c8ab09d0c310edbae3f42ddf0291fe6a",
     "dismissals": [],
     "findings": [
       {
-        "body": "The pruning only bounds revision history; `pendingBudgets` still grows with every distinct run. The production heartbeat calls `recordPendingHeartbeat` (apps/core/src/app/bootstrap/job-permission-wiring-setup.ts:246), which calls `budgetForRun` (apps/core/src/application/interactions/job-permission-provider-actions.ts:557). That helper permanently appends an entry for each new run ID (apps/core/src/application/interactions/job-permission-durability-state.ts:158). Consequently, even after permissions are settled, subsequent runs keep enlarging a card that heartbeats load, clone, and rewrite. Bound completed per-run state as well, preserving accounting for live runs, and migrate existing accumulated state.",
+        "body": "Completed `rerunBarriers` remain unbounded; neither this pruner nor the migration touches them. The production approve-and-run-again path calls `recordRerunConsent` (apps/core/src/application/interactions/job-permission-provider-actions.ts:174), which appends a barrier for each distinct prior run (apps/core/src/application/interactions/job-permission-durability-state.ts:99). Reconciliation only sets `enqueuedAt` (apps/core/src/application/interactions/job-permission-reconciler.ts:529), and removal explicitly preserves enqueued barriers (apps/core/src/application/interactions/job-permission-durability-state.ts:135). Repeated completed handoffs therefore keep enlarging the card, which heartbeats still load and rewrite (apps/core/src/application/interactions/job-permission-provider-actions.ts:544). Safely bound completed rerun state on writes and in the migration, preserving durable enqueue idempotency.",
         "file": "apps/core/src/domain/job-permission-card-history.ts",
-        "line": 27,
+        "line": 45,
         "priority": "P1",
-        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading theirayload,"
+        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their query"
       },
       {
-        "body": "This test calls `attach(jobId)` once, then repeatedly denies and reconsiders the same need until its revision exceeds 1,000. It exercises only `run-1`, so it passes despite the unbounded per-run budget state. It also constructs the service with internal runtime effects replaced by stubs (lines 52\u201365), and supplies outbound settlement and receipts directly through SQL (lines 119\u2013137). Add the required runtime-entry-point proof using over 1,000 distinct runs, real heartbeat/reconciliation wiring, and provider-edge fakes only. The idle-card behavior likewise needs runtime-level coverage; the current service/repository test does not exercise the running reconciler.",
+        "body": "The new test supplies 1,001 distinct run IDs, but directly calls the heartbeat reader and `wired.reconcile()` without creating or executing scheduler runs. Delivery settlement and receipts are supplied through SQL at lines 152\u2013163, bypassing the outbound worker rather than faking only the provider edge. The idle-card test likewise calls reconciliation directly. Neither starts the actual five-second loop in apps/core/src/app/bootstrap/runtime-services-permission-card.ts:21, registered by apps/core/src/app/bootstrap/runtime-services.ts:952. Disconnecting scheduler heartbeat wiring or scheduled reconciliation would leave these tests passing. Add the required runtime-entry-point proof for repeated runs and idle-card reconciliation, using real leases, heartbeat scheduling, delivery persistence, and provider-edge fakes.",
         "file": "apps/core/test/integration/job-permission-card-history.postgres.integration.test.ts",
-        "line": 179,
+        "line": 219,
         "priority": "P1",
         "title": "Not done: Grow a permission card past 1,000 runs through the runtime entry point"
       },
       {
-        "body": "The only warning test checks numeric conversion and threshold selection. It never starts the runtime or monitor, blocks the main thread, or observes a warning. Removing the startup call, histogram enabling, interval, or logger call would leave it passing. Add an end-to-end test that starts the real runtime, deliberately blocks its thread beyond the threshold, and verifies the emitted warning.",
+        "body": "This now meaningfully tests the monitor itself, but it starts that helper directly and observes a mocked logger. It never starts the runtime. Removing the startup registration in apps/core/src/app/index.ts:104 would leave the test passing while eliminating runtime warnings entirely. The required end-to-end proof remains missing: start the real runtime, block its main thread beyond the configured threshold, and verify the emitted warning.",
         "file": "apps/core/test/unit/infrastructure/logging/event-loop-delay-monitor.test.ts",
-        "line": 5,
+        "line": 12,
         "priority": "P1",
         "title": "Not done: The runtime warns when its main thread is blocked"
       }
     ],
     "status": "blocked",
-    "tree": "81f11e4a61e550a775bcdc6fc339d01e9c037e56f1f7d7501773c932f089a0f4"
+    "tree": "c2e054b22e5b0f2542a7bccca97ab7699faa82c7cdc456ae5063c5e6eb32ec13"
   },
   "status": "fixing",
   "steps": [
@@ -42,6 +42,10 @@
     },
     {
       "at": "2026-10-01T13:29:45+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T15:00:39+00:00",
       "step": "review"
     }
   ],
