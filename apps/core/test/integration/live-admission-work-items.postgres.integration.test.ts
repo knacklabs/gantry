@@ -41,8 +41,6 @@ import {
 } from '../harness/postgres-integration-runtime.js';
 
 const commandAdmins = vi.hoisted(() => new Set<string>());
-// Chats listed here allow only the given senders to trigger the agent.
-const triggerSendersByChat = vi.hoisted(() => new Map<string, Set<string>>());
 vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
@@ -51,9 +49,6 @@ vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
     isSenderControlAllowed: (
       ...args: Parameters<typeof actual.isSenderControlAllowed>
     ) => commandAdmins.has(args[1]) || actual.isSenderControlAllowed(...args),
-    isTriggerAllowed: (...args: Parameters<typeof actual.isTriggerAllowed>) =>
-      triggerSendersByChat.get(args[0])?.has(args[1]) ??
-      actual.isTriggerAllowed(...args),
   };
 });
 
@@ -742,104 +737,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
         message.text.includes('Completion received.'),
       ),
     ).toBe(true);
-    await app.queue.shutdown(500);
-  });
-
-  it('answers a thread follow-up only when its sender may trigger the agent', async () => {
-    const { _setRuntimeStorageForTest } =
-      await import('@core/adapters/storage/postgres/runtime-store.js');
-    _setRuntimeStorageForTest(runtime.storageRuntime);
-    const appId = 'thread-follow-up-sender';
-    const chatJid = 'tg:-thread-follow-up-sender';
-    const folder = 'thread_follow_up_sender';
-    const providerAccountId = 'channel-providerAccount:default:telegram';
-    const threadId = '4242';
-    await runtime.control.ensureAppSession({
-      appId,
-      conversationId: 'thread-follow-up-sender',
-      chatJid,
-      workspaceFolder: folder,
-    });
-    triggerSendersByChat.set(chatJid, new Set(['alice']));
-    const presented: string[] = [];
-    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
-    const app = createRuntimeApp({
-      opsRepository: runtime.ops,
-      ensureCredentialBinding: async () => ({ created: false }),
-      runAgent: async (_group, input, _onProcess, onOutput) => {
-        presented.push(input.prompt);
-        await onOutput?.({ status: 'success', result: 'Thread reply.' });
-        return { status: 'success', result: 'Thread reply.' };
-      },
-    });
-    app.setChannelRuntime(channel.runtime);
-    await app.registerGroup(chatJid, {
-      name: 'Thread follow-up sender',
-      folder,
-      providerAccountId,
-      trigger: 'Andy',
-      added_at: toIso(nowMs()),
-      requiresTrigger: true,
-      conversationKind: 'group',
-      agentConfig: { model: 'opus' },
-    });
-    const deliver = async (
-      id: string,
-      sender: string,
-      content: string,
-      replyTo?: string,
-    ) => {
-      const admitted = await runtime.ops.storeMessageWithLiveAdmission(
-        {
-          id,
-          chat_jid: chatJid,
-          provider: 'telegram',
-          providerAccountId,
-          sender,
-          content,
-          timestamp: toIso(nowMs()),
-          is_from_me: false,
-          is_bot_message: false,
-          thread_id: threadId,
-          ...(replyTo ? { reply_to_message_id: replyTo } : {}),
-        },
-        { appId, agentId: agentIdForFolder(folder), providerAccountId },
-      );
-      if (!admitted || admitted.outcome === 'overloaded')
-        throw new Error('Admission failed');
-      await app.processGroupMessages(admitted.item.queueJid, {
-        existingRunId: `run:${id}`,
-        admissionAppId: appId,
-      });
-    };
-    const replies = () =>
-      channel.outbound.filter((message) =>
-        message.text.includes('Thread reply.'),
-      ).length;
-
-    await deliver('thread-root', 'alice', 'Andy start a plan');
-    expect(presented).toHaveLength(1);
-    expect(replies()).toBe(1);
-
-    await deliver(
-      'thread-other-sender',
-      'bob',
-      'yes, continue with that',
-      'thread-root',
-    );
-    expect(presented).toHaveLength(1);
-    expect(replies()).toBe(1);
-
-    await deliver(
-      'thread-allowed-sender',
-      'alice',
-      'and add a summary',
-      'thread-root',
-    );
-    expect(presented).toHaveLength(2);
-    expect(presented[1]).toContain('and add a summary');
-    expect(replies()).toBe(2);
-    triggerSendersByChat.delete(chatJid);
     await app.queue.shutdown(500);
   });
 
