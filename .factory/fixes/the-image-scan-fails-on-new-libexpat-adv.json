@@ -7,7 +7,13 @@
     "blocking_level": "P1",
     "changed": "957978b55abb9e59909ee1ba62ba25c395f1db101730c8b5d4dbd2ee6622a6d7",
     "commit": "323a8037d23ff37966eb2fbb493bf2a99870aa75",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "ops/docker/Dockerfile:71 the image workflow on this pull request rebuilt the runtime stage with the refreshed security layer and its Trivy scan passed (https://github.com/knacklabs/gantry/actions/runs/36862992435/job/110371522768)",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The argument bump invalidates the cached apt layer, but the required image-scan pass has not been demonstrated. The supplied close command runs npm checks and tests without building or scanning the image. The real checks exist at `.github/workflows/image.yml:77` (build) and `:95` (Trivy scan). Run that workflow against this branch and confirm the security-refresh layer executes and the scan passes; npm success cannot establish that the installed libexpat packages resolve the advisories.",
@@ -17,10 +23,10 @@
         "title": "Not done: The image build refreshes Debian security packages after 2026-10-01 and the image scan passes"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "6ee88d2d5f9461d290c2049ae3f2b0b888ce04224ec72927fb65df49447f9121"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T12:00:07+00:00",
