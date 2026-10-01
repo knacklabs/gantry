@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/telegram-photos-for-a-chat-bound-only-to",
+  "done_when": "A Telegram media message reaches every account route that text would reach for that chat, proven by a test where a photo for a chat bound only to the second shared-bot account is delivered",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:24:32+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Telegram photos for a chat bound only to a second account that shares bot credentials are dropped"
+}
