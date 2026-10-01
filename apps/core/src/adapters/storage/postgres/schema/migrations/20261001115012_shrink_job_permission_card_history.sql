@@ -96,3 +96,45 @@ BEGIN
     WHERE id = card.id;
   END LOOP;
 END $$;
+--> statement-breakpoint
+-- A once-need that was applied or withdrawn (cancelled without expiring) is
+-- settled unless a rerun not yet enqueued still requires it; settled needs
+-- leave every per-job load.
+UPDATE pending_interactions AS need
+SET status = 'resolved', resolved_at = COALESCE(need.resolved_at, now())
+WHERE need.kind = 'job_permission_need'
+  AND need.status = 'pending'
+  AND need.payload_json ->> 'grant' = 'once'
+  AND (
+    need.payload_json ->> 'state' = 'applied'
+    OR (
+      need.payload_json ->> 'state' = 'cancelled'
+      AND need.payload_json ->> 'expiredAt' IS NULL
+    )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM pending_interactions AS card,
+      jsonb_array_elements(card.payload_json -> 'rerunBarriers') AS b(barrier),
+      jsonb_array_elements(b.barrier -> 'requiredNeeds') AS r(required)
+    WHERE card.kind = 'job_permission_card'
+      AND card.app_id = need.app_id
+      AND card.payload_json ->> 'jobId' = need.payload_json ->> 'jobId'
+      AND b.barrier ->> 'enqueuedAt' IS NULL
+      AND r.required ->> 'needId' = need.id
+  );
+--> statement-breakpoint
+-- Keep the newest five request snapshots on each need.
+UPDATE pending_interactions
+SET payload_json = jsonb_set(
+  payload_json,
+  '{requestSnapshots}',
+  (
+    SELECT jsonb_agg(snapshot ORDER BY ord)
+    FROM jsonb_array_elements(payload_json -> 'requestSnapshots')
+      WITH ORDINALITY AS s(snapshot, ord)
+    WHERE ord > jsonb_array_length(payload_json -> 'requestSnapshots') - 5
+  )
+)
+WHERE kind = 'job_permission_need'
+  AND jsonb_array_length(payload_json -> 'requestSnapshots') > 5;

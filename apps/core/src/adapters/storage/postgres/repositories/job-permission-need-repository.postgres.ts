@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, or, sql } from 'drizzle-orm';
 
 import type {
   JobPermissionCardDeliveryOutcome,
@@ -22,6 +22,7 @@ import type {
   CanonicalDb,
   CanonicalExecutor,
 } from './canonical-graph-repository.postgres.js';
+import { writeJobPermissionNeedRows } from './job-permission-need-rows.postgres.js';
 import {
   readJobPermissionCard,
   readJobPermissionNeed,
@@ -34,6 +35,7 @@ export class JobPermissionNeedRepositoryPostgres {
     appId: string;
     jobId: string;
     initialCard: JobPermissionCardRecord;
+    includeNeedIds?: string[];
     mutate: (state: JobPermissionDurabilityState) => {
       state: JobPermissionDurabilityState;
       result: T;
@@ -86,6 +88,13 @@ export class JobPermissionNeedRepositoryPostgres {
             eq(table.appId, input.appId),
             eq(table.kind, 'job_permission_need'),
             sql`${table.payloadJson}->>'jobId' = ${input.jobId}`,
+            // Settled needs are never loaded, so they cost nothing per write.
+            input.includeNeedIds?.length
+              ? or(
+                  eq(table.status, 'pending'),
+                  inArray(table.id, input.includeNeedIds),
+                )
+              : eq(table.status, 'pending'),
           ),
         )
         .for('update');
@@ -138,43 +147,7 @@ export class JobPermissionNeedRepositoryPostgres {
             mutation.state.card.sourceAgentFolder || cardRow.sourceAgentFolder,
         })
         .where(eq(table.id, cardRow.id));
-      for (const need of mutation.state.needs) {
-        await tx
-          .insert(table)
-          .values({
-            id: need.id,
-            appId: input.appId,
-            runId: null,
-            envelopeId: null,
-            memberIndex: null,
-            sourceAgentFolder: need.sourceAgentFolder,
-            requestId: need.id,
-            runLeaseToken: null,
-            runLeaseFencingVersion: null,
-            kind: 'job_permission_need',
-            status: 'pending',
-            payloadJson: need,
-            callbackRouteJson: null,
-            idempotencyKey: need.id,
-            approverRef: need.decidedBy,
-            resolutionJson: null,
-            createdAt: need.createdAt,
-            expiresAt: '9999-12-31T23:59:59.999Z',
-            resolvedAt: null,
-          })
-          .onConflictDoUpdate({
-            target: table.idempotencyKey,
-            set: {
-              payloadJson: need,
-              sourceAgentFolder: need.sourceAgentFolder,
-              approverRef: need.decidedBy,
-            },
-            setWhere: and(
-              eq(table.appId, input.appId),
-              eq(table.kind, 'job_permission_need'),
-            ),
-          });
-      }
+      await writeJobPermissionNeedRows(tx, input.appId, mutation.state);
       return mutation.result;
     });
   }
@@ -236,6 +209,8 @@ export class JobPermissionNeedRepositoryPostgres {
           eq(table.appId, input.appId),
           inArray(table.kind, ['job_permission_card', 'job_permission_need']),
           sql`${table.payloadJson}->>'jobId' = ${input.jobId}`,
+          // Cards stay pending; settled needs are left out.
+          eq(table.status, 'pending'),
         ),
       );
     const cardRow = rows.find((row) => row.kind === 'job_permission_card');
@@ -599,15 +574,16 @@ function assertJobPermissionState(
             (required) => `${required.needId}:${required.askingEpoch}`,
           ),
         ).size !== barrier.requiredNeeds.length ||
-        barrier.requiredNeeds.some(
-          (required) =>
-            !state.needs.some(
-              (need) =>
-                need.id === required.needId &&
-                (barrier.enqueuedAt ||
-                  need.askingEpoch === required.askingEpoch),
-            ),
-        ),
+        // An enqueued barrier's needs may already be settled and unloaded.
+        (!barrier.enqueuedAt &&
+          barrier.requiredNeeds.some(
+            (required) =>
+              !state.needs.some(
+                (need) =>
+                  need.id === required.needId &&
+                  need.askingEpoch === required.askingEpoch,
+              ),
+          )),
     ) ||
     new Set(state.needs.map((need) => need.id)).size !== state.needs.length ||
     state.needs.some(

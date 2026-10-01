@@ -270,6 +270,7 @@ export abstract class PostgresInteractionRepositoryMethods {
     appId: string;
     jobId: string;
     initialCard: JobPermissionCardRecord;
+    includeNeedIds?: string[];
     mutate: (state: JobPermissionDurabilityState) => {
       state: JobPermissionDurabilityState;
       result: T;

@@ -1,4 +1,7 @@
-import type { JobPermissionCardRecord } from './ports/job-permission-durability.js';
+import type {
+  JobPermissionCardRecord,
+  JobPermissionDurabilityState,
+} from './ports/job-permission-durability.js';
 
 const MAX_RESUMED_RUN_BUDGETS = 20;
 const MAX_ENQUEUED_RERUN_BARRIERS = 20;
@@ -56,5 +59,29 @@ export function pruneSettledCardHistory(card: JobPermissionCardRecord): void {
   );
   card.rerunBarriers = card.rerunBarriers.filter(
     (barrier) => !barrier.enqueuedAt || enqueued.has(barrier),
+  );
+}
+
+// A once-need answers a single request, so once it is applied or withdrawn
+// (cancelled without expiring) it is never shown on the card or matched by
+// another request. It stays live while a rerun not yet enqueued requires it.
+export function settledOnceNeedIds(
+  state: JobPermissionDurabilityState,
+): Set<string> {
+  const gating = new Set(
+    state.card.rerunBarriers
+      .filter((barrier) => !barrier.enqueuedAt)
+      .flatMap((barrier) => barrier.requiredNeeds.map(({ needId }) => needId)),
+  );
+  return new Set(
+    state.needs
+      .filter(
+        (need) =>
+          need.grant === 'once' &&
+          (need.state === 'applied' ||
+            (need.state === 'cancelled' && !need.expiredAt)) &&
+          !gating.has(need.id),
+      )
+      .map((need) => need.id),
   );
 }

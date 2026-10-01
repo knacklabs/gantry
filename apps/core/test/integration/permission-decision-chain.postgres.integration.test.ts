@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
@@ -672,10 +672,23 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     state = await runtime.repositories.workerCoordination.getJobPermissionState(
       { appId: APP_ID, jobId },
     );
-    expect(state!.needs[0]).toMatchObject({
-      state: 'applied',
-      grant: 'once',
-      approvedGrantAtoms: [],
+    // The applied once-need is settled, so it leaves the job's open state.
+    expect(state!.needs).toEqual([]);
+    const [settledNeed] = await runtime.service.db
+      .select({
+        status: pgSchema.pendingInteractionsPostgres.status,
+        payloadJson: pgSchema.pendingInteractionsPostgres.payloadJson,
+      })
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        and(
+          eq(pgSchema.pendingInteractionsPostgres.kind, 'job_permission_need'),
+          sql`${pgSchema.pendingInteractionsPostgres.payloadJson}->>'jobId' = ${jobId}`,
+        ),
+      );
+    expect(settledNeed).toMatchObject({
+      status: 'resolved',
+      payloadJson: { state: 'applied', grant: 'once', approvedGrantAtoms: [] },
     });
     const retireRevision = state!.card.revisions.at(-1)!;
     expect(retireRevision).toMatchObject({

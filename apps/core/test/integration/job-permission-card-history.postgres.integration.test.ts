@@ -135,6 +135,46 @@ maybeDescribe('job permission card history', () => {
     return current!;
   }
 
+  function attachOnce(jobId: string, run: number) {
+    return service.attachNeed({
+      appId: APP_ID,
+      jobId,
+      sourceAgentFolder: 'main_agent',
+      conversationId: CONVERSATION_ID,
+      canonicalIdentity: `request-${run}`,
+      displayLabel: `Run once ${run}`,
+      grant: 'once',
+      renderedGrantAtoms: [],
+      waiter: {
+        id: `waiter:run-${run}`,
+        requestId: `request-${run}`,
+        runId: `run-${run}`,
+        runLeaseToken: `lease:run-${run}`,
+        runLeaseFencingVersion: 1,
+      },
+    });
+  }
+
+  async function needRowStatuses(jobId: string) {
+    const result = await query(
+      `SELECT id, status FROM pending_interactions
+        WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1`,
+      [jobId],
+    );
+    return new Map(
+      (result.rows as Array<{ id: string; status: string }>).map((row) => [
+        row.id,
+        row.status,
+      ]),
+    );
+  }
+
+  async function openNeedRows(jobId: string) {
+    return [...(await needRowStatuses(jobId)).values()].filter(
+      (status) => status === 'pending',
+    ).length;
+  }
+
   async function storedCardBytes(jobId: string): Promise<number> {
     const result = await query(
       `SELECT octet_length(payload_json::text) AS bytes FROM pending_interactions
@@ -291,6 +331,115 @@ maybeDescribe('job permission card history', () => {
     ).resolves.toEqual({ status: 'stale' });
   }, 600_000);
 
+  it('keeps no open need rows across hundreds of approved once-requests', async () => {
+    const jobId = 'job-once-requests';
+    // Each approved once-request costs about ten transactions through the
+    // real service, so 300 runs keep this test to about two minutes; the
+    // open-row check fails at run 100 when settled needs stay open.
+    for (let run = 1; run <= 300; run += 1) {
+      await attachOnce(jobId, run);
+      const current = await state(jobId);
+      const need = current.needs.find(
+        (candidate) => candidate.canonicalIdentity === `request-${run}`,
+      )!;
+      await service.decideCard({
+        appId: APP_ID,
+        jobId,
+        sourceAgentFolder: 'main_agent',
+        actorRef: APPROVER,
+        revision: current.card.revision,
+        decision: 'allow',
+        needId: need.id,
+        askingEpoch: need.askingEpoch,
+      });
+      await settleOpenCardSends('once-message');
+      await service.reconcile();
+      if (run % 100 === 0) expect(await openNeedRows(jobId)).toBe(0);
+    }
+
+    expect((await state(jobId)).needs).toEqual([]);
+    const startedAt = performance.now();
+    await jobPermissionLeaseExtensionMs({
+      appId: APP_ID,
+      jobId,
+      sourceAgentFolder: 'main_agent',
+      runId: 'run-301',
+    });
+    expect(performance.now() - startedAt).toBeLessThan(500);
+    // A replayed request still finds its applied need instead of asking again.
+    await expect(attachOnce(jobId, 1)).resolves.toMatchObject({
+      status: 'applied',
+    });
+  }, 600_000);
+
+  it('keeps a settled once-need while a pending rerun requires it, and removes old settled rows', async () => {
+    const jobId = 'job-once-rerun';
+    await attachOnce(jobId, 1);
+    await attachOnce(jobId, 2);
+    const { needs } = await state(jobId);
+    const gated = needs.find((need) => need.canonicalIdentity === 'request-1');
+    const free = needs.find((need) => need.canonicalIdentity === 'request-2');
+    const applied = (needId: string, priorRunId?: string) =>
+      repository().mutateJobPermissionState({
+        appId: APP_ID,
+        jobId,
+        initialCard: initialCard({ appId: APP_ID, jobId }, gated!.createdAt),
+        mutate: (current) => {
+          for (const need of current.needs) {
+            if (need.id !== needId) continue;
+            need.state = 'applied';
+            need.grantAppliedAt = need.updatedAt;
+            for (const waiter of need.waiters) waiter.state = 'delivered';
+          }
+          if (priorRunId) {
+            current.card.rerunBarriers.push({
+              priorRunId,
+              requiredNeeds: [{ needId, askingEpoch: 1 }],
+              requestedAt: gated!.createdAt,
+              requestedBy: APPROVER,
+              enqueuedAt: null,
+            });
+          }
+          return { state: current, result: undefined };
+        },
+      });
+    await applied(gated!.id, 'run-1');
+    await applied(free!.id);
+
+    let statuses = await needRowStatuses(jobId);
+    expect(statuses.get(gated!.id)).toBe('pending');
+    expect(statuses.get(free!.id)).toBe('resolved');
+    expect((await state(jobId)).needs.map(({ id }) => id)).toEqual([gated!.id]);
+
+    // The rerun is enqueued; its need settles on that write.
+    await repository().mutateJobPermissionState({
+      appId: APP_ID,
+      jobId,
+      initialCard: initialCard({ appId: APP_ID, jobId }, gated!.createdAt),
+      mutate: (current) => {
+        current.card.rerunBarriers[0]!.enqueuedAt = gated!.createdAt;
+        return { state: current, result: undefined };
+      },
+    });
+    statuses = await needRowStatuses(jobId);
+    expect(statuses.get(gated!.id)).toBe('resolved');
+
+    // Settled rows older than 30 days go when the next need settles.
+    await query(
+      `UPDATE pending_interactions SET resolved_at = now() - interval '31 days'
+        WHERE id = $1`,
+      [free!.id],
+    );
+    await attachOnce(jobId, 3);
+    const third = (await state(jobId)).needs.find(
+      (need) => need.canonicalIdentity === 'request-3',
+    )!;
+    await applied(third.id);
+    statuses = await needRowStatuses(jobId);
+    expect(statuses.has(free!.id)).toBe(false);
+    expect(statuses.get(gated!.id)).toBe('resolved');
+  });
+
   it('reconciles a new card behind more than a hundred idle cards', async () => {
     const createdAt = '2026-01-01T00:00:00.000Z';
     for (let index = 0; index < 120; index += 1) {
@@ -331,6 +480,91 @@ maybeDescribe('job permission card history', () => {
       currentProviderMessageId: 'new-card-message',
       currentProviderRevision: 1,
     });
+  });
+
+  it('settles existing once-needs and trims request snapshots in the migration', async () => {
+    const jobId = 'job-migrate-needs';
+    await attachOnce(jobId, 1);
+    await attachOnce(jobId, 2);
+    await attachOnce(jobId, 3);
+    await attach(jobId, 'run-4');
+    const needs = (await state(jobId)).needs;
+    const byIdentity = (identity: string) =>
+      needs.find((need) => need.canonicalIdentity === identity)!;
+    const settled = byIdentity('request-1');
+    const gated = byIdentity('request-2');
+    const expired = byIdentity('request-3');
+    const rule = needs.find((need) => need.grant !== 'once')!;
+    const setPayload = (id: string, patch: Record<string, unknown>) =>
+      query(
+        `UPDATE pending_interactions SET payload_json = payload_json || $2::jsonb
+          WHERE id = $1`,
+        [id, JSON.stringify(patch)],
+      );
+    await setPayload(settled.id, { state: 'applied' });
+    await setPayload(gated.id, { state: 'applied' });
+    await setPayload(expired.id, {
+      state: 'cancelled',
+      expiredAt: settled.createdAt,
+    });
+    await setPayload(rule.id, {
+      requestSnapshots: Array.from({ length: 8 }, (_, index) => ({
+        requestId: `snapshot-${index + 1}`,
+        request: {},
+      })),
+    });
+    await query(
+      `UPDATE pending_interactions SET payload_json = jsonb_set(payload_json, '{rerunBarriers}', $2::jsonb)
+        WHERE kind = 'job_permission_card' AND payload_json->>'jobId' = $1`,
+      [
+        jobId,
+        JSON.stringify([
+          {
+            priorRunId: 'run-2',
+            requiredNeeds: [{ needId: gated.id, askingEpoch: 1 }],
+            requestedAt: settled.createdAt,
+            requestedBy: APPROVER,
+            enqueuedAt: null,
+          },
+        ]),
+      ],
+    );
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001115012_shrink_job_permission_card_history.sql',
+      ),
+      'utf8',
+    );
+    await query(migration);
+    const once = await query(
+      `SELECT id, status, resolved_at, payload_json FROM pending_interactions
+        WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
+      [jobId],
+    );
+    await query(migration);
+    const twice = await query(
+      `SELECT id, status, resolved_at, payload_json FROM pending_interactions
+        WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
+      [jobId],
+    );
+
+    expect(twice.rows).toEqual(once.rows);
+    const statuses = await needRowStatuses(jobId);
+    expect(statuses.get(settled.id)).toBe('resolved');
+    expect(statuses.get(gated.id)).toBe('pending');
+    expect(statuses.get(expired.id)).toBe('pending');
+    expect(statuses.get(rule.id)).toBe('pending');
+    const trimmed = (await state(jobId)).needs.find(
+      (need) => need.id === rule.id,
+    )!;
+    expect(trimmed.requestSnapshots.map(({ requestId }) => requestId)).toEqual([
+      'snapshot-4',
+      'snapshot-5',
+      'snapshot-6',
+      'snapshot-7',
+      'snapshot-8',
+    ]);
   });
 
   it('shrinks an oversized card and settles its stale ambiguous sends', async () => {
