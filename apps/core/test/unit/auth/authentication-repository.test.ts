@@ -10,12 +10,18 @@ const repoRoot = path.resolve(
 
 describe('authentication repository', () => {
   it('keeps the generated migration snapshot aligned with the auth schema', () => {
+    const metaDir = path.join(
+      repoRoot,
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta',
+    );
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(metaDir, '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ tag: string }> };
+    const latestTag = journal.entries.at(-1)?.tag;
+    expect(latestTag).toBeDefined();
     const snapshot = JSON.parse(
       fs.readFileSync(
-        path.join(
-          repoRoot,
-          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/20260818105732_snapshot.json',
-        ),
+        path.join(metaDir, `${latestTag?.slice(0, 14)}_snapshot.json`),
         'utf8',
       ),
     ) as {

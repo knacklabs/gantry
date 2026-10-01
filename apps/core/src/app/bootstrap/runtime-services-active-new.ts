@@ -55,6 +55,7 @@ export async function handleActiveNewSessionCommand(input: {
   queueJid: string;
   threadId?: string;
   message: NewMessage;
+  stopGroup?: (queueJid: string) => boolean | Promise<boolean>;
 }): Promise<boolean> {
   const {
     app,
@@ -113,7 +114,8 @@ export async function handleActiveNewSessionCommand(input: {
       'Failed to capture active session boundary for /new; continuing with reset',
     );
   }
-  if (!app.queue.stopGroup(queueJid)) return false;
+  if (!(await (input.stopGroup?.(queueJid) ?? app.queue.stopGroup(queueJid))))
+    return false;
   try {
     await app.clearSessionForChatJid(queueJid, threadId, {
       memoryUserId,

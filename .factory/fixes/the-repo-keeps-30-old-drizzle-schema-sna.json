@@ -1,0 +1,26 @@
+{
+  "allow_large": "Owner-approved 2026-09-29: deletes only historic drizzle snapshot JSON that drizzle never reads; the SQL migrations, the journal and the latest snapshot are unchanged, so no schema or interface changes",
+  "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
+  "branch": "fix/the-repo-keeps-30-old-drizzle-schema-sna",
+  "done_when": "Only the latest migration snapshot remains in migrations/meta, drizzle-kit generate shows no schema diff, and the two tests that read old snapshots use the latest one",
+  "kind": "fix",
+  "review": {
+    "commit": "fcc2ccd4d88fcad1e4bf384c561093c72df5532e",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "570ee794d6f7e2beb5372e341fdb464088b4dda5369fe853f02500c45cc13110"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T06:31:12+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T06:54:40+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The repo keeps 30 old drizzle schema snapshots (13 MB) that drizzle never reads; only the latest is needed"
+}

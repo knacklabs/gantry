@@ -1498,7 +1498,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set thinking. Override unchanged.',
@@ -1538,7 +1538,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear thinking override. Override unchanged.',
@@ -1618,7 +1618,7 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set permission mode. Override unchanged.',
@@ -1638,7 +1638,7 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to clear permission mode override. Override unchanged.',
@@ -1707,7 +1707,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1776,7 +1776,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1850,7 +1850,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
@@ -1903,7 +1903,7 @@ describe('handleSessionCommand', () => {
       deps,
     });
 
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
     expect(deps.prepareSessionArchive).toHaveBeenCalledWith('new-session');
     expect(finalizeArchive).not.toHaveBeenCalled();
     expect(deps.onSessionArchived).not.toHaveBeenCalled();
@@ -1944,7 +1944,7 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('advances cursor to last pre-command message when pre-processing fails after output was sent', async () => {
+  it('consumes the command after telling the user when pre-command output was sent before a failure', async () => {
     // Covers lines 264-265: preOutputSent=true branch
     const deps = makeDeps({
       runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
@@ -1965,15 +1965,58 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    // When pre-command fails but output was already sent, cursor advances
-    // to the last pre-command message and returns success:true (no retry)
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.advanceCursor).toHaveBeenCalledWith(
-      expect.objectContaining({ timestamp: '99' }),
+      expect.objectContaining({ timestamp: '100' }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process'),
     );
+  });
+
+  it('answers earlier messages before listing commands', async () => {
+    const deps = makeDeps();
+    const result = await handleSessionCommand({
+      missedMessages: [
+        makeMsg('what changed today?', { id: 'question', timestamp: '99' }),
+        makeMsg('/commands', { id: 'command', timestamp: '100' }),
+      ],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.formatMessages).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'question' })],
+      'UTC',
+    );
+    expect(deps.runAgent).toHaveBeenCalledOnce();
+    expect(deps.sendMessage).toHaveBeenLastCalledWith(
+      expect.stringContaining('/commands'),
+    );
+  });
+
+  it('refuses a command but leaves earlier messages for a normal turn', async () => {
+    const deps = makeDeps();
+    const result = await handleSessionCommand({
+      missedMessages: [
+        makeMsg('what changed today?', { id: 'question', is_from_me: false }),
+        makeMsg('/compact', { id: 'command', is_from_me: false }),
+      ],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: false });
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Session commands require admin access.',
+    );
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
   });
 
   it('continues /new even when archiveCurrentSession throws', async () => {

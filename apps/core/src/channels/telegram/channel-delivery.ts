@@ -4,15 +4,8 @@ import type * as DomainTypes from '../../domain/types.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelReactions } from './channel-reactions.js';
 import {
-  TELEGRAM_MESSAGE_MAX_LENGTH,
-  TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
-  TELEGRAM_USER_QUESTION_TIMEOUT_MS,
-  ActiveDraftStreamState,
   createPendingTelegramUserQuestion,
-  editTelegramMessage,
-  escapeTelegramMarkdownV2,
   sendTelegramMessageWithResult,
-  splitTelegramDeliveryText,
   telegramThreadOptionsFromString,
   telegramQuestionCallbackId,
 } from './channel-shared.js';
@@ -234,117 +227,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     text: string,
     options: DomainTypes.StreamingChunkOptions = {},
   ): Promise<boolean> {
-    if (!this.bot) return false;
+    if (!this.bot || !jid.startsWith('tg:-')) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
 
     const numericId = jid.replace(/^tg:/, '');
-    const parsedChatId = Number.parseInt(numericId, 10);
-    if (!Number.isFinite(parsedChatId)) {
+    if (!Number.isFinite(Number.parseInt(numericId, 10))) {
       logger.warn({ jid }, 'Invalid Telegram chat id for streaming chunk');
       return false;
     }
-    if (!this.isLikelyPrivateChatId(numericId)) {
-      return this.handleGroupStreamingChunk(jid, numericId, text, options);
-    }
-    if (!this.draftStreamApi) return false;
-
-    const parsedThreadId = options.threadId
-      ? Number.parseInt(options.threadId, 10)
-      : undefined;
-    const key = this.buildDraftStreamKey(jid, options.threadId);
-    let state = this.activeDraftStreams.get(key);
-    if (!state && !text && options.done) {
-      this.markStreamingGenerationDone(jid, options.generation);
-      return false;
-    }
-    const guard = this.streamResetEpochs.guard(key, this.activeDraftStreams);
-    if (!state) {
-      const draftThreadId = Number.isFinite(parsedThreadId)
-        ? parsedThreadId
-        : undefined;
-      const draftOptions = draftThreadId
-        ? {
-            message_thread_id: draftThreadId,
-            parse_mode: 'MarkdownV2' as const,
-          }
-        : { parse_mode: 'MarkdownV2' as const };
-      const queue = this.createDraftChunkStream();
-      const draftIdOffset = this.nextDraftIdOffset * 256;
-      this.nextDraftIdOffset += 1;
-      const streamState: ActiveDraftStreamState = {
-        chatId: parsedChatId,
-        threadId: draftThreadId,
-        generation: options.generation,
-        rawBuffer: '',
-        pushChunk: queue.push,
-        closeStream: queue.close,
-        streamPromise: Promise.resolve(),
-      };
-      streamState.streamPromise = this.draftStreamApi
-        .streamMessage(
-          parsedChatId,
-          draftIdOffset,
-          queue.iterator,
-          draftOptions,
-          draftOptions,
-        )
-        .then(() => undefined)
-        .catch(async (err) => {
-          logger.warn(
-            { jid, err: this.sanitizeErrorMessage(err) },
-            'Telegram stream send failed; falling back to final message send',
-          );
-          const fallbackText = streamState.rawBuffer.trim();
-          if (
-            fallbackText &&
-            guard(streamState) &&
-            this.isCurrentStreamingGeneration(jid, streamState.generation)
-          ) {
-            await this.sendMessage(jid, fallbackText, {
-              threadId: options.threadId,
-            });
-          }
-          if (guard(streamState))
-            this.streamResetEpochs.deleteState(key, this.activeDraftStreams);
-        })
-        .finally(() => {
-          if (guard(streamState)) this.activeDraftStreams.delete(key);
-        });
-      this.activeDraftStreams.set(key, streamState);
-      state = streamState;
-    }
-    let delivered = false;
-
-    if (text) {
-      state.rawBuffer += text;
-      const escaped = escapeTelegramMarkdownV2(text);
-      for (const chunk of splitTelegramDeliveryText(
-        escaped,
-        TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
-      )) {
-        if (chunk.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
-          logger.warn(
-            { jid, length: chunk.length },
-            'Skipping oversize Telegram stream chunk',
-          );
-          continue;
-        }
-        state.pushChunk(chunk);
-        delivered = true;
-      }
-    }
-
-    if (options.done) {
-      state.closeStream();
-      await state.streamPromise;
-      if (!guard(state, true)) {
-        return delivered || this.activeDraftStreams.has(key);
-      }
-      this.markStreamingGenerationDone(jid, options.generation);
-      this.streamResetEpochs.prune(key);
-      delivered = delivered || state.rawBuffer.trim().length > 0;
-    }
-    return delivered || Boolean(this.activeDraftStreams.get(key));
+    return this.handleGroupStreamingChunk(jid, numericId, text, options);
   }
 
   async sendProgressUpdate(
@@ -363,7 +254,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     const parsedThreadId = options.threadId
       ? Number.parseInt(options.threadId, 10)
       : undefined;
-    const key = `progress:${this.buildDraftStreamKey(jid, options.threadId)}`;
+    const key = `progress:${this.buildStreamKey(jid, options.threadId)}`;
     this.loadPersistedProgressMessages();
     const hasActionMarkup = options.actionAffordances
       ? Boolean(telegramActionReplyMarkup(options.actionAffordances))
@@ -731,8 +622,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       api: this.bot.api,
       jid,
       render,
-      buildDraftStreamKey: (key, threadId) =>
-        this.buildDraftStreamKey(key, threadId),
+      buildStreamKey: (key, threadId) => this.buildStreamKey(key, threadId),
       pendingTodos: this.pendingTodos,
       sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
     });
@@ -750,7 +640,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     this.streamResetEpochs.clear();
     const disconnected = await disconnectTelegramDelivery({
       bot: this.bot,
-      activeDraftStreams: this.activeDraftStreams,
       activeGroupStreams: this.activeGroupStreams,
       streamGenerationByJid: this.streamGenerationByJid,
       sealedStreamGenerationByJid: this.sealedStreamGenerationByJid,
@@ -769,7 +658,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
       releasePollingLease: () => this.releasePollingLease(),
     });
     this.bot = disconnected.bot;
-    this.draftStreamApi = disconnected.draftStreamApi;
   }
 
   setTyping = async (

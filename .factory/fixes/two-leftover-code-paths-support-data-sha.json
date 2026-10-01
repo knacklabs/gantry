@@ -1,0 +1,80 @@
+{
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: the fix contract covers both the memory snapshot fallback and the SDK typing-event branch; pure deletions plus regression tests",
+  "base": "e25a1e43cb189d6e05dadb01069797d367f33bf5",
+  "branch": "fix/two-leftover-code-paths-support-data-sha",
+  "done_when": "The memory review snapshot is required in the type and its no-snapshot fallbacks are gone; the SDK always expects orderedEnvelope on typing events; tests updated",
+  "kind": "fix",
+  "review": {
+    "commit": "bf62328bd98cdd4715178c512e33c2d1d0f25dc5",
+    "dismissals": [
+      {
+        "because": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts:115 owner's standing rule (2026-09-29): pure legacy deletions get no end-to-end guard tests; the current-behaviour snapshot test passes host-side",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "packages/sdk/src/session-events.ts:109 owner's standing rule (2026-09-29): no test may name removed shapes, and end-to-end tests of a pure deletion are dismissed",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "The new test exercises creation, listing, and rendering directly, bypassing the required running API and Playwright user flow. Its valid-snapshot assertions also pass with the deleted fallbacks restored, so it does not guard this fix. Existing CLI coverage mocks the API at apps/core/test/unit/cli/memory-review-command.test.ts:15. Add regression-sensitive coverage through the required real entry points and include it in the repository test command; package.json:86 currently runs only unit and integration suites.",
+        "file": "apps/core/test/integration/two-leftover-code-paths-support-data-sha.postgres.integration.test.ts",
+        "line": 115,
+        "priority": "P1",
+        "title": "Not done: End-to-end coverage for required memory review snapshots"
+      },
+      {
+        "body": "Both tests exercising envelope-less typing events are deleted without replacement coverage for the changed behavior. Remaining transport coverage supplies orderedEnvelope and mocks the stream (apps/core/test/unit/control/sdk-transport.test.ts:644 and :662), so restoring the legacy acceptance branch would escape detection. Add coverage through actual SDK consumption using the required API/database/browser flow, asserting that an envelope-less typing event cannot establish typing state before an ordered baseline exists, and run it in the repository suite.",
+        "file": "packages/sdk/src/session-events.ts",
+        "line": 109,
+        "priority": "P1",
+        "title": "Not done: End-to-end coverage for rejecting unordered SDK typing events"
+      }
+    ],
+    "status": "clean",
+    "tree": "7bfea068657f641ca4b9d5f33c979ceacb8ca8803250ffda2fc7fe7f10341d70"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T06:31:31+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T06:55:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:08:12+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:23:44+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T07:42:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:04:30+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:26:33+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T08:57:04+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T10:25:51+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Two leftover code paths support data shapes the product no longer produces: memory reviews without a snapshot, and SDK typing events without ordering info"
+}

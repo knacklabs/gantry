@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   conversationMessageTarget,
   GantryClient,
-  SessionTypingTracker,
   signIngressRequest,
   verifyIngressSignature,
   verifyWebhookSignature,
@@ -632,40 +631,6 @@ describe('@gantry/sdk transport', () => {
     expect(new Set(observed.map((event) => event.eventId)).size).toBe(2);
   });
 
-  it('records legacy typing state until an ordered envelope establishes the baseline', () => {
-    const tracker = new SessionTypingTracker();
-    const legacy = (isTyping: boolean, eventId: number) => ({
-      eventId,
-      eventType: 'session.typing',
-      sessionId: 'session-1',
-      threadId: null,
-      correlationId: null,
-      createdAt: '2026-08-05T00:00:00.000Z',
-      payload: { isTyping },
-    });
-    const ordered = {
-      ...legacy(false, 3),
-      payload: {
-        isTyping: false,
-        orderedEnvelope: {
-          generation: 1,
-          sequence: 2,
-          kind: 'typing',
-          partIndex: 1,
-          totalParts: 1,
-        },
-      },
-    };
-
-    expect(tracker.apply(legacy(true, 1))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(true);
-    expect(tracker.apply(legacy(false, 2))).toBe(true);
-    expect(tracker.isTyping('session-1')).toBe(false);
-    expect(tracker.apply(ordered)).toBe(true);
-    expect(tracker.apply(legacy(true, 4))).toBe(false);
-    expect(tracker.isTyping('session-1')).toBe(false);
-  });
-
   it('does not hide suppressed typing events or rewrite the reconnect cursor', async () => {
     const event = (sequence: number, isTyping: boolean, eventId: number) => ({
       eventId,
@@ -889,8 +854,7 @@ describe('@gantry/sdk transport', () => {
       body: { decision: 'edit_approve', editedValue: 'v2', reason: 'why' },
     });
 
-    // Compile-time contract: edit_approve without editedValue is a type error
-    // (never executed — checked by tsc). approve without editedValue is fine.
+    // Compile-time contract: edit_approve requires a replacement value.
     const _typeCheck = () => {
       // @ts-expect-error editedValue is required for an edit_approve decision.
       client.memory.reviews.decide('rev/1', {
@@ -904,14 +868,6 @@ describe('@gantry/sdk transport', () => {
         subjectType: 'user',
         subjectId: 'user/9',
         decision: 'approve',
-      });
-      // approve accepts (server ignores) editedValue — back-compat.
-      client.memory.reviews.decide('rev/1', {
-        agentId: 'agent/1',
-        subjectType: 'user',
-        subjectId: 'user/9',
-        decision: 'approve',
-        editedValue: 'x',
       });
     };
     void _typeCheck;

@@ -129,9 +129,13 @@ export interface LiveAdmissionWorkItem {
   agentSessionId: string | null;
   conversationId: string;
   threadId: string | null;
+  providerAccountId: string | null;
   queueJid: string;
   messageId: string;
   messageCursor: string;
+  receiveOrder: number | null;
+  consumedAt: string | null;
+  consumedBy: string | null;
   senderUserId: string | null;
   senderDisplayName: string | null;
   idempotencyKey: string;
@@ -194,7 +198,37 @@ export interface LiveAdmissionClaimInput {
   now?: string;
 }
 
+export interface LiveAdmissionInputScope {
+  appId: string;
+  conversationId: string;
+  threadId: string | null;
+  agentId: string | null;
+  providerAccountId: string | null;
+}
+
 export interface LiveAdmissionWorkItemRepository {
+  listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]>;
+  takeInput(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+    limit: number;
+  }): Promise<LiveAdmissionWorkItem[]>;
+  consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean>;
+  releaseInput(input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
+  }): Promise<number>;
+  consumeAll(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+  }): Promise<number>;
   /**
    * Durable message-backed admission. The idempotency key is provider delivery
    * identity; replaying a webhook/socket event returns the existing row instead
@@ -207,6 +241,7 @@ export interface LiveAdmissionWorkItemRepository {
     agentSessionId?: string | null;
     conversationId: string;
     threadId?: string | null;
+    providerAccountId?: string | null;
     queueJid: string;
     messageId: string;
     messageCursor: string;
@@ -296,6 +331,7 @@ export interface LiveTurnRepository {
   }): Promise<LiveTurn | null>;
   getActiveLiveTurn(input: { scope: LiveTurnScope }): Promise<LiveTurn | null>;
   getLiveTurnById(id: string): Promise<LiveTurn | null>;
+  hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean>;
   /**
    * Stop routing: resolve the non-terminal turn that registered `aliasJid`
    * among its durable stop aliases.

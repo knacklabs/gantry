@@ -234,26 +234,6 @@ describe('resolveAgentPromptCapabilityCatalog', () => {
     );
   });
 
-  it('a legacy mcp_tool binding never reaches the catalog', () => {
-    expect(() =>
-      resolveAgentPromptCapabilityCatalog({
-        appId: 'app-one',
-        agentId: 'agent-one',
-        readySemanticCapabilities: [
-          semanticCapability({
-            capabilityId: 'legacy.mcp',
-            implementationBindings: [
-              { kind: 'tool_rule', rule: 'WebFetch' },
-              { kind: 'mcp_tool', mcpTool: 'mcp__legacy__read' },
-            ],
-          }),
-        ],
-      }),
-    ).toThrow(
-      'Capability legacy.mcp uses the unsupported legacy mcp_tool binding.',
-    );
-  });
-
   it('keeps skills as instructions and MCP bindings as inventory without leaking live configuration', async () => {
     const incident = skill({ id: 'skill:incident', name: 'incident-triage' });
     const disabledSkill = skill({ id: 'skill:disabled', status: 'disabled' });

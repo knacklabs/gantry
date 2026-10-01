@@ -51,6 +51,7 @@ import type {
 } from '../domain/ports/conversation-history-coverage.js';
 import type { HumanDecisionMemoryService } from '../application/permissions/human-decision-memory-service.js';
 import type { UsedByJobReader } from '../application/permissions/permission-memory-listing.js';
+import type { LiveAdmissionWorkItemRepository } from '../domain/ports/live-turns.js';
 
 export type {
   ConversationContextHydrationCoverage,
@@ -72,6 +73,7 @@ export type GroupProcessOptions = {
     recallQuery?: string;
   };
   existingRunId?: string;
+  admissionAppId?: string;
   existingRunLeaseToken?: string;
   existingRunLeaseWorkerInstanceId?: string;
   existingRunLeaseFencingVersion?: number;
@@ -255,6 +257,10 @@ export interface GroupProcessingDeps {
   getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
+  getInputRepository?: () => Pick<
+    LiveAdmissionWorkItemRepository,
+    'takeInput' | 'releaseInput' | 'consumeAll'
+  >;
   getConversationHistoryCoverageRepository?: () =>
     | ConversationHistoryCoverageRepository
     | undefined;

@@ -90,7 +90,7 @@ trust-anchor effort. No dual path, no compatibility shim, no flag beyond the exi
 Complete removal set (codex-verified — the earlier list was incomplete):
 - Run-origin table/repo/wiring: `run_permission_origin` schema
   (`apps/core/src/adapters/storage/postgres/schema/worker-coordination.ts:136-150`),
-  migration `0100` + `apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json` + `apps/core/src/adapters/storage/postgres/schema/migrations/meta/0100_snapshot.json`,
+  migration `0100` + `apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json`,
   `RunPermissionOriginRepository` port + Postgres repo, its construction in
   `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts:114-147,1744-1749`,
   wiring in `apps/core/src/app/index.ts:279-280`,

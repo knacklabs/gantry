@@ -159,9 +159,27 @@ export async function executeMemoryReviewDecision(
       request,
       subject,
     });
-    const review = (response.data as { review?: unknown } | undefined)?.review;
+    const review = (
+      response.data as
+        | {
+            review?: { status?: string; applyOutcome?: string | null };
+          }
+        | undefined
+    )?.review;
     if (!review) {
       return { state: 'invalid', receipt: 'This review could not be found.' };
+    }
+    if (review.status === 'failed') {
+      return {
+        state: 'invalid',
+        receipt: `Memory review failed: ${review.applyOutcome || 'the change could not be applied'}`,
+      };
+    }
+    if (
+      (input.decision === 'approve' && review.status !== 'applied') ||
+      (input.decision === 'reject' && review.status !== 'rejected')
+    ) {
+      return { state: 'invalid', receipt: 'This review could not be decided.' };
     }
     return {
       state: 'applied',
@@ -173,7 +191,7 @@ export async function executeMemoryReviewDecision(
   } catch (err) {
     const message = err instanceof Error ? err.message : '';
     if (/pending memory review not found/i.test(message)) {
-      return { state: 'stale', receipt: 'This review is no longer pending.' };
+      return { state: 'stale', receipt: 'This review was already decided.' };
     }
     return { state: 'invalid', receipt: 'This review could not be decided.' };
   }

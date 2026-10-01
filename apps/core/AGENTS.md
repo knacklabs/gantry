@@ -105,6 +105,11 @@ confidently wrong cause is worse than `unknown`.
   CA bundles, Slack Socket Mode scopes/App Home DM settings, and Linux sandbox
   packages such as `bubblewrap`, `socat`, and `ripgrep`.
 - When path-sensitive code changes, update the matching tests under `apps/core/test/**` in the same change.
+- Test balance (adopted 2026-09-30): use fast, numerous unit cases for pure rules and decisions, such as trigger decisions, parsers, and the steering inbox.
+- Postgres integration is the main proof for storage, consumption, migration, and recovery contracts.
+- Use the real runtime and Postgres with a fake channel and runner for exactly one automated end-to-end test per user-visible behavior promised by a story's Done-when (for example, a burst gets one reply or a restart loses nothing), not per function. Pure deletions, config, and docs changes need no end-to-end test.
+- Give each behavior one owner test at the strongest level that can observe it; do not replay the same scenario at every layer. Name story end-to-end cases up front in the task table's Tests column.
+- Run live Slack or Telegram checks only when the owner asks.
 - Integration tests for runtime features must use shared harnesses under `apps/core/test/harness/`; DB-backed cases must guard on `GANTRY_TEST_DATABASE_URL` and isolate schemas.
 - Run `npm run test:integration:postgres` for DB-backed feature work. Use a disposable Docker Postgres container for each task, enable `vector` and `pg_trgm` before migrations, pass its URL through `GANTRY_TEST_DATABASE_URL`, and remove the container after the check. A plain `npm run test:integration` is allowed to skip those suites when the local Postgres test URL is absent.
 - When adding DB-backed outbound delivery coverage, include the suite in the `test:integration:postgres` script so the required database gate cannot silently omit it.

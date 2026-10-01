@@ -100,6 +100,7 @@ export function createGroupAgentRunner(input: {
         timestamp?: string;
         is_from_me?: boolean | null;
       }[];
+      admissionAppId?: string;
       existingRunId?: string;
       existingRunLeaseToken?: string;
       existingRunLeaseWorkerInstanceId?: string;
@@ -116,7 +117,8 @@ export function createGroupAgentRunner(input: {
     },
   ): Promise<GroupAgentRunResult> {
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
-    const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
+    const turnAppId =
+      options?.admissionAppId ?? appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
       deps.getDefaultInteractiveModel?.(group.folder) ?? 'opus';
     const initialProvider = await resolveInitialGroupExecutionProviderId({
@@ -128,8 +130,6 @@ export function createGroupAgentRunner(input: {
       executionAdapter: deps.executionAdapter,
       agentHarness,
     });
-    const failoverCandidates = initialProvider.failoverCandidates;
-    const firstModel = initialProvider.firstModel;
     let executionProviderId = initialProvider.executionProviderId;
     const maintenanceCompactionPrompt = options?.maintenanceCompaction
       ? maintenanceCompactionPromptForExecutionProvider(
@@ -605,7 +605,7 @@ export function createGroupAgentRunner(input: {
         ).then((output) => runTokenBudget.enforce(output));
       let output = await invokeAgent({
         memoryContextBlock,
-        ...(firstModel ? { model: firstModel } : {}),
+        model: initialProvider.firstModel,
         resumeSessionId: resumeExternalSessionId,
       });
       const activeExecutionAdapter = resolveAgentExecutionAdapter({
@@ -630,11 +630,11 @@ export function createGroupAgentRunner(input: {
         resumeExternalSessionId = undefined;
         output = await invokeAgent({
           memoryContextBlock,
-          ...(firstModel ? { model: firstModel } : {}),
+          model: initialProvider.firstModel,
         });
       }
       output = await runFamilyFailoverLoop({
-        candidates: failoverCandidates,
+        candidates: initialProvider.failoverCandidates,
         initialOutput: output,
         fallbackProviderId: executionProviderId,
         agentHarness,

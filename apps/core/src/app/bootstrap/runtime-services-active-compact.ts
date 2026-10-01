@@ -71,7 +71,12 @@ export function isActiveCompactRouteMessage(input: {
     message.content,
     buildTriggerPattern(route.trigger ?? ''),
   );
-  if (command?.kind !== 'compact' || !input.handleActiveControlCommand) {
+  if (
+    (command?.kind !== 'compact' &&
+      command?.kind !== 'stop' &&
+      command?.kind !== 'new') ||
+    !input.handleActiveControlCommand
+  ) {
     return false;
   }
   const controlAllowlistCfg = loadSenderControlAllowlist();

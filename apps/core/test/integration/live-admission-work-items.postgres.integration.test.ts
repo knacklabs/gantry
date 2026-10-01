@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import {
+  PostgresStorageService,
+  quotePostgresIdentifier,
+} from '@core/adapters/storage/postgres/storage-service.js';
 import { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import { PostgresLiveTurnRepository } from '@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js';
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
@@ -17,12 +20,37 @@ import type {
 } from '@core/domain/provider/provider.js';
 import { parseAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
+import { type MessageLoopDeps } from '@core/runtime/message-loop.js';
+import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
+import {
+  buildLiveAdmissionProcessor,
+  startLiveExecutionServices,
+} from '@core/app/bootstrap/live-execution.js';
+import { claimLiveTurnExecution } from '@core/application/live-turns/live-turn-lease-service.js';
+import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
+import { createLiveTurnLocalRunnerHooks } from '@core/runtime/group-queue-live-turn-hooks.js';
+import { routeScopeActiveLiveTurnAdmissionFromCursor } from '@core/app/bootstrap/live-recovery-coordinator.js';
+import { GroupQueue } from '@core/runtime/group-queue.js';
+import { createFakeChannelRuntime } from '../harness/fake-channel.js';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 
 import {
   createPostgresIntegrationRuntime,
   hasPostgresIntegrationDatabase,
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
+
+const commandAdmins = vi.hoisted(() => new Set<string>());
+vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
+  return {
+    ...actual,
+    isSenderControlAllowed: (
+      ...args: Parameters<typeof actual.isSenderControlAllowed>
+    ) => commandAdmins.has(args[1]) || actual.isSenderControlAllowed(...args),
+  };
+});
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
@@ -50,6 +78,1252 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
   afterAll(async () => {
     await runtime?.cleanup();
+  });
+
+  it('reads a taken message using the scope saved by real admission', async () => {
+    const appId = 'app-real-admission-read';
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'msg-real-admission-read',
+        chat_jid: 'tg:real-admission-read',
+        provider: 'telegram',
+        sender: 'user-real-admission-read',
+        sender_name: 'Reader',
+        content: 'read this saved message',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Expected a saved admission item');
+    const { item } = admitted;
+    const scope = {
+      appId: item.appId,
+      conversationId: item.conversationId,
+      threadId: item.threadId,
+      agentId: item.agentId,
+      providerAccountId: item.providerAccountId,
+    };
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:real-admission-read',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: item.id, messageId: item.messageId }]);
+    expect(
+      (await runtime.ops.getMessagesByIds(scope, [item.messageId])).map(
+        (message) => message.id,
+      ),
+    ).toEqual(['msg-real-admission-read']);
+    expect(
+      await runtime.ops.getMessagesByIds(
+        { ...scope, appId: 'app-other-admission-read' },
+        [item.messageId],
+      ),
+    ).toEqual([]);
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id: 'item-foreign-conversation-read',
+      appId,
+      agentId: item.agentId,
+      conversationId: 'tg:foreign-admission-read',
+      providerAccountId: item.providerAccountId,
+      queueJid: 'tg:foreign-admission-read',
+      messageId: item.messageId,
+      idempotencyKey: 'delivery:foreign-admission-read',
+    });
+    expect(
+      await runtime.ops.getMessagesByIds(
+        { ...scope, conversationId: 'tg:foreign-admission-read' },
+        [item.messageId],
+      ),
+    ).toEqual([]);
+  });
+
+  it('gives each message to one turn in database receive order, including a late arrival', async () => {
+    const queueJid = 'tg:consumption-crossing';
+    const scope = {
+      appId: 'app-consume-order',
+      conversationId: queueJid,
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    };
+    const enqueue = (id: string, messageCursor: string) =>
+      liveTurns.enqueueLiveAdmissionWorkItem({
+        ...base,
+        appId: scope.appId,
+        id,
+        queueJid,
+        conversationId: queueJid,
+        messageId: `message:${id}`,
+        messageCursor,
+        idempotencyKey: `delivery:${id}`,
+        now: '2000-01-01T00:00:00.000Z',
+      });
+
+    await enqueue('receive-first', '2030-01-01T00:00:00.000Z::first');
+    await enqueue('receive-second', '1990-01-01T00:00:00.000Z::second');
+    const first = await liveTurns.takeInput({
+      scope,
+      consumedBy: 'turn-1',
+      limit: 10,
+    });
+    expect(first.map((item) => item.id)).toEqual([
+      'receive-first',
+      'receive-second',
+    ]);
+    expect(first[0]?.receiveOrder).toBeLessThan(first[1]!.receiveOrder!);
+    expect(Date.parse(first[0]!.createdAt)).toBeGreaterThan(
+      Date.parse('2000-01-01T00:00:00.000Z'),
+    );
+
+    await enqueue('receive-late', '1980-01-01T00:00:00.000Z::late');
+    expect(
+      await liveTurns.takeInput({ scope, consumedBy: 'turn-2', limit: 10 }),
+    ).toMatchObject([{ id: 'receive-late', consumedBy: 'turn-2' }]);
+    expect(
+      await liveTurns.takeInput({ scope, consumedBy: 'turn-3', limit: 10 }),
+    ).toEqual([]);
+
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-1' })).toBe(2);
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-1' })).toBe(0);
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn-4',
+        limit: 10,
+      }),
+    ).toMatchObject([{ id: 'receive-first' }, { id: 'receive-second' }]);
+    expect(await liveTurns.releaseInput({ consumedBy: 'turn-2' })).toBe(1);
+    expect(await liveTurns.consumeAll({ scope, consumedBy: 'history' })).toBe(
+      1,
+    );
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn-5',
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
+
+  it('returns unanswered follow-ups with their turn after a failed reply', async () => {
+    const scope = {
+      appId: 'app-follow-up-retry',
+      conversationId: 'tg:follow-up-retry',
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    };
+    for (const id of ['initial', 'follow-up']) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        ...base,
+        id: `item:${id}`,
+        appId: scope.appId,
+        conversationId: scope.conversationId,
+        queueJid: scope.conversationId,
+        messageId: `message:${id}`,
+        idempotencyKey: `delivery:${id}`,
+      });
+    }
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:retry-run',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: 'item:initial' }]);
+    expect(
+      await liveTurns.takeInput({
+        scope,
+        consumedBy: 'turn:retry-run/command:follow-up',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: 'item:follow-up' }]);
+
+    expect(
+      await liveTurns.releaseInput({
+        consumedBy: 'turn:retry-run',
+        includeFollowUps: true,
+      }),
+    ).toBe(2);
+    expect(
+      (
+        await liveTurns.takeInput({
+          scope,
+          consumedBy: 'turn:next-run',
+          limit: 2,
+        })
+      ).map((item) => item.id),
+    ).toEqual(['item:initial', 'item:follow-up']);
+  });
+
+  it('delivers non-default app and account input through a real turn, retrying only before reply', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'failure-boundary';
+    const folder = 'failure_boundary';
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const agentId = agentIdForFolder(folder);
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    let mode: 'silent' | 'delivered' | 'success' = 'silent';
+    const presented: string[] = [];
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        if (mode === 'silent')
+          return { status: 'error', error: 'runner failed' };
+        await onOutput?.({
+          status: 'success',
+          result: 'The reply reached the user.',
+        });
+        return mode === 'delivered'
+          ? { status: 'error', error: 'runner failed after output' }
+          : { status: 'success', result: 'The reply reached the user.' };
+      },
+    });
+    app.setChannelRuntime({
+      ...channel.runtime,
+      supportsStreaming: () => true,
+    });
+    await app.registerGroup(chatJid, {
+      name: 'Failure boundary',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const save = async (id: string, content: string) => {
+      const result = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'app',
+          providerAccountId,
+          sender: 'person',
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId, agentId },
+      );
+      expect(result?.outcome).toBe('enqueued');
+      if (!result || result.outcome === 'overloaded')
+        throw new Error('Admission failed');
+      return result.item;
+    };
+    const first = await save('msg:failure-before', 'before output');
+    expect(first).toMatchObject({ appId, providerAccountId });
+    expect(
+      await app.processGroupMessages(first.queueJid, {
+        existingRunId: 'run:failure-before',
+      }),
+    ).toBe(false);
+    mode = 'success';
+    expect(
+      await app.processGroupMessages(first.queueJid, {
+        existingRunId: 'run:retry',
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(2);
+    expect(presented[0]).toContain('before output');
+    expect(presented[1]).toContain('before output');
+    expect(
+      channel.streaming.some((entry) =>
+        entry.text.includes('The reply reached the user.'),
+      ),
+    ).toBe(true);
+
+    const second = await save('msg:failure-after', 'after output');
+    mode = 'delivered';
+    expect(
+      await app.processGroupMessages(second.queueJid, {
+        existingRunId: 'run:failure-after',
+      }),
+    ).toBe(true);
+    expect(
+      await liveTurns.hasDeliveredOutputForRun({ runId: 'run:failure-after' }),
+    ).toBe(true);
+    mode = 'success';
+    expect(
+      await app.processGroupMessages(second.queueJid, {
+        existingRunId: 'run:next',
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(3);
+    expect(presented[2]).toContain('after output');
+    const table = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    const { rows } = await runtime.service.pool.query<{
+      id: string;
+      consumed_by: string | null;
+    }>(`SELECT id, consumed_by FROM ${table} WHERE id = ANY($1)`, [
+      [first.id, second.id],
+    ]);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: first.id, consumed_by: 'turn:run:retry' },
+        { id: second.id, consumed_by: 'turn:run:failure-after' },
+      ]),
+    );
+
+    const unreadable = await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id: 'item:unreadable-turn',
+      appId,
+      agentId,
+      conversationId: chatJid,
+      providerAccountId,
+      queueJid: first.queueJid,
+      messageId: 'message:unreadable-turn',
+      idempotencyKey: 'delivery:unreadable-turn',
+    });
+    expect(unreadable.outcome).toBe('enqueued');
+    await expect(
+      app.processGroupMessages(first.queueJid, {
+        existingRunId: 'run:unreadable-turn',
+      }),
+    ).rejects.toThrow('Taken input has no scoped message row');
+    expect(presented).toHaveLength(3);
+    expect(
+      await liveTurns.takeInput({
+        scope: unreadable.item,
+        consumedBy: 'turn:after-unreadable',
+        limit: 1,
+      }),
+    ).toMatchObject([{ id: unreadable.item.id }]);
+  });
+
+  it('answers a question sent just before a session command exactly once', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'command-batch';
+    const folder = 'command_batch';
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const agentId = agentIdForFolder(folder);
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const presented: string[] = [];
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        if (input.prompt.includes('will this fail?'))
+          return { status: 'error', error: 'runner failed' };
+        await onOutput?.({ status: 'success', result: 'Answered.' });
+        return { status: 'success', result: 'Answered.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Command batch',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    commandAdmins.add('command-admin');
+    const save = async (id: string, content: string, sender: string) => {
+      const result = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'app',
+          providerAccountId,
+          sender,
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId, agentId },
+      );
+      expect(result?.outcome).toBe('enqueued');
+      if (!result || result.outcome === 'overloaded')
+        throw new Error('Admission failed');
+      return result.item;
+    };
+
+    const question = await save(
+      'msg:question-before-help',
+      'what changed?',
+      'command-admin',
+    );
+    await save('msg:help', '/commands', 'command-admin');
+    await app.processGroupMessages(question.queueJid, {
+      existingRunId: 'run:help',
+    });
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('what changed?');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Gantry commands'),
+      ),
+    ).toBe(true);
+
+    await save('msg:question-before-refusal', 'and staging?', 'person');
+    await save('msg:refused', '/compact', 'person');
+    await app.processGroupMessages(question.queueJid, {
+      existingRunId: 'run:refused',
+    });
+    expect(presented).toHaveLength(2);
+    expect(presented[1]).toContain('and staging?');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Session commands require admin access.'),
+      ),
+    ).toBe(true);
+    const unanswered = await save(
+      'msg:question-before-failed-compact',
+      'will this fail?',
+      'command-admin',
+    );
+    await save('msg:failed-compact', '/compact', 'command-admin');
+    expect(
+      await app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:failed-compact',
+      }),
+    ).toBe(false);
+    expect(presented).toHaveLength(3);
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Failed to process messages before /compact'),
+      ),
+    ).toBe(true);
+    // Nothing answered the question, so the next turn gets it again.
+    expect(
+      (
+        await liveTurns.takeInput({
+          scope: question,
+          consumedBy: 'turn:after-failed-compact',
+          limit: 10,
+        })
+      ).map((item) => item.id),
+    ).toContain(unanswered.id);
+
+    app.setChannelRuntime({
+      ...channel.runtime,
+      sendMessage: async (jid, text, options) => {
+        if (text.includes('Gantry commands')) throw new Error('send failed');
+        return channel.runtime.sendMessage(jid, text, options);
+      },
+    });
+    await save('msg:question-before-failed-help', 'one more?', 'command-admin');
+    await save('msg:failed-help', '/commands', 'command-admin');
+    await expect(
+      app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:failed-help',
+      }),
+    ).rejects.toThrow('send failed');
+    expect(presented).toHaveLength(4);
+    expect(presented[3]).toContain('one more?');
+    app.setChannelRuntime(channel.runtime);
+    const refusedQuestion = await save(
+      'msg:question-before-refused-failure',
+      'will this fail? after a refusal',
+      'person',
+    );
+    await save('msg:refused-then-failed', '/compact', 'person');
+    expect(
+      await app.processGroupMessages(question.queueJid, {
+        existingRunId: 'run:refused-then-failed',
+      }),
+    ).toBe(false);
+    expect(
+      (
+        await liveTurns.takeInput({
+          scope: question,
+          consumedBy: 'turn:after-refused-failure',
+          limit: 10,
+        })
+      ).map((item) => item.id),
+    ).toContain(refusedQuestion.id);
+    expect(
+      await liveTurns.takeInput({
+        scope: question,
+        consumedBy: 'turn:after-commands',
+        limit: 10,
+      }),
+    ).toEqual([]);
+  });
+
+  it('delivers a normal channel JID in a non-default app to the turn', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'channel-app-scope';
+    const chatJid = 'tg:channel-app-scope';
+    const folder = 'channel_app_scope';
+    // Provider accounts are stored under the default app; this is the Telegram
+    // account a message without an explicit account resolves to.
+    const providerAccountId = 'channel-providerAccount:default:telegram';
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'channel-app-scope',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'I saw your message.' });
+        return { status: 'success', result: 'I saw your message.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Channel app scope',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'message:channel-app-scope',
+        chat_jid: chatJid,
+        provider: 'telegram',
+        sender: 'person',
+        content: 'message in another app',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId, agentId: agentIdForFolder(folder), providerAccountId },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    const processorInput = {
+      appId,
+      inputRepository: liveTurns,
+      liveTurnAuthority: undefined,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' as const },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: () => undefined,
+      warn: () => undefined,
+    };
+    expect(
+      await buildLiveAdmissionProcessor(processorInput)(admitted.item.queueJid),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('message in another app');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('I saw your message.'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: admitted.item,
+        consumedBy: 'turn:channel-app-scope-next',
+        limit: 1,
+      }),
+    ).toEqual([]);
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a callable-agent completion in a mention-required group', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'callable-completion';
+    const chatJid = 'tg:-callable-completion';
+    const folder = 'callable_completion';
+    const providerAccountId = 'channel-providerAccount:default:telegram';
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'callable-completion',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'Completion received.' });
+        return { status: 'success', result: 'Completion received.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Callable completion',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: true,
+      conversationKind: 'group',
+      agentConfig: { model: 'opus' },
+    });
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'callable-agent-follow-up:mention-required',
+        chat_jid: chatJid,
+        provider: 'telegram',
+        providerAccountId,
+        sender: 'gantry:callable-agent',
+        content: 'The delegated work is complete.',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      {
+        appId,
+        agentId: agentIdForFolder(folder),
+        providerAccountId,
+        triggerDecision: {
+          source: 'callable_agent_follow_up',
+          requiresTrigger: false,
+          taskId: 'mention-required',
+        },
+      },
+    );
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    expect(
+      await app.processGroupMessages(admitted.item.queueJid, {
+        existingRunId: 'run:callable-completion',
+        admissionAppId: appId,
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('The delegated work is complete.');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('Completion received.'),
+      ),
+    ).toBe(true);
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a follow-up to the next turn when its runner is gone', async () => {
+    const appId = 'runner-gone';
+    const folder = 'runner_gone';
+    const chatJid = `app:${appId}:conversation`;
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const presented: string[] = [];
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        presented.push(input.prompt);
+        await onOutput?.({ status: 'success', result: 'I got the follow-up.' });
+        return { status: 'success', result: 'I got the follow-up.' };
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await app.registerGroup(chatJid, {
+      name: 'Runner gone',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const context = await runtime.ops.getAgentTurnContext({
+      agentFolder: folder,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      conversationJid: chatJid,
+      providerAccountId,
+      threadId: null,
+      hydrateMemory: false,
+    });
+    if (!context) throw new Error('Missing agent session');
+    const runId = await runtime.ops.createSessionAgentRun({
+      agentSessionId: context.agentSessionId,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      cause: 'message',
+    });
+    if (!runId) throw new Error('Missing agent run');
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      {
+        id: 'msg:runner-gone-follow-up',
+        chat_jid: chatJid,
+        provider: 'app',
+        providerAccountId,
+        sender: 'person',
+        content: 'Please include this follow-up.',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId, agentId: agentIdForFolder(folder) },
+    );
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Follow-up admission failed');
+    const workerId = 'runner-gone-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerId,
+      bootNonce: workerId,
+    });
+    const authority = new LiveTurnAuthority({
+      leaseDeps: {
+        liveTurns,
+        coordination: runtime.repositories.workerCoordination,
+        workerInstanceId: workerId,
+      },
+      slotCapacity: () => 1,
+    });
+    const scope = {
+      appId,
+      agentSessionId: context.agentSessionId,
+      conversationId: chatJid,
+      threadId: null,
+    };
+    const turnId = 'turn:runner-gone';
+    expect(
+      await authority.admit({
+        queueJid: admitted.item.queueJid,
+        scope,
+        turnId,
+        runId,
+      }),
+    ).toMatchObject({ outcome: 'claimed' });
+    const writeContinuationInput = vi.fn();
+    await authority.registerLocalRunner(
+      admitted.item.queueJid,
+      createLiveTurnLocalRunnerHooks({
+        groupJid: chatJid,
+        state: {
+          active: false,
+          idleWaiting: false,
+          isTaskRun: false,
+          workspaceFolder: folder,
+          threadId: null,
+          continuationHandler: null,
+        },
+        runnerControlPort: {
+          writeContinuationInput,
+          writeCloseSignal: vi.fn(),
+        },
+        closeStdin: vi.fn(),
+        stopGroup: vi.fn(),
+      }),
+    );
+    expect(
+      await routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope,
+        queueJid: admitted.item.queueJid,
+        liveRunId: '',
+        ownerTurnId: turnId,
+        ownerRunId: runId,
+        chatJid,
+        threadId: null,
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        inputRepository: liveTurns,
+        getMessagesByIds: (inputScope, ids) =>
+          runtime.ops.getMessagesByIds(inputScope, ids),
+        setAgentCursor: () => undefined,
+        saveState: () => undefined,
+        routeMessage: (message) => authority.routeMessage(message),
+      }),
+    ).toBe(true);
+    await authority.drainQueue(admitted.item.queueJid);
+    expect(writeContinuationInput).not.toHaveBeenCalled();
+    expect(await authority.finalize(admitted.item.queueJid, 'completed')).toBe(
+      true,
+    );
+    expect(
+      await app.processGroupMessages(admitted.item.queueJid, {
+        existingRunId: 'run:runner-gone-next',
+        admissionAppId: appId,
+      }),
+    ).toBe(true);
+    expect(presented).toHaveLength(1);
+    expect(presented[0]).toContain('Please include this follow-up.');
+    expect(
+      channel.outbound.some((message) =>
+        message.text.includes('I got the follow-up.'),
+      ),
+    ).toBe(true);
+    expect(
+      await liveTurns.takeInput({
+        scope: admitted.item,
+        consumedBy: 'turn:runner-gone-third',
+        limit: 1,
+      }),
+    ).toEqual([]);
+    await authority.shutdown();
+    await app.queue.shutdown(500);
+  });
+
+  it('delivers a follow-up after a replied worker crashes without repeating answered input', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'restart-boundary';
+    const folder = 'restart_boundary';
+    const providerAccountId = `control:${appId}`;
+    const queue = new GroupQueue({
+      maxMessageRuns: 3,
+      maxJobRuns: 1,
+      maxRetries: 0,
+      baseRetryMs: 25,
+    });
+    const delivered: string[] = [];
+    const channel = createFakeChannelRuntime((jid) =>
+      jid.startsWith(`app:${appId}:`),
+    );
+    const makeApp = (runtimeQueue?: GroupQueue) => {
+      const runtimeApp = createRuntimeApp({
+        queue: runtimeQueue,
+        opsRepository: runtime.ops,
+        ensureCredentialBinding: async () => ({ created: false }),
+        runAgent: async (_group, input, _onProcess, onOutput) => {
+          delivered.push(input.prompt);
+          const output = {
+            status: 'success' as const,
+            result: 'The answer was delivered.',
+          };
+          await onOutput?.(output);
+          return output;
+        },
+      });
+      runtimeApp.setChannelRuntime({
+        ...channel.runtime,
+        supportsStreaming: () => true,
+      });
+      return runtimeApp;
+    };
+    const beforeApp = makeApp();
+    const app = makeApp(queue);
+    const workerAfter = 'restart-worker-after';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerAfter,
+      bootNonce: workerAfter,
+    });
+    const leaseDeps = {
+      liveTurns,
+      coordination: runtime.repositories.workerCoordination,
+      workerInstanceId: workerAfter,
+    };
+    const authority = new LiveTurnAuthority({
+      leaseDeps,
+      slotCapacity: () => 2,
+    });
+    queue.setLiveTurnRunnerRegistrar((jid, hooks, routing) =>
+      authority.registerLocalRunner(jid, hooks, routing),
+    );
+    const processor = buildLiveAdmissionProcessor({
+      inputRepository: liveTurns,
+      liveTurnAuthority: authority,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: (jid) => {
+        queue.enqueueMessageCheck(jid);
+      },
+      warn: () => undefined,
+    });
+    queue.setProcessMessagesFn((jid, context) => processor(jid, context));
+    const cases = [
+      {
+        jid: `app:${appId}:unanswered`,
+        content: 'unanswered request',
+        answered: false,
+      },
+      {
+        jid: `app:${appId}:answered`,
+        content: 'answered request',
+        answered: true,
+      },
+      {
+        jid: `app:${appId}:answered-follow-up`,
+        content: 'answered before follow-up',
+        answered: true,
+        followUp: 'follow-up after reply',
+      },
+    ];
+    for (const [index, scenario] of cases.entries()) {
+      const workerBefore = `restart-worker-before-${index}`;
+      await runtime.repositories.workerCoordination.registerWorker({
+        id: workerBefore,
+        bootNonce: workerBefore,
+      });
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: scenario.jid.slice(`app:${appId}:`.length),
+        chatJid: scenario.jid,
+        workspaceFolder: folder,
+      });
+      await beforeApp.registerGroup(scenario.jid, {
+        name: 'Restart boundary',
+        folder,
+        providerAccountId,
+        trigger: 'Andy',
+        added_at: toIso(nowMs()),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      });
+      const context = await runtime.ops.getAgentTurnContext({
+        agentFolder: folder,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        conversationJid: scenario.jid,
+        providerAccountId,
+        threadId: null,
+        hydrateMemory: false,
+      });
+      expect(context?.agentSessionId).toBeTruthy();
+      const runId = await runtime.ops.createSessionAgentRun({
+        agentSessionId: context!.agentSessionId,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        cause: 'message',
+      });
+      expect(runId).toBeTruthy();
+      const saved = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id: `message:${scenario.jid}`,
+          chat_jid: scenario.jid,
+          provider: 'app',
+          providerAccountId,
+          sender: 'person',
+          content: scenario.content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId, agentId: agentIdForFolder(folder) },
+      );
+      expect(saved?.outcome).toBe('enqueued');
+      if (!saved || saved.outcome === 'overloaded' || !runId)
+        throw new Error('Restart setup failed');
+      const claimed = await claimLiveTurnExecution({
+        deps: { ...leaseDeps, workerInstanceId: workerBefore },
+        turnId: `turn:${scenario.jid}`,
+        scope: {
+          appId,
+          agentSessionId: context!.agentSessionId,
+          conversationId: scenario.jid,
+          threadId: null,
+        },
+        runId,
+        pendingMessage: {
+          kind: 'message_cursor',
+          queueJid: saved.item.queueJid,
+          cursorBefore: '',
+        },
+        slotCapacity: 2,
+        leaseTtlMs: 1_000,
+        now: toIso(nowMs() - 60_000),
+      });
+      expect(claimed.outcome).toBe('claimed');
+      if (scenario.answered) {
+        expect(
+          await beforeApp.processGroupMessages(saved.item.queueJid, {
+            existingRunId: runId,
+          }),
+        ).toBe(true);
+        expect(await liveTurns.hasDeliveredOutputForRun({ runId })).toBe(true);
+        if ('followUp' in scenario && scenario.followUp) {
+          const followUp = await runtime.ops.storeMessageWithLiveAdmission(
+            {
+              id: `message:follow-up:${scenario.jid}`,
+              chat_jid: scenario.jid,
+              provider: 'app',
+              providerAccountId,
+              sender: 'person',
+              content: scenario.followUp,
+              timestamp: toIso(nowMs()),
+              is_from_me: false,
+              is_bot_message: false,
+            },
+            { appId, agentId: agentIdForFolder(folder) },
+          );
+          expect(followUp?.outcome).toBe('enqueued');
+          if (!followUp || followUp.outcome === 'overloaded')
+            throw new Error('Follow-up admission failed');
+          const commandId = `command:${scenario.jid}`;
+          expect(
+            await liveTurns.takeInput({
+              scope: followUp.item,
+              consumedBy: `turn:${runId}/command:${commandId}`,
+              limit: 1,
+            }),
+          ).toMatchObject([{ id: followUp.item.id }]);
+          expect(
+            await liveTurns.appendLiveTurnCommand({
+              id: commandId,
+              liveTurnId: `turn:${scenario.jid}`,
+              commandType: 'continuation',
+              idempotencyKey: followUp.item.id,
+              payload: { text: scenario.followUp },
+            }),
+          ).toMatchObject({ outcome: 'appended' });
+        }
+      } else {
+        const taken = await liveTurns.takeInput({
+          scope: saved.item,
+          consumedBy: `turn:${runId}`,
+          limit: 1,
+        });
+        expect(taken.map((item) => item.id)).toEqual([saved.item.id]);
+      }
+    }
+    await app.loadState();
+    for (const scenario of cases) {
+      await app.registerGroup(scenario.jid, {
+        name: 'Restart boundary',
+        folder,
+        providerAccountId,
+        trigger: 'Andy',
+        added_at: toIso(nowMs()),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      });
+    }
+    const messageLoopDeps: MessageLoopDeps = {
+      appId,
+      inputRepository: liveTurns,
+      getConversationRoutes: app.getConversationRoutes,
+      getOrRecoverCursor: app.getOrRecoverCursor,
+      setAgentCursor: app.setAgentCursor,
+      saveState: app.saveState,
+      hasChannel: channel.runtime.hasChannel,
+      setTyping: channel.runtime.setTyping,
+      sendProgressUpdate: channel.runtime.sendProgressUpdate,
+      queue,
+      opsRepository: runtime.ops,
+    };
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const handle = startLiveExecutionServices({
+        appId,
+        app,
+        liveTurnAuthority: authority,
+        liveTurnLeaseDeps: leaseDeps,
+        messageLoopDeps,
+        recoveryCoordinator: undefined,
+        isEligibleToRecoverLiveTurn: () => true,
+        alertNoEligibleLiveTurnRecoverer: undefined,
+        startLiveAdmissionWorkLoop: () => ({
+          stop: async () => undefined,
+          trigger: () => undefined,
+          done: new Promise<void>(() => undefined),
+        }),
+        registerActiveAdmissionLoop: () => undefined,
+        registerActiveRecoveryLoop: () => undefined,
+        onPollingCrash: (error) => {
+          throw error;
+        },
+        info: () => undefined,
+        warn: () => undefined,
+      });
+      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.waitFor(
+        () =>
+          expect(delivered).toContainEqual(
+            expect.stringContaining('follow-up after reply'),
+          ),
+        { timeout: 10_000 },
+      );
+      expect(delivered[0]).toContain('answered request');
+      expect(delivered).toContainEqual(
+        expect.stringContaining('unanswered request'),
+      );
+      expect(delivered).toContainEqual(
+        expect.stringContaining('follow-up after reply'),
+      );
+      expect(
+        delivered.filter((prompt) =>
+          prompt
+            .split('<current_message')
+            .at(-1)
+            ?.includes('answered before follow-up'),
+        ),
+      ).toHaveLength(1);
+      expect(
+        channel.streaming.some((entry) =>
+          entry.text.includes('The answer was delivered.'),
+        ),
+      ).toBe(true);
+      handle.stopAdmission();
+      handle.stopRecovery();
+    } finally {
+      vi.useRealTimers();
+      await queue.shutdown(500);
+      await beforeApp.queue.shutdown(500);
+    }
+  }, 60_000);
+
+  it.each([
+    {
+      axis: 'application',
+      first: { appId: 'app-scope-a' },
+      second: { appId: 'app-scope-b' },
+    },
+    {
+      axis: 'account',
+      first: { providerAccountId: 'account-a' },
+      second: { providerAccountId: 'account-b' },
+    },
+    {
+      axis: 'thread',
+      first: { threadId: 'thread-a' },
+      second: { threadId: 'thread-b' },
+    },
+    {
+      axis: 'agent',
+      first: { agentId: 'agent:scope-a' },
+      second: { agentId: 'agent:scope-b' },
+    },
+  ])(
+    'keeps consumption inside its $axis scope',
+    async ({ axis, first, second }) => {
+      const common = {
+        appId: `app-consume-scope-${axis}`,
+        conversationId: `tg:consume-scope-${axis}`,
+        threadId: null,
+        agentId: null,
+        providerAccountId: null,
+      };
+      const firstScope = { ...common, ...first };
+      const secondScope = { ...common, ...second };
+      for (const [name, scope] of [
+        ['first', firstScope],
+        ['second', secondScope],
+      ] as const) {
+        for (const index of [1, 2]) {
+          const id = `${axis}-${name}-${index}`;
+          await liveTurns.enqueueLiveAdmissionWorkItem({
+            ...base,
+            ...scope,
+            id,
+            queueJid: scope.conversationId,
+            messageId: `message:${id}`,
+            idempotencyKey: `delivery:${id}`,
+          });
+        }
+      }
+
+      expect(
+        (
+          await liveTurns.takeInput({
+            scope: firstScope,
+            consumedBy: `${axis}-first-turn`,
+            limit: 1,
+          })
+        ).map((item) => item.id),
+      ).toEqual([`${axis}-first-1`]);
+      expect(
+        await liveTurns.consumeAll({
+          scope: firstScope,
+          consumedBy: `${axis}-first-history`,
+        }),
+      ).toBe(1);
+      expect(
+        (
+          await liveTurns.takeInput({
+            scope: secondScope,
+            consumedBy: `${axis}-second-turn`,
+            limit: 10,
+          })
+        ).map((item) => item.id),
+      ).toEqual([`${axis}-second-1`, `${axis}-second-2`]);
+    },
+  );
+
+  it('gives overlapping consumers disjoint input in receive order', async () => {
+    const secondService = new PostgresStorageService(
+      process.env.GANTRY_TEST_DATABASE_URL!,
+      runtime.schemaName,
+    );
+    const second = new PostgresLiveTurnRepository(secondService.db);
+    const scope = {
+      appId: 'app-consume-concurrent',
+      conversationId: 'tg:consume-concurrent',
+      threadId: null,
+      agentId: null,
+      providerAccountId: null,
+    };
+    try {
+      for (let index = 0; index < 4; index++) {
+        await liveTurns.enqueueLiveAdmissionWorkItem({
+          ...base,
+          ...scope,
+          id: `concurrent-${index}`,
+          queueJid: scope.conversationId,
+          messageId: `message-concurrent-${index}`,
+          idempotencyKey: `delivery-concurrent-${index}`,
+        });
+      }
+      const [first, other] = await Promise.all([
+        liveTurns.takeInput({ scope, consumedBy: 'concurrent-a', limit: 2 }),
+        second.takeInput({ scope, consumedBy: 'concurrent-b', limit: 2 }),
+      ]);
+      const ids = [...first, ...other].map((item) => item.id);
+      expect(new Set(ids).size).toBe(4);
+      expect(ids.sort()).toEqual([
+        'concurrent-0',
+        'concurrent-1',
+        'concurrent-2',
+        'concurrent-3',
+      ]);
+      for (const batch of [first, other]) {
+        expect(batch.map((item) => item.receiveOrder)).toEqual(
+          [...batch.map((item) => item.receiveOrder)].sort((a, b) => a! - b!),
+        );
+      }
+    } finally {
+      await secondService.close();
+    }
   });
 
   it('deduplicates provider delivery by idempotency key', async () => {
@@ -208,7 +1482,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).resolves.toMatchObject({ outcome: 'enqueued' });
   });
 
-  it('deletes only expired terminal work items', async () => {
+  it('keeps unconsumed items during the terminal retention sweep', async () => {
     const appId = 'app-terminal-retention';
     const oldAt = '2026-07-03T00:00:00.000Z';
     const recentAt = '2026-07-05T00:00:00.000Z';
@@ -243,7 +1517,9 @@ maybeDescribe('live admission work items (Postgres)', () => {
       rows.map(([id, state, updatedAt, endedAt]) =>
         runtime.service.pool.query(
           `UPDATE ${tableName}
-           SET state = $2, updated_at = $3, ended_at = $4
+           SET state = $2, updated_at = $3, ended_at = $4,
+               consumed_at = CASE WHEN $2 IN ('completed', 'failed') THEN $3::timestamptz ELSE NULL END,
+               consumed_by = CASE WHEN $2 IN ('completed', 'failed') THEN 'prior-turn' ELSE NULL END
            WHERE id = $1`,
           [id, state, updatedAt, endedAt],
         ),
@@ -252,13 +1528,14 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
     await expect(
       liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(cutoff),
-    ).resolves.toEqual({ deleted: 3, more: false });
+    ).resolves.toEqual({ deleted: 2, more: false });
 
     const remaining = await runtime.service.pool.query<{ id: string }>(
       `SELECT id FROM ${tableName} WHERE app_id = $1 ORDER BY id`,
       [appId],
     );
     expect(remaining.rows.map(({ id }) => id)).toEqual([
+      'retention-old-canceled',
       'retention-old-claimed',
       'retention-old-deferred',
       'retention-old-queued',
@@ -266,6 +1543,77 @@ maybeDescribe('live admission work items (Postgres)', () => {
       'retention-recent-completed',
       'retention-recent-failed',
     ]);
+  });
+
+  it('keeps an expired item released while the retention sweep waits for its row', async () => {
+    const id = 'retention-concurrent-release';
+    const oldAt = '2026-07-03T00:00:00.000Z';
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      ...base,
+      id,
+      appId: 'app-retention-concurrent-release',
+      messageId: `message:${id}`,
+      idempotencyKey: `delivery:${id}`,
+    });
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'completed', consumed_at = $2, consumed_by = 'prior-turn',
+           updated_at = $2, ended_at = $2
+       WHERE id = $1`,
+      [id, oldAt],
+    );
+
+    const releasingClient = await runtime.service.pool.connect();
+    let sweep:
+      | ReturnType<typeof liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems>
+      | undefined;
+    try {
+      await releasingClient.query('BEGIN');
+      const {
+        rows: [{ pid }],
+      } = await releasingClient.query<{ pid: number }>(
+        'SELECT pg_backend_pid() AS pid',
+      );
+      await releasingClient.query(
+        `UPDATE ${tableName}
+         SET consumed_at = NULL, consumed_by = NULL
+         WHERE id = $1`,
+        [id],
+      );
+      sweep = liveTurns.deleteExpiredTerminalLiveAdmissionWorkItems(
+        '2026-07-04T00:00:00.000Z',
+      );
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        const {
+          rows: [{ blocked }],
+        } = await runtime.service.pool.query<{
+          blocked: boolean;
+        }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM pg_stat_activity
+             WHERE $1 = ANY(pg_blocking_pids(pid)) AND pid <> $1
+           ) AS blocked`,
+          [pid],
+        );
+        if (blocked) break;
+        if (Date.now() > deadline) {
+          throw new Error('Retention sweep did not reach the held row.');
+        }
+      }
+    } finally {
+      await releasingClient.query('COMMIT');
+      releasingClient.release();
+    }
+
+    await expect(sweep).resolves.toEqual({ deleted: 0, more: false });
+    const { rows } = await runtime.service.pool.query<{
+      consumed_at: string | null;
+    }>(`SELECT consumed_at FROM ${tableName} WHERE id = $1`, [id]);
+    expect(rows).toEqual([{ consumed_at: null }]);
   });
 
   it('persists an overloaded canonical message without a work row or wakeup', async () => {
@@ -833,9 +2181,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       agentId: 'agent:atomic_agent',
       conversationId: 'tg:live-admission-atomic',
       threadId: null,
-      // Provider-account-scoped queue key + message id (provider accounts
-      // replaced provider connections; unset accounts fall back to
-      // channel-providerAccount:<app>:<provider>).
+      providerAccountId: 'channel-providerAccount:default:telegram',
       queueJid:
         'tg:live-admission-atomic::agent:agent%3Aatomic_agent::provider_account:channel-providerAccount%3Adefault%3Atelegram',
       messageId:

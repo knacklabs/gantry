@@ -10,6 +10,33 @@ import {
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
+function inputFor(messages: Array<{ id: number | string }>) {
+  let next = 0;
+  const takeInput = vi.fn(async () => {
+    const message = messages[next];
+    if (!message) return [];
+    next += 1;
+    return [{ id: `item-${message.id}`, messageId: String(message.id) }];
+  });
+  const releaseInput = vi.fn(async () => {
+    next = 0;
+    return 1;
+  });
+  return {
+    inputRepository: {
+      takeInput,
+      releaseInput,
+      consumeInputItem: vi.fn(async () => true),
+      consumeAll: vi.fn(async () => 0),
+    },
+    getMessagesByIds: vi.fn(async (_scope: unknown, ids: readonly string[]) =>
+      messages.filter((message) => ids.includes(String(message.id))),
+    ),
+    takeInput,
+    releaseInput,
+  };
+}
+
 interface ScheduledTimer {
   fn: () => void;
 }
@@ -465,7 +492,7 @@ describe('live-turn host lease acquisition', () => {
     const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
     const setAgentCursor = vi.fn();
     const saveState = vi.fn();
-    const getMessagesSince = vi.fn(async () => [
+    const messages = [
       {
         id: 1,
         chat_jid: 'chat-1',
@@ -478,7 +505,8 @@ describe('live-turn host lease acquisition', () => {
         reply_to_content: null,
         sender_name: 'Ravi',
       },
-    ]);
+    ];
+    const { inputRepository, getMessagesByIds, takeInput } = inputFor(messages);
 
     await expect(
       routeScopeActiveLiveTurnAdmissionFromCursor({
@@ -495,12 +523,15 @@ describe('live-turn host lease acquisition', () => {
           'slack_beta',
         ),
         liveRunId: 'run-active',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
         replayCursor: '2024-01-01T00:00:00.000Z::0',
         messageFetchPageSize: 1,
         timezone: 'UTC',
-        getMessagesSince,
+        inputRepository,
+        getMessagesByIds,
         setAgentCursor,
         saveState,
         enqueueMessageCheck,
@@ -512,12 +543,120 @@ describe('live-turn host lease acquisition', () => {
     expect(enqueueMessageCheck).toHaveBeenCalledWith(
       makeAgentThreadQueueKey('chat-1', 'agent:alpha', undefined, 'slack_beta'),
     );
-    expect(getMessagesSince).toHaveBeenCalledWith(
-      'chat-1',
-      '2024-01-01T00:00:00.000Z::0',
-      1,
-      { threadId: null, providerAccountId: 'slack_beta' },
+    expect(takeInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          appId: 'app:test',
+          conversationId: 'chat-1',
+          providerAccountId: 'slack_beta',
+        }),
+      }),
     );
+  });
+
+  it.each([
+    {
+      failing: 'saving the old marker',
+      saveState: async () => {
+        throw new Error('state store down');
+      },
+      completeSessionAgentRun: async () => undefined,
+    },
+    {
+      failing: 'settling the new run',
+      saveState: async () => undefined,
+      completeSessionAgentRun: async () => {
+        throw new Error('run store down');
+      },
+    },
+  ])(
+    'keeps a queued follow-up consumed when $failing fails',
+    async ({ saveState, completeSessionAgentRun }) => {
+      const message = {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'follow-up',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        sender_name: 'Ravi',
+      };
+      const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
+        message,
+      ]);
+      const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
+
+      await expect(
+        routeScopeActiveLiveTurnAdmissionFromCursor({
+          scope: {
+            appId: 'app:test',
+            agentSessionId: 'session-1',
+            conversationId: 'chat-1',
+            threadId: null,
+          },
+          queueJid: 'chat-1',
+          liveRunId: 'run-new',
+          ownerTurnId: 'turn-active',
+          ownerRunId: 'run-active',
+          chatJid: 'chat-1',
+          threadId: null,
+          messageFetchPageSize: 50,
+          timezone: 'UTC',
+          inputRepository,
+          getMessagesByIds,
+          setAgentCursor: vi.fn(),
+          saveState: vi.fn(saveState),
+          completeSessionAgentRun: vi.fn(completeSessionAgentRun),
+          routeMessage,
+        }),
+      ).resolves.toBe(true);
+
+      expect(routeMessage).toHaveBeenCalledOnce();
+      expect(releaseInput).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps a queued follow-up consumed when a later wakeup step throws', async () => {
+    const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
+      {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'follow-up',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        sender_name: 'Ravi',
+      },
+    ]);
+
+    await expect(
+      routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope: {
+          appId: 'app:test',
+          agentSessionId: 'session-1',
+          conversationId: 'chat-1',
+          threadId: null,
+        },
+        queueJid: 'chat-1',
+        liveRunId: '',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
+        chatJid: 'chat-1',
+        threadId: null,
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        inputRepository,
+        getMessagesByIds,
+        setAgentCursor: vi.fn(),
+        saveState: vi.fn(),
+        enqueueMessageCheck: () => {
+          throw new Error('queue closed');
+        },
+        routeMessage: vi.fn(async () => 'queued_to_owner' as const),
+      }),
+    ).rejects.toThrow('queue closed');
+
+    expect(releaseInput).not.toHaveBeenCalled();
   });
 
   it('finishes direct recovery routing when its continuation receipt never settles', async () => {
@@ -546,12 +685,14 @@ describe('live-turn host lease acquisition', () => {
         },
         queueJid: 'chat-1',
         liveRunId: 'run-active',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
         replayCursor: '2024-01-01T00:00:00.000Z::0',
         messageFetchPageSize: 1,
         timezone: 'UTC',
-        getMessagesSince: vi.fn(async () => [message]),
+        ...inputFor([message]),
         setAgentCursor: vi.fn(),
         saveState: vi.fn(),
         enqueueMessageCheck,
@@ -599,33 +740,39 @@ describe('live-turn host lease acquisition', () => {
             'slack_beta',
           ),
           liveRunId: 'run-active',
+          ownerTurnId: 'turn-active',
+          ownerRunId: 'run-active',
           chatJid: 'chat-1',
           threadId: 'thread-1',
           replayCursor: '2024-01-01T00:00:00.000Z::0',
           messageFetchPageSize: 10,
           timezone: 'UTC',
-          getMessagesSince: vi.fn(async () => [message]),
+          ...inputFor([message]),
           setAgentCursor: vi.fn(),
           saveState: vi.fn(),
           routeMessage,
           addReaction,
         }),
       ).resolves.toBe(expectedResult);
-      expect(addReaction).toHaveBeenCalledWith(
-        'chat-1',
-        'provider-msg-1',
-        'seen',
-        { providerAccountId: 'slack_beta', threadId: 'thread-1' },
-      );
+      if (expectedResult) {
+        expect(addReaction).toHaveBeenCalledWith(
+          'chat-1',
+          'provider-msg-1',
+          'seen',
+          { providerAccountId: 'slack_beta', threadId: 'thread-1' },
+        );
+      } else {
+        expect(addReaction).not.toHaveBeenCalled();
+      }
     },
   );
 
-  it('routes only earlier replay messages before an active /compact', async () => {
+  it('routes a follow-up before handling a later /compact', async () => {
     const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
     const isActiveControlMessage = vi.fn(
       (message) => message.content === '/compact',
     );
-    const handleActiveControlMessage = vi.fn(async () => false);
+    const handleActiveControlMessage = vi.fn(async () => true);
     const setAgentCursor = vi.fn();
     const saveState = vi.fn();
     const enqueueMessageCheck = vi.fn();
@@ -655,8 +802,9 @@ describe('live-turn host lease acquisition', () => {
         sender_name: 'Ravi',
       },
     ];
+    const input = inputFor(messages);
 
-    await expect(
+    const route = () =>
       routeScopeActiveLiveTurnAdmissionFromCursor({
         scope: {
           appId: 'app:test',
@@ -666,23 +814,27 @@ describe('live-turn host lease acquisition', () => {
         },
         queueJid: 'chat-1',
         liveRunId: 'run-active',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
-        replayCursor: '2024-01-01T00:00:00.000Z::0',
         messageFetchPageSize: 10,
         timezone: 'UTC',
-        getMessagesSince: vi.fn(async () => messages),
+        inputRepository: input.inputRepository,
+        getMessagesByIds: input.getMessagesByIds,
         setAgentCursor,
         saveState,
         enqueueMessageCheck,
         isActiveControlMessage,
         handleActiveControlMessage,
         routeMessage,
-      }),
-    ).resolves.toBe(true);
+      });
+
+    await expect(route()).resolves.toBe(true);
+    await expect(route()).resolves.toBe(true);
 
     expect(handleActiveControlMessage).toHaveBeenCalledOnce();
-    expect(handleActiveControlMessage).toHaveBeenCalledWith(messages[0]);
+    expect(handleActiveControlMessage).toHaveBeenCalledWith(messages[1]);
     expect(isActiveControlMessage).toHaveBeenCalledWith(messages[1]);
     expect(routeMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -692,7 +844,7 @@ describe('live-turn host lease acquisition', () => {
     expect(routeMessage.mock.calls[0][0].text).not.toContain('/compact');
     expect(setAgentCursor).toHaveBeenCalledWith(
       'chat-1',
-      JSON.stringify({ timestamp: '2024-01-01T00:00:01.000Z', id: 1 }),
+      JSON.stringify({ timestamp: '2024-01-01T00:00:02.000Z', id: 2 }),
     );
     expect(enqueueMessageCheck).toHaveBeenCalledWith('chat-1');
   });

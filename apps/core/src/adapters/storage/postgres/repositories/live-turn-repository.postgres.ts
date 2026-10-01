@@ -13,6 +13,8 @@ import {
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionClaimInput,
+  LiveAdmissionInputScope,
+  LiveAdmissionWorkItemRepository,
   LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
@@ -35,11 +37,16 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { activeRunLeaseFence } from './run-lease-fence.postgres.js';
 import {
   claimLiveAdmissionWorkItems,
+  consumeAll,
+  consumeInputItem,
   deleteExpiredTerminalLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
+  listUnconsumedLiveAdmissionQueueJids,
   renewLiveAdmissionWorkItemClaim,
+  releaseInput,
   settleLiveAdmissionWorkItem,
+  takeInput,
 } from './live-admission-work-item-repository.postgres.js';
 import { getOldestWaitingLiveAdmission as queryOldestWaitingLiveAdmission } from './live-waiting-admission-query.postgres.js';
 import {
@@ -96,6 +103,72 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     private readonly commandNotifier?: LiveTurnCommandNotifier,
     private readonly maxLiveAdmissionBacklog = 100,
   ) {}
+
+  async takeInput(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+    limit: number;
+  }): Promise<LiveAdmissionWorkItem[]> {
+    return takeInput(this.db, input);
+  }
+
+  async listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]> {
+    return listUnconsumedLiveAdmissionQueueJids(this.db, input);
+  }
+
+  async consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean> {
+    return consumeInputItem(this.db, input);
+  }
+
+  async releaseInput(
+    input: Parameters<LiveAdmissionWorkItemRepository['releaseInput']>[0],
+  ): Promise<number> {
+    return releaseInput(this.db, input);
+  }
+
+  async hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean> {
+    const deliveries = pgSchema.outboundDeliveriesPostgres;
+    const deliveryItems = pgSchema.outboundDeliveryItemsPostgres;
+    const sentDelivery = await this.db
+      .select({ id: deliveryItems.id })
+      .from(deliveryItems)
+      .innerJoin(deliveries, eq(deliveryItems.deliveryId, deliveries.id))
+      .where(
+        and(
+          eq(deliveries.runId, input.runId),
+          inArray(deliveryItems.status, ['sent', 'partially_delivered']),
+        ),
+      )
+      .limit(1);
+    if (sentDelivery.length > 0) return true;
+
+    const messages = pgSchema.messagesPostgres;
+    const prefix = `streamed-outbound:${input.runId}:`;
+    const sentStream = await this.db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          sql`left(${messages.externalRefJson} ->> 'id', ${prefix.length}) = ${prefix}`,
+          inArray(messages.deliveryStatus, ['sent', 'partially_sent']),
+        ),
+      )
+      .limit(1);
+    return sentStream.length > 0;
+  }
+
+  async consumeAll(input: {
+    scope: LiveAdmissionInputScope;
+    consumedBy: string;
+  }): Promise<number> {
+    return consumeAll(this.db, input);
+  }
 
   async enqueueLiveAdmissionWorkItem(
     input: EnqueueLiveAdmissionWorkItemInput,

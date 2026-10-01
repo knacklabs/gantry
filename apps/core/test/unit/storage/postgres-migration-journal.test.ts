@@ -50,17 +50,6 @@ describe('Postgres migration journal', () => {
     ).toBe(
       '-- Schema-generation baseline: historical migrations already applied this DDL.',
     );
-    const snapshot = JSON.parse(
-      fs.readFileSync(
-        path.join(
-          migrationsDir,
-          'meta',
-          `${baseline?.tag.slice(0, 14)}_snapshot.json`,
-        ),
-        'utf8',
-      ),
-    ) as { tables: Record<string, unknown> };
-    expect(Object.keys(snapshot.tables)).toHaveLength(103);
   });
 
   it('has a SQL file for every journal entry', () => {
@@ -195,9 +184,14 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('"run_lease_fencing_version" integer');
     expect(migration).not.toContain('"public".');
 
+    const latestTag = journal.entries.at(-1)?.tag;
+    expect(latestTag).toBeDefined();
     const snapshot = JSON.parse(
       fs.readFileSync(
-        path.join(migrationsDir, 'meta/0103_snapshot.json'),
+        path.join(
+          migrationsDir,
+          `meta/${latestTag?.slice(0, 14)}_snapshot.json`,
+        ),
         'utf8',
       ),
     ) as {

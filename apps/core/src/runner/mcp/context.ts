@@ -52,12 +52,6 @@ export const IPC_RESPONSE_VERIFY_KEY =
   process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.GANTRY_IPC_RESPONSE_KEY_ID || '';
 
-if (process.env.GANTRY_GROUP_FOLDER !== undefined) {
-  throw new Error(
-    'GANTRY_GROUP_FOLDER is no longer supported. Use GANTRY_WORKSPACE_KEY.',
-  );
-}
-
 export const chatJid = process.env.GANTRY_CHAT_JID!;
 export const providerAccountId =
   process.env.GANTRY_PROVIDER_ACCOUNT_ID?.trim() || undefined;
@@ -420,14 +414,10 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
     .filter(
       (capability) =>
         currentAllowedTools.includes(`capability:${capability.capabilityId}`) &&
-        capability.implementationBindings.some((binding) => {
-          if (binding.kind === 'mcp_pattern') {
-            return binding.mcpServer === serverName;
-          }
-          if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
-          const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
-          return match?.[1] === serverName;
-        }),
+        capability.implementationBindings.some(
+          (binding) =>
+            binding.kind === 'mcp_pattern' && binding.mcpServer === serverName,
+        ),
     )
     .map((capability) => capability.capabilityId)
     .sort();

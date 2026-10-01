@@ -1,0 +1,25 @@
+{
+  "base": "fcf6aa51d6ff2fe9a4f46369c5cf24bcce222bc0",
+  "branch": "fix/forge-will-read-a-repo-s-own-review-rule",
+  "done_when": "The root AGENTS.md has a short ## Review rules section, outside the Forge block, stating the owner's test balance, no-legacy-tests and review-dismissal rules as bullets",
+  "kind": "fix",
+  "review": {
+    "commit": "a767d085492b7e6e079249ad79f273b27b7bb87a",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "4cc5abc17b742c47a408b0176abe7bdf6fb177b16491c87599a80e22c03a6b46"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-30T06:49:22+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-30T07:03:44+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Forge will read a repo's own review rules from a Review rules section in the root AGENTS.md, and myclaw's owner rules aren't there yet"
+}
