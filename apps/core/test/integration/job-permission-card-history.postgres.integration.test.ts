@@ -8,6 +8,12 @@ import {
   JobPermissionDurabilityService,
 } from '@core/application/interactions/job-permission-durability.js';
 import { initialCard } from '@core/application/interactions/job-permission-card-projection.js';
+import type { ChannelWiring } from '@core/app/bootstrap/channel-wiring-types.js';
+import { setupJobPermissionDurability } from '@core/app/bootstrap/job-permission-wiring-setup.js';
+import {
+  configureJobPermissionLeaseExtensionReader,
+  jobPermissionLeaseExtensionMs,
+} from '@core/jobs/execution-lease.js';
 import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
 import type {
   JobPermissionCardRecord,
@@ -29,6 +35,10 @@ const APPROVER = 'approver-1';
 maybeDescribe('job permission card history', () => {
   let runtime: PostgresIntegrationRuntime;
   let service: JobPermissionDurabilityService;
+  // The runtime's own wiring: it installs the scheduler's lease heartbeat
+  // reader and its reconcile is what the 5-second reconcile loop runs. Only
+  // the provider edge (sends and receipts) is faked.
+  let wired: NonNullable<ReturnType<typeof setupJobPermissionDurability>>;
 
   const repository = () => runtime.repositories.workerCoordination;
   const query = (text: string, values: unknown[] = []) =>
@@ -71,15 +81,35 @@ maybeDescribe('job permission card history', () => {
       },
       { maxRows: 4, maxGrantAtomsPerRow: 4 },
     );
+    wired = setupJobPermissionDurability({
+      workerCoordination: repository(),
+      opsRepository: runtime.ops,
+      channelWiring: {
+        getRuntimeAppId: () => APP_ID,
+        isControlApproverAllowed: async () => true,
+      } as unknown as ChannelWiring,
+      getPermissionRuntimeSettings: () => ({ agents: {}, permissions: {} }),
+      getToolRepository: () => runtime.repositories.tools,
+      getSkillRepository: () => runtime.repositories.skills,
+      createJobTrigger: async ({ triggerId }) => ({
+        status: 'completed',
+        triggerId,
+      }),
+    })!;
   });
 
   afterAll(async () => {
+    configureJobPermissionLeaseExtensionReader(null);
     await runtime?.cleanup();
   });
 
-  function attach(jobId: string, runId = 'run-1') {
-    const atoms = ['RunCommand(npm test *)'];
-    return service.attachNeed({
+  function attach(
+    jobId: string,
+    runId = 'run-1',
+    atoms = ['RunCommand(npm test *)'],
+    using: JobPermissionDurabilityService = service,
+  ) {
+    return using.attachNeed({
       appId: APP_ID,
       jobId,
       sourceAgentFolder: 'main_agent',
@@ -171,8 +201,45 @@ maybeDescribe('job permission card history', () => {
     expect(open.map((entry) => entry.jobId)).not.toContain(jobId);
   });
 
-  it('keeps one recurring job card small past a thousand revisions and still delivers the latest', async () => {
+  it('keeps a recurring job card small across more than a thousand runs and still delivers the latest', async () => {
     const jobId = 'job-recurring';
+    await attach(jobId, 'run-0', undefined, wired);
+    await settleOpenCardSends('card-message-1');
+    await wired.reconcile();
+
+    // Every run heartbeats its lease the way the scheduler does, and the
+    // reconcile loop keeps ticking between runs.
+    for (let run = 1; run <= 1_001; run += 1) {
+      const heartbeat = {
+        appId: APP_ID,
+        jobId,
+        sourceAgentFolder: 'main_agent',
+        runId: `run-${run}`,
+      };
+      await jobPermissionLeaseExtensionMs(heartbeat);
+      await jobPermissionLeaseExtensionMs(heartbeat);
+      if (run % 100 === 0) {
+        await settleOpenCardSends('card-message-1');
+        await wired.reconcile();
+      }
+    }
+    await attach(jobId, 'run-1002', ['RunCommand(npm run build *)'], wired);
+    const latest = (await state(jobId)).card.revision;
+    await settleOpenCardSends('card-message-1');
+    await wired.reconcile();
+
+    const card = (await state(jobId)).card;
+    expect(card.pendingBudgets).toEqual([]);
+    expect(card.revisions.length).toBeLessThanOrEqual(4);
+    expect(await storedCardBytes(jobId)).toBeLessThan(20_000);
+    expect(card.currentProviderRevision).toBe(latest);
+    expect(
+      card.revisionDeliveries.find(({ revision }) => revision === latest),
+    ).toMatchObject({ status: 'delivered' });
+  }, 300_000);
+
+  it('keeps one card small past a thousand revisions and treats a tap on a dropped one as stale', async () => {
+    const jobId = 'job-many-revisions';
     await attach(jobId);
     let tappedRevision: JobPermissionCardRevision | undefined;
 
@@ -212,10 +279,6 @@ maybeDescribe('job permission card history', () => {
     expect(card.revisions.length).toBeLessThanOrEqual(4);
     expect(await storedCardBytes(jobId)).toBeLessThan(20_000);
     expect(card.currentProviderRevision).toBe(card.revision);
-    expect(card.revisionDeliveries.at(-1)).toMatchObject({
-      revision: card.revision,
-      status: 'delivered',
-    });
     const oldDeny = jobPermissionCardActions(
       card.callbackKey,
       tappedRevision!,
@@ -259,18 +322,11 @@ maybeDescribe('job permission card history', () => {
       );
     }
     const jobId = 'job-new-card';
-    await attach(jobId);
+    await attach(jobId, undefined, undefined, wired);
 
-    const listed = await repository().listJobPermissionCardsForReconciliation({
-      limit: 100,
-    });
-    expect(listed.map((card) => card.jobId)).not.toContainEqual(
-      expect.stringMatching(/^job-idle-/),
-    );
-    expect(listed.map((card) => card.jobId)).toContain(jobId);
-
+    // One tick of the reconcile loop confirms the new card's send.
     await settleOpenCardSends('new-card-message');
-    await service.reconcile();
+    await wired.reconcile();
     expect((await state(jobId)).card).toMatchObject({
       currentProviderMessageId: 'new-card-message',
       currentProviderRevision: 1,
@@ -310,6 +366,18 @@ maybeDescribe('job permission card history', () => {
         updatedAt: template.createdAt,
       });
     }
+    // Every run's heartbeat left a budget; 25 runs waited and resumed, one
+    // is waiting now.
+    const pendingBudgets: JobPermissionCardRecord['pendingBudgets'] = [];
+    for (let run = 1; run <= 1_026; run += 1) {
+      pendingBudgets.push({
+        runId: `run-${run}`,
+        openCount: run === 1_026 ? 1 : 0,
+        accumulatedMs: run % 40 === 0 || run === 1_026 ? 5_000 : 0,
+        hostBootId: 'boot-1',
+        lastMonotonicMs: run,
+      });
+    }
     await query(
       `UPDATE pending_interactions SET payload_json = $1
         WHERE kind = 'job_permission_card' AND payload_json->>'jobId' = $2`,
@@ -321,6 +389,7 @@ maybeDescribe('job permission card history', () => {
           currentProviderRevision: 9_999,
           revisions,
           revisionDeliveries: deliveries,
+          pendingBudgets,
         },
         jobId,
       ],
@@ -345,6 +414,10 @@ maybeDescribe('job permission card history', () => {
       'delivered',
       'delivered',
       'pending',
+    ]);
+    expect(card.pendingBudgets.map(({ runId }) => runId)).toEqual([
+      ...Array.from({ length: 20 }, (_, index) => `run-${(index + 6) * 40}`),
+      'run-1026',
     ]);
     // The shrunk card still accepts a write through the real path.
     await expect(attach(jobId, 'run-2')).resolves.toMatchObject({

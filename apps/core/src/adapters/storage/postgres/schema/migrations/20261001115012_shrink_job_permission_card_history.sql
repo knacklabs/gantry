@@ -1,6 +1,8 @@
 -- Settle ambiguous deliveries a newer revision already superseded, then keep
 -- only the latest revision, the one on screen, the one that opened the current
--- message, and revisions whose delivery is still pending or ambiguous.
+-- message, and revisions whose delivery is still pending or ambiguous. Drop
+-- run wait budgets that never waited, keeping waiting runs and the newest 20
+-- resumed runs.
 -- Each card is read into variables once so a 10k-entry payload is parsed once.
 DO $$
 DECLARE
@@ -51,23 +53,32 @@ BEGIN
       )
     ];
     UPDATE pending_interactions
-    SET payload_json = jsonb_set(
-      jsonb_set(
-        card.payload,
-        '{revisions}',
-        COALESCE((
-          SELECT jsonb_agg(revision ORDER BY ord)
-          FROM jsonb_array_elements(card.payload -> 'revisions')
-            WITH ORDINALITY AS r(revision, ord)
-          WHERE (revision ->> 'revision')::int = ANY (kept)
-        ), '[]'::jsonb)
-      ),
-      '{revisionDeliveries}',
-      COALESCE((
+    SET payload_json = card.payload || jsonb_build_object(
+      'revisions', COALESCE((
+        SELECT jsonb_agg(revision ORDER BY ord)
+        FROM jsonb_array_elements(card.payload -> 'revisions')
+          WITH ORDINALITY AS r(revision, ord)
+        WHERE (revision ->> 'revision')::int = ANY (kept)
+      ), '[]'::jsonb),
+      'revisionDeliveries', COALESCE((
         SELECT jsonb_agg(delivery ORDER BY ord)
         FROM jsonb_array_elements(deliveries)
           WITH ORDINALITY AS d(delivery, ord)
         WHERE (delivery ->> 'revision')::int = ANY (kept)
+      ), '[]'::jsonb),
+      'pendingBudgets', COALESCE((
+        SELECT jsonb_agg(budget ORDER BY ord)
+        FROM (
+          SELECT budget, ord, row_number() OVER (
+            PARTITION BY (budget ->> 'openCount')::int > 0,
+              (budget ->> 'accumulatedMs')::numeric > 0
+            ORDER BY ord DESC
+          ) AS newest
+          FROM jsonb_array_elements(card.payload -> 'pendingBudgets')
+            WITH ORDINALITY AS b(budget, ord)
+        ) budgets
+        WHERE (budget ->> 'openCount')::int > 0
+          OR ((budget ->> 'accumulatedMs')::numeric > 0 AND newest <= 20)
       ), '[]'::jsonb)
     )
     WHERE id = card.id;

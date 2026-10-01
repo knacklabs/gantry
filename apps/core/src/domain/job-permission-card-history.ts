@@ -1,5 +1,7 @@
 import type { JobPermissionCardRecord } from './ports/job-permission-durability.js';
 
+const MAX_RESUMED_RUN_BUDGETS = 20;
+
 // Keeps the latest revision, the one on screen, the one that opened the
 // current message (its confirmation time decides edit vs replace), and every
 // revision whose delivery is still open. A tap on any other revision is stale.
@@ -27,5 +29,20 @@ export function pruneSettledCardHistory(card: JobPermissionCardRecord): void {
   card.revisions = card.revisions.filter(({ revision }) => kept.has(revision));
   card.revisionDeliveries = card.revisionDeliveries.filter(({ revision }) =>
     kept.has(revision),
+  );
+  // A run's wait budget matters only while it waits (open) or, once resumed,
+  // for the lease extension it earned. A budget that never waited holds
+  // nothing a fresh one would not, so every run's heartbeat no longer adds a
+  // permanent entry.
+  // ponytail: resumed budgets are capped by count, not by run liveness; a
+  // resumed run loses its extension only if 20 newer runs of the same job
+  // waited while it was still running. Check run leases if that ever happens.
+  const resumed = new Set(
+    card.pendingBudgets
+      .filter((budget) => budget.openCount === 0 && budget.accumulatedMs > 0)
+      .slice(-MAX_RESUMED_RUN_BUDGETS),
+  );
+  card.pendingBudgets = card.pendingBudgets.filter(
+    (budget) => budget.openCount > 0 || resumed.has(budget),
   );
 }

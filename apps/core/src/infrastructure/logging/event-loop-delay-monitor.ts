@@ -2,26 +2,22 @@ import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 import { logger } from './logger.js';
 
-const WINDOW_MS = 10_000;
-const BLOCKED_MS = 1_000;
-
-/** The window's max delay in ms when the main thread was blocked, else null. */
-export function blockedEventLoopDelayMs(maxDelayNs: number): number | null {
-  const maxDelayMs = Math.round(maxDelayNs / 1e6);
-  return maxDelayMs > BLOCKED_MS ? maxDelayMs : null;
-}
-
-export function startEventLoopDelayMonitor(): void {
+/** Warns when the main thread was blocked over `blockedMs` in a window. */
+export function startEventLoopDelayMonitor({
+  windowMs = 10_000,
+  blockedMs = 1_000,
+} = {}): () => void {
   const histogram = monitorEventLoopDelay();
   histogram.enable();
-  setInterval(() => {
-    const maxDelayMs = blockedEventLoopDelayMs(histogram.max);
+  const timer = setInterval(() => {
+    const maxDelayMs = Math.round(histogram.max / 1e6);
     histogram.reset();
-    if (maxDelayMs !== null) {
-      logger.warn(
-        { maxDelayMs, windowMs: WINDOW_MS },
-        'Runtime main thread was blocked',
-      );
+    if (maxDelayMs > blockedMs) {
+      logger.warn({ maxDelayMs, windowMs }, 'Runtime main thread was blocked');
     }
-  }, WINDOW_MS).unref();
+  }, windowMs).unref();
+  return () => {
+    clearInterval(timer);
+    histogram.disable();
+  };
 }
