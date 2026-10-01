@@ -2,47 +2,12 @@
   "branch": "task/TURN-1-T3",
   "review": {
     "blocking_level": "P1",
-    "changed": "a5a61b1981b581bf00cb57443c31e6cd281b59ec1102e966eb00824d875142d7",
-    "commit": "94dd013b9bd649d52344bcca2e0fb5a0545ee400",
-    "dismissals": [
-      {
-        "because": "apps/core/src/runtime/group-queue.ts:528 owner decision 2026-10-01: nothing durable retries a turn that fails after it starts, so deleting GroupQueue's in-memory retry moves from T3 to TURN-1 T8 together with a stored attempt count (plans/TURN-1.md on story/TURN-1, T3 and T8 rows and Notes)",
-        "finding": 1,
-        "from_base": false
-      }
-    ],
-    "findings": [
-      {
-        "body": "The changed test still exercises `finalRetry`, while the unchanged `group-queue.ts:528-610` still counts failed turns, schedules an in-memory retry, and passes `finalRetry` to the processor. Failed turns also release their input for durable recovery (`group-processing-flow.ts:228-247` and `message-loop.ts:321-335`). T3 therefore leaves two retry owners, and a final local attempt can send a failure notice and keep input that should remain available to the next turn. Remove the queue retry path and update its tests to exercise durable recovery.",
-        "file": "apps/core/test/unit/runtime/group-processing.test.ts",
-        "line": 2338,
-        "priority": "P1",
-        "title": "Not done: No message is lost or given twice"
-      },
-      {
-        "body": "This migration deletes the old row, but the router-state port (`ops-repo.ts:365-368`) and its Postgres repository still expose only get and set. T3 expressly calls for a delete operation as well as the migration. The one-time SQL cleanup works, but that separate storage operation has not been delivered.",
-        "file": "apps/core/src/adapters/storage/postgres/schema/migrations/20261001084406_delete_last_agent_timestamp.sql",
-        "line": 1,
-        "priority": "P2",
-        "title": "Add the requested router-state delete operation"
-      },
-      {
-        "body": "This new task-status file is outside T3's permitted paths. It is not needed for the marker deletion, retry removal, or tests, and the supplied handoff gives no reason to include it.",
-        "file": ".factory/stories/TURN-1/tasks/T3.json",
-        "line": 1,
-        "priority": "P2",
-        "title": "Remove the unrelated task-status file outside scope"
-      },
-      {
-        "body": "The changed line budgets are outside T3's permitted paths. They tighten architecture limits but are not needed to delete the marker or retry loop, and the supplied handoff gives no reason for this separate policy change.",
-        "file": "scripts/architecture-map.json",
-        "line": 34,
-        "priority": "P2",
-        "title": "Remove the unrelated architecture budget edits outside scope"
-      }
-    ],
+    "changed": "346fc20cb45a851dd223bd821d36167ca33f6d4d782bbba0a6aee2666e41e00a",
+    "commit": "f9a23c829a73cec64d3124b30f848313f117aa48",
+    "dismissals": [],
+    "findings": [],
     "status": "clean",
-    "tree": "f6bec41043762aeec85ff56e3dd815deb67226458f4769fce6664588b78cfb4f"
+    "tree": "5ac5f9ea0483719873406127fd659e05be54e46ea5691ce393aced37dbb90128"
   },
   "status": "waiting for checks",
   "steps": [
@@ -52,6 +17,10 @@
     },
     {
       "at": "2026-10-01T13:31:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T17:34:05+00:00",
       "step": "review"
     }
   ]
