@@ -3,11 +3,24 @@
   "branch": "fix/turn-1-s-plan-doesn-t-own-the-crash-timi",
   "done_when": "plans/TURN-1.md has a task that commits input durably before anything leaves and makes take+append and reject+release single writes, with T4 after it",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "57d8bc1d36212acbf09fa977738fb9e2cf3640eb0fb493b11fb1a983c0b856e1",
+    "commit": "aab5d56fb80d48af3f037375036a9a808ae6a993",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "cd8a14a173c0103e3c0a30d83d4f8fff188db92dc1cdeb813f6eaeade605b0a8"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T01:16:23+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T01:27:56+00:00",
+      "step": "review"
     }
   ],
   "why": "TURN-1's plan doesn't own the crash-timing gaps the owner moved out of T2"
