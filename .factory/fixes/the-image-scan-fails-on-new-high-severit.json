@@ -1,0 +1,41 @@
+{
+  "base": "1ebc5b261cc652580ee74969fc7202343fb2ec4a",
+  "branch": "fix/the-image-scan-fails-on-new-high-severit",
+  "done_when": "package-lock.json resolves axios to 1.20.0 or later and the image scan passes",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "eddbc97831263095feaa86d48c6abee44fff5d3d3f78724fe5f79d2cb26035b3",
+    "commit": "1c14fd098dca36f65ec9de6d6cf226a41cfba858",
+    "dismissals": [
+      {
+        "because": "package-lock.json:7186 the image workflow on this pull request built the image and its Trivy scan passed with axios 1.20.0 (https://github.com/knacklabs/gantry/actions/runs/36807427800/job/110194773245)",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "The lockfile resolves axios to 1.20.0, but the required image-scan pass has not been demonstrated. The supplied close run executes npm checks and tests; it does not build the runtime image or run the Trivy step in `.github/workflows/image.yml`. Run that image workflow against this change and confirm its vulnerability scan passes before marking the fix done.",
+        "file": "package-lock.json",
+        "line": 7186,
+        "priority": "P1",
+        "title": "Not done: package-lock.json resolves axios to 1.20.0 or later and the image scan passes"
+      }
+    ],
+    "status": "clean",
+    "tree": "70876605aa847cc715c7e9ee95852b969aa7dd77b493470147ebdde291f416b7"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T02:28:59+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T02:45:17+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The image scan fails on new high-severity axios advisories pulled in by the Slack SDK"
+}
