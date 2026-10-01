@@ -159,8 +159,6 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
   return {
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(),
-    saveState: vi.fn(),
-    getOrRecoverCursor: vi.fn(),
     registerGroup: vi.fn(async (jid: string, group: any) => {
       conversationRoutes[jid] = group;
     }),
@@ -177,7 +175,6 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     ensureCredentialBindingsForConversationRoutes: vi.fn(),
     processGroupMessages: vi.fn(),
     getConversationRoutes: vi.fn(() => conversationRoutes),
-    setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
     setHistoryCoverageDistrustEpochReader: vi.fn(),
     setConversationHistoryCoverageRepository: vi.fn(),

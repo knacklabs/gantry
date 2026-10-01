@@ -3,13 +3,11 @@ import type {
   MessageSendOptions,
   NewMessage,
 } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
 import { formatMessages } from '../messaging/router.js';
 import type { SessionCommandDeps } from '../session/session-commands.js';
 import { getGroupBrowserStatus } from './group-browser-status.js';
 import { getGroupMemoryStatus } from './group-memory-commands.js';
 import {
-  createAdvanceCursorHandler,
   createSaveProcedureHandler,
   createSenderCommandPolicy,
   createSessionArchiveHandlers,
@@ -117,16 +115,6 @@ export function createGroupProcessingSessionCommandHandlers(input: {
     }),
     closeStdin: () => deps.queue.closeStdin(input.queueJid),
     compactionScopeKey: input.queueJid,
-    advanceCursor: createAdvanceCursorHandler({
-      queueJid: input.queueJid,
-      setCursor: deps.setCursor,
-      saveState: deps.saveState,
-      warn: (err) =>
-        logger.warn(
-          { group: group.name, err },
-          'Failed to persist session command cursor',
-        ),
-    }),
     formatMessages,
     getDefaultModel: input.getDefaultModel,
     getJobModelDefaults: input.getJobModelDefaults,
