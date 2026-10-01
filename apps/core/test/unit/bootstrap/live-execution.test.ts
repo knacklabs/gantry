@@ -45,9 +45,6 @@ describe('startLiveExecutionServices', () => {
           },
         }),
         processGroupMessages: vi.fn(async () => true),
-        getOrRecoverCursor: vi.fn(async () => ''),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
         resolveExecutionProviderId,
       },
       opsRepository: {
@@ -112,9 +109,6 @@ describe('startLiveExecutionServices', () => {
           },
         }),
         processGroupMessages: vi.fn(async () => true),
-        getOrRecoverCursor: vi.fn(async () => ''),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
       },
       opsRepository: {
         getAgentTurnContext,
@@ -149,9 +143,6 @@ describe('startLiveExecutionServices', () => {
           },
         }),
         processGroupMessages: vi.fn(async () => true),
-        getOrRecoverCursor: vi.fn(async () => ''),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
       },
       opsRepository: { getAgentTurnContext },
       executionAdapter: { id: 'anthropic:claude-agent-sdk' },
@@ -183,9 +174,6 @@ describe('startLiveExecutionServices', () => {
       app: {
         getConversationRoutes: vi.fn(() => ({})),
         processGroupMessages: vi.fn(),
-        getOrRecoverCursor: vi.fn(),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
         queue: {
           getPolicy: vi.fn(() => ({ maxMessageRuns: 3, maxRetries: 7 })),
           enqueueMessageCheck: vi.fn(() => true),
@@ -253,9 +241,6 @@ describe('startLiveExecutionServices', () => {
       app: {
         getConversationRoutes: vi.fn(() => ({})),
         processGroupMessages: vi.fn(),
-        getOrRecoverCursor: vi.fn(),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
         queue: {
           getPolicy: vi.fn(() => ({ maxMessageRuns: 3, maxRetries: 7 })),
           enqueueMessageCheck: vi.fn(() => true),
