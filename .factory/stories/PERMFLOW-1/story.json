@@ -1,0 +1,12 @@
+{
+  "doc": "plans/PERMFLOW-1.md",
+  "status": "planning",
+  "steps": [
+    {
+      "at": "2026-10-01T17:55:50+00:00",
+      "step": "start"
+    }
+  ],
+  "title": "One permission gate on the host that asks only when needed",
+  "touches": 0
+}
