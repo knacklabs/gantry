@@ -336,20 +336,12 @@ export class CanonicalMessageOpsService {
     return this.repository.listThreadIds(chatJid, options);
   }
 
-  async getLastBotMessageCursor(
-    chatJid: string,
-    options: { providerAccountId?: string | null } = {},
-  ): Promise<{ timestamp: string; id: string } | undefined> {
-    const row = await this.repository.getLastBotMessageRow(chatJid, options);
-    const msg = row ? this.mapMessage(row) : undefined;
-    return msg ? { timestamp: msg.timestamp, id: msg.id } : undefined;
-  }
-
   async getLastBotMessageTimestamp(
     chatJid: string,
     options: { providerAccountId?: string | null } = {},
   ): Promise<string | undefined> {
-    return (await this.getLastBotMessageCursor(chatJid, options))?.timestamp;
+    const row = await this.repository.getLastBotMessageRow(chatJid, options);
+    return row ? this.mapMessage(row).timestamp : undefined;
   }
 
   private mapMessage(row: CanonicalOpsMessageRow): NewMessage {

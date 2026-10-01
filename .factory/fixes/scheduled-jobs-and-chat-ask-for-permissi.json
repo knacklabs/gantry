@@ -1,0 +1,41 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/scheduled-jobs-and-chat-ask-for-permissi",
+  "done_when": "docs/specs/one-permission-flow.md is a confirmed spec that makes a job an unattended turn on the same permission flow as chat, with the owner's 2026-10-01 decisions and a roadmap of stories",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "7374d7cc36ba28c03b98549f4e969552d208c88db876140512ce06bad69e6963",
+    "commit": "a6b39776250f6eda4ce94e1837f6131d6c4ef75e",
+    "dismissals": [
+      {
+        "because": "plans/roadmap.json:1 already resolved: commit 6979db0ed removes CARDSIMPLE-2 and CARDSIMPLE-3 from the roadmap (the PR diff shows both deleted); the finding was carried over from the review before that commit",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "The spec explicitly replaces CARDSIMPLE-2 and CARDSIMPLE-3, but `plans/roadmap.json:2409` and `plans/roadmap.json:2427` still mark both pending, ordered before PERMFLOW-1. Their acceptance criteria require the job-card and late-tap machinery this spec removes. Remove them from pending work or mark them superseded so the roadmap agrees with the confirmed decisions.",
+        "file": "docs/specs/one-permission-flow.md",
+        "line": 119,
+        "priority": "P2",
+        "title": "Retire the roadmap stories this spec replaces"
+      }
+    ],
+    "status": "clean",
+    "tree": "e72ddf097b7d4671f3d827466bf9cdea7efbde8e143c77f31fff9938701279de"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T11:48:17+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T12:50:33+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Scheduled jobs and chat ask for permission in five different ways, and jobs keep breaking because of it"
+}
