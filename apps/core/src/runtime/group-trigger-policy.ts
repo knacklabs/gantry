@@ -31,6 +31,19 @@ export async function groupTurnHasRequiredTrigger(input: {
         )),
   );
   if (hasTrigger) return true;
+  // A thread continuation still needs an allowed sender in this batch; the
+  // root's sender says who started the thread, not who is asking now.
+  const hasAllowedSender = input.messages.some(
+    (message) =>
+      message.is_from_me ||
+      isTriggerAllowed(
+        input.chatJid,
+        message.sender,
+        allowlistCfg,
+        input.group.folder,
+      ),
+  );
+  if (!hasAllowedSender) return false;
 
   const continuation = input.continuation;
   if (!continuation?.threadId || !continuation.hasPriorCursor) {
