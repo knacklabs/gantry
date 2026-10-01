@@ -163,7 +163,7 @@ export function buildLiveAdmissionProcessor(input: {
     liveRunId: string,
     chatJid: string,
     threadId: string | null,
-    route: ActiveControlRoute,
+    route: ConversationRoute,
   ): Promise<boolean> =>
     (async () => {
       const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
@@ -176,6 +176,7 @@ export function buildLiveAdmissionProcessor(input: {
         ownerRunId: owner.runId,
         chatJid,
         threadId,
+        route,
         messageFetchPageSize,
         timezone,
         inputRepository: input.inputRepository!,

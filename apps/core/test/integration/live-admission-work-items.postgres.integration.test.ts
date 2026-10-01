@@ -862,6 +862,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         ownerRunId: runId,
         chatJid,
         threadId: null,
+        route: { folder: 'agent', requiresTrigger: false },
         messageFetchPageSize: 50,
         timezone: 'UTC',
         inputRepository: liveTurns,
