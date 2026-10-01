@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/web-sdk-and-delegated-agent-messages-are",
+  "done_when": "An overloaded SDK session message is rejected as busy and an overloaded delegated follow-up is retried instead of marked delivered, proven by tests",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:17:26+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Web, SDK and delegated-agent messages are dropped silently when the backlog is full"
+}
