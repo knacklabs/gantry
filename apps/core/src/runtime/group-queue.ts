@@ -381,6 +381,7 @@ export class GroupQueue {
         runnerControlPort: runPort(proc) ?? this.runnerControlPort,
         closeStdin: () => this.closeStdin(groupJid),
         stopGroup: () => this.stopGroup(groupJid),
+        requeueInput: () => this.enqueueMessageCheck(groupJid),
       });
       void Promise.resolve(
         this.liveTurnRunnerRegistrar?.(groupJid, hooks, {

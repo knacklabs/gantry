@@ -10,7 +10,6 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
-  type SessionCommand,
 } from './session-command-parse.js';
 export {
   extractSessionCommand,
@@ -244,7 +243,8 @@ function normalizeBodyForComparison(value: string): string {
  * Handle session command interception in processGroupMessages.
  * Scans messages for a session command, handles auth + execution.
  * Returns { handled: true, success } if a command was found; { handled: false } otherwise.
- * success=false means the caller should retry (cursor was not advanced).
+ * success=false means nothing was answered and the caller should retry the batch;
+ * a command that told the user its outcome, even a failure, returns success=true.
  */
 export async function handleSessionCommand(opts: {
   missedMessages: NewMessage[];
@@ -264,24 +264,24 @@ export async function handleSessionCommand(opts: {
 
   if (!command || !cmdMsg) return { handled: false };
 
-  if (
-    !isSessionCommandAllowed(
-      cmdMsg.is_from_me === true,
-      deps.isSenderControlAllowlisted(cmdMsg),
-    )
-  ) {
-    // DENIED: send denial if the sender would normally be allowed to interact,
-    // then silently consume the command by advancing the cursor past it.
-    // Trade-off: other messages in the same batch are also consumed (cursor is
-    // a high-water mark). Acceptable for this narrow edge case.
+  const allowed = isSessionCommandAllowed(
+    cmdMsg.is_from_me === true,
+    deps.isSenderControlAllowlisted(cmdMsg),
+  );
+
+  const cmdIndex = missedMessages.indexOf(cmdMsg);
+  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
+
+  if (!allowed) {
     if (deps.canSenderInteract(cmdMsg)) {
       await deps.sendMessage('Session commands require admin access.');
     }
+    // Earlier messages still get a normal, trigger-checked turn.
+    if (preCommandMsgs.length > 0) return { handled: false };
     deps.advanceCursor(cmdMsg);
     return { handled: true, success: true };
   }
 
-  // AUTHORIZED: process pre-command messages first, then run the command
   logger.info({ group: groupName, command: command.raw }, 'Session command');
 
   if (command.kind === 'stop') {
@@ -292,15 +292,6 @@ export async function handleSessionCommand(opts: {
     );
     return { handled: true, success: true };
   }
-
-  if (command.kind === 'commands') {
-    deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(formatSessionCommandsHelp());
-    return { handled: true, success: true };
-  }
-
-  const cmdIndex = missedMessages.indexOf(cmdMsg);
-  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
 
   // /new is the recovery path when the persisted provider session is bad.
   // Do not try to run older queued messages before clearing the session.
@@ -320,7 +311,7 @@ export async function handleSessionCommand(opts: {
         'Failed to reset session for /new',
       );
       await deps.sendMessage('/new failed. The session is unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     runNewSessionArchiveFinalizer({
@@ -364,13 +355,19 @@ export async function handleSessionCommand(opts: {
         `Failed to process messages before ${command.raw}. Try again.`,
       );
       if (preOutputSent) {
-        // Output was already sent — don't retry or it will duplicate.
-        // Advance cursor past pre-command messages, leave command pending.
-        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
+        // Output was already sent, so a retry would duplicate it. The user was
+        // told to try again, so the command is consumed with its batch.
+        deps.advanceCursor(cmdMsg);
         return { handled: true, success: true };
       }
       return { handled: true, success: false };
     }
+  }
+
+  if (command.kind === 'commands') {
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(formatSessionCommandsHelp());
+    return { handled: true, success: true };
   }
 
   // Forward the literal slash command as the prompt (no XML formatting)
@@ -628,7 +625,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         `Failed to set model to ${resolved.alias}. Override unchanged.`,
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     const family = getModelFamily(resolved.alias);
@@ -653,7 +650,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear model override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     if (defaultModel) {
@@ -677,7 +674,7 @@ export async function handleSessionCommand(opts: {
         'Failed to persist /thinking override',
       );
       await deps.sendMessage('Failed to set thinking. Override unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     deps.advanceCursor(cmdMsg);
@@ -697,7 +694,7 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear thinking override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     deps.advanceCursor(cmdMsg);
@@ -725,7 +722,7 @@ export async function handleSessionCommand(opts: {
           ? 'Failed to set permission mode. Override unchanged.'
           : 'Failed to clear permission mode override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
     deps.advanceCursor(cmdMsg);
     await deps.sendMessage(

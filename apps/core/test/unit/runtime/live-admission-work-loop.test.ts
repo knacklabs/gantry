@@ -58,7 +58,9 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-function makeDeps(enqueueMessageCheck: () => boolean): MessageLoopDeps {
+function makeDeps(
+  enqueueMessageCheck: () => boolean | Promise<boolean>,
+): MessageLoopDeps {
   return {
     getConversationRoutes: () => ({
       'group@g.us': {
@@ -77,7 +79,7 @@ function makeDeps(enqueueMessageCheck: () => boolean): MessageLoopDeps {
     sendProgressUpdate: vi.fn(),
     queue: {
       sendMessage: vi.fn(() => false),
-      enqueueMessageCheck,
+      enqueueMessageCheck: vi.fn(enqueueMessageCheck),
       closeStdin: vi.fn(),
     },
     opsRepository: {
@@ -136,9 +138,9 @@ describe('startLiveAdmissionWorkLoop', () => {
   it('renews a claimed work item while processing is still in flight', async () => {
     const settleLiveAdmissionWorkItem = vi.fn(async () => true);
     const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
-    const replay = deferred<(typeof replayMessage)[]>();
+    const wake = deferred<boolean>();
     const deps = makeDeps(() => true);
-    deps.opsRepository.getMessagesSince = vi.fn(() => replay.promise);
+    deps.queue.enqueueMessageCheck = vi.fn(() => wake.promise);
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
         claimLiveAdmissionWorkItems: vi.fn(async () => [baseItem]),
@@ -162,7 +164,7 @@ describe('startLiveAdmissionWorkLoop', () => {
         1,
       ),
     );
-    replay.resolve([replayMessage]);
+    wake.resolve(true);
     await vi.waitFor(() =>
       expect(settleLiveAdmissionWorkItem).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -248,7 +250,7 @@ describe('startLiveAdmissionWorkLoop', () => {
     expect(
       claimLiveAdmissionWorkItems.mock.calls.length,
     ).toBeGreaterThanOrEqual(2);
-    expect(deps.opsRepository.getMessagesSince).toHaveBeenCalled();
+    expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith('group@g.us');
   });
 
   it('settles poison work items as failed after the retry limit', async () => {
@@ -340,8 +342,8 @@ describe('startLiveAdmissionWorkLoop', () => {
     const deferLiveAdmissionWorkItem = vi.fn(async () => true);
     const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
     const deps = makeDeps(() => true);
-    deps.opsRepository.getMessagesSince = vi.fn(
-      () => new Promise(() => undefined),
+    deps.queue.enqueueMessageCheck = vi.fn(
+      () => new Promise<boolean>(() => undefined),
     );
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {

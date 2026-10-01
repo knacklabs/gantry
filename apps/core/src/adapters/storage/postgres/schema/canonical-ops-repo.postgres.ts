@@ -196,6 +196,13 @@ export class PostgresRuntimeRepositoryBundle
     return this.messages.getMessagesSince(chatJid, sinceCursor, limit, options);
   }
 
+  async getMessagesByIds(
+    scope: import('../../../../domain/ports/live-turns.js').LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]> {
+    return this.messages.getMessagesByIds(scope, ids);
+  }
+
   async getContextMessagesSince(
     chatJid: string,
     sinceCursor: string,

@@ -207,12 +207,24 @@ export interface LiveAdmissionInputScope {
 }
 
 export interface LiveAdmissionWorkItemRepository {
+  listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]>;
   takeInput(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
     limit: number;
   }): Promise<LiveAdmissionWorkItem[]>;
-  releaseInput(input: { consumedBy: string }): Promise<number>;
+  consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean>;
+  releaseInput(input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
+  }): Promise<number>;
   consumeAll(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
@@ -319,6 +331,7 @@ export interface LiveTurnRepository {
   }): Promise<LiveTurn | null>;
   getActiveLiveTurn(input: { scope: LiveTurnScope }): Promise<LiveTurn | null>;
   getLiveTurnById(id: string): Promise<LiveTurn | null>;
+  hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean>;
   /**
    * Stop routing: resolve the non-terminal turn that registered `aliasJid`
    * among its durable stop aliases.

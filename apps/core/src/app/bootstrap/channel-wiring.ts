@@ -3,7 +3,6 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalRequest,
   ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
@@ -402,6 +401,7 @@ export function createChannelWiring(
       try {
         durableAttempt = await durableOutboundAttemptFactory({
           appId: resolved.appId,
+          runId: options.messageOptions?.runId,
           chatJid: jid,
           threadId: options.messageOptions?.threadId,
           providerAccountId: baseMessage.providerAccountId,

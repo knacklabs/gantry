@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
   isNull,
@@ -14,6 +15,7 @@ import {
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
+import type { LiveAdmissionInputScope } from '../../../../domain/ports/live-turns.js';
 import { agentIdForFolder as normalizeAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import {
   fallbackProviderAccountId,
@@ -93,6 +95,9 @@ export interface MessageSaveWithExecutorResult {
 
 interface MessageListInput {
   jids: string[];
+  ids?: readonly string[];
+  appId?: string;
+  exactProviderAccountId?: boolean;
   providerAccountId?: string | null;
   after?: { timestamp: string; chatJid: string; id: string };
   before?: { timestamp: string; chatJid: string; id: string };
@@ -400,6 +405,30 @@ export class PostgresCanonicalMessageRepository {
     return this.listMessages(input, 'inbound');
   }
 
+  async getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<CanonicalOpsMessageRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.listMessages(
+      {
+        jids: [scope.conversationId],
+        ids,
+        appId: CANONICAL_APP_ID,
+        providerAccountId: scope.providerAccountId,
+        exactProviderAccountId: true,
+        limit: ids.length,
+      },
+      'inbound',
+      scope,
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [row] : [];
+    });
+  }
+
   async listContextMessages(
     input: MessageListInput,
   ): Promise<CanonicalOpsMessageRow[]> {
@@ -409,6 +438,7 @@ export class PostgresCanonicalMessageRepository {
   private async listMessages(
     input: MessageListInput,
     direction: 'inbound' | 'all',
+    admissionScope?: LiveAdmissionInputScope,
   ): Promise<CanonicalOpsMessageRow[]> {
     const jids = input.jids;
     if (jids.length === 0) return [];
@@ -437,6 +467,7 @@ export class PostgresCanonicalMessageRepository {
       : '';
     const threadId = input.threadId?.trim() || null;
     const m = pgSchema.messagesPostgres;
+    const items = pgSchema.liveAdmissionWorkItemsPostgres;
     const p = pgSchema.messagePartsPostgres;
     const firstPart = this.db
       .select({ payloadJson: p.payloadJson })
@@ -548,7 +579,39 @@ export class PostgresCanonicalMessageRepository {
       .leftJoinLateral(firstPart, sql`true`)
       .where(
         and(
-          messageConversationFilter(m, jids, input.providerAccountId),
+          admissionScope
+            ? and(
+                messageConversationFilter(
+                  m,
+                  jids,
+                  admissionScope.providerAccountId,
+                ),
+                exists(
+                  this.db
+                    .select({ id: items.id })
+                    .from(items)
+                    .where(
+                      and(
+                        eq(items.messageId, m.id),
+                        eq(items.appId, admissionScope.appId),
+                        eq(items.conversationId, admissionScope.conversationId),
+                        admissionScope.threadId === null
+                          ? isNull(items.threadId)
+                          : eq(items.threadId, admissionScope.threadId),
+                        admissionScope.agentId === null
+                          ? isNull(items.agentId)
+                          : eq(items.agentId, admissionScope.agentId),
+                        sql`${items.providerAccountId} IS NOT DISTINCT FROM ${admissionScope.providerAccountId}`,
+                      ),
+                    ),
+                ),
+              )
+            : messageConversationFilter(m, jids, input.providerAccountId),
+          input.appId ? eq(m.appId, input.appId) : undefined,
+          input.exactProviderAccountId
+            ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
+            : undefined,
+          input.ids ? inArray(m.id, [...input.ids]) : undefined,
           directionFilter,
           afterFilter,
           beforeFilter,

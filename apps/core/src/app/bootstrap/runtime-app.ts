@@ -569,7 +569,7 @@ export function createRuntimeApp(
     });
   }
 
-  const groupProcessor = createRuntimeGroupProcessor({
+  const groupProcessorInput = {
     channelRuntime: channelRuntime.proxy,
     getConversationRoutes: () => conversationRoutes,
     getGroup: (chatJid, threadId, agentId, providerAccountId) =>
@@ -594,6 +594,7 @@ export function createRuntimeApp(
     getAvailableGroups,
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     getRuntimeRepository: ops,
+    getInputRepository: () => getRuntimeStorage().repositories.liveTurns,
     getConversationHistoryCoverageRepository: () =>
       conversationHistoryCoverageRepository ??
       getRuntimeStorage().repositories.conversationHistoryCoverage,
@@ -637,7 +638,9 @@ export function createRuntimeApp(
     executionAdapter,
     executionAdapters,
     runnerSandboxProvider,
-  });
+  } satisfies Parameters<typeof createRuntimeGroupProcessor>[0] &
+    Pick<GroupProcessingDeps, 'getInputRepository'>;
+  const groupProcessor = createRuntimeGroupProcessor(groupProcessorInput);
 
   return {
     runAgent: options.runAgent,

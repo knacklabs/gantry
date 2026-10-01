@@ -130,7 +130,10 @@ vi.mock('@core/runtime/agent-spawn.js', () => ({
 }));
 
 const mockHandleSessionCommand = vi.fn();
-vi.mock('@core/session/session-commands.js', () => ({
+vi.mock('@core/session/session-commands.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@core/session/session-commands.js')
+  >()),
   handleSessionCommand: (...args: unknown[]) =>
     mockHandleSessionCommand(...args),
 }));
@@ -287,9 +290,40 @@ function makeHistoryCoverageRepository(
 function makeDeps(
   overrides: Partial<GroupProcessingDeps> = {},
 ): GroupProcessingDeps {
+  let pending: NewMessage[] | undefined;
+  let next = 0;
+  const releaseInput = vi.fn(async () => {
+    next = 0;
+    return 1;
+  });
+  const takeInput = vi.fn(
+    async ({ scope }: { scope: Parameters<typeof loadPending>[0] }) => {
+      const message = (await loadPending(scope))[next];
+      if (message) next += 1;
+      return message ? [{ id: message.id, messageId: message.id }] : [];
+    },
+  );
+  const loadPending = async (scope: {
+    conversationId: string;
+    threadId: string | null;
+    providerAccountId: string | null;
+  }) => {
+    if (!pending)
+      pending =
+        (await mockGetMessagesSince(scope.conversationId, '0', 50, {
+          threadId: scope.threadId,
+          providerAccountId: scope.providerAccountId,
+        })) ?? [];
+    return pending;
+  };
   const opsRepository = {
     getAllJobs: (...args: unknown[]) => mockGetAllJobs(...args),
     getMessagesSince: (...args: unknown[]) => mockGetMessagesSince(...args),
+    getMessagesByIds: async (
+      scope: Parameters<typeof loadPending>[0],
+      ids: readonly string[],
+    ) =>
+      (await loadPending(scope)).filter((message) => ids.includes(message.id)),
     getRecentJobRuns: (...args: unknown[]) => mockGetRecentJobRuns(...args),
     listRecentJobEvents: (...args: unknown[]) =>
       mockListRecentJobEvents(...args),
@@ -343,6 +377,27 @@ function makeDeps(
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
+    getInputRepository: () =>
+      ({
+        takeInput,
+        releaseInput,
+        consumeAll: async ({
+          scope,
+        }: {
+          scope: Parameters<typeof loadPending>[0];
+        }) => {
+          next = (await loadPending(scope)).length;
+          return next;
+        },
+        appendInput: (message: NewMessage) => {
+          pending ??= [];
+          pending.push(message);
+        },
+      }) as NonNullable<
+        GroupProcessingDeps['getInputRepository']
+      > extends () => infer T
+        ? T
+        : never,
     queue: {
       enqueueMessageCheck: vi.fn(),
       closeStdin: vi.fn(),
@@ -351,6 +406,13 @@ function makeDeps(
     },
     ...overrides,
   };
+}
+
+function appendTestInput(deps: GroupProcessingDeps, message: NewMessage): void {
+  const repository = deps.getInputRepository?.() as unknown as {
+    appendInput(message: NewMessage): void;
+  };
+  repository.appendInput(message);
 }
 
 /**
@@ -722,9 +784,7 @@ describe('createGroupProcessor', () => {
 
       expect(result).toBe(true);
       expect(mockSpawnAgent).not.toHaveBeenCalled();
-      expect(mockGetMessagesSince).toHaveBeenCalledWith('tg:-100123', '0', 50, {
-        threadId: '42',
-      });
+      expect(deps.getCursor).not.toHaveBeenCalled();
       expect(
         (deps.opsRepository as any).getRecentTopLevelMessagesBefore,
       ).not.toHaveBeenCalled();
@@ -1053,7 +1113,7 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
         'group1@g.us',
       );
-      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledTimes(1);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledTimes(2);
     });
 
     it('ends a turn at the first schema message and drains trailing plain messages', async () => {
@@ -1274,15 +1334,11 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('clears the route thread when the reaction scan selects an earlier plain-channel message', async () => {
+    it('keeps the route thread for a scoped input item', async () => {
       const onFirstProgress = vi.fn();
       const messages = [
         makeMessage({
           external_message_id: 'provider-message-1',
-          thread_id: null,
-        }),
-        makeMessage({
-          external_message_id: 'external-ingress:batch-2',
           thread_id: 'route-thread',
         }),
       ];
@@ -1296,6 +1352,7 @@ describe('createGroupProcessor', () => {
       expect(onFirstProgress).toHaveBeenCalledWith({
         jid: 'group1@g.us',
         messageRef: 'provider-message-1',
+        threadId: 'route-thread',
       });
     });
 
@@ -2169,7 +2226,7 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('agent error with no output sent', () => {
-    it('rolls back cursor and returns false', async () => {
+    it('releases taken input before output and returns false', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
       const { deps, channel } = setupHappyPath({ group, messages });
@@ -2204,11 +2261,7 @@ describe('createGroupProcessor', () => {
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(false);
-      // cursor should be rolled back to the previous value
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
-      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      expect(deps.getInputRepository?.().releaseInput).toHaveBeenCalledOnce();
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls
           .slice(typingCallsAtErrorMarker)
@@ -2245,6 +2298,7 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'I could not finish this request.',
       );
+      expect(deps.getInputRepository?.().releaseInput).not.toHaveBeenCalled();
       expect(onFirstVisibleOutput).toHaveBeenCalledOnce();
       expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
     });
@@ -2276,15 +2330,11 @@ describe('createGroupProcessor', () => {
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      // No finalRetry: queue retries are NOT yet exhausted, so a transient
-      // 502 must roll the cursor back and retry, not be silently dropped.
+      // A transient gateway failure releases the taken input for retry.
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(false);
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
-      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      expect(deps.getInputRepository?.().releaseInput).toHaveBeenCalledOnce();
     });
 
     it.each([
@@ -2378,7 +2428,7 @@ describe('createGroupProcessor', () => {
       ]);
     });
 
-    it('preserves the cursor and notifies the user when provider failover is exhausted', async () => {
+    it('keeps consumed input and notifies the user when provider failover is exhausted', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
       const { deps, channel } = setupHappyPath({ group, messages });
@@ -2405,13 +2455,14 @@ describe('createGroupProcessor', () => {
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      // finalRetry: queue retries exhausted -> stop the replay storm by
-      // preserving the cursor, but surface an error + a user-visible notice.
+      // The old marker rollback is gone. Final retry keeps the consumed record
+      // when the user receives the failure notice.
       const result = await processGroupMessages('group1@g.us', {
         finalRetry: true,
       });
 
       expect(result).toBe(true);
+      expect(deps.getInputRepository?.().releaseInput).not.toHaveBeenCalled();
       // Cursor is NOT rolled back to the previous value (storm stopped).
       expect(deps.setCursor).not.toHaveBeenCalledWith(
         'group1@g.us',
@@ -2430,7 +2481,41 @@ describe('createGroupProcessor', () => {
       // And an error is logged for observability.
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ group: group.name }),
-        expect.stringContaining('Provider failover exhausted'),
+        expect.stringContaining('Final retry failed'),
+      );
+    });
+
+    it('tells the user and keeps consumed input when an ordinary error ends the final retry', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'tool crashed',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us', {
+        finalRetry: true,
+      });
+
+      expect(result).toBe(true);
+      expect(deps.getInputRepository?.().releaseInput).not.toHaveBeenCalled();
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining("couldn't finish your request"),
       );
     });
 
@@ -2478,16 +2563,13 @@ describe('createGroupProcessor', () => {
         finalRetry: true,
       });
 
-      // User was NOT informed -> turn is not consumed: roll back and retry.
+      // User was not informed, so the input is released for retry.
       expect(result).toBe(false);
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
-      expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+      expect(deps.getInputRepository?.().releaseInput).toHaveBeenCalledOnce();
       // The undeliverable notice is logged at error level for observability.
       expect(mockLogger.error).toHaveBeenCalledWith(
         expect.objectContaining({ group: group.name }),
-        'Failed to send provider failover exhausted notice',
+        'Failed to send final retry failure notice',
       );
     });
 
@@ -4259,8 +4341,8 @@ describe('createGroupProcessor', () => {
         conversationKind: 'channel',
       });
       const messages = [
-        makeMessage({ sender: 'sl:UOTHER', content: 'approve 1' }),
-        makeMessage({ sender: 'sl:UADMIN', content: 'yes' }),
+        makeMessage({ id: 'other', sender: 'sl:UOTHER', content: 'approve 1' }),
+        makeMessage({ id: 'admin', sender: 'sl:UADMIN', content: 'yes' }),
       ];
       const isControlApproverAllowed = vi.fn(async () => true);
       const { deps } = setupHappyPath({ group, messages });
@@ -4308,6 +4390,14 @@ describe('createGroupProcessor', () => {
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('sl:DCACHE');
+      appendTestInput(
+        deps,
+        makeMessage({
+          id: 'cache-follow-up',
+          sender: 'sl:UCACHE',
+          content: 'hello again',
+        }),
+      );
       await processGroupMessages('sl:DCACHE');
 
       expect(isControlApproverAllowed).toHaveBeenCalledTimes(1);
@@ -7156,11 +7246,13 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us::thread:thread-a');
 
-      expect(mockGetMessagesSince).toHaveBeenCalledWith(
-        'group1@g.us',
-        '0',
-        50,
-        { threadId: 'thread-a' },
+      expect(deps.getInputRepository?.().takeInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            conversationId: 'group1@g.us',
+            threadId: 'thread-a',
+          }),
+        }),
       );
       expect(deps.queue.registerProcess).toHaveBeenCalledWith(
         'group1@g.us::thread:thread-a',
@@ -7311,7 +7403,7 @@ describe('createGroupProcessor', () => {
     // call — arithmetic on the fixture, not evidence about production. So this
     // suite proves the half it can actually see: the processor reads
     // independently, at execution time.
-    it('issues its own read at execution time using the queue cursor', async () => {
+    it('takes input at execution time without reading the saved marker', async () => {
       const executionMessage = makeMessage({
         id: 'execution-only',
         content: 'group processor authoritative body',
@@ -7329,10 +7421,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', { queued: true });
 
-      // It reads the cursor itself and fetches from it, rather than consuming a
-      // snapshot handed to it. That independence is what decision 0080 keeps.
-      expect(deps.getCursor).toHaveBeenCalled();
-      expect(mockGetMessagesSince.mock.calls[0]?.[1]).toBe('cursor-before');
+      expect(deps.getCursor).not.toHaveBeenCalled();
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         prompt: 'group processor authoritative body',
       });
@@ -7346,8 +7435,8 @@ describe('createGroupProcessor', () => {
   // Integration: cursor management end-to-end
   // =======================================================================
 
-  describe('cursor management', () => {
-    it('uses cursor from deps.getCursor when calling getMessagesSince', async () => {
+  describe('record input scope', () => {
+    it('does not read the saved marker when no item is waiting', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const channel = makeChannel();
       const deps = makeDeps({
@@ -7360,12 +7449,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(mockGetMessagesSince).toHaveBeenCalledWith(
-        'group1@g.us',
-        'cursor-ts-123',
-        50,
-        {},
-      );
+      expect(deps.getCursor).not.toHaveBeenCalled();
     });
 
     it('filters to unthreaded messages when invoked by the queue for a base chat', async () => {
@@ -7374,11 +7458,13 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', { queued: true });
 
-      expect(mockGetMessagesSince).toHaveBeenCalledWith(
-        'group1@g.us',
-        '0',
-        50,
-        { threadId: null },
+      expect(deps.getInputRepository?.().takeInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            conversationId: 'group1@g.us',
+            threadId: null,
+          }),
+        }),
       );
     });
 
@@ -8431,6 +8517,7 @@ describe('createGroupProcessor', () => {
         logger: { info: vi.fn(), warn: vi.fn() },
       });
       await processGroupMessages('sl:C123');
+      appendTestInput(deps, makeMessage({ ...current, id: 'after-restart' }));
       await processGroupMessages('sl:C123');
 
       expect(hydrateConversationContext).toHaveBeenCalledTimes(2);
@@ -8575,6 +8662,7 @@ describe('createGroupProcessor', () => {
       connectBarrier.resolve();
       await connectPromise;
       await Promise.resolve();
+      appendTestInput(deps, makeMessage({ ...current, id: 'after-reconnect' }));
       await processGroupMessages('sl:C123');
 
       expect(hydrateConversationContext).toHaveBeenCalledTimes(2);

@@ -1,11 +1,16 @@
+import { randomUUID } from 'node:crypto';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
-import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
+import type {
+  LiveAdmissionWorkItemRepository,
+  LiveAdmissionInputScope,
+} from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
+import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -224,6 +229,7 @@ export function startLiveRecoveryCoordinatorLeaseAcquisition(input: {
 
 export interface LiveTurnScopeRepository {
   getAgentTurnContext?: (input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -260,6 +266,7 @@ interface LiveTurnScopeApp {
 }
 
 export async function liveTurnScopeForQueue(input: {
+  appId?: string;
   app: LiveTurnScopeApp;
   opsRepository: LiveTurnScopeRepository;
   executionAdapter: { id: ExecutionProviderId };
@@ -278,6 +285,7 @@ export async function liveTurnScopeForQueue(input: {
     (await app.resolveExecutionProviderId?.(route, chatJid)) ??
     resolveRuntimeExecutionProviderId(executionAdapter);
   const turnContext = await opsRepository.getAgentTurnContext?.({
+    appId: input.appId,
     agentFolder: route.folder,
     executionProviderId,
     conversationJid: chatJid,
@@ -313,6 +321,8 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
     cursorAfter?: string | null;
+    commandId?: string;
+    expectedTurnId?: string;
   }) => Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'>;
   completeSessionAgentRun?: (input: {
     runId: string;
@@ -331,21 +341,35 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
           cursorAfter: input.continuation.cursorAfter,
         })
       : 'no_active_turn';
+  // Once the command is durably queued, the follow-up stays consumed: a
+  // failed marker write or run settlement must not release it for a second
+  // delivery.
+  const afterQueued = (step: unknown) =>
+    routed === 'queued_to_owner'
+      ? Promise.resolve(step).catch((err) =>
+          logger.warn(
+            { err, queueJid: input.queueJid },
+            'Post-routing step failed after the follow-up was queued',
+          ),
+        )
+      : step;
   if (routed === 'queued_to_owner') {
-    await input.continuation?.onRouted();
+    await afterQueued(input.continuation?.onRouted());
   }
   // The orphan-avoidance pre-check routes a continuation BEFORE any run row is
   // created (empty liveRunId), so there is nothing to terminal-mark in that
   // case. Only settle the run when admission actually minted one.
   if (input.liveRunId) {
-    await input.completeSessionAgentRun?.({
-      runId: input.liveRunId,
-      status: routed === 'queued_to_owner' ? 'canceled' : 'failed',
-      errorSummary:
-        routed === 'queued_to_owner'
-          ? 'Live-turn admission routed the message to the active owner.'
-          : `Live-turn admission could not route to active owner: ${routed}`,
-    });
+    await afterQueued(
+      input.completeSessionAgentRun?.({
+        runId: input.liveRunId,
+        status: routed === 'queued_to_owner' ? 'canceled' : 'failed',
+        errorSummary:
+          routed === 'queued_to_owner'
+            ? 'Live-turn admission routed the message to the active owner.'
+            : `Live-turn admission could not route to active owner: ${routed}`,
+      }),
+    );
   }
   return routed === 'queued_to_owner';
 }
@@ -354,16 +378,19 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   scope: LiveTurnScope;
   queueJid: string;
   liveRunId: string;
+  ownerTurnId: string;
+  ownerRunId: string;
   chatJid: string;
   threadId: string | null;
-  replayCursor: string;
   messageFetchPageSize: number;
   timezone: string;
-  getMessagesSince?: (
-    conversationJid: string,
-    sinceCursor: string,
-    limit?: number,
-    options?: { threadId?: string | null; providerAccountId?: string | null },
+  inputRepository: Pick<
+    LiveAdmissionWorkItemRepository,
+    'takeInput' | 'releaseInput' | 'consumeAll' | 'consumeInputItem'
+  >;
+  getMessagesByIds: (
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
   ) => Promise<NewMessage[]>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
@@ -383,76 +410,112 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
 }): Promise<boolean> {
-  const replay = input.getMessagesSince
-    ? await collectPendingMessagesSince({
-        getMessagesSince: input.getMessagesSince,
-        chatJid: input.chatJid,
-        sinceCursor: input.replayCursor,
-        pageSize: input.messageFetchPageSize,
-        options: {
-          threadId: input.threadId,
-          providerAccountId: parseAgentThreadQueueKey(input.queueJid)
-            .providerAccountId,
-        },
-      })
-    : undefined;
-  const messages = replay?.messages;
-  if (messages?.length && input.handleActiveControlMessage) {
-    const nextMessage = messages[0];
-    if (await input.handleActiveControlMessage(nextMessage)) {
-      input.setAgentCursor(
-        input.queueJid,
-        encodeGroupMessageCursor(toGroupMessageCursor(nextMessage)),
-      );
-      await input.saveState();
-      return true;
+  const parsed = parseAgentThreadQueueKey(input.queueJid);
+  const scope: LiveAdmissionInputScope = {
+    appId: input.scope.appId,
+    conversationId: input.scope.conversationId,
+    threadId: input.threadId,
+    agentId: parsed.agentId ?? null,
+    providerAccountId: parsed.providerAccountId ?? null,
+  };
+  const commandId = randomUUID();
+  const consumer = `turn:${input.ownerRunId}/command:${commandId}`;
+  const batch: Array<{
+    message: NewMessage;
+    itemId: string;
+    receiveOrder: number | null;
+  }> = [];
+  let queued = false;
+  try {
+    for (let index = 0; index < 1; index += 1) {
+      const [item] = await input.inputRepository.takeInput({
+        scope,
+        limit: 1,
+        consumedBy: consumer,
+      });
+      if (!item) break;
+      const [message] = await input.getMessagesByIds(scope, [item.messageId]);
+      if (!message) throw new Error('Taken input has no scoped message row');
+      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
+      if (input.isActiveControlMessage?.(message)) break;
     }
-  }
-  const controlIndex = messages?.findIndex(
-    (message) => input.isActiveControlMessage?.(message) === true,
-  );
-  const replayMessages =
-    controlIndex === undefined || controlIndex < 0
-      ? messages
-      : messages?.slice(0, controlIndex);
-  const routed = await routeScopeActiveLiveTurnAdmission({
-    scope: input.scope,
-    queueJid: input.queueJid,
-    liveRunId: input.liveRunId,
-    continuation: buildLiveTurnContinuation({
-      queueJid: input.queueJid,
-      sinceCursor: input.replayCursor,
-      messages: replayMessages,
-      timezone: input.timezone,
-      setAgentCursor: input.setAgentCursor,
-      saveState: input.saveState,
-    }),
-    routeMessage: input.routeMessage,
-    completeSessionAgentRun: input.completeSessionAgentRun,
-  });
-  const { providerAccountId, threadId } = parseAgentThreadQueueKey(
-    input.queueJid,
-  );
-  void acknowledgeContinuationReceipt({
-    jid: input.chatJid,
-    messages: replayMessages,
-    ...(providerAccountId || threadId
-      ? {
-          options: {
-            ...(providerAccountId ? { providerAccountId } : {}),
-            ...(threadId ? { threadId } : {}),
-          },
-        }
-      : {}),
-    addReaction: input.addReaction,
-  }).catch((err) => {
-    logger.warn(
-      { err, chatJid: input.chatJid, queueJid: input.queueJid },
-      'Failed to acknowledge recovered continuation receipt',
+    const controlIndex = batch.findIndex(
+      ({ message }) => input.isActiveControlMessage?.(message) === true,
     );
-  });
-  if (routed && (replay?.hasMore || (controlIndex ?? -1) >= 0)) {
-    input.enqueueMessageCheck?.(input.queueJid);
+    if (controlIndex >= 0 && input.handleActiveControlMessage) {
+      const command = batch[controlIndex]!.message;
+      if (await input.handleActiveControlMessage(command)) {
+        await input.inputRepository.consumeInputItem({
+          id: batch[controlIndex]!.itemId,
+          consumedBy: 'control',
+          expectedConsumedBy: consumer,
+        });
+        input.setAgentCursor(
+          input.queueJid,
+          encodeGroupMessageCursor(toGroupMessageCursor(command)),
+        );
+        await input.saveState();
+        return true;
+      }
+    }
+    const replayBatch = orderBatchForPresentation(
+      controlIndex < 0 ? batch : batch.slice(0, controlIndex),
+    );
+    const replayMessages = replayBatch.map(({ message }) => message);
+    const replayItemIds = replayBatch.map(({ itemId }) => itemId);
+    const routed = await routeScopeActiveLiveTurnAdmission({
+      scope: input.scope,
+      queueJid: input.queueJid,
+      liveRunId: input.liveRunId,
+      continuation: buildLiveTurnContinuation({
+        queueJid: input.queueJid,
+        messages: replayMessages,
+        itemIds: replayItemIds,
+        timezone: input.timezone,
+        setAgentCursor: input.setAgentCursor,
+        saveState: input.saveState,
+      }),
+      routeMessage: (message) =>
+        input.routeMessage({
+          ...message,
+          commandId,
+          expectedTurnId: input.ownerTurnId,
+        }),
+      completeSessionAgentRun: input.completeSessionAgentRun,
+    });
+    if (!routed) {
+      await input.inputRepository.releaseInput({ consumedBy: consumer });
+      return false;
+    }
+    queued = true;
+    void acknowledgeContinuationReceipt({
+      jid: input.chatJid,
+      messages: replayMessages,
+      ...(parsed.providerAccountId || parsed.threadId
+        ? {
+            options: {
+              ...(parsed.providerAccountId
+                ? { providerAccountId: parsed.providerAccountId }
+                : {}),
+              ...(parsed.threadId ? { threadId: parsed.threadId } : {}),
+            },
+          }
+        : {}),
+      addReaction: input.addReaction,
+    }).catch((err) => {
+      logger.warn(
+        { err, chatJid: input.chatJid, queueJid: input.queueJid },
+        'Failed to acknowledge recovered continuation receipt',
+      );
+    });
+    if (batch.length > 0) {
+      input.enqueueMessageCheck?.(input.queueJid);
+    }
+    return true;
+  } catch (err) {
+    // A follow-up already queued to the owner is never handed back.
+    if (!queued)
+      await input.inputRepository.releaseInput({ consumedBy: consumer });
+    throw err;
   }
-  return routed;
 }
