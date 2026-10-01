@@ -3,11 +3,32 @@
   "branch": "fix/web-sdk-and-delegated-agent-messages-are",
   "done_when": "An overloaded SDK session message is rejected as busy and an overloaded delegated follow-up is retried instead of marked delivered, proven by tests",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "99774c2221a38f78e590df5735893fb71211737d578eadbcb680a2842f7886b7",
+    "commit": "fc7f978fa84c49e9cd262ff95c24c49f86ffb2a4",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "Both promised behaviors have only mocked unit proof. This test supplies `overloaded` followed by `enqueued` and calls recovery manually against MemoryAsyncTaskRepository; the SDK test at apps/core/test/unit/application/sessions/session-interaction-module.test.ts:358 similarly supplies an overloaded publication result. Neither exercises a full Postgres backlog through the real entry point, and no corresponding end-to-end case exists. docs/review-instructions.md:30\u201335 requires real-runtime/Postgres proof for Done-when behaviors. Add owner-boundary tests proving that the SDK endpoint returns the busy rejection and that recovery retains an overloaded delegated follow-up, then admits it after capacity becomes available. The successful close run does not fill this coverage gap.",
+        "file": "apps/core/test/unit/jobs/async-command-task-service.test.ts",
+        "line": 2328,
+        "priority": "P1",
+        "title": "Not done: An overloaded SDK session message is rejected as busy and an overloaded delegated follow-up is retried instead of marked delivered"
+      }
+    ],
+    "status": "blocked",
+    "tree": "d36f2135b687184d22a87e00b952e32ccc9a7c1b319bf030c152644e31e87c39"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:17:26+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T19:57:18+00:00",
+      "step": "review"
     }
   ],
   "why": "Web, SDK and delegated-agent messages are dropped silently when the backlog is full"
