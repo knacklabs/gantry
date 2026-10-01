@@ -3,11 +3,32 @@
   "branch": "fix/codex-sessions-in-myclaw-still-run-sandb",
   "done_when": ".codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or effort pins",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "8e1ecb1cf070c707e72a044065fce06ca95ce7bfff81b81d43c4c646466e38b9",
+    "commit": "53cc0fce67c4d389c30709390bd76d7e980527a1",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new comment says effort comes from Forge or the session, but line 2 still sets `plan_mode_reasoning_effort = \"high\"` at the top level. Codex treats this as an explicit Plan mode effort override ([Codex config source](https://github.com/openai/codex/blob/main/codex-rs/core/src/config/mod.rs)). Remove it to meet the stated requirement of no top-level effort pins.",
+        "file": ".codex/config.toml",
+        "line": 1,
+        "priority": "P1",
+        "title": "Not done: .codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or \u2014"
+      }
+    ],
+    "status": "blocked",
+    "tree": "73dec92bc3ac91f552b763202c21f13e5190fe3721b044a5da6b86b9c7d6ca82"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T03:22:38+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T03:39:46+00:00",
+      "step": "review"
     }
   ],
   "why": "Codex sessions in myclaw still run sandboxed and pinned to an old model after the owner gave Codex full access"
