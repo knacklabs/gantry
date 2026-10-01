@@ -5,20 +5,20 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "05c48a328495411d14ea07fcac3da15a6131b938848a208e0e74ea9565b6824f",
-    "commit": "771bd9d3a929cb274ddcdae2823b2da8f0ddc505",
+    "changed": "a7e72b51330c956cc6998723777da32ff53f9dcf680f34a8c8a36593660bb945",
+    "commit": "f76419216ace22c71ee190ae1f70f33ad953a5cf",
     "dismissals": [],
     "findings": [
       {
-        "body": "The only added proof is a unit test that calls createGroupProcessor directly, mocks sender authorization (this file, lines 110\u2013118 and 820\u2013822), substitutes in-memory input/storage (lines 290\u2013339), and asserts that mocked spawnAgent was not called. It meaningfully exercises the new gate, but does not satisfy the explicit requirement for runtime Done-when items to have end-to-end proof through the real entry point. Add a suite-run test using the running runtime and real database: configure only the root sender as allowed, establish their triggered thread, submit another person's follow-up through inbound delivery, and verify that no turn or reply results. Fake only third-party service edges.",
-        "file": "apps/core/test/unit/runtime/group-processing.test.ts",
-        "line": 825,
+        "body": "The new Postgres test improves the earlier unit-only proof, but still does not meet the required end-to-end boundary. It replaces internal sender authorization with a mock at lines 54\u201356, configures that mock at line 763, and directly calls storage and processGroupMessages at lines 792\u2013813. Production inbound delivery instead enters apps/core/src/app/bootstrap/channel-persistence-handlers.ts:164, while real allowlist configuration loads through apps/core/src/platform/sender-allowlist.ts:216. Thus this test can pass without proving that configuring only the root sender as allowed prevents another sender's inbound follow-up from producing a turn or reply. Add suite-run coverage through the running runtime's inbound entry point with real allowlist configuration and PostgreSQL, faking only third-party service edges.",
+        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
+        "line": 810,
         "priority": "P1",
-        "title": "Not done: A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the\u6839\u539f\u59cb\u5141"
+        "title": "Not done: answers a thread follow-up only when its sender may trigger the agent"
       }
     ],
     "status": "blocked",
-    "tree": "0de809a1eea7ab38052a2c0b726c9a16436089fac0e7ca76a06f692ddd28ef45"
+    "tree": "923a3f5cec29c3f74df3d4b750416e0fee74d42b189be88b743302a4b3358d2a"
   },
   "status": "fixing",
   "steps": [
@@ -28,6 +28,10 @@
     },
     {
       "at": "2026-10-01T11:38:57+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T12:45:32+00:00",
       "step": "review"
     }
   ],
