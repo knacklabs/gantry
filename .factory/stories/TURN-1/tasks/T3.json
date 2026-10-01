@@ -4,7 +4,13 @@
     "blocking_level": "P1",
     "changed": "a5a61b1981b581bf00cb57443c31e6cd281b59ec1102e966eb00824d875142d7",
     "commit": "94dd013b9bd649d52344bcca2e0fb5a0545ee400",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "apps/core/src/runtime/group-queue.ts:528 owner decision 2026-10-01: nothing durable retries a turn that fails after it starts, so deleting GroupQueue's in-memory retry moves from T3 to TURN-1 T8 together with a stored attempt count (plans/TURN-1.md on story/TURN-1, T3 and T8 rows and Notes)",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The changed test still exercises `finalRetry`, while the unchanged `group-queue.ts:528-610` still counts failed turns, schedules an in-memory retry, and passes `finalRetry` to the processor. Failed turns also release their input for durable recovery (`group-processing-flow.ts:228-247` and `message-loop.ts:321-335`). T3 therefore leaves two retry owners, and a final local attempt can send a failure notice and keep input that should remain available to the next turn. Remove the queue retry path and update its tests to exercise durable recovery.",
@@ -35,10 +41,10 @@
         "title": "Remove the unrelated architecture budget edits outside scope"
       }
     ],
-    "status": "blocked",
+    "status": "clean",
     "tree": "f6bec41043762aeec85ff56e3dd815deb67226458f4769fce6664588b78cfb4f"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T07:53:47+00:00",
