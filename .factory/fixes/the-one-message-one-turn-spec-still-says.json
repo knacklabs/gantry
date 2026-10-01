@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "cbb378dd6a8c8d7cec0dca48f8b7cc22992a034dd81ee4132e5a6f045d0aa12e",
-    "commit": "4546ed1a9639a4202ed67614a12466d6f5ad42a1",
+    "changed": "9d3f38701fa0e749d274eca4a1a638266fdb9b0f9c75a75b576e6085394fca0c",
+    "commit": "4878f96a345425c09a831ed48d5a71113129b8ee",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The new presentation rule conflicts with AC1 in this same file at line 57, which still requires the turn to contain all messages \u201cin receive order.\u201d For a photo saved after its later question, the Behaviour section requires photo-first presentation while AC1 still requires question-first order. Update AC1 to distinguish consumption in receive order from presentation by platform time, then receive number, so the acceptance criterion no longer preserves the behavior this fix addresses.",
-        "file": "docs/specs/one-message-one-turn.md",
-        "line": 35,
-        "priority": "P1",
-        "title": "Not done: docs/specs/one-message-one-turn.md says a batch is consumed in receive order and shown by platform time then receive order,"
-      }
-    ],
-    "status": "blocked",
-    "tree": "127ac0ba04f0496f4775f09252d5199df4456e9f7de71a792cae8a180e87ab7d"
+    "findings": [],
+    "status": "clean",
+    "tree": "223df211bdbb68615c0a8fc8117d18d23453c44c71672e8750107327521a4dee"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:24:51+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-01T11:20:17+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T12:05:09+00:00",
       "step": "review"
     }
   ],
