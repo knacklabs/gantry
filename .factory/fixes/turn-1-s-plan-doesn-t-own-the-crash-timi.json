@@ -1,0 +1,14 @@
+{
+  "base": "4a2c2aa5622378c8a350aa1f3ce790e21ddcf058",
+  "branch": "fix/turn-1-s-plan-doesn-t-own-the-crash-timi",
+  "done_when": "plans/TURN-1.md has a task that commits input durably before anything leaves and makes take+append and reject+release single writes, with T4 after it",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T01:16:23+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "TURN-1's plan doesn't own the crash-timing gaps the owner moved out of T2"
+}
