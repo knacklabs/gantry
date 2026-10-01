@@ -1,8 +1,4 @@
 import * as config from '../config/index.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { NewMessage } from '../domain/types.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
@@ -130,8 +126,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
       if (missedMessages.length === 0) return true;
       const latestMessage = missedMessages[missedMessages.length - 1];
-      const cursorForMessage = (message: typeof latestMessage) =>
-        encodeGroupMessageCursor(toGroupMessageCursor(message));
       let streamGeneration = (streamingGenerationCounter += 1);
       let progressGeneration = streamGeneration;
       const {
@@ -247,8 +241,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))
       ) {
-        deps.setCursor(queueJid, cursorForMessage(latestMessage));
-        await deps.saveState();
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
         sendProgressToChannel.retire();
         return true;
@@ -295,11 +287,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             currentMessages: missedMessages,
             timezone: config.TIMEZONE,
           });
-        deps.setCursor(
-          queueJid,
-          cursorForMessage(missedMessages[missedMessages.length - 1]),
-        );
-        await deps.saveState();
         resetGroupStreamingForTurn({
           chatJid,
           groupName: group.name,

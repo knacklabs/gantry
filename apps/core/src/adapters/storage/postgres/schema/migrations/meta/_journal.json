@@ -1062,8 +1062,15 @@
     {
       "idx": 154,
       "version": "7",
-      "when": 1790855412337,
-      "tag": "20261001115012_shrink_job_permission_card_history",
+      "when": 1790844246970,
+      "tag": "20261001084406_delete_last_agent_timestamp",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1790878744548,
+      "tag": "20261001181904_shrink_job_permission_card_history",
       "breakpoints": true
     }
   ]

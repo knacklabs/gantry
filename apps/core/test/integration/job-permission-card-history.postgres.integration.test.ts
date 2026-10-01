@@ -532,7 +532,7 @@ maybeDescribe('job permission card history', () => {
 
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001115012_shrink_job_permission_card_history.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001181904_shrink_job_permission_card_history.sql',
       ),
       'utf8',
     );
@@ -646,7 +646,7 @@ maybeDescribe('job permission card history', () => {
 
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001115012_shrink_job_permission_card_history.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001181904_shrink_job_permission_card_history.sql',
       ),
       'utf8',
     );

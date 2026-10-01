@@ -16,10 +16,6 @@ import {
   createAgentToolRuleSettingsMirror,
   type AgentToolRuleSettingsRepositories,
 } from '../../config/settings/agent-tool-rule-settings-mirror.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
@@ -529,7 +525,6 @@ export async function startRuntimeServices(
         threadId?: string | null;
         senderUserIds?: readonly string[] | null;
         idempotencyKey?: string;
-        cursorAfter?: string;
       },
     ): Promise<boolean> => {
       if (!liveTurnAuthority)
@@ -547,7 +542,6 @@ export async function startRuntimeServices(
           idempotencyKey:
             options?.idempotencyKey ?? `continuation:${randomUUID()}`,
           senderUserIds: options?.senderUserIds,
-          cursorAfter: options?.cursorAfter,
         })) === 'queued_to_owner'
       );
     },
@@ -721,11 +715,6 @@ export async function startRuntimeServices(
     if (!stopped) {
       return false;
     }
-    app.setAgentCursor(
-      queueJid,
-      encodeGroupMessageCursor(toGroupMessageCursor(message)),
-    );
-    await app.saveState();
     await sendActiveControlReceipt({
       sendMessage: (text, options) =>
         channelWiring.sendMessage(chatJid, text, options),
@@ -1132,10 +1121,6 @@ export async function startRuntimeServices(
     appId: channelWiring.getRuntimeAppId(),
     inputRepository: liveTurns,
     getConversationRoutes: () => app.getConversationRoutes(),
-    getOrRecoverCursor: app.getOrRecoverCursor,
-    setAgentCursor: (chatJid, timestamp) =>
-      app.setAgentCursor(chatJid, timestamp),
-    saveState: app.saveState,
     hasChannel: (chatJid, options) =>
       channelWiring.hasChannel(chatJid, options),
     setTyping: (chatJid, isTyping, options) =>

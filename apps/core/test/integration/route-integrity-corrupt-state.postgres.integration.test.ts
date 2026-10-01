@@ -198,15 +198,11 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       baseRetryMs: 1,
     });
     const processGroupMessages = vi.fn(async () => true);
-    const getOrRecoverCursor = async () => '';
     const processor = buildLiveAdmissionProcessor({
       liveTurnAuthority,
       app: {
         getConversationRoutes: () => routes,
         processGroupMessages,
-        getOrRecoverCursor,
-        setAgentCursor: () => undefined,
-        saveState: () => undefined,
       },
       opsRepository: runtime.ops,
       executionAdapter: { id: 'anthropic:claude-agent-sdk' },
@@ -223,9 +219,6 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       workerInstanceId,
       messageLoopDeps: {
         getConversationRoutes: () => routes,
-        getOrRecoverCursor,
-        setAgentCursor: () => undefined,
-        saveState: () => undefined,
         hasChannel: (_jid, options) =>
           options?.providerAccountId === providerAccountId,
         setTyping: async () => undefined,
