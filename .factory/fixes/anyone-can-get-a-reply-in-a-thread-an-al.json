@@ -5,27 +5,20 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "ee5b9582a139619995913dee44387134875ece05be294e25751b7ea8c5b3c087",
-    "commit": "b3a2baabe4435318f01ed033a6ff068fa8f08168",
+    "changed": "c105d15950180028f0f0f05168dfbd1d22c733996ffae7825ced11d22882e47d",
+    "commit": "530d067e33ec9ac3ab7751afef3ad2d0bd81c4a7",
     "dismissals": [],
     "findings": [
       {
-        "body": "An unauthorized follow-up can still receive a reply after the root's answer while its runner remains alive. apps/core/src/config/index.ts:503 keeps runners alive for 30 minutes after their last result. During that window, apps/core/src/app/bootstrap/live-execution.ts:268 routes follow-ups directly to the active owner, bypassing this gate. apps/core/src/runtime/live-turn-routing.ts:50 checks only requiredContinuationUserId, which ordinary runs leave unset (group-agent-runner.ts:583); group-queue-live-turn-hooks.ts:31 then forwards the message and starts another visible turn. The new test misses this production path because its runAgent stub immediately returns after emitting the root reply (test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:713\u2013717). Enforce sender authorization on this route and prove that Bob gets no reply when Alice's runner is still waiting after its answer.",
-        "file": "apps/core/src/runtime/group-trigger-policy.ts",
-        "line": 46,
+        "body": "The required end-to-end proof is still missing. This test exercises real persistence and admission, but replaces the internal runner with `runAgent` and replaces continuation delivery with an array append (lines 141\u2013145). The fake runner never handles a continuation or produces its reply. Production instead defaults to `spawnAgent` (apps/core/src/app/bootstrap/runtime-app.ts:155). These assertions meaningfully cover forwarding, but do not meet the review requirement to fake only third-party services at their edge. Add a required test through the running runtime and real runner transport, faking the channel/model services at their external boundaries, that proves Bob receives no reply with Alice's runner both stopped and still waiting.",
+        "file": "apps/core/test/integration/thread-follow-up-sender-allowlist.postgres.integration.test.ts",
+        "line": 152,
         "priority": "P1",
-        "title": "Not done: A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only theroot"
-      },
-      {
-        "body": "The required end-to-end proof is excluded from the close command. forge.toml:6 runs npm test, but package.json:86 selects only unit and integration suites, whose configurations exclude apps/core/test/e2e. This test runs only through test:e2e:postgres, invoked by the nightly workflow (.github/workflows/nightly-e2e.yml:93); the PR checks likewise omit it (.github/workflows/ci.yml:157\u2013160). Consequently, the supplied successful close run never exercised this test, and the branch's required checks can pass if it fails. Wire this regression into the required suite with PostgreSQL available.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 662,
-        "priority": "P1",
-        "title": "Not done: run the thread follow-up sender regression in the required suite"
+        "title": "Not done: prove thread follow-up sender authorization through the real runtime"
       }
     ],
     "status": "blocked",
-    "tree": "a6f019c7f32dc1c057c04159a0bee185bc5e85ce399e24b54b8d79471e838824"
+    "tree": "5e754648cea5f3721e9c02035eeea177eb2e15255945cf45bfc016a3fa1d26a2"
   },
   "status": "fixing",
   "steps": [
@@ -43,6 +36,10 @@
     },
     {
       "at": "2026-10-01T14:03:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T15:52:23+00:00",
       "step": "review"
     }
   ],
