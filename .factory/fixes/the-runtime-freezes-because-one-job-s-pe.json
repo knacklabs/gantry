@@ -3,11 +3,46 @@
   "branch": "fix/the-runtime-freezes-because-one-job-s-pe",
   "done_when": "A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their payload, a migration shrinks existing oversized cards, and the runtime warns when its main thread is blocked, proven by tests including one that grows a card past 1,000 runs",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "1e36151dabbdaaef9ff7f51fd835fcbb570b3a8c1ee6ee126aebf3ef3d013ce7",
+    "commit": "24a19f51afefd74cb70431b3be209c284936bccf",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The pruning only bounds revision history; `pendingBudgets` still grows with every distinct run. The production heartbeat calls `recordPendingHeartbeat` (apps/core/src/app/bootstrap/job-permission-wiring-setup.ts:246), which calls `budgetForRun` (apps/core/src/application/interactions/job-permission-provider-actions.ts:557). That helper permanently appends an entry for each new run ID (apps/core/src/application/interactions/job-permission-durability-state.ts:158). Consequently, even after permissions are settled, subsequent runs keep enlarging a card that heartbeats load, clone, and rewrite. Bound completed per-run state as well, preserving accounting for live runs, and migrate existing accumulated state.",
+        "file": "apps/core/src/domain/job-permission-card-history.ts",
+        "line": 27,
+        "priority": "P1",
+        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading theirayload,"
+      },
+      {
+        "body": "This test calls `attach(jobId)` once, then repeatedly denies and reconsiders the same need until its revision exceeds 1,000. It exercises only `run-1`, so it passes despite the unbounded per-run budget state. It also constructs the service with internal runtime effects replaced by stubs (lines 52\u201365), and supplies outbound settlement and receipts directly through SQL (lines 119\u2013137). Add the required runtime-entry-point proof using over 1,000 distinct runs, real heartbeat/reconciliation wiring, and provider-edge fakes only. The idle-card behavior likewise needs runtime-level coverage; the current service/repository test does not exercise the running reconciler.",
+        "file": "apps/core/test/integration/job-permission-card-history.postgres.integration.test.ts",
+        "line": 179,
+        "priority": "P1",
+        "title": "Not done: Grow a permission card past 1,000 runs through the runtime entry point"
+      },
+      {
+        "body": "The only warning test checks numeric conversion and threshold selection. It never starts the runtime or monitor, blocks the main thread, or observes a warning. Removing the startup call, histogram enabling, interval, or logger call would leave it passing. Add an end-to-end test that starts the real runtime, deliberately blocks its thread beyond the threshold, and verifies the emitted warning.",
+        "file": "apps/core/test/unit/infrastructure/logging/event-loop-delay-monitor.test.ts",
+        "line": 5,
+        "priority": "P1",
+        "title": "Not done: The runtime warns when its main thread is blocked"
+      }
+    ],
+    "status": "blocked",
+    "tree": "d2a6c0990f464c303f2d7fc0f7b2edbe9fedf71d65a32ad7112053596293433a"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:51:07+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T13:29:45+00:00",
+      "step": "review"
     }
   ],
   "why": "The runtime freezes because one job's permission card grows forever and is reloaded every 5 seconds"
