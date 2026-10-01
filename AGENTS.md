@@ -59,5 +59,5 @@ The owner's rules for reviewing changes in this repo (details: `apps/core/AGENTS
 - **No legacy in tests.** Tests must not name removed fields, flags, spellings or shapes, even to prove they stay gone. Current-behaviour tests use neutral, behaviour-based names.
 - **No legacy support.** The product is early stage; don't ask for back-compat, fallbacks or dual reads.
 - **One owner test per behaviour,** at the strongest level that can observe it; don't ask to replay the same scenario at every layer.
-- **Forge records aren't evidence gaps.** Don't report references inside `.factory/` records; agents never edit them.
+- **Forge records are never findings.** Files under `.factory/` are Forge's own records, committed by Forge with every item. Never report them as out of scope, unrelated or as evidence gaps; agents never edit them.
 - **Live Slack or Telegram checks** are only run when the owner asks; don't require them.
