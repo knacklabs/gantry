@@ -336,7 +336,7 @@ maybeDescribe('job permission card history', () => {
   it('shrinks an oversized card and settles its stale ambiguous sends', async () => {
     const jobId = 'job-oversized';
     await attach(jobId);
-    const seeded = (await state(jobId)).card;
+    const { card: seeded, needs } = await state(jobId);
     const template = seeded.revisions[0]!;
     const revisions: JobPermissionCardRevision[] = [];
     const deliveries: JobPermissionCardRecord['revisionDeliveries'] = [];
@@ -378,6 +378,20 @@ maybeDescribe('job permission card history', () => {
         lastMonotonicMs: run,
       });
     }
+    // Every approve-and-run-again left a barrier; the last one is not yet
+    // enqueued.
+    const rerunBarriers: JobPermissionCardRecord['rerunBarriers'] = [];
+    for (let run = 1; run <= 1_000; run += 1) {
+      rerunBarriers.push({
+        priorRunId: `run-${run}`,
+        requiredNeeds: [
+          { needId: needs[0]!.id, askingEpoch: needs[0]!.askingEpoch },
+        ],
+        requestedAt: template.createdAt,
+        requestedBy: APPROVER,
+        enqueuedAt: run === 1_000 ? null : template.createdAt,
+      });
+    }
     await query(
       `UPDATE pending_interactions SET payload_json = $1
         WHERE kind = 'job_permission_card' AND payload_json->>'jobId' = $2`,
@@ -390,6 +404,7 @@ maybeDescribe('job permission card history', () => {
           revisions,
           revisionDeliveries: deliveries,
           pendingBudgets,
+          rerunBarriers,
         },
         jobId,
       ],
@@ -419,6 +434,9 @@ maybeDescribe('job permission card history', () => {
       ...Array.from({ length: 20 }, (_, index) => `run-${(index + 6) * 40}`),
       'run-1026',
     ]);
+    expect(card.rerunBarriers.map(({ priorRunId }) => priorRunId)).toEqual(
+      Array.from({ length: 21 }, (_, index) => `run-${980 + index}`),
+    );
     // The shrunk card still accepts a write through the real path.
     await expect(attach(jobId, 'run-2')).resolves.toMatchObject({
       status: 'asking',

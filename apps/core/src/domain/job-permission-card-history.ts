@@ -1,6 +1,7 @@
 import type { JobPermissionCardRecord } from './ports/job-permission-durability.js';
 
 const MAX_RESUMED_RUN_BUDGETS = 20;
+const MAX_ENQUEUED_RERUN_BARRIERS = 20;
 
 // Keeps the latest revision, the one on screen, the one that opened the
 // current message (its confirmation time decides edit vs replace), and every
@@ -44,5 +45,16 @@ export function pruneSettledCardHistory(card: JobPermissionCardRecord): void {
   );
   card.pendingBudgets = card.pendingBudgets.filter(
     (budget) => budget.openCount > 0 || resumed.has(budget),
+  );
+  // A barrier not yet enqueued still gates its rerun. Once enqueued, the
+  // rerun's stable trigger id (keyed by the prior run) is what keeps the
+  // enqueue idempotent, so only the newest few are kept for re-consent.
+  const enqueued = new Set(
+    card.rerunBarriers
+      .filter((barrier) => barrier.enqueuedAt)
+      .slice(-MAX_ENQUEUED_RERUN_BARRIERS),
+  );
+  card.rerunBarriers = card.rerunBarriers.filter(
+    (barrier) => !barrier.enqueuedAt || enqueued.has(barrier),
   );
 }

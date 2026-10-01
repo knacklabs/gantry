@@ -2,7 +2,7 @@
 -- only the latest revision, the one on screen, the one that opened the current
 -- message, and revisions whose delivery is still pending or ambiguous. Drop
 -- run wait budgets that never waited, keeping waiting runs and the newest 20
--- resumed runs.
+-- resumed runs. Drop rerun barriers already enqueued, keeping the newest 20.
 -- Each card is read into variables once so a 10k-entry payload is parsed once.
 DO $$
 DECLARE
@@ -79,6 +79,18 @@ BEGIN
         ) budgets
         WHERE (budget ->> 'openCount')::int > 0
           OR ((budget ->> 'accumulatedMs')::numeric > 0 AND newest <= 20)
+      ), '[]'::jsonb),
+      'rerunBarriers', COALESCE((
+        SELECT jsonb_agg(barrier ORDER BY ord)
+        FROM (
+          SELECT barrier, ord, row_number() OVER (
+            PARTITION BY barrier ->> 'enqueuedAt' IS NULL
+            ORDER BY ord DESC
+          ) AS newest
+          FROM jsonb_array_elements(card.payload -> 'rerunBarriers')
+            WITH ORDINALITY AS rb(barrier, ord)
+        ) barriers
+        WHERE barrier ->> 'enqueuedAt' IS NULL OR newest <= 20
       ), '[]'::jsonb)
     )
     WHERE id = card.id;
