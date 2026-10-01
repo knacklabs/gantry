@@ -30,8 +30,10 @@ More channels are coming (WhatsApp, a web SDK). Fixing this inside each channel 
 
 ## Behaviour
 
-- **Place in line is set by Gantry, not the platform.** Every message gets a receive number from the database when it is saved. The number is issued by one database sequence, so it is the same across all workers. A message saved late, such as a photo whose download finished after the next text, gets a later number than that text. Platform timestamps are only for display.
-- **A split message or quick burst gets one reply.** A batch is every waiting message in one conversation (and thread or topic, where the platform has them), from any sender, in receive order, up to 10 messages.
+- **Place in line is set by Gantry, not the platform.** Every message gets a receive number from the database when it is saved. The number is issued by one database sequence, so it is the same across all workers. A message saved late, such as a photo whose download finished after the next text, gets a later number than that text. The receive number decides which turn takes a message; it is never reordered for that.
+- **A split message or quick burst gets one reply.** A batch is every waiting message in one conversation (and thread or topic, where the platform has them), from any sender, taken in receive order, up to 10 messages.
+  - The agent sees the batch in the order the messages were sent: by the platform's time to the second, then by receive number. So a photo sent before its question comes first even if its download finished later. A session command or control message that ended the batch always stays last.
+  - Owner choice, 2026-09-29: "present by platform time". Why: a slow upload shouldn't put an answer before its question. Ordering within the same second, by each platform's own message ordering key, comes with the channel intake story.
   - A turn starts 1.5 seconds after the newest message in the batch. Each new message restarts that wait, but a turn never waits more than 6 seconds after the first message of the batch.
   - When the newest message is a text at 90% or more of that platform's inbound length limit (Telegram 4,096 characters, Discord 2,000), the wait is 4 seconds, because it was probably split. Platforms with no known limit always use 1.5 seconds.
   - Owner choice, 2026-09-29: "1.5s, longer near limit". Why: it catches platform splits without slowing every reply much.
