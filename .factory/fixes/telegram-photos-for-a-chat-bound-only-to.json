@@ -3,11 +3,32 @@
   "branch": "fix/telegram-photos-for-a-chat-bound-only-to",
   "done_when": "A Telegram media message reaches every account route that text would reach for that chat, proven by a test where a photo for a chat bound only to the second shared-bot account is delivered",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "db6108107a5623d1a6200c9c3c2cc9a81408723105c5d5209888b92e5cab9654",
+    "commit": "3d92ae38da9f60baa28ad2d70e913e2203d2728f",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The only added proof stops at a mocked `onMessage` callback, which returns 'stored' solely from the account ID. It exercises the routing fix but cannot prove actual persistence or delivery: the real callback can reject messages before storage (`apps/core/src/app/bootstrap/channel-persistence-handlers.ts:164\u2013166`). No corresponding end-to-end scenario exists. The review contract and `apps/core/AGENTS.md:110` require this runtime behaviour to be proven through the real runtime and Postgres. Add one automated test using shared bot credentials and a chat bound only to the second account, asserting that the photo reaches that account's route; fake Telegram at its boundary and ensure the test fails without this fix.",
+        "file": "apps/core/test/unit/channels/telegram.test.ts",
+        "line": 2066,
+        "priority": "P1",
+        "title": "Not done: A Telegram media message reaches every account route that text would reach for that chat, proven by a test where a photo for a cha"
+      }
+    ],
+    "status": "blocked",
+    "tree": "6a9ec78f8cbd154f2fa75a17cb40eb7f7edc7fc0646ba0f472dea1ce945e300a"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:24:32+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-01T20:35:22+00:00",
+      "step": "review"
     }
   ],
   "why": "Telegram photos for a chat bound only to a second account that shares bot credentials are dropped"
