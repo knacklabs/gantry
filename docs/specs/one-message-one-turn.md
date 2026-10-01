@@ -54,7 +54,7 @@ More channels are coming (WhatsApp, a web SDK). Fixing this inside each channel 
 
 ## Acceptance criteria
 
-- AC1: On every channel, including a Telegram message split by the platform, messages from one conversation that arrive within the wait rule above start exactly one turn, with all of them in receive order. Tests cover:
+- AC1: On every channel, including a Telegram message split by the platform, messages from one conversation that arrive within the wait rule above start exactly one turn with all of them. The turn takes them in receive order and shows them to the agent by platform time, then receive number. Tests cover:
   - the 1.5-second restart;
   - the 6-second cap;
   - the 4-second near-limit wait;
