@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner approved 2026-10-01: Forge v1.2.2 upgrade; every file except the version pin is forge sync's generated output (hooks, skills, Codex subagent roles)",
   "base": "4d3170e2df21908255fa8bae375068ead76d6f39",
   "branch": "fix/myclaw-pins-forge-v1-2-1-while-v1-2-2-fi",
   "done_when": "forge.toml pins v1.2.2, the installed Forge is the v1.2.2 release, and forge sync output is committed",
