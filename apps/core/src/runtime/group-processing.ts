@@ -305,6 +305,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           groupName: group.name,
           channelRuntime: deps.channelRuntime,
           providerAccountId: group.providerAccountId,
+          threadId: activeThreadId,
           logger,
         });
         let idleTimer: ReturnType<typeof setTimeout> | null = null;

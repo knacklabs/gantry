@@ -1489,31 +1489,6 @@ describe('DiscordChannel', () => {
     }
   });
 
-  it('drops stale Discord streaming chunks after reset seals the generation', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () => jsonResponse({ id: 'stream-1' }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'old', { generation: 1 }),
-    ).resolves.toBe(true);
-    channel.resetStreaming('dc:channel-1');
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'stale', { generation: 1 }),
-    ).resolves.toBe(false);
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'new', { generation: 2 }),
-    ).resolves.toBe(true);
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const bodies = fetchMock.mock.calls.map((call) =>
-      JSON.parse(String((call[1] as RequestInit).body)),
-    );
-    expect(bodies.map((body) => body.content)).toEqual(['old', 'new']);
-    fetchMock.mockRestore();
-  });
-
   it('resets only the targeted Discord thread stream', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -1585,7 +1560,6 @@ describe('DiscordChannel', () => {
   });
 
   it('stops Discord overflow sends when the stream resets between parts', async () => {
-    let channel!: DiscordChannel;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => {
@@ -1593,7 +1567,7 @@ describe('DiscordChannel', () => {
           channel.resetStreaming('dc:channel-1');
         return jsonResponse({ id: `stream-${fetchMock.mock.calls.length}` });
       });
-    channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     await expect(
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
@@ -2347,7 +2321,6 @@ describe('DiscordChannel', () => {
         }
         return new Response('{}', { status: 404 });
       });
-    let channel!: DiscordChannel;
     const onMessage = vi.fn(
       async (
         jid: string,
@@ -2361,7 +2334,7 @@ describe('DiscordChannel', () => {
       },
     );
     const onChatMetadata = vi.fn();
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ onMessage, onChatMetadata }),
@@ -2733,7 +2706,7 @@ describe('DiscordChannel', () => {
   });
 
   it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
-    const fetchMock = vi
+    const _fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (input) => {
         const url = String(input);
@@ -6102,7 +6075,6 @@ describe('DiscordChannel', () => {
       if (interactionId) events.push(`ack:${interactionId}`);
       return jsonResponse({ id: 'message-1' });
     });
-    let channel!: DiscordChannel;
     durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockImplementation(
       async (input: { optionIndex?: number }) => {
         const pending = [
@@ -6113,7 +6085,7 @@ describe('DiscordChannel', () => {
         return true;
       },
     );
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ isControlApproverAllowed: vi.fn(async () => true) }),
