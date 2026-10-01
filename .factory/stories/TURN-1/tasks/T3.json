@@ -1,0 +1,27 @@
+{
+  "branch": "task/TURN-1-T3",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "346fc20cb45a851dd223bd821d36167ca33f6d4d782bbba0a6aee2666e41e00a",
+    "commit": "f9a23c829a73cec64d3124b30f848313f117aa48",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "5ac5f9ea0483719873406127fd659e05be54e46ea5691ce393aced37dbb90128"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T07:53:47+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T13:31:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T17:34:05+00:00",
+      "step": "review"
+    }
+  ]
+}

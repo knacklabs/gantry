@@ -18,10 +18,6 @@ import { stopWorkerHeartbeat } from '@core/jobs/worker-identity.js';
 import { buildPendingMessagesContinuationIdempotencyKey } from '@core/runtime/pending-message-replay.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '@core/shared/message-cursor.js';
-import {
   FakeCoordination,
   FakeLiveTurns,
 } from '../application/live-turn-lease-fakes.js';
@@ -113,8 +109,6 @@ function makeApp(): RuntimeApp {
     channels: [],
     queue: queue as any,
     loadState: vi.fn(),
-    saveState: vi.fn(),
-    getOrRecoverCursor: vi.fn(() => ''),
     registerGroup: vi.fn(),
     projectConversationRoute: vi.fn(),
     setGroupModelOverride: vi.fn(),
@@ -135,7 +129,6 @@ function makeApp(): RuntimeApp {
         added_at: 't',
       },
     })),
-    setAgentCursor: vi.fn(),
   };
 }
 
@@ -342,11 +335,7 @@ describe('buildLiveTurnRecoveryCapabilityGate', () => {
         appId: 'default',
         conversationId: 'tg:primary',
         threadId: null,
-        pendingMessage: {
-          kind: 'message_cursor',
-          queueJid: 'tg:stale',
-          cursorBefore: 'cursor-before-run',
-        },
+        pendingMessage: { queueJid: 'tg:stale' },
       } as any),
     ).resolves.toBe(false);
     expect(listAgentSkillBindings).not.toHaveBeenCalled();
@@ -1430,7 +1419,7 @@ describe('startRuntimeServices', () => {
               sender: 'user-other',
               sender_name: 'Other',
               content: 'same follow-up',
-              timestamp: 'cursor-after-follow-up',
+              timestamp: '2024-01-01T00:00:02.000Z',
             },
           ]),
         } as any,
@@ -1456,13 +1445,6 @@ describe('startRuntimeServices', () => {
       // terminal-mark — the orphan is avoided entirely, not cleaned up.
       expect(createSessionAgentRun).not.toHaveBeenCalled();
       expect(completeSessionAgentRun).not.toHaveBeenCalled();
-      expect(app.setAgentCursor).toHaveBeenCalledWith(
-        'tg:primary',
-        JSON.stringify({
-          timestamp: 'cursor-after-follow-up',
-          id: 'msg-follow-up',
-        }),
-      );
       expect(liveTurns.commands).toEqual([
         expect.objectContaining({
           liveTurnId: 'turn-existing',
@@ -1517,17 +1499,9 @@ describe('startRuntimeServices', () => {
       sender: 'user-owner',
       sender_name: 'Owner',
       content: '/compact',
-      timestamp: 'cursor-after-compact',
+      timestamp: '2024-01-01T00:00:03.000Z',
       is_from_me: true,
     };
-    const compactCursor = encodeGroupMessageCursor(
-      toGroupMessageCursor(compactMessage),
-    );
-    let cursor = '';
-    app.getOrRecoverCursor = vi.fn(async () => cursor);
-    app.setAgentCursor = vi.fn((_queueJid: string, nextCursor: string) => {
-      cursor = nextCursor;
-    });
     const getMessagesByIds = vi.fn(async () => [compactMessage]);
 
     await startRuntimeServices(
@@ -1569,11 +1543,6 @@ describe('startRuntimeServices', () => {
       expect(liveTurns.commands).toHaveLength(0);
       expect(app.queue.sendMessage).not.toHaveBeenCalled();
       expect(app.queue.closeStdin).not.toHaveBeenCalled();
-      expect(app.setAgentCursor).toHaveBeenCalledWith(
-        'tg:primary',
-        compactCursor,
-      );
-      expect(app.saveState).toHaveBeenCalledOnce();
       expect(getMessagesByIds).toHaveBeenCalledWith(
         expect.objectContaining({ conversationId: 'tg:primary' }),
         ['msg-compact'],
@@ -1862,11 +1831,7 @@ describe('startRuntimeServices', () => {
       },
       workerInstanceId: 'worker-old',
       runId: 'agent-run:lost',
-      pendingMessage: {
-        kind: 'message_cursor',
-        queueJid: 'tg:primary',
-        cursorBefore: 'cursor-before-run',
-      },
+      pendingMessage: { queueJid: 'tg:primary' },
     });
     if (!turn) throw new Error('expected turn');
     turn.state = 'running';
@@ -1881,10 +1846,6 @@ describe('startRuntimeServices', () => {
       payload: {
         queueJid: 'tg:primary',
         text: 'same follow-up',
-        cursorAfter: JSON.stringify({
-          timestamp: 'cursor-after-follow-up',
-          id: 'msg-follow-up',
-        }),
       },
     });
     await liveTurns.appendLiveTurnCommand({
@@ -1929,7 +1890,6 @@ describe('startRuntimeServices', () => {
       expect(liveTurns.releaseInput).toHaveBeenNthCalledWith(2, {
         consumedBy: 'turn:agent-run:lost',
       });
-      expect(app.setAgentCursor).not.toHaveBeenCalled();
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
       expect(liveTurns.turns.get('turn-lost')?.state).toBe('recovered');
       expect(liveTurns.commands).toEqual(
@@ -1985,11 +1945,7 @@ describe('startRuntimeServices', () => {
       },
       workerInstanceId: 'worker-old',
       runId: 'agent-run:lost',
-      pendingMessage: {
-        kind: 'message_cursor',
-        queueJid: 'tg:primary',
-        cursorBefore: 'cursor-before-run',
-      },
+      pendingMessage: { queueJid: 'tg:primary' },
     });
     if (!turn) throw new Error('expected turn');
     turn.state = 'running';
@@ -2086,11 +2042,7 @@ describe('startRuntimeServices', () => {
       },
       workerInstanceId: 'worker-old',
       runId: 'agent-run:lost',
-      pendingMessage: {
-        kind: 'message_cursor',
-        queueJid: 'tg:primary',
-        cursorBefore: 'cursor-before-run',
-      },
+      pendingMessage: { queueJid: 'tg:primary' },
     });
     if (!turn) throw new Error('expected turn');
     turn.state = 'running';
