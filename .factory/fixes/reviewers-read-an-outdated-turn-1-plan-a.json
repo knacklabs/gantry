@@ -1,0 +1,14 @@
+{
+  "base": "4d3170e2df21908255fa8bae375068ead76d6f39",
+  "branch": "fix/reviewers-read-an-outdated-turn-1-plan-a",
+  "done_when": "main carries the current TURN-1 plan from the story branch, and AGENTS.md Review rules say Forge's .factory records are never out of scope",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T15:42:17+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Reviewers read an outdated TURN-1 plan and flag Forge's own records as out-of-scope files"
+}
