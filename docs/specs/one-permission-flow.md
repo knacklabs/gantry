@@ -1,8 +1,10 @@
 ---
 slug: one-permission-flow
 title: Scheduled jobs and chat share one permission flow
-status: draft
+status: confirmed
 saved: 2026-10-01T12:12:43+00:00
+confirmed_by: "Ravi"
+confirmed_hash: e00caf173c4c148f11472b6de795ba2113cf255e2fb80d8843546e03327b5d43
 ---
 
 # Scheduled jobs and chat share one permission flow
