@@ -2,41 +2,41 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "d47012b04c2759a59288592429a42c47fd64d241cfe138967bf67b1d7b2fe9f0",
-    "commit": "b06648e8193638b4168f6acda55a9bc0c919147f",
+    "changed": "5f4c38f3980043c22b87f7d77c035fb46171e25cc1e2791ac41bb4bff99358b8",
+    "commit": "dcb5313d423f1a201a1e5219a223e44812401c7e",
     "dismissals": [],
     "findings": [
       {
-        "body": "Cancellation runs only through processLiveAdmissionWorkItem. Startup and periodic recovery instead enqueue the group directly (message-loop.ts:336\u2013349; live-execution.ts:565,580). If recovery handles /stop while earlier messages are still deferred, excludeWaiting skips those messages and takes the command alone. The normal stop handler (session-commands.ts:287\u2013293) does not consume the waiting batch. The admission worker subsequently sees the command already consumed and returns before this cancellation block, so the supposedly cancelled messages can still start a turn. Apply cancellation through the normal command path as well.",
+        "body": "Cancellation still runs only through the admission worker. Startup and periodic recovery call recoverPendingMessages directly (apps/core/src/app/bootstrap/live-execution.ts:556,571), which enqueues the conversation without this block. Turn-start take skips waiting messages and consumes /stop alone; the normal command handler only stops the run and sends a receipt (apps/core/src/session/session-commands.ts:285\u2013290). When the admission worker subsequently sees the consumed command, it returns at message-loop.ts:307 before cancelling anything. The deferred messages can therefore start a turn after /stop. Apply cancellation through the normal command path too.",
         "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 315,
+        "line": 311,
         "priority": "P1",
         "title": "Not done: /stop cancels a waiting batch as history"
       },
       {
-        "body": "This heuristic does not recognize every command accepted by the runtime parser. For a route whose trigger is Andy, `Andy /stop` is a valid command because extractSessionCommand removes the configured trigger (session-command-parse.ts:184\u2013198), but this regex assigns it a 1.5-second window. The parser also accepts whitespace after a mention-friendly bang, such as `@Andy ! stop`, which this regex misses. Determine command status using the same normalization and route trigger as the runtime parser so valid session commands consistently bypass the window.",
+        "body": "This heuristic still misses commands accepted by the runtime parser. With trigger Andy, `Andy /stop` is valid because extractSessionCommand removes the configured trigger (apps/core/src/session/session-command-parse.ts:184\u2013198), but this regex assigns it a 1.5-second window. The parser also trims whitespace after a bang (line 112), so `@Andy ! stop` is accepted but delayed here. Conversely, ordinary text such as `/home/user` bypasses batching despite not being a session command. Determine command status using the runtime parser and route trigger so command bypass and normal-message batching remain consistent.",
         "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
         "line": 42,
         "priority": "P1",
         "title": "Not done: session commands never wait"
       },
       {
-        "body": "The burst test claims items using a clock advanced by ten seconds and invokes processGroupMessages directly. It therefore bypasses the admission scheduler that must start the batch at the promised time. The stop test likewise supplies a replacement command handler that always succeeds (lines 309\u2013312). The changed end-to-end test explicitly expires the window before enqueueing work, so it does not supply the missing proof. Add an owner end-to-end scenario through the real admission and command paths, with Postgres and fake channel/runner edges, asserting one reply after the window and cancellation without a later reply.",
+        "body": "The burst test claims with a clock advanced by ten seconds (line 264), then calls processGroupMessages directly, bypassing the admission scheduler. The stop test replaces the real command handler with one that always succeeds (lines 309\u2013312), so it cannot detect the recovery cancellation defect. The changed end-to-end test also explicitly expires the window before enqueueing work (apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:1015). Add owner end-to-end coverage through the real admission and command paths, with Postgres and fake channel/runner edges, asserting a single reply after the window and no later reply after cancellation.",
         "file": "apps/core/test/integration/live-admission-quiet-window.postgres.integration.test.ts",
-        "line": 279,
+        "line": 282,
         "priority": "P1",
         "title": "Not done: end-to-end proof of quiet-window behavior"
       },
       {
-        "body": "consumeAll filters only by scope and unconsumed status (live-admission-work-item-repository.postgres.ts:335\u2013355). If another message or session command is saved after /stop but before this call executes, it is also marked stopped and never processed. For example, `/stop` followed immediately by `/status` can silently discard the status command. Bound cancellation by the stop item's receive order so later requests remain eligible.",
+        "body": "consumeAll filters only by scope and unconsumed status (apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts:335\u2013355). A message saved after /stop but before this call executes is therefore also marked stopped and never processed. For example, an immediately following /status can disappear without a response. Bound cancellation by the stop item's receive order so subsequent requests remain eligible.",
         "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 316,
+        "line": 312,
         "priority": "P2",
         "title": "Limit /stop cancellation to messages preceding the command"
       }
     ],
     "status": "blocked",
-    "tree": "63f3a00ffb192545592fcce04344af16ab5d255e8af3a5097f2513662367d7b7"
+    "tree": "bcf4a75e7d358308ef6dab4b39e63348d53fc0a85f09f0492e26deb5492e6ea0"
   },
   "status": "fixing",
   "steps": [
@@ -46,6 +46,10 @@
     },
     {
       "at": "2026-10-01T18:32:27+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T19:29:36+00:00",
       "step": "review"
     }
   ]
