@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/the-image-scan-fails-on-new-libexpat-adv",
+  "done_when": "The image build refreshes Debian security packages after 2026-10-01 and the image scan passes",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T12:00:07+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The image scan fails on new libexpat advisories because the Debian security refresh layer is cached from before the fix"
+}
