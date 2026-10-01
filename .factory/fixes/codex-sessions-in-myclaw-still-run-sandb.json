@@ -1,7 +1,14 @@
 {
+  "amendments": [
+    {
+      "at": "2026-10-01T04:02:06+00:00",
+      "because": "The request was to remove only the model and model_reasoning_effort pins and leave every other setting as it is; the first wording said no effort pins at all",
+      "done_when": ".codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or effort pins"
+    }
+  ],
   "base": "1ebc5b261cc652580ee74969fc7202343fb2ec4a",
   "branch": "fix/codex-sessions-in-myclaw-still-run-sandb",
-  "done_when": ".codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and has no top-level model or effort pins",
+  "done_when": ".codex/config.toml sets sandbox_mode danger-full-access and approval_policy never, keeps hooks on, and drops the top-level model and model_reasoning_effort pins; every other setting, including plan_mode_reasoning_effort, is unchanged",
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
