@@ -1,0 +1,14 @@
+{
+  "base": "1ebc5b261cc652580ee74969fc7202343fb2ec4a",
+  "branch": "fix/the-image-scan-fails-on-new-high-severit",
+  "done_when": "package-lock.json resolves axios to 1.20.0 or later and the image scan passes",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T02:28:59+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The image scan fails on new high-severity axios advisories pulled in by the Slack SDK"
+}
