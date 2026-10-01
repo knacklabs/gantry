@@ -2294,6 +2294,63 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 
+  it('retries a callable follow-up that met a full backlog instead of marking it delivered', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    await repository.createTask({
+      id: 'task-busy-follow-up',
+      appId: 'app-1',
+      agentId: 'agent-orchestrator',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'completed',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'AgentDelegation' },
+      privateCorrelationJson: {
+        callableAgentFollowUp: { pendingAt: '2024-01-01T00:00:00.000Z' },
+      },
+      leaseToken: 'lease-busy-follow-up',
+      fencingVersion: 1,
+      now: '2024-01-01T00:00:01.000Z',
+    });
+    const terminal = repository.tasks.get('task-busy-follow-up')!;
+    repository.tasks.set(terminal.id, {
+      ...terminal,
+      receiptJson: {
+        completed: 'done',
+        used: 'Gantry agent run',
+        changed: 'none',
+        delegated: 'yes',
+        needsAttention: 'none',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi
+      .fn()
+      .mockResolvedValueOnce({ outcome: 'overloaded' })
+      .mockResolvedValueOnce({ outcome: 'enqueued', item: {} });
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      { completionMessageRepository: { storeMessageWithLiveAdmission } },
+    );
+
+    await expect(
+      service.recoverPendingDelegatedAgentFollowUps({ appId: 'app-1' }),
+    ).resolves.toBe(0);
+    expect(
+      repository.tasks.get('task-busy-follow-up')?.receiptJson,
+    ).not.toHaveProperty('callableAgentFollowUp');
+
+    await expect(
+      service.recoverPendingDelegatedAgentFollowUps({ appId: 'app-1' }),
+    ).resolves.toBe(1);
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledTimes(2);
+    expect(
+      repository.tasks.get('task-busy-follow-up')?.receiptJson,
+    ).toMatchObject({
+      callableAgentFollowUp: { deliveredAt: expect.any(String) },
+    });
+  });
+
   it('starts delegated agent tasks and records steering messages', async () => {
     vi.stubEnv(
       'SECRET_ENCRYPTION_KEY',
