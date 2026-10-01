@@ -17,12 +17,15 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "I've amended it" | `forge read <KEY>` again, for the next round |
 | "Start this task" | `forge task start <KEY>/<TASK>` |
 | "Fix this small thing" | `forge fix start "<why>" --done "<done when>"` |
+| "Name this fix" | `forge fix start "<why>" --done "<done when>" --slug <name>` |
+| "Change this fix's Done-when" | `forge fix amend <fix> --done "<done when>" --because "<why>"` |
 | "This fix is too big" | `forge story new <KEY> --from-fix <fix>` |
 | "Let this fix go over the limit" | `forge fix allow-large "<reason>"` |
 | "Build it" | `forge work <item>` |
 | "Tell the worker this round" | `forge work <item> --note "<text>"` |
 | "Ask Codex about this code" | `forge ask "<question>"` |
 | "Close it" or "Is it ready?" | `forge close <item>` |
+| "Land it" | `forge land <item>`, run in the background and watched like `forge work` |
 | "Merge this ready item" | `forge merge <item>` when the default branch allows agent merges |
 | "Let the agent merge" | The owner runs `forge merge enable` in their own terminal; never you |
 | "What should we build?" or "Find the real problem" | Discovery, below |
@@ -34,7 +37,7 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "The decision is accepted" | `forge decision accept <slug> --by "<name>"` |
 | "Add it to the roadmap" | `forge roadmap add <spec>` |
 | "The story is finished" | `forge story done <KEY> "<outcome>"` |
-| "Is my setup healthy?" | `forge doctor` |
+| "Is my setup healthy?" or "Fix my setup" | `forge doctor`, then `forge doctor --fix` for what it can repair |
 | "Set up a new repo" | `forge init` |
 | "Bring our live app into Forge" | Adopt a live app, below |
 | "Switch to Codex workers" or "Change the test command" | Ask, then in a fix: edit `forge.toml` (never its `merge` setting), `forge close <fix>` |
@@ -215,12 +218,17 @@ our default or the agent, so record each as the client, salesperson or developer
 run the strict sign-off review before anyone asks for sign-off: write `forge decision new
 client-signoff` (customer, demo address, and the answers page copied word for word, leaving
 approved via and approved on empty), and run `forge decision accept client-signoff --by "<name>"`
-before any reply is recorded; it runs the strict review alone and stops. Fix what it finds and run
-it again. Once it passes, tell the salesperson to ask the customer's named person for sign-off
-their own way. Draft no sign-off email; Forge sends nothing. When they bring the reply back, record
+before any reply is recorded; it runs the strict review alone and stops. That review always runs
+on `gpt-6.1-sol` at high effort, whatever `forge.toml` says, and refuses a run on any other model
+or effort. Fix what it finds and run it again. Once it passes, tell the salesperson to ask the
+customer's named person for sign-off their own way. Draft no sign-off email; Forge sends nothing. When they bring the reply back, record
 it in `approved_via` and `approved_on`, then run `forge decision accept client-signoff --by
 "<name>"` again to accept. The customer's reply is the approval evidence the sign-off decision
 records.
+
+On Codex, every other review runs on `[models.review]` in `forge.toml`, which `forge init` sets
+to `gpt-6.1-sol` at high effort; a prototype fix before sign-off gets a light review on
+`gpt-6.1-sol` at medium effort that blocks only on P0 findings.
 
 When a later story needs a topic marked later, its cold read reports `Decide first: <topic>`.
 Ask that one question, put the answer in the finding's disposition and the story's Notes as
@@ -250,6 +258,9 @@ Adopting changes no app code.
    and what must never be touched.
 7. Write the answers and the reviewers' rules under `## House rules` in AGENTS.md, outside Forge's
    block. The repo's own rules win where they differ from Forge's default-stack conventions.
+   A rule every review must follow, such as which tests a kind of change needs, goes under
+   `## Review rules` in AGENTS.md, outside Forge's block: every review reads that section from the
+   default branch and follows it.
 
 On a live app, every story and fix also follows these:
 
@@ -287,7 +298,7 @@ changing a result or "What changes for you" does.
 - Done when: a few results the client or their user can observe, each tracing to the spec's
   behaviour or success measure. Each item is one bold plain sentence and nothing more, with no
   code names, file paths or test names. "Code exists" is not a result.
-- Each item's evidence, edge cases and proving tests go under the same number in
+- Each item's evidence, edge cases and the test or check that proves it go under the same number in
   `### Done-when details`, the first section under `## For the builders`. Workers and reviewers
   get the entries of the items their task covers. An item with nothing to add has no entry.
 - Done-when or Notes names supported inputs and exclusions. A dismissal that narrows those
@@ -296,6 +307,8 @@ changing a result or "What changes for you" does.
   sections come first and everything for the agents sits below.
 - Tasks: each row names the Done-when items it Covers, its Scope (the paths it may change) and
   its Tests. A task that covers nothing is cut; work wanted later goes to the spec's Out of scope.
+- The Tests column names one end-to-end case per Done-when item that changes runtime behaviour,
+  and none for settings, docs, deletions or test-only items: the check the item names proves those.
 - Keep tasks small: at most three Done-when items and about 400 changed lines each.
 - Shared seams first: when two tasks share a function, field, file format or command, the first
   task pins it. It commits the shared names and stubs plus one test that crosses both sides, and
@@ -342,15 +355,28 @@ If a worker ends with a `Question:` paragraph, answer with
 `forge work <item> --note "<answer>"`. The worker waits for that answer: another work round
 without a note and `forge close <item>` both refuse until the answering round completes. The
 answer returns to the same conversation when it can resume; a fresh brief carries both the
-question and answer. If the answer needs work outside Scope or a choice the item does not settle,
-resolve that boundary before sending the note.
+question and answer. Workers change files outside Scope that the change needs and name them in
+the handoff, so answer a Scope question only when the change isn't needed. If the answer needs a
+choice the item does not settle, get that choice made before sending the note.
 
 For a quick question about the code that needs no fix, run `forge ask "<question>"`. It asks
 Codex read-only in this checkout and prints the answer. Use `--model <model>` and
-`--effort <effort>` to choose for this question; without them it uses `[models.lite]` in
-`forge.toml`. Its records stay under `.git/forge/`; the conversation is temporary and does not
+`--effort <effort>` to choose for this question; without them it uses the Codex entry of
+`[models.lite]` in `forge.toml`. Its records stay under `.git/forge/`; the conversation is temporary and does not
 appear in the Codex chat list. If a tracked or untracked file changes during the turn, Forge
 discards the answer.
+
+Each kind in `forge.toml`'s `[models]` table may have a codex and a claude entry, such as
+`[models.build.codex]` and `[models.build.claude]`; a single entry counts only for its own model's
+tool (a gpt model is Codex's, any other Claude's). Workers use their `workers` tool's entry, the
+review its engine's, and `forge ask` Codex's; a tool with no entry runs on its own settings.
+
+For a side job inside your own session, hand it to one of Forge's subagent roles, which
+`forge sync` writes for both hosts from `forge.toml`'s models: `explorer` to read and trace code;
+`planner` and `architect` for planning and design choices; `debugger`, `security` and
+`performance` to diagnose; `worker`, `coder`, `frontend`, `tester` and `refactorer` to build.
+The diagnosing and planning roles change no files. Building an item still goes through
+`forge work`. To change a role's model or effort, change `forge.toml` and run `forge sync`.
 
 ## Build simple
 
@@ -367,11 +393,16 @@ Before building a fix, check its brief for the five-code-file limit, interface g
 recorded allowance. If the work exceeds that boundary, promote it to a story or get the allowance
 recorded before editing.
 
+Mark generated files such as migration snapshots `linguist-generated` in `.gitattributes`, so
+reviews show them only as counts of changed lines.
+
 Read the worker's final handoff and resolve its stated blockers before `forge close`.
 When `forge close` stops on a finding, open the line it cites, and the code that line calls,
 before anything else. If the code proves the finding wrong, dismiss it with
 `forge close <item> --dismiss <n> --because "<file:line> <why>"`; otherwise run
 `forge work <item>`. Reviewers are sometimes wrong, and every fix round costs another full review.
+When `forge land` stops on findings, after its three fix rounds or on a check it can't fix, judge
+them the same way: dismiss with evidence, or `forge work <item>`, then `forge land <item>` again.
 
 ## Check-back
 
