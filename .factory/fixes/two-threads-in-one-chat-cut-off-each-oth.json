@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner approved 2026-10-01: about 9 files, mostly deleting four per-channel copies of the stream guard into one shared guard keyed by chat and thread",
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/two-threads-in-one-chat-cut-off-each-oth",
   "done_when": "Two concurrent thread turns in one chat both deliver complete replies on Slack, Telegram, Discord and Teams, with one shared stream guard keyed by chat and thread, proven by a shared guard test, a channel test and an end-to-end test",
