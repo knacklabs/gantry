@@ -67,13 +67,16 @@ known limit with a `ponytail: <limit>, <upgrade path>` comment, so it reads as i
 - **Think before you code.** State your assumptions, and never pick silently. If the brief can be
   read two ways and both readings can be undone, pick the one closer to Done-when and write
   `Ruling: <what> - <why>` in the commit body, so the reviewer sees it. Stop and say so only for a
-  one-way step, a security question, a path outside your Scope or a new moving part.
+  one-way step, a security question or a new moving part. A file outside your Scope that the
+  change needs you may change; name it and why in your handoff.
 - **Touch only what the task needs.** Match the existing style, don't tidy neighbouring code, and
   mention unrelated dead code instead of deleting it. Remove what your own change left unused.
   Every changed line should trace to the task, so the reviewer can judge it against the story.
 - Joining lines or removing blank lines never counts as a reduction.
-- **Turn the task into checks first.** A Done-when item becomes a test at the boundary the user
-  touches; a bug becomes a test that fails before the fix. Then make them pass.
+- **Turn the task into checks first.** A Done-when item that changes runtime behaviour becomes one
+  end-to-end test at the boundary the user touches, and a settings, docs, deletion or test-only item
+  is proven by the check the item names; a bug becomes a test that fails before the fix. Then make
+  them pass.
 - **Compatibility is a requirement, not a reflex.** Unless the story names live users, API
   consumers or production data, a replacement deletes the old path: no shims, aliases, fallbacks
   or versioned migrations for data nobody has. When consumers are live, the story says so.
@@ -227,12 +230,13 @@ default-stack conventions, which apply only to a repo on the default stack.
 ## Tests
 
 - Documentation-only changes need no new behaviour test; check claims, commands and links.
-- Every Done-when item needs an end-to-end test through the real entry point: Forge's own command;
-  for client apps, the running API with a real database and user flows in a browser through
-  Playwright. Each bug fix adds a test that fails without the fix. Fake only third-party services
+- Every Done-when item needs an end-to-end test through the real entry point when it changes
+  runtime behaviour: Forge's own command; for client apps, the running API with a real database
+  and user flows in a browser through Playwright. Settings, docs, deletions and test-only items
+  are proven by the check the item names. Each bug fix adds a test that fails without the fix. Fake only third-party services
   at their edge.
-- Each user-facing Done-when item gets one Playwright browser test; an item with no UI gets an HTTP
-  test against the running app and a real database.
+- Each user-facing Done-when item gets one Playwright browser test when it changes runtime
+  behaviour; such an item with no UI gets an HTTP test against the running app and a real database.
 - Unit tests are only for pure logic with many cases, never an item's only proof. Review reports
   an item proven only by unit tests as a P1 `Not done` and never asks for unit tests of helpers.
 - Tests build their own data with factories, own that data, don't depend on order, and never sleep.
