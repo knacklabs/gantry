@@ -1,0 +1,28 @@
+{
+  "allow_large": "Owner approved 2026-10-01: Forge v1.2.2 upgrade; every file except the version pin is forge sync's generated output (hooks, skills, Codex subagent roles)",
+  "base": "4d3170e2df21908255fa8bae375068ead76d6f39",
+  "branch": "fix/myclaw-pins-forge-v1-2-1-while-v1-2-2-fi",
+  "done_when": "forge.toml pins v1.2.2, the installed Forge is the v1.2.2 release, and forge sync output is committed",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "edbee5424c444d31c1371280cec7ae170ba069f779076a6ff8987a87ca69c054",
+    "commit": "9a81d5f332432b7a72aea8025046357871b4d1fe",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "3dbc6773ee2ac28ed5a27e4190db53d72d6a063386700bcdce2bf78e2ccf0e38"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T15:29:35+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T15:54:52+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "myclaw pins Forge v1.2.1 while v1.2.2 fixes blocked Codex hooks and stops wishlist review blocks"
+}
