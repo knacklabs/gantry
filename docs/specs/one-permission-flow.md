@@ -2,7 +2,7 @@
 slug: one-permission-flow
 title: Scheduled jobs and chat share one permission flow
 status: draft
-saved: 2026-10-01T12:01:54+00:00
+saved: 2026-10-01T12:08:10+00:00
 ---
 
 # Scheduled jobs and chat share one permission flow
@@ -35,7 +35,7 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
 - **One gate, on the host, for every tool call.** Every request goes through the same steps whether it comes from a chat turn or a job, on every engine (the Claude Agent SDK runner, the DeepAgents runner and the inline lanes), and including tools allowed privately today (Gantry tools on DeepAgents, inline core tools, `mcp_call_tool`, `capability_run`, browser actions). The steps run in this order:
   1. **Hard rules.** A hard rule decides alone, and it stops only real danger: destructive actions, secret or credential paths, privilege changes, uploading local files, and shapes that can never be approved permanently (download-then-run, such as `curl … | sh`, or running inline code through an interpreter). A command is never asked about just because of its shape: a pipe, a chain, a heredoc or a script the parser can't model goes on to the next steps instead.
   2. **Saved approvals.** A matching saved approval allows the call. Nothing after it runs.
-  3. **The classifier.** It judges calls nothing saved covers, one program at a time. It is the independent judge on the host and can only allow or ask (decision 0043); the agent never judges its own permissions. When the classifier allows, nothing turns that back into a question. If its view of a call had to be cut short, it judges a summary naming the programs and paths; truncation alone never causes an ask. Its remembered verdicts are keyed by agent, conversation and program or capability, so the same kind of call isn't judged twice.
+  3. **The classifier.** It judges calls nothing saved covers, one program at a time. It is the independent judge on the host and can only allow or ask (decision 0043); the agent never judges its own permissions. When the classifier allows, nothing turns that back into a question. If its view of a call had to be cut short, it judges a summary naming the programs and paths; truncation alone never causes an ask. Its remembered verdicts stay tied to the exact action, the agent and the conversation, as today. A machine judgment never becomes a program-wide approval; only a person's "Allow for future" does.
   4. **Ask a person.**
 
   The engines keep no allow or deny logic of their own. The only exceptions are checks only the runner can make, such as sandbox networking. A reviewed read capability, such as reading Google Sheets values, is judged like any other call and is not fixed as high risk. A command-template mismatch is shown to the owner once and never repeated as a denial on every run.
@@ -53,16 +53,22 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
   - Before: "RunCommand `cd … && ls -la | wc -l` — Piped RunCommand commands cannot be authorized from per-leaf rules. [Allow once] [Cancel]"
   - After: "Main agent wants to count the files in proj (uses `ls`, `wc`), for the size report you asked for. [Allow once] [Always allow ls and wc in this chat] [Deny]"
 - **One ask, one message.** Each ask creates exactly one waiting record and one message, whatever engine or tool name raised it. Answering updates that message in place; no separate "approved" or "resumed" message is sent.
+  - If a crash leaves it unknown whether a prompt was delivered, it is sent once more, never more. Tapping either copy answers the same ask, and both copies then show the answer.
 
 **Saved approvals**
 
-- **What one covers:** a named capability, such as `google.sheets.values.get`, or a program, such as `gh`, where no capability covers the call. For a tool with neither, it covers the tool itself, such as Web search. It never stores raw command text.
-  - A program approval covers that program in any shell form: chains, pipes, heredocs and proxy prefixes. In a combined command, every program must be covered; approving `gh` doesn't approve the other program in `gh … && other …`. Anything the parser can't read goes to the classifier.
+- **What one covers:** a named capability, such as `google.sheets.values.get`, or a program, such as `gh`, where no capability covers the call. For any other tool it covers that tool, such as Web search. For a tool that dispatches to others (`mcp_call_tool`, `capability_run`), it covers only the resolved server and tool, or the capability, never the dispatcher itself. It never stores raw command text.
+  - **What counts as a program.** A program is the executable found on the agent's normal tool path, named by its name, such as `gh`. A same-named file somewhere else, such as `/tmp/gh`, is a different program and isn't covered.
+  - **Wrappers and hidden code.** Wrappers such as `env`, `sudo`, `nice` or `xargs` are looked through to the program they run. Commands built at run time (`$(…)`, backticks, `eval`, `bash -c`) are never covered by a program approval and always go to the classifier.
+  - **Supported shells.** Shell commands are read as POSIX `sh` or `bash`.
+  - **Shell forms.** A program approval covers that program in any shell form: chains, pipes, heredocs and proxy prefixes. In a combined command every program must be covered; approving `gh` doesn't approve the other program in `gh … && other …`.
   - Owner choice, 2026-10-01: "program or capability". Why: command-text matching caused about 30 fixes and none of the 80 repeat asks was an exact repeat.
 - **Where one applies:** to that agent in the conversation where it was given, for chat turns and jobs alike. In a group it covers everyone the agent works for there, and that group's jobs. It never reaches another conversation or another agent.
   - Owner choices, 2026-10-01: "this agent, this conversation" and "covers everyone in the group".
 - **One store.** Saved approvals live in one place, and the list of them shows friendly names.
-- **Old approvals carry over.** Each existing approval becomes an approval in the conversation where it was given: a person's direct-message approvals go to their direct chat with that agent, and a job's go to the job's conversation. None becomes wider than it is today.
+- **Old approvals carry over exactly as narrow as they are.** An exact-command approval stays exact; only a new tap creates a program approval.
+  - Each existing approval moves to the conversation where it was given. A person's direct-message approvals go to their direct chat with that agent. A job's go to the conversation where its results are delivered; for a job with several result conversations, that is the first one.
+  - An approval with no known conversation goes to its approver's direct chat with that agent. If there is none, it is dropped and listed in the migration log.
   - Owner choice, 2026-10-01: "carry them over".
 - **A saved approval that a stricter check later rejects** is replaced by the matching program approval where one is safe. The owner is told once, in that conversation. A bad entry never stops the runtime from starting.
 
@@ -90,13 +96,15 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
 
 **Quiet by default**
 
-- No status notices in chat: no "Still working", capacity-delay, retry or "safety judge offline" messages. Delays and outages show in the ambient progress line and the logs, not as messages.
+- No status notices in chat: no "Still working", capacity-delay, retry, "run recovered" or "safety judge offline" messages. Delays and outages show in the ambient progress line and the logs, not as messages.
+- A job that fails and is retried sends one notice per run of failures, not one per attempt. A stale progress line is never left beside a result.
 - A progress line that can't be updated is replaced quietly, never duplicated.
 
 **Records stay bounded**
 
-- Answered and ended prompts, finished run records, delivery rows and permission events are kept for 30 days, then removed in bounded batches.
-- Waiting prompts, undelivered results and runs still in progress are never removed.
+- **Active state stays constant.** What a job keeps while it runs or waits (open prompts, its current run) doesn't grow with how many times it has run.
+- **History is kept 30 days.** Answered and ended prompts, finished run records, delivery rows and permission events are kept for 30 days, then removed in bounded batches.
+- Waiting prompts, results still being delivered and runs still in progress are never removed. A result that can't be delivered after its retries ends as undeliverable, is logged, and is then removed like other history.
 - A background check only reads rows that are still waiting, and in bounded pages.
 - Nothing grows with every run.
 
@@ -115,26 +123,48 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
 ## Risks
 
 - **One-way: old records are deleted.** Removing the job card, setup-pause records, job tool lists and the duplicate approval stores deletes data. Approvals are carried over first, and a carry-over that fails stops the migration rather than dropping approvals.
-- **Approvals become broader in one way.** A program approval covers more forms of that program than an exact command did. Mitigations: the hard rules still stop danger, every program in a combined command must be covered, and approvals never leave their conversation.
+- **New approvals are broader in one way.** A new program approval covers more forms of that program than an exact command did; carried-over approvals keep their breadth. Mitigations: the hard rules still stop danger, every program in a combined command must be covered, and approvals never leave their conversation.
 - **Groups.** An approval given by one person in a group covers the agent's work for everyone there. Only the people the agent works for in that group can trigger it.
 
 ## Acceptance criteria
 
 - AC1: For the same tool call, a chat turn and a scheduled job get the same decision from the same host gate on every engine. Tested with one table of calls through the Claude runner, the DeepAgents runner and the inline lane, for both a chat turn and a job, including Gantry tools, `capability_run` and browser actions.
 - AC2: A shell command whose only issue is its shape (a pipe, a chain, a heredoc) reaches the classifier, and a classifier allow is never turned back into an ask. Hard-rule cases (destructive actions, secret paths, download-then-run) still stop.
-- AC3: "Allow for future" is offered on every prompt except admin actions and hard-rule stops. After it is chosen for a shell command, the same programs in another shell form run without an ask in that conversation, for chat and jobs. A combined command with an uncovered program still asks. Another conversation or another agent still asks.
+- AC3: "Allow for future" is offered on every prompt except admin actions and hard-rule stops. After it is chosen for a shell command, the same programs in another shell form run without an ask in that conversation, for chat and jobs. These still ask:
+  - a combined command with an uncovered program;
+  - a same-named program outside the tool path;
+  - code built at run time;
+  - another conversation or another agent.
+
+  Approving one MCP tool or capability doesn't cover another behind the same dispatcher.
 - AC4: A job whose conversation already approved a capability or program runs it without asking, including an approval added after the job was created. A job that needs a new approval shows the three-button prompt in its conversation and waits:
   - Allow once lets the run continue;
   - Allow for future also lets the next run continue;
   - no answer by the deadline (next scheduled time, or 24 hours for one-off jobs) ends the run as "waiting for permission", and the next run asks again;
   - a late or duplicate tap approves nothing twice.
 
-  An end-to-end test through the real runtime and database covers this, including a worker restart while waiting.
+  An end-to-end test through the real runtime and database covers this, including:
+  - an approval added in the chat while a run is in progress, which its next call uses;
+  - chat in the same conversation carrying on while the job waits, with the chat's session unchanged;
+  - a worker restart while waiting.
 - AC5: Prompts show the action's friendly name, the specifics with secrets hidden, and the reason. One ask produces one waiting record and one message.
-- AC6: Admin actions always ask, offer only Allow once and Deny, and are never approved by the classifier or a saved approval.
-- AC7: A job's result appears as a normal reply in its conversation's history. A missing credential fails the run with one notice. No setup-required pause, job card, "Running…" card or status notice is sent.
-- AC8: Existing approvals carry over to their conversation without becoming wider, proven by a migration test on representative data. Paused setup-required jobs resume as normal jobs.
-- AC9: A job that has run 1,000 times keeps a constant amount of permission and prompt state. A Postgres test ages records past 30 days and shows they are removed in bounded batches, while waiting prompts and undelivered results are kept.
+- AC6: Admin actions always ask, offer only Allow once and Deny, and are never approved by the classifier or a saved approval, even when a matching saved approval or a classifier allow exists. A gate test covers each admin action.
+- AC7: An end-to-end test shows:
+  - a job's result arrives as one normal reply in its conversation, in the right thread, and stays in history after a delivery retry;
+  - a missing credential fails the run with exactly one notice;
+  - a failing job's retries send one notice in total;
+  - no setup-required pause, job card, "Running…" card or status notice is sent.
+- AC8: A migration test on representative data shows:
+  - existing approvals move to their conversation and keep exactly the same breadth;
+  - approvals with no known conversation are placed as described or logged;
+  - paused setup-required jobs resume as normal jobs.
+- AC9: A Postgres test shows:
+  - a job that has run 1,000 times keeps a constant amount of active permission and prompt state;
+  - records older than 30 days are removed in bounded batches;
+  - waiting prompts and results still being delivered are kept;
+  - a permanently undeliverable result ends and is later removed.
+
+  A fault test also shows that a crash after a prompt was sent produces at most one more copy, and one answer settles it.
 
 ## Success measure
 
