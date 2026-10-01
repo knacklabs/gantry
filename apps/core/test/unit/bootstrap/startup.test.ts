@@ -13,8 +13,6 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
     channels: [],
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(async () => {}),
-    saveState: vi.fn(async () => {}),
-    getOrRecoverCursor: vi.fn(async () => ''),
     registerGroup: vi.fn(async () => {}),
     projectConversationRoute: vi.fn(async () => {}),
     setGroupModelOverride: vi.fn(async () => {}),
@@ -33,7 +31,6 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
         requiresTrigger: false,
       },
     })),
-    setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
     ...overrides,
   };
