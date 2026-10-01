@@ -2,7 +2,7 @@
 slug: one-permission-flow
 title: Scheduled jobs and chat share one permission flow
 status: draft
-saved: 2026-10-01T12:08:10+00:00
+saved: 2026-10-01T12:12:43+00:00
 ---
 
 # Scheduled jobs and chat share one permission flow
@@ -53,7 +53,7 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
   - Before: "RunCommand `cd … && ls -la | wc -l` — Piped RunCommand commands cannot be authorized from per-leaf rules. [Allow once] [Cancel]"
   - After: "Main agent wants to count the files in proj (uses `ls`, `wc`), for the size report you asked for. [Allow once] [Always allow ls and wc in this chat] [Deny]"
 - **One ask, one message.** Each ask creates exactly one waiting record and one message, whatever engine or tool name raised it. Answering updates that message in place; no separate "approved" or "resumed" message is sent.
-  - If a crash leaves it unknown whether a prompt was delivered, it is sent once more, never more. Tapping either copy answers the same ask, and both copies then show the answer.
+  - If a crash leaves it unknown whether a prompt was delivered, it is sent once more, never more. Tapping either copy answers the same ask. A copy the runtime knows about is updated with the answer; a copy it lost track of says the request was already answered when tapped.
 
 **Saved approvals**
 
@@ -70,7 +70,7 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
   - Each existing approval moves to the conversation where it was given. A person's direct-message approvals go to their direct chat with that agent. A job's go to the conversation where its results are delivered; for a job with several result conversations, that is the first one.
   - An approval with no known conversation goes to its approver's direct chat with that agent. If there is none, it is dropped and listed in the migration log.
   - Owner choice, 2026-10-01: "carry them over".
-- **A saved approval that a stricter check later rejects** is replaced by the matching program approval where one is safe. The owner is told once, in that conversation. A bad entry never stops the runtime from starting.
+- **A saved approval that a stricter check later rejects** is dropped. The owner is told once, in that conversation, and the next matching call goes through the normal steps. A rejected approval is never widened, and a bad entry never stops the runtime from starting.
 
 **Admin actions always ask**
 
@@ -130,7 +130,7 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
 
 - AC1: For the same tool call, a chat turn and a scheduled job get the same decision from the same host gate on every engine. Tested with one table of calls through the Claude runner, the DeepAgents runner and the inline lane, for both a chat turn and a job, including Gantry tools, `capability_run` and browser actions.
 - AC2: A shell command whose only issue is its shape (a pipe, a chain, a heredoc) reaches the classifier, and a classifier allow is never turned back into an ask. Hard-rule cases (destructive actions, secret paths, download-then-run) still stop.
-- AC3: "Allow for future" is offered on every prompt except admin actions and hard-rule stops. After it is chosen for a shell command, the same programs in another shell form run without an ask in that conversation, for chat and jobs. These still ask:
+- AC3: "Allow for future" is offered on every prompt except admin actions and hard-rule stops. After it is chosen for a shell command, the same programs in another shell form run without an ask in that conversation, for chat and jobs. These are not covered by the approval and go on through the normal steps, so the classifier judges them and hard rules still stop danger:
   - a combined command with an uncovered program;
   - a same-named program outside the tool path;
   - code built at run time;
@@ -168,9 +168,9 @@ A job is an unattended agent turn in its own conversation. It uses exactly the s
 
 ## Success measure
 
-- Metric: permission prompts shown to a person per week, and the share of them that repeat something already allowed in that conversation. Both are counted from the live database.
-- Baseline: about 26 prompts a week (110 in the 30 days before 2026-10-01), with 73% repeats (80 of 110).
-- Target: 8 or fewer prompts a week, and no repeats, in the first full month after the last story merges.
+- Metric: permission prompts shown to a person per week, counted from the live database. Admin actions are excluded, because they always ask.
+- Baseline: about 26 prompts a week (110 in the 30 days before 2026-10-01). 80 of those 110 asked about a program the person had already allowed once, because "Allow for future" wasn't offered.
+- Target: 8 or fewer prompts a week in the first full month after the last story merges.
 - Check date: 2026-12-15
 
 ## Roadmap
