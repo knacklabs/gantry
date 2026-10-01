@@ -8,9 +8,14 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '@core/infrastructure/ipc/request-signing.js';
+import {
+  createIpcResponseSigningKeyPair,
+  signIpcResponsePayload,
+} from '@core/infrastructure/ipc/response-signing.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
 
 const contextState = vi.hoisted(() => ({
+  responseVerifyKey: '',
   ipcDir: '',
   jobId: undefined as string | undefined,
   permissionLane: 'autonomous' as 'autonomous' | 'interactive',
@@ -28,8 +33,14 @@ vi.mock('@core/runner/mcp/context.js', () => ({
     return contextState.ipcDir;
   },
   IPC_RESPONSE_KEY_ID: 'test-response-key',
+  get IPC_RESPONSE_VERIFY_KEY() {
+    return contextState.responseVerifyKey;
+  },
   get MESSAGES_DIR() {
     return path.join(contextState.ipcDir, 'messages');
+  },
+  get TASK_RESPONSES_DIR() {
+    return path.join(contextState.ipcDir, 'task-responses');
   },
   threadId: undefined,
   get jobId() {
@@ -39,6 +50,7 @@ vi.mock('@core/runner/mcp/context.js', () => ({
     return contextState.permissionLane;
   },
   jobRunId: undefined,
+  runId: undefined,
   jobRunLeaseToken: undefined,
   jobRunLeaseFencingVersion: undefined,
 }));
@@ -392,5 +404,65 @@ describe('ask_user_question lane deadlines', () => {
       cancellation as SignedQuestionRequest,
       CANCELLATION_LIFETIME_MS,
     );
+  });
+});
+
+describe('send_message delivery result', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    vi.resetModules();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-messaging-'));
+    contextState.ipcDir = path.join(tempDir, 'ipc');
+    contextState.jobId = undefined;
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("returns the host's delivery error instead of claiming the message was sent", async () => {
+    const responseKeys = createIpcResponseSigningKeyPair();
+    contextState.responseVerifyKey = responseKeys.publicKeyPem;
+    const handlers = new Map<string, (...args: never[]) => unknown>();
+    const server = {
+      tool: (...args: unknown[]) => {
+        const handler = args.at(-1);
+        if (typeof handler === 'function') {
+          handlers.set(String(args[0]), handler as never);
+        }
+      },
+    };
+    const { registerMessagingTools } =
+      await import('@core/runner/mcp/tools/messaging.js');
+    registerMessagingTools(server as never);
+    const sendMessage = handlers.get('send_message') as (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+
+    const pending = sendMessage({ text: 'hello' });
+    const messagesDir = path.join(contextState.ipcDir, 'messages');
+    const requestFile = await waitForJsonFile(messagesDir);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(messagesDir, requestFile), 'utf-8'),
+    ) as { taskId: string };
+    const responsesDir = path.join(contextState.ipcDir, 'task-responses');
+    fs.mkdirSync(responsesDir, { recursive: true });
+    const response = {
+      taskId: request.taskId,
+      ok: false,
+      error: 'channel is offline',
+    };
+    fs.writeFileSync(
+      path.join(responsesDir, `task-${request.taskId}.json`),
+      JSON.stringify({
+        ...response,
+        signature: signIpcResponsePayload(responseKeys.privateKeyPem, response),
+      }),
+    );
+
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('channel is offline');
   });
 });
