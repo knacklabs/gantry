@@ -1,0 +1,14 @@
+{
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/discord-thread-messages-are-dropped-when",
+  "done_when": "A Discord thread message whose parent lookup fails is retried instead of being stored under a made-up conversation, proven by a test",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-01T10:24:42+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Discord thread messages are dropped when looking up the thread's parent channel fails"
+}
