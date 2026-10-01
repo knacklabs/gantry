@@ -7,7 +7,13 @@
     "blocking_level": "P1",
     "changed": "7374d7cc36ba28c03b98549f4e969552d208c88db876140512ce06bad69e6963",
     "commit": "a6b39776250f6eda4ce94e1837f6131d6c4ef75e",
-    "dismissals": [],
+    "dismissals": [
+      {
+        "because": "plans/roadmap.json:1 already resolved: commit 6979db0ed removes CARDSIMPLE-2 and CARDSIMPLE-3 from the roadmap (the PR diff shows both deleted); the finding was carried over from the review before that commit",
+        "finding": 1,
+        "from_base": false
+      }
+    ],
     "findings": [
       {
         "body": "The spec explicitly replaces CARDSIMPLE-2 and CARDSIMPLE-3, but `plans/roadmap.json:2409` and `plans/roadmap.json:2427` still mark both pending, ordered before PERMFLOW-1. Their acceptance criteria require the job-card and late-tap machinery this spec removes. Remove them from pending work or mark them superseded so the roadmap agrees with the confirmed decisions.",
