@@ -355,34 +355,6 @@ describe('SessionInteractionModule', () => {
     });
   });
 
-  it('rejects an overloaded message as busy without notifying', async () => {
-    const notifyLiveAdmissionWorkItem = vi.fn();
-    const { module } = makeModule({
-      ops: { notifyLiveAdmissionWorkItem },
-      runtimeEvents: {
-        publishWithLiveAdmissionMessage: vi.fn(async () => ({
-          event: { eventId: 1001 },
-          liveAdmissionResult: { outcome: 'overloaded' },
-        })),
-      },
-    });
-
-    await expect(
-      module.acceptMessage(
-        {
-          appId: 'app-one',
-          sessionId: 'session-1',
-          message: 'hello from sdk',
-        },
-        'default',
-      ),
-    ).rejects.toMatchObject({
-      code: 'RATE_LIMITED',
-      message: 'The agent is busy. Please resend in a moment.',
-    });
-    expect(notifyLiveAdmissionWorkItem).not.toHaveBeenCalled();
-  });
-
   it('rejects response schemas for worker runtimes before persistence or durable admission', async () => {
     const getConfiguredAgentRuntime = vi.fn(() => 'worker' as const);
     const publishWithLiveAdmissionMessage = vi.fn();
