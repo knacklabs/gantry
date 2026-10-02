@@ -50,6 +50,8 @@ export interface ParsedIpcMessage {
   text: string;
   sender?: string;
   threadId?: string;
+  taskId?: string;
+  responseKeyId?: string;
   files?: ReturnType<typeof parseIpcMessageFiles>;
 }
 
@@ -230,11 +232,7 @@ export function parseIpcMessage(
   sourceAgentFolder: string,
 ): ParsedIpcMessage {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC message payload');
-  const { appId, authThreadId: threadId } = validateIpcAuthRequest(
-    raw,
-    sourceAgentFolder,
-    'IPC message',
-  );
+  const auth = validateIpcAuthRequest(raw, sourceAgentFolder, 'IPC message');
   const context = isPlainObject(raw.context) ? raw.context : undefined;
   const providerAccountId =
     toTrimmedString(raw.providerAccountId, { maxLen: 255 }) ??
@@ -248,12 +246,14 @@ export function parseIpcMessage(
   const files = parseIpcMessageFiles(raw.files);
   return {
     type: 'message',
-    ...(appId ? { appId } : {}),
+    ...(auth.appId ? { appId: auth.appId } : {}),
     ...(providerAccountId ? { providerAccountId } : {}),
     chatJid,
     text,
     ...(sender ? { sender } : {}),
-    ...(threadId ? { threadId } : {}),
+    ...(auth.authThreadId ? { threadId: auth.authThreadId } : {}),
+    taskId: toTrimmedString(raw.taskId, { maxLen: 128 }),
+    responseKeyId: auth.responseKeyId,
     ...(files.length > 0 ? { files } : {}),
   };
 }

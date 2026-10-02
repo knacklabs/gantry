@@ -11,7 +11,7 @@ import {
   writeBrowserIpcResponse,
 } from './ipc-browser-handler.js';
 import type { IpcDeps } from './ipc-domain-types.js';
-import { canProcessIpcFile } from './ipc-rate-limit.js';
+import { canProcessIpcFile, isIpcRateLimited } from './ipc-rate-limit.js';
 import type { RunnerControlPort } from './runner-control-port.js';
 import { permissionRunRestriction } from './permission-decision-coordinator.js';
 
@@ -51,6 +51,9 @@ export function processBrowserRequestDirectory(input: {
         'browser-requests',
       );
       for (const file of browserFiles) {
+        // Authorized bucket full: leave this and later files for the next
+        // pass. Only authorized requests are counted, after the claim.
+        if (isIpcRateLimited(sourceAgentFolder, 'browser')) break;
         processOneBrowserRequest({
           ipcBaseDir,
           sourceAgentFolder,

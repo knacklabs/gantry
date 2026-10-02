@@ -64,7 +64,10 @@ import {
 import { DiscordLiveUxOperations } from './live-ux.js';
 import { DiscordMessageChannelCache } from './message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './historical-attachment-fetcher.js';
-import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import {
+  StreamGenerationFence,
+  StreamResetEpochs,
+} from '../stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from '../inbound-conversation-identity.js';
 import { singleMessageDeliveryResult } from '../job-permission-card-settlement.js';
 import { routeDiscordGatewayDispatch } from './gateway-dispatch.js';
@@ -90,8 +93,7 @@ export class DiscordChannel implements ChannelAdapter {
       lastFlushAt: number;
     }
   >();
-  private readonly streamGenerationByJid = new Map<string, number>();
-  private readonly sealedStreamGenerationByJid = new Map<string, number>();
+  private readonly streamGenerations = new StreamGenerationFence();
   private readonly streamResetEpochs = new StreamResetEpochs();
   private pendingTodos = new Map<
     string,
@@ -313,8 +315,13 @@ export class DiscordChannel implements ChannelAdapter {
     const channelId =
       options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = `${jid}\n${options.threadId ?? ''}`;
+    const accepted = this.streamGenerations.accept(
+      key,
+      options.generation,
+      () => this.resetStreaming(jid, { threadId: options.threadId }),
+    );
+    if (!accepted) return false;
     const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
@@ -324,7 +331,7 @@ export class DiscordChannel implements ChannelAdapter {
     if (text) state.rawBuffer += text;
     if (!state.rawBuffer.trim() && options.done) {
       this.streamResetEpochs.deleteState(key, this.activeStreams);
-      this.markStreamingGenerationDone(jid, options.generation);
+      this.streamGenerations.markDone(key, options.generation);
       return false;
     }
     const now = currentTimeMs();
@@ -366,7 +373,7 @@ export class DiscordChannel implements ChannelAdapter {
           });
         if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
         this.streamResetEpochs.deleteState(key, this.activeStreams);
-        this.markStreamingGenerationDone(jid, options.generation);
+        this.streamGenerations.markDone(key, options.generation);
       } else {
         if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
         this.activeStreams.set(key, state);
@@ -384,58 +391,9 @@ export class DiscordChannel implements ChannelAdapter {
   }
 
   resetStreaming(jid: string, options?: { threadId?: string }): void {
-    if (options) {
-      const key = `${jid}\n${options.threadId ?? ''}`;
-      this.streamResetEpochs.bump(key);
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-      return;
-    }
-    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
-    this.sealStreamingGenerationOnReset(jid);
-    this.clearStreamingStateForJid(jid);
-  }
-
-  private clearStreamingStateForJid(jid: string): void {
-    for (const key of this.activeStreams.keys()) {
-      if (!key.startsWith(`${jid}\n`)) continue;
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-    }
-  }
-  private shouldAcceptStreamingChunk(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) return false;
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) {
-      this.streamGenerationByJid.set(jid, generation);
-      return true;
-    }
-    if (generation < latest) return false;
-    if (generation > latest) {
-      this.clearStreamingStateForJid(jid);
-      this.streamGenerationByJid.set(jid, generation);
-    }
-    return true;
-  }
-
-  private markStreamingGenerationDone(jid: string, generation?: number): void {
-    if (generation === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, generation);
-    }
-  }
-
-  private sealStreamingGenerationOnReset(jid: string): void {
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || latest > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, latest);
-    }
+    const key = `${jid}\n${options?.threadId ?? ''}`;
+    this.streamResetEpochs.bump(key);
+    this.streamResetEpochs.deleteState(key, this.activeStreams);
   }
 
   async renderAgentTodo(

@@ -28,8 +28,6 @@ type TelegramQuestionTarget = Pick<
 export async function disconnectTelegramDelivery(input: {
   bot: { stop(): void } | null;
   activeGroupStreams: Map<unknown, unknown>;
-  streamGenerationByJid: Map<unknown, unknown>;
-  sealedStreamGenerationByJid: Map<unknown, unknown>;
   activeProgressMessages: Map<unknown, unknown>;
   mediaIngestionQueue: { waitForIdle(timeoutMs: number): Promise<boolean> };
   pendingPermissionPrompts: Map<
@@ -53,8 +51,6 @@ export async function disconnectTelegramDelivery(input: {
   releasePollingLease(): Promise<void>;
 }): Promise<{ bot: null }> {
   input.activeGroupStreams.clear();
-  input.streamGenerationByJid.clear();
-  input.sealedStreamGenerationByJid.clear();
   input.activeProgressMessages.clear();
   const mediaDrained = await input.mediaIngestionQueue.waitForIdle(
     TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS,
