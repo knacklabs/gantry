@@ -3,7 +3,7 @@
   "branch": "fix/public-address-checks-are-copied-in-seve",
   "done_when": "Network destination checks use one shared address classifier, mapped IPv6 and invalid addresses included",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:37:28+00:00",
