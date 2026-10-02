@@ -27,6 +27,7 @@ import type { AgentRuntime } from '../../shared/agent-runtime.js';
 import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
+import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
@@ -219,7 +220,8 @@ export class SessionInteractionModule {
         ? {
             provider: providerSession.provider,
             status: providerSession.status,
-            hasProviderResume: hasProviderResumeHandle(providerSession),
+            hasProviderResume:
+              providerSession.externalSessionId.trim().length > 0,
             createdAt: providerSession.createdAt,
             updatedAt: providerSession.updatedAt,
           }
@@ -466,7 +468,7 @@ export class SessionInteractionModule {
       enqueue: {
         conversationJid: session.conversationJid,
         threadId,
-        queueKey: makeSessionQueueKey(session.conversationJid, threadId),
+        queueKey: makeThreadQueueKey(session.conversationJid, threadId),
         durableAdmissionCreated,
       },
     };
@@ -677,15 +679,6 @@ export function makeAppGroup(input: {
   };
 }
 
-export function makeSessionQueueKey(
-  conversationJid: string,
-  threadId?: string | null,
-): string {
-  const normalized = threadId?.trim();
-  if (!normalized) return conversationJid;
-  return `${conversationJid}::thread:${encodeURIComponent(normalized)}`;
-}
-
 function sanitizeSegment(value: string): string {
   return value
     .trim()
@@ -700,44 +693,4 @@ function isVisibleWaitEvent(event: RuntimeEvent): boolean {
     event.eventType === RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND ||
     event.eventType === RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING
   );
-}
-
-function hasProviderResumeHandle(value: {
-  externalSessionId?: unknown;
-  providerRef?: { value?: unknown } | null;
-  metadata?: unknown;
-}): boolean {
-  return (
-    hasNonEmptyString(value.externalSessionId) ||
-    hasNonEmptyString(value.providerRef?.value) ||
-    metadataContainsResumeHandle(value.metadata, 0)
-  );
-}
-
-function metadataContainsResumeHandle(value: unknown, depth: number): boolean {
-  if (depth > 4 || value == null) return false;
-  if (Array.isArray(value)) {
-    return value.some((entry) =>
-      metadataContainsResumeHandle(entry, depth + 1),
-    );
-  }
-  if (typeof value !== 'object') return false;
-  for (const [key, entry] of Object.entries(value)) {
-    if (
-      /(externalSessionId|providerSessionId|latestProviderSessionId|newSessionId|sessionId|session_id|resume|artifact)/i.test(
-        key,
-      ) &&
-      hasNonEmptyString(entry)
-    ) {
-      return true;
-    }
-    if (metadataContainsResumeHandle(entry, depth + 1)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function hasNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
 }
