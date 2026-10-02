@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner OK 2026-10-02: real delivery results, the browser quota hold and their tests span the runner-host IPC path",
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/agents-are-told-a-message-was-sent-befor",
   "done_when": "send_message returns the host's real delivery result or a clear not-confirmed note, and a rate-limited IPC request waits for the next pass instead of being archived, proven by host and runner tests",
