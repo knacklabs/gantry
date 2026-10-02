@@ -2,41 +2,34 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "5f4c38f3980043c22b87f7d77c035fb46171e25cc1e2791ac41bb4bff99358b8",
-    "commit": "dcb5313d423f1a201a1e5219a223e44812401c7e",
+    "changed": "379cf3f52945c2ef0ee777df153a898f6297b96181a2fd7d1f91dc2b27f5c903",
+    "commit": "613fd66e492dfcc3cea9e843c7c4ebfaffd2d84d",
     "dismissals": [],
     "findings": [
       {
-        "body": "Cancellation still runs only through the admission worker. Startup and periodic recovery call recoverPendingMessages directly (apps/core/src/app/bootstrap/live-execution.ts:556,571), which enqueues the conversation without this block. Turn-start take skips waiting messages and consumes /stop alone; the normal command handler only stops the run and sends a receipt (apps/core/src/session/session-commands.ts:285\u2013290). When the admission worker subsequently sees the consumed command, it returns at message-loop.ts:307 before cancelling anything. The deferred messages can therefore start a turn after /stop. Apply cancellation through the normal command path too.",
-        "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 311,
+        "body": "The state/reason filters exclude unconsumed messages whose quiet window ended while they waited for execution capacity. GroupQueue accepts such waiting work (apps/core/src/runtime/group-queue.ts:245\u2013251), and the admission loop settles its items as completed without consuming them (apps/core/src/runtime/live-admission-work-loop.ts:276\u2013282). If ten messages are waiting behind another conversation, /stop cancels none of them. The active-command handler refuses the idle conversation (apps/core/src/app/bootstrap/runtime-services.ts:656\u2013668), and the eventual turn-start take reaches its ten-message limit before reaching /stop, so the cancelled request runs. Preserve the receive-order boundary, but include earlier unconsumed input regardless of its admission scheduling state.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
+        "line": 353,
         "priority": "P1",
-        "title": "Not done: /stop cancels a waiting batch as history"
+        "title": "Not done: /stop cancels a batch that hasn't started"
       },
       {
-        "body": "This heuristic still misses commands accepted by the runtime parser. With trigger Andy, `Andy /stop` is valid because extractSessionCommand removes the configured trigger (apps/core/src/session/session-command-parse.ts:184\u2013198), but this regex assigns it a 1.5-second window. The parser also trims whitespace after a bang (line 112), so `@Andy ! stop` is accepted but delayed here. Conversely, ordinary text such as `/home/user` bypasses batching despite not being a session command. Determine command status using the runtime parser and route trigger so command bypass and normal-message batching remain consistent.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
-        "line": 42,
+        "body": "External ingress targets an existing conversation route, but isSessionCommandText parses with an empty trigger (apps/core/src/application/sessions/session-command-parse.ts:278). For a route with trigger Andy, an allowlisted sender's `Andy /stop` or `Andy ! stop` is therefore saved with a quiet window, although turn-start parsing accepts it using the route trigger (apps/core/src/runtime/group-processing.ts:124). The channel-handler fix does not cover this ingress path. Carry the resolved route trigger into command classification so these accepted commands bypass the window too.",
+        "file": "apps/core/src/application/external-ingress/conversation-message-ingress.ts",
+        "line": 248,
         "priority": "P1",
         "title": "Not done: session commands never wait"
       },
       {
-        "body": "The burst test claims with a clock advanced by ten seconds (line 264), then calls processGroupMessages directly, bypassing the admission scheduler. The stop test replaces the real command handler with one that always succeeds (lines 309\u2013312), so it cannot detect the recovery cancellation defect. The changed end-to-end test also explicitly expires the window before enqueueing work (apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts:1015). Add owner end-to-end coverage through the real admission and command paths, with Postgres and fake channel/runner edges, asserting a single reply after the window and no later reply after cancellation.",
-        "file": "apps/core/test/integration/live-admission-quiet-window.postgres.integration.test.ts",
-        "line": 282,
+        "body": "The take reads receive order, but presentation sorts by provider timestamp first. A message received second with an older provider timestamp is moved ahead of the first message in the agent prompt, violating the promised received-order batch. The existing test explicitly demonstrates this reversal (apps/core/test/unit/runtime/group-processing-flow.test.ts:8\u201377), while the new integration test supplies monotonically increasing timestamps and cannot expose it. Preserve receiveOrder when presenting the batch.",
+        "file": "apps/core/src/runtime/group-processing-flow.ts",
+        "line": 34,
         "priority": "P1",
-        "title": "Not done: end-to-end proof of quiet-window behavior"
-      },
-      {
-        "body": "consumeAll filters only by scope and unconsumed status (apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts:335\u2013355). A message saved after /stop but before this call executes is therefore also marked stopped and never processed. For example, an immediately following /status can disappear without a response. Bound cancellation by the stop item's receive order so subsequent requests remain eligible.",
-        "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 312,
-        "priority": "P2",
-        "title": "Limit /stop cancellation to messages preceding the command"
+        "title": "Not done: messages reach the turn in received order"
       }
     ],
     "status": "blocked",
-    "tree": "bcf4a75e7d358308ef6dab4b39e63348d53fc0a85f09f0492e26deb5492e6ea0"
+    "tree": "ad0cf09eabe87d9a685bb1d6ab6431ab927234d8c9bd0312f0751688f2c280a9"
   },
   "status": "fixing",
   "steps": [
@@ -50,6 +43,10 @@
     },
     {
       "at": "2026-10-01T19:29:36+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T14:03:58+00:00",
       "step": "review"
     }
   ]
