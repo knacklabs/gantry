@@ -3,7 +3,7 @@
   "branch": "fix/sdk-session-status-searches-obsolete-sha",
   "done_when": "Session status uses the canonical session handle and the shared queue key",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T13:04:01+00:00",
