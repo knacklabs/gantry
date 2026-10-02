@@ -1,0 +1,27 @@
+{
+  "base": "4c90482d52203ae77cdc8884074c97ad0c91c68d",
+  "branch": "fix/gantry-misses-newer-provider-features-an",
+  "done_when": "A confirmed spec for provider-native streaming, pacing and controls, with its stories on the roadmap after current work",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "1f4cba93b9d81dacd29f595d56be777396ec1103ee93b69327e53fe736baa2d3",
+    "commit": "f52e0c63843bfbd87cf7b0ae6db82a973629c500",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "b11fca66c6d86fe60d54404687b99c16365865110e940393bb301b6538fa51d5"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T06:46:00+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T10:51:11+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Gantry misses newer provider features and edits faster than Slack allows"
+}
