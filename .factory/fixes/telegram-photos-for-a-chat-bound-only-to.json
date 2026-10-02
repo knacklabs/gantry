@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "db6108107a5623d1a6200c9c3c2cc9a81408723105c5d5209888b92e5cab9654",
-    "commit": "3d92ae38da9f60baa28ad2d70e913e2203d2728f",
+    "changed": "c715fbecf225e5c0a4c18115388e525688fb91b1a948b49cb7456e195633a9dc",
+    "commit": "388646a9ac42dae25ebe162c46d2a98d6e376cde",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The only added proof stops at a mocked `onMessage` callback, which returns 'stored' solely from the account ID. It exercises the routing fix but cannot prove actual persistence or delivery: the real callback can reject messages before storage (`apps/core/src/app/bootstrap/channel-persistence-handlers.ts:164\u2013166`). No corresponding end-to-end scenario exists. The review contract and `apps/core/AGENTS.md:110` require this runtime behaviour to be proven through the real runtime and Postgres. Add one automated test using shared bot credentials and a chat bound only to the second account, asserting that the photo reaches that account's route; fake Telegram at its boundary and ensure the test fails without this fix.",
-        "file": "apps/core/test/unit/channels/telegram.test.ts",
-        "line": 2066,
-        "priority": "P1",
-        "title": "Not done: A Telegram media message reaches every account route that text would reach for that chat, proven by a test where a photo for a cha"
-      }
-    ],
-    "status": "blocked",
-    "tree": "40276b8cc5b39dc8818e849b3cee99cbc175540b0e75de909a91ead3739305c2"
+    "findings": [],
+    "status": "clean",
+    "tree": "ae8408f25863b41be7578e09885f1f0b1bacc8ec6b3f71ddfb2695a1fc33e174"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:24:32+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-01T20:35:22+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T04:44:56+00:00",
       "step": "review"
     }
   ],
