@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-01T18:08:34+00:00
-read_hash: b669a27692ffec67ad60a8c583af63a4f0666769
-round: 1
+read_at: 2026-10-01T18:22:39+00:00
+read_hash: 20b2c0e07bd60211726c45508e976af82c1ba38a
+round: 2
 passed: no
-doc_seen: b669a27692ffec67ad60a8c583af63a4f0666769
+doc_seen: 20b2c0e07bd60211726c45508e976af82c1ba38a
 spec_seen: 4edda298df1c470d20c40e288fd906d0cad5511b
-notes_seen: e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+notes_seen: 16fce2271eb20aa8baae860d69855579dd97441b
 ---
 # Cold read notes
 
@@ -67,4 +67,30 @@ Only a genuine trade-off goes to the human, as a question with options.
 
 12. Split: T2 → runner-client/check consolidation, then engine gate coverage.
     Deleting `permission-callback.ts` alone changes 574 lines, before modifying the Claude runner, DeepAgents tools and inline lanes. Put consolidation first; let the second task own the engine decision table and `deepagents-gantry-tool-gate` test.
+   Disposition: cut
+
+## Round 2
+
+13. T2’s client deletion leaves a production importer outside its scope.
+    `anthropic-claude-agent/runner/job-heartbeat.ts` imports `inFlightPermissionRequests` from the deleted client; the neutral client has no equivalent export. Scope the heartbeat adaptation and prove that a job waiting for permission still reports its pending request.
+   Disposition: cut
+
+14. Item 4 still excludes the recovered Telegram prompt’s settlement owner.
+    `channels/telegram/permission-callback.ts` deletes approved prompts after recovery and sends a new receipt when editing fails. T6 scopes only the live settlement file. Include the recovery owner and test approval after restart plus edit failure without another message.
+   Disposition: cut
+
+15. The route guard runs too late to enforce the confirmed spec’s missing-binding refusal.
+    The revised ladder can return a saved or cached allow before entering the tail, where the route guard lives. T1 must validate the conversation route before those shortcuts, for chat and jobs alike. Add missing/removed-route cases with matching approvals and cached allows.
+   Disposition: cut
+
+16. Unproven: item 1: moving the memory-boundary check preserves its host-owned evidence.
+    `denyMemoryBoundaryToolUse` depends on the run’s suppressed-memory marker, but the host IPC gate and registered run restrictions do not carry that state. T1 must pin its trusted source and scope the producer; add behavioral refusal coverage before T2 removes the runner check.
+   Disposition: cut
+
+17. Unproven: items 1–2: shell shapes reach the classifier under every supported permission mode.
+    `consultPermissionClassifierBeforePrompt` skips `ask` mode, and its `auto_strict` branch asks without consulting when deterministic read-only proof fails. Name the treatment of these existing modes and include them in T3’s engine matrix and T4’s shape cases; removing the rail veto alone does not satisfy item 2.
+   Disposition: cut
+
+18. Unproven: items 1 and 4: invocation identity cannot reuse another run’s answer.
+    T1 must pin the authenticated run/app/agent scope of an engine-supplied ID and reject reuse with a different action. Add cases for the same ID in different runs, changed arguments under one ID, and missing/malformed IDs. The current tests distinguish aliases and separate IDs only.
    Disposition: cut
