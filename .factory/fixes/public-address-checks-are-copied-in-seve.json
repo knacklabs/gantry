@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "1f56dc8bd7bf2a6cc0f6a565ccde8a94386a34e64a10c5ad1ea79eb36e260db9",
-    "commit": "f159b4c85357b71b2492434cf5fb9995d3f8263f",
+    "changed": "f071842d5a48c8102ce1823861e3d60decb505cfe23ec906a4b786d06101fd3a",
+    "commit": "988a334aff3f5a599aabc848a6b1c659564c15af",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "A network destination check still uses an independent classifier: `apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts:286` calls `webReadTargetBlocker`, which calls `isBlockedIpLiteral` at line 625. Lines 646\u2013661 retain copied IPv4 range checks and reject every IPv6 literal, independently of this shared classifier. Thus the branch consolidates two implementations but does not satisfy the requirement that network destination checks use one shared classifier. This remaining active WebRead implementation is additional evidence beyond the unchanged-move and deletion-only rulings. Route its address classification through the shared implementation, keeping any intentional stricter WebRead policy separate.",
-        "file": "apps/core/src/shared/public-address-policy.ts",
-        "line": 80,
-        "priority": "P1",
-        "title": "Not done: Network destination checks use one shared address classifier, mapped IPv6 and invalid addresses included"
-      }
-    ],
-    "status": "blocked",
-    "tree": "3468a259cf28e36de4fd0f50d5ebfe3ac4417f299fbe2c7212a20ace726683b0"
+    "findings": [],
+    "status": "clean",
+    "tree": "63efe8ad51fa89e1e768c91ae35eeca03713e61a711f16645033b8da892d7963"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T12:37:28+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-02T16:33:02+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T22:14:40+00:00",
       "step": "review"
     }
   ],
