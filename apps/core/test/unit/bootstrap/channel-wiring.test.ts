@@ -4198,7 +4198,6 @@ describe('createChannelWiring', () => {
       summary: 'Plan done',
       status: 'done',
       threadId: 'thread-1',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'Work', status: 'completed' }],
     });
 
@@ -4214,7 +4213,6 @@ describe('createChannelWiring', () => {
       expect.objectContaining({
         summary: 'Plan done',
         status: 'failed',
-        stop: undefined,
         flush: true,
         items: [{ id: '1', title: 'Work', status: 'completed' }],
       }),

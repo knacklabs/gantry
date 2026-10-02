@@ -324,9 +324,6 @@ export function buildLiveAdmissionProcessor(input: {
         onFirstProgress: reactionLifecycle.onFirstProgress,
         onFirstVisibleOutput: reactionLifecycle.onFirstVisibleOutput,
         onTurnTerminal: reactionLifecycle.onTerminal,
-        onLiveStopActionToken: async (token) => {
-          await liveTurnAuthority.registerStopAliases(queueJid, [token]);
-        },
       });
       const terminalSuccess =
         success && (liveRunResult === 'success' || liveRunResult === null);
