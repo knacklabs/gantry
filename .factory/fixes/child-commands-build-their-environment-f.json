@@ -1,0 +1,27 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/child-commands-build-their-environment-f",
+  "done_when": "Child commands inherit only whitelisted environment values from one shared builder",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "5befc1a22075621461e51f32a2154f71d7462bc939e30b5eec98b18b226fca96",
+    "commit": "46afe82833f739fb5a97b7bddc0b5d60f8efeb63",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "1e70601ed8d12e128e25cc9f8a9d0c90c049a04e9370e8bafe3ca17adde931ee"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T12:46:17+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:41:05+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Child commands build their environment from copied lists"
+}

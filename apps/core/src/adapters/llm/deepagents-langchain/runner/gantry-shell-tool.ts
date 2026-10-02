@@ -4,7 +4,7 @@ import { tool } from '@langchain/core/tools';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { z } from 'zod';
 
-import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
+import { buildChildCommandEnv } from '../../../../shared/child-command-env.js';
 import {
   type DurableAccessReformulationResult,
   remoteContentExecutionReformulation,
@@ -67,67 +67,6 @@ const MAX_OUTPUT_CHARS = 16_000;
 // budget; the model can re-issue with a narrower command if it needs more.
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const COMMAND_TERMINATE_GRACE_MS = 1_000;
-
-// Network/proxy + CA-trust env keys the child must carry so egress stays on the
-// Gantry egress gateway and TLS trust resolves — for EVERY client type, not just
-// node. These are projected explicitly through toolNetworkEnv (buildToolNetworkEnv
-// in shared/tool-network-env.ts sets the proxy/gRPC/CA keys; agent-spawn-helpers.ts
-// sets GODEBUG=netdns=go for Go's resolver). The child env is an explicit allowlist
-// so these carry through while secrets do not. This MUST stay a superset of what
-// buildToolNetworkEnv projects (a test asserts it) — the Claude lane's
-// bash-trust-env.ts carries the same set; missing keys silently break egress for
-// Go/gRPC/curl/git tools.
-export const SHELL_CHILD_NETWORK_ENV_KEYS = [
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'ALL_PROXY',
-  'all_proxy',
-  'GRPC_PROXY',
-  'grpc_proxy',
-  'NO_PROXY',
-  'no_proxy',
-  'NODE_USE_ENV_PROXY',
-  'GODEBUG',
-  'GANTRY_EGRESS_PROXY_URL',
-  'NODE_EXTRA_CA_CERTS',
-  ...NEUTRAL_CA_TRUST_ENV_KEYS,
-] as const;
-
-// Minimal POSIX keys a shell needs to function. Only those actually set on
-// process.env are copied (skip undefined).
-const SHELL_CHILD_POSIX_ENV_KEYS = [
-  'PATH',
-  'HOME',
-  'TMPDIR',
-  'LANG',
-  'LC_ALL',
-  'USER',
-  'SHELL',
-  'TERM',
-] as const;
-
-// Secret-scrub: the model controls the command, so the child must NOT see the
-// runner's IPC HMAC keys (GANTRY_IPC_AUTH_TOKEN/SECRET,
-// GANTRY_MEMORY_IPC_AUTH_TOKEN) or any provider creds / gtw_ gateway tokens that
-// live on process.env — a `printenv` would otherwise exfiltrate them and let the
-// model forge IPC messages. Build a fresh env from an explicit allowlist of
-// network/proxy + POSIX keys, copying ONLY set values, and pass that to spawn.
-function buildShellChildEnv(
-  toolNetworkEnv: Record<string, string> | undefined,
-): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of SHELL_CHILD_NETWORK_ENV_KEYS) {
-    const value = toolNetworkEnv?.[key];
-    if (typeof value === 'string') env[key] = value;
-  }
-  for (const key of SHELL_CHILD_POSIX_ENV_KEYS) {
-    const value = process.env[key];
-    if (typeof value === 'string') env[key] = value;
-  }
-  return env;
-}
 
 export interface GantryShellToolConfig {
   workspaceFolder: string;
@@ -241,7 +180,7 @@ export function createGantryShellTool(
 
 // Executes the approved command as a child of the already-sandboxed runner. The
 // child inherits the OS sandbox confinement (protected-path write denies) from
-// being a runner child; its env is a scrubbed allowlist (buildShellChildEnv) so
+// being a runner child; its env is a scrubbed allowlist (buildChildCommandEnv) so
 // only explicit toolNetworkEnv proxy/CA keys carry through — egress stays on the
 // Gantry egress gateway — but the IPC HMAC keys, provider creds, and ambient
 // runner proxy vars do NOT leak to the model-controlled command. Uses a shell so
@@ -266,7 +205,7 @@ async function runShellCommand(
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
     const child = spawn('/bin/sh', ['-c', command], {
       cwd: config.cwd,
-      env: buildShellChildEnv(config.toolNetworkEnv),
+      env: buildChildCommandEnv(process.env, config.toolNetworkEnv),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });

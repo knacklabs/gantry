@@ -206,36 +206,14 @@ export function createRuntimeUserVisibleResultAccumulator(input?: {
   snapshot: () => string | null;
 } {
   const bounded = createRuntimeResultSummaryAccumulator(input);
-  const state = {
-    carry: '',
-    insideInternal: false,
-  };
-  const flush = (delta: string, done: boolean): void => {
-    const { body: internalBody, carry: internalCarry } = splitInternalCarry(
-      `${state.carry}${delta}`,
-      done,
-    );
-    state.carry = internalCarry;
-    const withoutInternal = stripInternalBlocksIncrementally(
-      internalBody,
-      state,
-    );
-    const { body: providerBody, carry: providerCarry } =
-      splitProviderSessionCarry(withoutInternal, done);
-    state.carry = `${providerCarry}${state.carry}`;
-    const safe = redactProviderSessionHandlesInText(providerBody);
-    if (safe) bounded.append(safe);
-  };
+  const sanitizer = createRuntimeUserVisibleStreamSanitizer();
 
   return {
     append(delta) {
-      if (!delta) return;
-      flush(delta, false);
+      bounded.append(sanitizer.append(delta));
     },
     snapshot() {
-      flush('', true);
-      state.carry = '';
-      state.insideInternal = false;
+      bounded.append(sanitizer.finish());
       return bounded.snapshot();
     },
   };

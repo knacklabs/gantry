@@ -1,4 +1,5 @@
 import type { AbortSignal as GrammyAbortSignal } from 'abort-controller';
+import { updateReactionCache } from '../reaction-cache.js';
 import { telegramReactionEmoji } from './live-ux.js';
 
 export async function addTelegramReaction(input: {
@@ -25,30 +26,19 @@ export async function addTelegramReaction(input: {
   if (!Number.isFinite(messageId)) return;
   const reaction = telegramReactionEmoji(input.emoji);
   const key = `${input.jid}:${messageId}:${reaction}`;
-  if (!input.reconcile && input.reactionKeys.has(key)) return;
   const prefix = `${input.jid}:${messageId}:`;
-  const invalidate = () => {
-    for (const cachedKey of input.reactionKeys) {
-      if (cachedKey.startsWith(prefix)) input.reactionKeys.delete(cachedKey);
-    }
-  };
-  if (input.reconcile) invalidate();
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
-    await input.bot.api.setMessageReaction(
-      numericId,
-      messageId,
-      [{ type: 'emoji', emoji: reaction as never }],
-      { is_big: false },
-      input.signal as unknown as GrammyAbortSignal | undefined,
-    );
-    if (!input.signal?.aborted) {
-      invalidate();
-      input.reactionKeys.add(key);
-    }
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  await updateReactionCache(
+    { ...input, key, operation: 'add', messagePrefix: prefix },
+    async () => {
+      await input.bot.api.setMessageReaction(
+        numericId,
+        messageId,
+        [{ type: 'emoji', emoji: reaction as never }],
+        { is_big: false },
+        input.signal as unknown as GrammyAbortSignal | undefined,
+      );
+    },
+  );
 }
 
 export async function removeTelegramReaction(input: {
@@ -73,23 +63,16 @@ export async function removeTelegramReaction(input: {
   const messageId = Number.parseInt(input.messageRef, 10);
   if (!Number.isFinite(messageId)) return;
   const prefix = `${input.jid}:${messageId}:`;
-  const invalidate = () => {
-    for (const key of input.reactionKeys) {
-      if (key.startsWith(prefix)) input.reactionKeys.delete(key);
-    }
-  };
-  if (input.reconcile) invalidate();
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
-    await input.bot.api.setMessageReaction(
-      numericId,
-      messageId,
-      [],
-      undefined,
-      input.signal as unknown as GrammyAbortSignal | undefined,
-    );
-    if (!input.signal?.aborted) invalidate();
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  await updateReactionCache(
+    { ...input, key: prefix, operation: 'remove', messagePrefix: prefix },
+    async () => {
+      await input.bot.api.setMessageReaction(
+        numericId,
+        messageId,
+        [],
+        undefined,
+        input.signal as unknown as GrammyAbortSignal | undefined,
+      );
+    },
+  );
 }

@@ -1,0 +1,27 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/streaming-output-has-two-sanitizers",
+  "done_when": "One streaming sanitizer handles accumulation, and the second state machine is deleted",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "f44b10c79169c2eee1456b0481232d4002b997f02ed16180418f1d151f0035b6",
+    "commit": "8b6a1475df09d87e8a4cabb091891bf683c2a425",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "bf093c25bfa2828345f0361c66c642c512fd3e8f4a832c5a1937f4d4cbf37121"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T13:19:53+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:53:55+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Streaming output has two sanitizers"
+}
