@@ -3,7 +3,7 @@
   "branch": "fix/reaction-add-and-remove-repeat-the-same",
   "done_when": "One small helper handles the reaction cache and abort lifecycle for Slack, Discord and Telegram, keeping each provider's invalidation rule",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:49:46+00:00",
