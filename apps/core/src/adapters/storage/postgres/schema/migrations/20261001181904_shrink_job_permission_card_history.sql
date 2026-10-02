@@ -97,35 +97,28 @@ BEGIN
   END LOOP;
 END $$;
 --> statement-breakpoint
--- A once-need that was applied, withdrawn (cancelled without expiring) or
--- expired before the job's three newest expiries is settled unless a rerun
--- not yet enqueued still requires it; settled needs leave every per-job load.
-WITH expired AS (
+-- A finished once-need (applied, denied or cancelled; FINISHED_NEED_STATES in
+-- job-permission-card-history.ts) is settled unless it is one of the job's
+-- three newest or a rerun not yet enqueued still requires it; settled needs
+-- leave every per-job load.
+WITH finished AS (
   SELECT id, row_number() OVER (
     PARTITION BY app_id, payload_json ->> 'jobId'
-    ORDER BY payload_json ->> 'expiredAt' DESC,
+    ORDER BY payload_json ->> 'updatedAt' DESC,
       payload_json ->> 'createdAt' DESC,
       id DESC
   ) AS newest
   FROM pending_interactions
   WHERE kind = 'job_permission_need'
     AND status = 'pending'
-    AND payload_json ->> 'state' = 'cancelled'
-    AND payload_json ->> 'expiredAt' IS NOT NULL
+    AND payload_json ->> 'grant' = 'once'
+    AND payload_json ->> 'state' IN ('applied', 'denied', 'cancelled')
 )
 UPDATE pending_interactions AS need
 SET status = 'resolved', resolved_at = COALESCE(need.resolved_at, now())
-WHERE need.kind = 'job_permission_need'
-  AND need.status = 'pending'
-  AND need.payload_json ->> 'grant' = 'once'
-  AND (
-    need.payload_json ->> 'state' = 'applied'
-    OR (
-      need.payload_json ->> 'state' = 'cancelled'
-      AND need.payload_json ->> 'expiredAt' IS NULL
-    )
-    OR need.id IN (SELECT id FROM expired WHERE newest > 3)
-  )
+FROM finished
+WHERE need.id = finished.id
+  AND finished.newest > 3
   AND NOT EXISTS (
     SELECT 1
     FROM pending_interactions AS card,

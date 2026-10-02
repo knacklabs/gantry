@@ -15,6 +15,10 @@ import {
   jobPermissionLeaseExtensionMs,
 } from '@core/jobs/execution-lease.js';
 import { jobPermissionCardActions } from '@core/domain/job-permission-card-actions.js';
+import {
+  FINISHED_NEED_STATES,
+  type FinishedNeedState,
+} from '@core/domain/job-permission-card-history.js';
 import type {
   JobPermissionCardRecord,
   JobPermissionCardRevision,
@@ -332,54 +336,14 @@ maybeDescribe('job permission card history', () => {
     ).resolves.toEqual({ status: 'stale' });
   }, 600_000);
 
-  it('keeps no open need rows across hundreds of approved once-requests', async () => {
-    const jobId = 'job-once-requests';
-    // Each approved once-request costs about ten transactions through the
-    // real service, so 300 runs keep this test to about two minutes; the
-    // open-row check fails at run 100 when settled needs stay open.
-    for (let run = 1; run <= 300; run += 1) {
-      await attachOnce(jobId, run);
-      const current = await state(jobId);
-      const need = current.needs.find(
-        (candidate) => candidate.canonicalIdentity === `request-${run}`,
-      )!;
-      await service.decideCard({
-        appId: APP_ID,
-        jobId,
-        sourceAgentFolder: 'main_agent',
-        actorRef: APPROVER,
-        revision: current.card.revision,
-        decision: 'allow',
-        needId: need.id,
-        askingEpoch: need.askingEpoch,
-      });
-      await settleOpenCardSends('once-message');
-      await service.reconcile();
-      if (run % 100 === 0) expect(await openNeedRows(jobId)).toBe(0);
-    }
-
-    expect((await state(jobId)).needs).toEqual([]);
-    const startedAt = performance.now();
-    await jobPermissionLeaseExtensionMs({
-      appId: APP_ID,
-      jobId,
-      sourceAgentFolder: 'main_agent',
-      runId: 'run-301',
-    });
-    expect(performance.now() - startedAt).toBeLessThan(500);
-    // A replayed request still finds its applied need instead of asking again.
-    await expect(attachOnce(jobId, 1)).resolves.toMatchObject({
-      status: 'applied',
-    });
-  }, 600_000);
-
   it('keeps a settled once-need while a pending rerun requires it, and removes old settled rows', async () => {
     const jobId = 'job-once-rerun';
-    await attachOnce(jobId, 1);
-    await attachOnce(jobId, 2);
+    for (let run = 1; run <= 5; run += 1) await attachOnce(jobId, run);
     const { needs } = await state(jobId);
-    const gated = needs.find((need) => need.canonicalIdentity === 'request-1');
-    const free = needs.find((need) => need.canonicalIdentity === 'request-2');
+    const byIdentity = (identity: string) =>
+      needs.find((need) => need.canonicalIdentity === identity)!;
+    const gated = byIdentity('request-1');
+    const free = byIdentity('request-2');
     const applied = (needId: string, priorRunId?: string) =>
       repository().mutateJobPermissionState({
         appId: APP_ID,
@@ -405,12 +369,19 @@ maybeDescribe('job permission card history', () => {
         },
       });
     await applied(gated!.id, 'run-1');
-    await applied(free!.id);
+    // Four newer finished needs push both older ones past the newest three.
+    for (let run = 2; run <= 5; run += 1) {
+      await applied(byIdentity(`request-${run}`).id);
+    }
 
     let statuses = await needRowStatuses(jobId);
     expect(statuses.get(gated!.id)).toBe('pending');
     expect(statuses.get(free!.id)).toBe('resolved');
-    expect((await state(jobId)).needs.map(({ id }) => id)).toEqual([gated!.id]);
+    expect(
+      (await state(jobId)).needs
+        .map(({ canonicalIdentity }) => canonicalIdentity)
+        .sort(),
+    ).toEqual(['request-1', 'request-3', 'request-4', 'request-5']);
 
     // The rerun is enqueued; its need settles on that write.
     await repository().mutateJobPermissionState({
@@ -431,11 +402,11 @@ maybeDescribe('job permission card history', () => {
         WHERE id = $1`,
       [free!.id],
     );
-    await attachOnce(jobId, 3);
-    const third = (await state(jobId)).needs.find(
-      (need) => need.canonicalIdentity === 'request-3',
+    await attachOnce(jobId, 6);
+    const sixth = (await state(jobId)).needs.find(
+      (need) => need.canonicalIdentity === 'request-6',
     )!;
-    await applied(third.id);
+    await applied(sixth.id);
     statuses = await needRowStatuses(jobId);
     expect(statuses.has(free!.id)).toBe(false);
     expect(statuses.get(gated!.id)).toBe('resolved');
@@ -483,125 +454,195 @@ maybeDescribe('job permission card history', () => {
     });
   });
 
-  it('keeps only the newest expired once-requests on the card across hundreds of runs', async () => {
-    const jobId = 'job-once-expiring';
-    // Every run ends before anyone answers, so each one-time request expires.
-    for (let run = 1; run <= 300; run += 1) {
-      await attachOnce(jobId, run, `dead-run-${run}`);
-      for (let tick = 0; tick < 3; tick += 1) {
-        await settleOpenCardSends('expiring-message');
-        await service.reconcile();
-      }
-      if (run % 100 === 0) {
-        expect(await openNeedRows(jobId)).toBeLessThanOrEqual(3);
-      }
-    }
-
-    const { card, needs } = await state(jobId);
-    expect(needs.map(({ canonicalIdentity }) => canonicalIdentity)).toEqual(
-      expect.arrayContaining(['request-298', 'request-299', 'request-300']),
-    );
-    expect(needs).toHaveLength(3);
-    expect(needs.every(({ expiredAt }) => Boolean(expiredAt))).toBe(true);
-    const latest = card.revisions.at(-1)!;
-    expect(latest.representedNeeds.length).toBeLessThanOrEqual(3);
-    // The owner still sees the expired receipt for the latest requests.
-    expect(latest).toMatchObject({ retireOutcome: 'expired' });
-    expect(latest.retiredRows).toHaveLength(3);
-  }, 600_000);
-
-  it('settles existing once-needs and trims request snapshots in the migration', async () => {
-    const jobId = 'job-migrate-needs';
-    await attachOnce(jobId, 1);
-    await attachOnce(jobId, 2);
-    await attachOnce(jobId, 3);
-    await attach(jobId, 'run-4');
-    for (let run = 5; run <= 8; run += 1) await attachOnce(jobId, run);
-    const needs = (await state(jobId)).needs;
-    const byIdentity = (identity: string) =>
-      needs.find((need) => need.canonicalIdentity === identity)!;
-    const settled = byIdentity('request-1');
-    const gated = byIdentity('request-2');
-    const expired = byIdentity('request-3');
-    const rule = needs.find((need) => need.grant !== 'once')!;
-    const setPayload = (id: string, patch: Record<string, unknown>) =>
-      query(
-        `UPDATE pending_interactions SET payload_json = payload_json || $2::jsonb
-          WHERE id = $1`,
-        [id, JSON.stringify(patch)],
-      );
-    await setPayload(settled.id, { state: 'applied' });
-    await setPayload(gated.id, { state: 'applied' });
-    // Five expiries; the card keeps the newest three (runs 6 to 8).
-    for (const run of [3, 5, 6, 7, 8]) {
-      await setPayload(byIdentity(`request-${run}`).id, {
-        state: 'cancelled',
-        expiredAt: `2026-10-01T00:00:0${run}.000Z`,
-      });
-    }
-    await setPayload(rule.id, {
-      requestSnapshots: Array.from({ length: 8 }, (_, index) => ({
-        requestId: `snapshot-${index + 1}`,
-        request: {},
-      })),
-    });
-    await query(
-      `UPDATE pending_interactions SET payload_json = jsonb_set(payload_json, '{rerunBarriers}', $2::jsonb)
-        WHERE kind = 'job_permission_card' AND payload_json->>'jobId' = $1`,
-      [
-        jobId,
-        JSON.stringify([
-          {
-            priorRunId: 'run-2',
-            requiredNeeds: [{ needId: gated.id, askingEpoch: 1 }],
-            requestedAt: settled.createdAt,
-            requestedBy: APPROVER,
-            enqueuedAt: null,
-          },
-        ]),
-      ],
-    );
-
-    const migration = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/adapters/storage/postgres/schema/migrations/20261001181904_shrink_job_permission_card_history.sql',
-      ),
-      'utf8',
-    );
-    await query(migration);
-    const once = await query(
-      `SELECT id, status, resolved_at, payload_json FROM pending_interactions
-        WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
-      [jobId],
-    );
-    await query(migration);
-    const twice = await query(
-      `SELECT id, status, resolved_at, payload_json FROM pending_interactions
-        WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
-      [jobId],
-    );
-
-    expect(twice.rows).toEqual(once.rows);
-    const statuses = await needRowStatuses(jobId);
-    expect(statuses.get(settled.id)).toBe('resolved');
-    expect(statuses.get(gated.id)).toBe('pending');
-    expect(statuses.get(expired.id)).toBe('resolved');
-    expect(statuses.get(byIdentity('request-5').id)).toBe('resolved');
-    for (const run of [6, 7, 8]) {
-      expect(statuses.get(byIdentity(`request-${run}`).id)).toBe('pending');
-    }
-    expect(statuses.get(rule.id)).toBe('pending');
-    const trimmed = (await state(jobId)).needs.find(
-      (need) => need.id === rule.id,
+  async function decideOnce(
+    jobId: string,
+    run: number,
+    decision: 'allow' | 'deny',
+  ) {
+    await attachOnce(jobId, run);
+    const current = await state(jobId);
+    const need = current.needs.find(
+      (candidate) => candidate.canonicalIdentity === `request-${run}`,
     )!;
-    expect(trimmed.requestSnapshots.map(({ requestId }) => requestId)).toEqual([
-      'snapshot-4',
-      'snapshot-5',
-      'snapshot-6',
-      'snapshot-7',
-      'snapshot-8',
-    ]);
-  });
+    await service.decideCard({
+      appId: APP_ID,
+      jobId,
+      sourceAgentFolder: 'main_agent',
+      actorRef: APPROVER,
+      revision: current.card.revision,
+      decision,
+      needId: need.id,
+      askingEpoch: need.askingEpoch,
+    });
+  }
+
+  // How a run's one-time request reaches each finished state through the
+  // real service, and what the card or a replay still shows afterwards.
+  const finishRun: Record<
+    FinishedNeedState,
+    {
+      start: (jobId: string, run: number) => Promise<void>;
+      afterwards: (jobId: string) => Promise<void>;
+    }
+  > = {
+    applied: {
+      start: (jobId, run) => decideOnce(jobId, run, 'allow'),
+      afterwards: async (jobId) => {
+        // A replayed request still finds its applied need instead of asking.
+        await expect(attachOnce(jobId, 1)).resolves.toMatchObject({
+          status: 'applied',
+        });
+      },
+    },
+    denied: {
+      start: (jobId, run) => decideOnce(jobId, run, 'deny'),
+      afterwards: async (jobId) => {
+        await expect(attachOnce(jobId, 1)).resolves.toMatchObject({
+          status: 'denied',
+        });
+      },
+    },
+    // Every run ends before anyone answers, so the request expires.
+    cancelled: {
+      start: async (jobId, run) => {
+        await attachOnce(jobId, run, `dead-run-${run}`);
+      },
+      afterwards: async (jobId) => {
+        // The owner still sees the expired receipt for the latest requests.
+        const latest = (await state(jobId)).card.revisions.at(-1)!;
+        expect(latest).toMatchObject({ retireOutcome: 'expired' });
+        expect(latest.retiredRows).toHaveLength(3);
+      },
+    },
+  };
+
+  it.each(FINISHED_NEED_STATES)(
+    'keeps at most three %s once-requests open across hundreds of runs',
+    async (finished) => {
+      const jobId = `job-once-${finished}`;
+      // Each run costs about ten transactions through the real service, so
+      // 300 runs keep this to about two minutes; the open-row check fails at
+      // run 100 when finished needs stay open.
+      for (let run = 1; run <= 300; run += 1) {
+        await finishRun[finished].start(jobId, run);
+        for (let tick = 0; tick < 3; tick += 1) {
+          await settleOpenCardSends('once-message');
+          await service.reconcile();
+        }
+        if (run % 100 === 0) {
+          expect(await openNeedRows(jobId)).toBeLessThanOrEqual(3);
+        }
+      }
+
+      const { card, needs } = await state(jobId);
+      // Only the newest three stay, each in the state its run ended in.
+      expect(needs.map(({ state }) => state)).toEqual(Array(3).fill(finished));
+      expect(
+        card.revisions.at(-1)!.representedNeeds.length,
+      ).toBeLessThanOrEqual(3);
+      const startedAt = performance.now();
+      await jobPermissionLeaseExtensionMs({
+        appId: APP_ID,
+        jobId,
+        sourceAgentFolder: 'main_agent',
+        runId: 'run-301',
+      });
+      expect(performance.now() - startedAt).toBeLessThan(500);
+      await finishRun[finished].afterwards(jobId);
+    },
+    600_000,
+  );
+
+  it.each(FINISHED_NEED_STATES)(
+    'settles all but the newest three %s once-needs and trims request snapshots in the migration',
+    async (finished) => {
+      const jobId = `job-migrate-${finished}`;
+      for (let run = 1; run <= 6; run += 1) await attachOnce(jobId, run);
+      await attach(jobId, 'run-7');
+      const needs = (await state(jobId)).needs;
+      const byIdentity = (identity: string) =>
+        needs.find((need) => need.canonicalIdentity === identity)!;
+      const gated = byIdentity('request-1');
+      const rule = needs.find((need) => need.grant !== 'once')!;
+      const setPayload = (id: string, patch: Record<string, unknown>) =>
+        query(
+          `UPDATE pending_interactions SET payload_json = payload_json || $2::jsonb
+            WHERE id = $1`,
+          [id, JSON.stringify(patch)],
+        );
+      // Six finished needs; the card keeps the newest three (runs 4 to 6).
+      for (let run = 1; run <= 6; run += 1) {
+        await setPayload(byIdentity(`request-${run}`).id, {
+          state: finished,
+          updatedAt: `2026-10-01T00:00:0${run}.000Z`,
+        });
+      }
+      await setPayload(rule.id, {
+        requestSnapshots: Array.from({ length: 8 }, (_, index) => ({
+          requestId: `snapshot-${index + 1}`,
+          request: {},
+        })),
+      });
+      await query(
+        `UPDATE pending_interactions SET payload_json = jsonb_set(payload_json, '{rerunBarriers}', $2::jsonb)
+          WHERE kind = 'job_permission_card' AND payload_json->>'jobId' = $1`,
+        [
+          jobId,
+          JSON.stringify([
+            {
+              priorRunId: 'run-1',
+              requiredNeeds: [{ needId: gated.id, askingEpoch: 1 }],
+              requestedAt: gated.createdAt,
+              requestedBy: APPROVER,
+              enqueuedAt: null,
+            },
+          ]),
+        ],
+      );
+
+      const migration = fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/20261001181904_shrink_job_permission_card_history.sql',
+        ),
+        'utf8',
+      );
+      await query(migration);
+      const once = await query(
+        `SELECT id, status, resolved_at, payload_json FROM pending_interactions
+          WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
+        [jobId],
+      );
+      await query(migration);
+      const twice = await query(
+        `SELECT id, status, resolved_at, payload_json FROM pending_interactions
+          WHERE kind = 'job_permission_need' AND payload_json->>'jobId' = $1 ORDER BY id`,
+        [jobId],
+      );
+
+      expect(twice.rows).toEqual(once.rows);
+      const statuses = await needRowStatuses(jobId);
+      expect(statuses.get(gated.id)).toBe('pending');
+      for (const run of [2, 3]) {
+        expect(statuses.get(byIdentity(`request-${run}`).id)).toBe('resolved');
+      }
+      for (const run of [4, 5, 6]) {
+        expect(statuses.get(byIdentity(`request-${run}`).id)).toBe('pending');
+      }
+      expect(statuses.get(rule.id)).toBe('pending');
+      const trimmed = (await state(jobId)).needs.find(
+        (need) => need.id === rule.id,
+      )!;
+      expect(
+        trimmed.requestSnapshots.map(({ requestId }) => requestId),
+      ).toEqual([
+        'snapshot-4',
+        'snapshot-5',
+        'snapshot-6',
+        'snapshot-7',
+        'snapshot-8',
+      ]);
+    },
+  );
 
   it('shrinks an oversized card and settles its stale ambiguous sends', async () => {
     const jobId = 'job-oversized';

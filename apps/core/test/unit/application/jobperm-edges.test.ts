@@ -309,7 +309,9 @@ it('keeps the newest three expired requests as the retire receipt', () => {
         ({
           id: `need-${index}`,
           state: 'cancelled',
+          grant: 'once',
           expiredAt: `2026-08-24T00:00:${String(index).padStart(2, '0')}.000Z`,
+          updatedAt: `2026-08-24T00:00:${String(index).padStart(2, '0')}.000Z`,
           displayLabel: `Command ${index}`,
           createdAt: now,
         }) as JobPermissionNeedRecord,

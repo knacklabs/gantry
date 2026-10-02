@@ -1,12 +1,12 @@
 import type {
   JobPermissionCardRecord,
   JobPermissionDurabilityState,
-  JobPermissionNeedRecord,
+  JobPermissionNeedState,
 } from './ports/job-permission-durability.js';
 
 const MAX_RESUMED_RUN_BUDGETS = 20;
 const MAX_ENQUEUED_RERUN_BARRIERS = 20;
-const EXPIRED_RECEIPT_NEEDS = 3;
+const FINISHED_ONCE_NEEDS_KEPT = 3;
 
 // Keeps the latest revision, the one on screen, the one that opened the
 // current message (its confirmation time decides edit vs replace), and every
@@ -64,34 +64,36 @@ export function pruneSettledCardHistory(card: JobPermissionCardRecord): void {
   );
 }
 
-// Only expired needs (always once-needs) set expiredAt. The card keeps the
-// newest few as its "expired, will ask again next run" receipt; older ones
-// leave the card and settle.
-export function staleExpiredNeedIds(
-  needs: readonly JobPermissionNeedRecord[],
-): Set<string> {
-  return new Set(
-    needs
-      .filter((need) => need.state === 'cancelled' && need.expiredAt)
-      .sort(
-        (left, right) =>
-          right.expiredAt!.localeCompare(left.expiredAt!) ||
-          right.createdAt.localeCompare(left.createdAt) ||
-          right.id.localeCompare(left.id),
-      )
-      .slice(EXPIRED_RECEIPT_NEEDS)
-      .map((need) => need.id),
-  );
-}
+// Whether a need in each state is finished for good. Keyed by every state, so
+// a new state does not compile until it is classified here.
+const FINISHED = {
+  asking: false,
+  approved_pending_apply: false,
+  applied: true,
+  denied_pending_delivery: false,
+  denied: true,
+  handoff_pending: false,
+  handed_off: false,
+  cancelled: true,
+} as const satisfies Record<JobPermissionNeedState, boolean>;
 
-// A once-need answers a single request, so once it is applied, withdrawn
-// (cancelled without expiring) or an expiry older than the card's receipt, it
-// is never shown on the card or matched by another request. It stays live
-// while a rerun not yet enqueued requires it.
+export type FinishedNeedState = {
+  [State in JobPermissionNeedState]: (typeof FINISHED)[State] extends true
+    ? State
+    : never;
+}[JobPermissionNeedState];
+
+export const FINISHED_NEED_STATES = (
+  Object.keys(FINISHED) as JobPermissionNeedState[]
+).filter((state): state is FinishedNeedState => FINISHED[state]);
+
+// A finished once-need answers a single request: it never asks again, and a
+// replayed request finds it by id even once settled. The card keeps the newest
+// three as its receipt; older ones settle unless a rerun not yet enqueued
+// still requires them.
 export function settledOnceNeedIds(
   state: JobPermissionDurabilityState,
 ): Set<string> {
-  const stale = staleExpiredNeedIds(state.needs);
   const gating = new Set(
     state.card.rerunBarriers
       .filter((barrier) => !barrier.enqueuedAt)
@@ -99,14 +101,15 @@ export function settledOnceNeedIds(
   );
   return new Set(
     state.needs
-      .filter(
-        (need) =>
-          need.grant === 'once' &&
-          (need.state === 'applied' ||
-            (need.state === 'cancelled' && !need.expiredAt) ||
-            stale.has(need.id)) &&
-          !gating.has(need.id),
+      .filter((need) => need.grant === 'once' && FINISHED[need.state])
+      .sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          right.createdAt.localeCompare(left.createdAt) ||
+          right.id.localeCompare(left.id),
       )
-      .map((need) => need.id),
+      .slice(FINISHED_ONCE_NEEDS_KEPT)
+      .map((need) => need.id)
+      .filter((id) => !gating.has(id)),
   );
 }

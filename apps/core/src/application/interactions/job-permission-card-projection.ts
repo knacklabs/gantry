@@ -5,7 +5,7 @@ import {
   type JobPermissionDurabilityState,
   type JobPermissionNeedRecord,
 } from '../../domain/ports/job-permission-durability.js';
-import { staleExpiredNeedIds } from '../../domain/job-permission-card-history.js';
+import { settledOnceNeedIds } from '../../domain/job-permission-card-history.js';
 import { sha256Hex } from '../../shared/stable-hash.js';
 import { canonicalJson } from '../../shared/canonical-json.js';
 import type { JobPermissionCardCapacity } from './job-permission-durability.js';
@@ -320,14 +320,13 @@ export function confirmCardRevisionInState(input: {
 export function livingCardNeeds(
   state: JobPermissionDurabilityState,
 ): JobPermissionNeedRecord[] {
-  const stale = staleExpiredNeedIds(state.needs);
+  const settled = settledOnceNeedIds(state);
   return state.needs
     .filter(
       (need) =>
-        ['asking', 'handed_off', 'denied'].includes(need.state) ||
-        (need.state === 'cancelled' &&
-          Boolean(need.expiredAt) &&
-          !stale.has(need.id)),
+        (['asking', 'handed_off', 'denied'].includes(need.state) ||
+          (need.state === 'cancelled' && Boolean(need.expiredAt))) &&
+        !settled.has(need.id),
     )
     .sort((left, right) =>
       left.createdAt === right.createdAt
