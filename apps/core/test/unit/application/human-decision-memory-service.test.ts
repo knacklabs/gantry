@@ -41,7 +41,6 @@ function fakeRepository(
     listHumanDecisions: vi.fn(async () => []),
     findHumanDecision: vi.fn(async () => null),
     revokeById: vi.fn(async () => 'not_found' as const),
-    countExactAllowsByTool: vi.fn(async () => ({})),
     ...overrides,
   } satisfies PermissionDecisionMemoryRepository;
 }
@@ -398,7 +397,7 @@ describe('human decision memory service', () => {
     });
   });
 
-  it('list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, revoke relays applied, already_revoked and not_found with the app, folder and person axes, and countExactAllowsByTool relays the repository map', async () => {
+  it('list is person-scoped with short ids derived as six dash-free hex characters extended only on a sibling collision and disambiguated against every active sibling before the limit is applied, and revoke relays applied, already_revoked and not_found with the app, folder and person axes', async () => {
     expect(deriveHumanDecisionShortIds([STORED_ID]).get(STORED_ID)).toBe(
       'abcdef',
     );
@@ -418,11 +417,9 @@ describe('human decision memory service', () => {
       .mockResolvedValueOnce('applied')
       .mockResolvedValueOnce('already_revoked')
       .mockResolvedValueOnce('not_found');
-    const countExactAllowsByTool = vi.fn(async () => ({ file: 2 }));
     const repository = fakeRepository({
       listHumanDecisions,
       revokeById,
-      countExactAllowsByTool,
     });
     const service = new HumanDecisionMemoryService({
       repository,
@@ -457,17 +454,6 @@ describe('human decision memory service', () => {
       ...revokeInput,
       nowIso: NOW,
     });
-
-    const countInput = {
-      appId: 'app-one',
-      agentFolder: 'main_agent',
-      actingPersonId: 'person-one',
-      railVersion: 7,
-    };
-    await expect(service.countExactAllowsByTool(countInput)).resolves.toEqual({
-      file: 2,
-    });
-    expect(countExactAllowsByTool).toHaveBeenCalledWith(countInput);
   });
 
   it('derives a large batch of short ids in one pass', () => {

@@ -792,7 +792,7 @@ async function handleTelegramPermissionCallback(
     await ctx.answer('Could not record the decision. Please retry.', true);
     return;
   }
-  await ctx.answer(permissionSettlementReceipt(mode, pending));
+  await ctx.answer(permissionSettlementReceipt(mode));
 }
 async function authorizePendingTelegramPermission(
   channel: TelegramCallbackChannel,
@@ -886,15 +886,11 @@ function permissionSettlementReceipt(
   mode:
     | NonNullable<PermissionApprovalDecision['mode']>
     | PermissionRememberCode,
-  pending: PendingPermission,
 ): string {
   const scalarMode = decodePermissionDecisionCode(mode)?.mode;
-  return scalarMode === 'allow_persistent_rule' &&
-    pending.request.permissionBatch
-    ? 'Starting individual review.'
-    : scalarMode === 'allow_once'
-      ? 'Allowed once.'
-      : scalarMode === 'allow_persistent_rule'
-        ? 'Allowed for future.'
-        : 'Canceled.';
+  return scalarMode === 'allow_once'
+    ? 'Allowed once.'
+    : scalarMode === 'allow_persistent_rule'
+      ? 'Allowed for future.'
+      : 'Canceled.';
 }

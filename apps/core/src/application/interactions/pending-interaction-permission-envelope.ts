@@ -1,6 +1,16 @@
-import type { PermissionApprovalRequest } from '../../domain/types.js';
+import type {
+  InteractionDescriptor,
+  PermissionApprovalRequest,
+} from '../../domain/types.js';
+import {
+  permissionDisplayText,
+  permissionDisplayToolInput,
+} from '../../shared/permission-display-input.js';
+import { sanitizeCredentialText } from '../../shared/sensitive-material.js';
 import { parsePermissionCardAffordances } from '../permissions/permission-card-affordances.js';
 
+const WHY_MAX_CHARS = 200;
+const MESSAGE_PATTERN = /<message\b[^>]*>([\s\S]*?)(?:<\/message>|$)/g;
 export interface DurablePermissionFullView {
   label: string;
   title: string;
@@ -8,6 +18,11 @@ export interface DurablePermissionFullView {
   content: string;
 }
 
+/**
+ * The request a permission prompt is drawn from: the stored snapshot. Live
+ * prompts render it too, so a prompt recovered after a restart shows exactly
+ * what the live one did, and neither shows a secret.
+ */
 export function durablePermissionRequestSnapshot(
   request: PermissionApprovalRequest,
 ): PermissionApprovalRequest {
@@ -35,27 +50,156 @@ export function durablePermissionRequestSnapshot(
     cardAffordances: request.cardAffordances,
     decisionPolicy: request.decisionPolicy,
     semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
-    permissionBatch: request.permissionBatch,
+    ...permissionPromptDisplayFields(request),
     ...(capabilityTemplateAmendment
       ? {
           requestFamily: request.requestFamily,
-          displayName: request.displayName,
-          title: request.title,
           description: request.description,
-          toolInput:
-            typeof request.toolInput?.diffPreview === 'string'
-              ? { diffPreview: request.toolInput.diffPreview }
-              : undefined,
-          interaction: request.interaction
-            ? {
-                id: request.interaction.id,
-                title: request.interaction.title,
-                body: request.interaction.body,
-              }
-            : undefined,
         }
       : {}),
   };
+}
+
+const displayText = (value: string | undefined) =>
+  value === undefined ? undefined : permissionDisplayText(value);
+const asIs = <T>(value: T) => value;
+
+/** Every request field a prompt shows (what, which and why), with the
+ *  sanitizer that hides its secrets. */
+const PERMISSION_PROMPT_DISPLAY_FIELDS: {
+  [K in keyof PermissionApprovalRequest]?: (
+    value: PermissionApprovalRequest[K],
+  ) => PermissionApprovalRequest[K];
+} = {
+  displayName: displayText,
+  title: displayText,
+  jobName: displayText,
+  blockedPath: displayText,
+  risk_level: asIs,
+  risk_category: asIs,
+  promotionHintCount: asIs,
+  firstAskedAt: asIs,
+  turnIntentSummary: permissionRequestWhyText,
+  toolInput: permissionDisplayToolInput,
+  interaction: displayInteraction,
+};
+
+function permissionPromptDisplayFields(
+  request: PermissionApprovalRequest,
+): Partial<PermissionApprovalRequest> {
+  const fields: Record<string, unknown> = {};
+  for (const [key, sanitize] of Object.entries(
+    PERMISSION_PROMPT_DISPLAY_FIELDS,
+  )) {
+    const value = request[key as keyof PermissionApprovalRequest];
+    if (value === undefined) continue;
+    const shown = (sanitize as (input: unknown) => unknown)(value);
+    if (shown !== undefined) fields[key] = shown;
+  }
+  return fields as Partial<PermissionApprovalRequest>;
+}
+
+function displayInteraction(
+  interaction: InteractionDescriptor | undefined,
+): InteractionDescriptor | undefined {
+  if (!interaction) return undefined;
+  const context = interaction.requestContext;
+  return {
+    id: interaction.id,
+    title: permissionDisplayText(interaction.title),
+    ...(interaction.body !== undefined
+      ? { body: permissionDisplayText(interaction.body) }
+      : {}),
+    ...(context?.capabilityId || context?.capabilityDisplayName
+      ? {
+          requestContext: {
+            capabilityId: displayText(context.capabilityId),
+            capabilityDisplayName: displayText(context.capabilityDisplayName),
+          },
+        }
+      : {}),
+    ...(interaction.details
+      ? {
+          details: interaction.details.map((detail) => ({
+            ...detail,
+            label: permissionDisplayText(detail.label),
+            value: permissionDisplayText(detail.value),
+          })),
+        }
+      : {}),
+    ...(interaction.files
+      ? {
+          files: interaction.files.map((file) => ({
+            ...file,
+            path: permissionDisplayText(file.path),
+            ...(file.preview !== undefined
+              ? { preview: permissionDisplayText(file.preview) }
+              : {}),
+          })),
+        }
+      : {}),
+  };
+}
+
+/** What a permission request carries for its "why" line: the person's own
+ *  request in this turn (a chat message, or a job's prompt). Every producer of
+ *  a permission request goes through this, and no internal reason does. */
+export function permissionTurnIntent(
+  turnPrompt: string | undefined,
+): Pick<PermissionApprovalRequest, 'turnIntentSummary'> {
+  const why = permissionRequestWhyText(turnPrompt);
+  return why ? { turnIntentSummary: why } : {};
+}
+
+/** The "why" line: the person's own request from the turn prompt, plain and
+ *  with secrets hidden. A prompt whose current message was cut off shows no
+ *  why rather than an older message. */
+export function permissionRequestWhyText(
+  turnIntentSummary: string | undefined,
+): string | undefined {
+  const plain = currentTurnRequest(turnIntentSummary);
+  if (!plain) return undefined;
+  const result = sanitizeCredentialText(plain);
+  if (result.blocked) return undefined;
+  return result.text.length <= WHY_MAX_CHARS
+    ? result.text
+    : `${result.text.slice(0, WHY_MAX_CHARS - 1).trimEnd()}…`;
+}
+
+/** The person's own request in a turn prompt, as plain text: a chat turn's
+ *  current message, or a job's prompt. Take it from the whole prompt: a
+ *  length cap would cut it off behind the conversation context. */
+export function currentTurnRequest(
+  turnPrompt: string | undefined,
+): string | undefined {
+  const text = turnPrompt?.trim();
+  if (!text) return undefined;
+  // A chat turn's prompt is the formatted conversation; a job's is plain text.
+  const formatted = /<(context|messages|current_message)\b/.test(text);
+  const current = text.lastIndexOf('<current_message');
+  if (formatted && current < 0 && /<recent_channel_context\b/.test(text)) {
+    return undefined;
+  }
+  const scope = current < 0 ? text : text.slice(current);
+  const lastMessage = [...scope.matchAll(MESSAGE_PATTERN)].at(-1);
+  if (formatted && !lastMessage) return undefined;
+  const plain = unescapeXml(
+    (lastMessage ? lastMessage[1] : text).replace(
+      /<quoted_message\b[\s\S]*?<\/quoted_message>/g,
+      '',
+    ),
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return plain || undefined;
+}
+
+function unescapeXml(value: string): string {
+  return value
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
 }
 
 export function readDurablePermissionFullView(

@@ -365,7 +365,7 @@ maybeDescribe('Postgres permission decision memory', () => {
     });
   });
 
-  it('round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, revokeById returns applied then already_revoked and not_found across persons and across app and agent folder, and countExactAllowsByTool counts active exact allows by principal', async () => {
+  it('round-trips human decisions per person: putHumanDecision refreshes an active duplicate in place returning the stored id and status refreshed with the complete refresh set - outcome, decision, reason, label, effect hash, rail version, effect schema version, created_at and provenance re-encoded with the stored id - inserts a fresh row beside a revoked one without reactivating it, listHumanDecisions is person-scoped and newest first with includeRevoked defaulting to active rows only and true returning revoked rows with their revokedAt, and revokeById returns applied then already_revoked and not_found across persons and across app and agent folder', async () => {
     const repository = runtime.repositories.permissionDecisionMemory;
     const firstId = '30000000-0000-4000-8000-000000000001';
     const person = 'person-round-trip';
@@ -630,39 +630,6 @@ maybeDescribe('Postgres permission decision memory', () => {
       }),
       nowIso: '2026-07-12T02:07:00.000Z',
     });
-    await expect(
-      repository.countExactAllowsByTool({
-        appId: APP,
-        agentFolder: FOLDER,
-        actingPersonId: person,
-        railVersion: 4,
-      }),
-    ).resolves.toEqual({ file: 1, WebRead: 1 });
-    await expect(
-      repository.countExactAllowsByTool({
-        appId: APP,
-        agentFolder: FOLDER,
-        actingPersonId: 'person-round-trip-other',
-        railVersion: 4,
-      }),
-    ).resolves.toEqual({ file: 1 });
-    await expect(
-      repository.countExactAllowsByTool({
-        appId: 'another-app',
-        agentFolder: FOLDER,
-        actingPersonId: person,
-        railVersion: 4,
-      }),
-    ).resolves.toEqual({});
-    await expect(
-      repository.countExactAllowsByTool({
-        appId: APP,
-        agentFolder: 'another-folder',
-        actingPersonId: person,
-        railVersion: 4,
-      }),
-    ).resolves.toEqual({});
-
     const concurrentPerson = 'person-concurrent';
     const concurrentScopeKey = 'exact:path:file:workspace/concurrent.md';
     const concurrentInputs = [
@@ -702,48 +669,6 @@ maybeDescribe('Postgres permission decision memory', () => {
     ).resolves.toEqual([
       expect.objectContaining({ id: concurrentResults[0]!.id }),
     ]);
-  });
-
-  it('counts only current-rail-version active exact Allows per tool so three older-version rows do not unlock trust growth', async () => {
-    const repository = runtime.repositories.permissionDecisionMemory;
-    const person = 'person-rail-count';
-    for (let index = 0; index < 5; index += 1) {
-      // Own id range: the candidate-key leaf above seeds 4000…0001-0004 and
-      // this suite has no per-test cleanup.
-      const id = `40000000-0000-4000-8000-0000000000c${index + 1}`;
-      const railVersion =
-        index < 3 ? RAIL_CATALOG_VERSION - 1 : RAIL_CATALOG_VERSION;
-      await repository.putHumanDecision({
-        id,
-        appId: APP,
-        agentFolder: FOLDER,
-        outcome: 'allow',
-        scope: 'exact',
-        scopeKey: `exact:rail-count:${index}`,
-        actingPersonId: person,
-        canonicalTool: 'FileWrite',
-        reason: 'rail-filtered count fixture',
-        effectSchemaVersion: 1,
-        railVersion,
-        provenance: encodeHumanDecisionProvenance({
-          id,
-          actingPersonId: person,
-          outcome: 'allow',
-          scope: 'exact',
-          railVersion,
-        }),
-        nowIso: `2026-09-08T00:00:0${index}.000Z`,
-      });
-    }
-
-    await expect(
-      repository.countExactAllowsByTool({
-        appId: APP,
-        agentFolder: FOLDER,
-        actingPersonId: person,
-        railVersion: RAIL_CATALOG_VERSION,
-      }),
-    ).resolves.toEqual({ FileWrite: 2 });
   });
 
   it('lists one latest use per job by human decision record id from the durable audit rows written on both job lanes ordered by most recent use and ignores unrelated rows and other apps', async () => {

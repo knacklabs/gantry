@@ -3,13 +3,15 @@ import {
   formatPermissionCardPreTapLines,
   formatPermissionCardReceipt,
   hasEligiblePermissionCardAffordances,
-  permissionCardButtonLabel,
 } from './permission-card-affordances.js';
 import {
-  amendmentButtonLabel,
   amendmentPromptParts,
   amendmentReceiptText,
 } from './capability-amendment-card.js';
+import {
+  durablePermissionRequestSnapshot,
+  permissionRequestWhyText,
+} from '../application/interactions/pending-interaction-permission-envelope.js';
 import { USER_FACING_TOOL_LABELS } from '../shared/permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
@@ -25,7 +27,10 @@ import {
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
-import { firstPersistentRule } from '../domain/permission-decision.js';
+import {
+  decisionForMode as domainDecisionForMode,
+  firstPersistentRule,
+} from '../domain/permission-decision.js';
 import {
   buildPermissionPromptFullView,
   formatInteractionDetailLine as formatPromptInteractionDetailLine,
@@ -43,6 +48,7 @@ import {
 } from './permission-agent-display.js';
 import {
   familyScopeCoverageLines,
+  formatPermissionCommandLines,
   formatPermissionToolInputLines,
   permissionRiskLines,
   runtimeDisplayCommand,
@@ -53,14 +59,6 @@ import {
   sanitizePermissionText,
   sanitizeReceiptDetail,
 } from './permission-text-sanitizer.js';
-import { permissionPromptWaitLine } from './permission-prompt-wait-line.js';
-import {
-  decisionForPermissionInteraction,
-  buildPermissionBatchPromptParts,
-  formatPermissionBatchPromptText,
-  isPermissionBatchRequest,
-  permissionBatchButtonLabel,
-} from './permission-batch-coalescer.js';
 export { normalizePermissionAction } from './permission-decision-options.js';
 
 export {
@@ -68,55 +66,51 @@ export {
   persistentPermissionUpdates,
   persistentRules,
 } from '../domain/permission-decision.js';
-export { decisionForPermissionInteraction as decisionForMode };
 
+/** Channel prompt resolutions are structurally human decisions. */
+export function decisionForMode(
+  request: PermissionApprovalRequest,
+  mode: PermissionApprovalDecisionMode,
+  decidedBy?: string,
+): PermissionApprovalDecision {
+  return domainDecisionForMode(request, mode, decidedBy, 'human');
+}
+
+/** The one button set: Allow once / Allow for future / Deny. */
 export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode | PermissionRememberCode,
-  _request: PermissionApprovalRequest,
 ): string {
-  const cardLabel = hasEligiblePermissionCardAffordances(_request)
-    ? permissionCardButtonLabel(mode, _request.cardAffordances)
-    : undefined;
-  if (cardLabel) return cardLabel;
-  if (mode.startsWith('remember_'))
-    throw new Error('Permission card remember option has no label');
-  const scalarMode = mode as PermissionApprovalDecisionMode;
-  const amendmentLabel = amendmentButtonLabel(_request, scalarMode);
-  if (amendmentLabel) return amendmentLabel;
-  const batchLabel = permissionBatchButtonLabel(_request, scalarMode);
-  if (batchLabel) return batchLabel;
-  if (mode === 'allow_once')
-    return isMcpCapabilityProposal(_request)
-      ? 'Allow once (no access)'
-      : 'Allow once';
-  if (mode === 'cancel') return 'Cancel';
-  return 'Allow for future';
+  if (mode === 'allow_once') return 'Allow once';
+  if (mode === 'cancel') return 'Deny';
+  if (mode === 'allow_persistent_rule' || mode === 'remember_allow_exact')
+    return 'Allow for future';
+  throw new Error(`Permission option ${mode} is not offered`);
+}
+
+/** Prompts render the durable snapshot, so a live and a recovered prompt
+ *  read the same. */
+const displayRequest = durablePermissionRequestSnapshot;
+
+function commandLines(request: PermissionApprovalRequest): string[] {
+  return request.toolInput
+    ? formatPermissionCommandLines(request.toolInput, sanitizePermissionText, {
+        sanitizeCommandText: sanitizePermissionCommandText,
+      })
+    : [];
 }
 
 export function formatPermissionPromptText(
-  request: PermissionApprovalRequest,
-  timeoutMs: number,
+  rawRequest: PermissionApprovalRequest,
   options: { budget?: number } = {},
 ): string {
-  const batchText = formatPermissionBatchPromptText(request, timeoutMs);
-  if (batchText) return limitPermissionMessage(batchText);
-  const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+  const request = displayRequest(rawRequest);
   if (request.interaction) {
-    return formatInteractionPermissionPrompt(
-      request,
-      timeoutMinutes,
-      options.budget,
-    );
+    return formatInteractionPermissionPrompt(request, options.budget);
   }
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
   if (capabilityName) {
-    return formatSemanticPermissionPrompt(
-      request,
-      capabilityName,
-      timeoutMinutes,
-      rule,
-    );
+    return formatSemanticPermissionPrompt(request, capabilityName, rule);
   }
   const label = permissionAccessLabel(request);
   const title = permissionPromptTitle(request.sourceAgentFolder, label);
@@ -132,7 +126,6 @@ export function formatPermissionPromptText(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -155,8 +148,6 @@ export function formatPermissionReceiptText(
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(`Canceled: ${summary}. Nothing changed.`);
   }
-  if (decision.batchDecision === 'review_each')
-    return 'Reviewing each permission request.';
   // Strict field read, no mode fallback: decisionForMode always stamps
   // provenance (owner-directed no-legacy policy).
   if (decision.repeatableForFutureRuns === true) {
@@ -197,33 +188,21 @@ export interface PermissionPromptParts {
   title: string;
   bodyLines: string[];
   contextLines: string[];
-  replyInMinutes: number;
-  waitsForDecision: boolean;
   fullView?: PermissionPromptFullView;
 }
 
 export function buildPermissionPromptParts(
-  request: PermissionApprovalRequest,
-  timeoutMs: number,
+  rawRequest: PermissionApprovalRequest,
 ): PermissionPromptParts {
-  const batchParts = buildPermissionBatchPromptParts(request, timeoutMs);
-  const waitsForDecision = Boolean(request.jobId);
-  if (batchParts) return { ...batchParts, waitsForDecision };
-  const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+  const request = displayRequest(rawRequest);
   const contextLines = formatPermissionContextLines(request);
-  const fullView = buildPermissionPromptFullView(request);
+  const fullView = buildPermissionPromptFullView(rawRequest);
   const amendmentParts = amendmentPromptParts(request, {
     contextLines,
-    replyInMinutes,
     fullView,
     sanitize: sanitizePermissionText,
   });
-  if (amendmentParts) {
-    return {
-      ...(amendmentParts as Omit<PermissionPromptParts, 'waitsForDecision'>),
-      waitsForDecision,
-    };
-  }
+  if (amendmentParts) return amendmentParts as PermissionPromptParts;
   if (request.interaction) {
     const interaction = request.interaction;
     const rule = firstPersistentRule(request);
@@ -239,6 +218,7 @@ export function buildPermissionPromptParts(
         `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
+    bodyLines.push(...commandLines(request));
     if (interaction.body) {
       bodyLines.push(sanitizePermissionText(interaction.body, 500, 160));
     }
@@ -266,8 +246,6 @@ export function buildPermissionPromptParts(
       title,
       bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
       contextLines,
-      replyInMinutes,
-      waitsForDecision,
       fullView,
     };
   }
@@ -290,12 +268,11 @@ export function buildPermissionPromptParts(
     }
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
+    bodyLines.push(...commandLines(request));
     return {
       title: permissionPromptTitle(request.sourceAgentFolder, capabilityName),
-      bodyLines,
+      bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
       contextLines,
-      replyInMinutes,
-      waitsForDecision,
       fullView,
     };
   }
@@ -315,8 +292,6 @@ export function buildPermissionPromptParts(
     title: permissionPromptTitle(request.sourceAgentFolder, label),
     bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
     contextLines,
-    replyInMinutes,
-    waitsForDecision,
     fullView,
   };
 }
@@ -327,9 +302,6 @@ export function formatPermissionPromptPartsText(
   const lines = [`${PERMISSION_GLYPH} ${parts.title}`];
   if (parts.bodyLines.length > 0) lines.push('', ...parts.bodyLines);
   if (parts.contextLines.length > 0) lines.push('', ...parts.contextLines);
-  lines.push(
-    permissionPromptWaitLine(parts.waitsForDecision, parts.replyInMinutes),
-  );
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -371,24 +343,15 @@ function formatPermissionContextLines(
   const cardContextLines = hasEligiblePermissionCardAffordances(request)
     ? formatPermissionCardPreTapLines(request.cardAffordances)
     : familyScopeCoverageLines(request);
+  const why = permissionRequestWhyText(request.turnIntentSummary);
   const lines = [
+    ...(why ? [`Why: ${why}`] : []),
     `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
     ...cardContextLines,
   ];
   if (typeof request.threadId === 'string' && request.threadId.trim() !== '') {
     lines.push('Approval applies to the parent conversation.');
-  }
-  if (request.closestRule) {
-    lines.push(
-      `Approved pattern: ${sanitizePermissionText(request.closestRule.rule, 500, 160)}`,
-    );
-    const attemptedCommand = permissionAttemptedCommand(request);
-    if (attemptedCommand) {
-      lines.push(
-        `Attempted command: ${sanitizePermissionCommandText(attemptedCommand, 500, 160)}`,
-      );
-    }
   }
   if (
     !hasEligiblePermissionCardAffordances(request) &&
@@ -404,14 +367,6 @@ function formatPermissionContextLines(
   return lines;
 }
 
-function permissionAttemptedCommand(
-  request: PermissionApprovalRequest,
-): string | null {
-  const command = request.toolInput?.command ?? request.toolInput?.cmd;
-  if (typeof command !== 'string' || !command.trim()) return null;
-  return runtimeDisplayCommand(command.trim()).command;
-}
-
 function permissionAskSpanDays(firstAskedAt: string): number {
   const firstAskedAtMs = Date.parse(firstAskedAt);
   if (!Number.isFinite(firstAskedAtMs)) return 1;
@@ -420,7 +375,6 @@ function permissionAskSpanDays(firstAskedAt: string): number {
 
 function formatInteractionPermissionPrompt(
   request: PermissionApprovalRequest,
-  timeoutMinutes: number,
   budget?: number,
 ): string {
   const interaction = request.interaction!;
@@ -437,6 +391,8 @@ function formatInteractionPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
+  const commands = commandLines(request);
+  if (commands.length > 0) lines.push('', ...commands);
   if (interaction.body)
     lines.push('', sanitizePermissionText(interaction.body, 500, 160));
   if (interaction.details?.length) {
@@ -462,7 +418,6 @@ function formatInteractionPermissionPrompt(
     );
   }
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(
     lines.join('\n'),
     budget ??
@@ -475,7 +430,6 @@ function formatInteractionPermissionPrompt(
 function formatSemanticPermissionPrompt(
   request: PermissionApprovalRequest,
   capabilityName: string,
-  timeoutMinutes: number,
   rule: string | undefined,
 ): string {
   const definition = semanticCapabilityDefinition(request, rule);
@@ -497,8 +451,9 @@ function formatSemanticPermissionPrompt(
   }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);
+  const commands = commandLines(request);
+  if (commands.length > 0) lines.push('', ...commands);
   lines.push('', ...formatPermissionContextLines(request));
-  lines.push(permissionPromptWaitLine(Boolean(request.jobId), timeoutMinutes));
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -639,9 +594,10 @@ function permissionCommand(request: PermissionApprovalRequest): string | null {
 }
 
 export function formatPermissionReceiptActionSummary(
-  request: PermissionApprovalRequest | undefined,
+  rawRequest: PermissionApprovalRequest | undefined,
 ): string {
-  if (!request) return 'permission request';
+  if (!rawRequest) return 'permission request';
+  const request = displayRequest(rawRequest);
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
   if (capabilityName) return capabilityName;

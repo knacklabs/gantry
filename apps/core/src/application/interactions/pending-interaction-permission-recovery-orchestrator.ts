@@ -245,10 +245,7 @@ function decisionForMode(
   decidedBy: string,
   matchKind: PermissionCallbackClaim['match']['kind'],
 ): PermissionApprovalDecision {
-  if (
-    (request.permissionBatch || matchKind === 'batch') &&
-    mode === 'allow_persistent_rule'
-  ) {
+  if (matchKind === 'batch' && mode === 'allow_persistent_rule') {
     return {
       approved: true,
       mode,

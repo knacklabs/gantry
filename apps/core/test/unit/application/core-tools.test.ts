@@ -701,9 +701,10 @@ describe('core tool registry', () => {
         },
       },
     });
-    expect(record.mock.calls[0]?.[0].payload.request).not.toHaveProperty(
-      'toolInput',
-    );
+    // The stored request keeps exactly what the prompt shows.
+    expect(record.mock.calls[0]?.[0].payload.request.toolInput).toEqual({
+      objective: 'Investigate',
+    });
     expect(
       publishRuntimeEvent.mock.calls.map(([event]) => event.eventType),
     ).toEqual([

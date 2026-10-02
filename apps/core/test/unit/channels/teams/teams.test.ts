@@ -21,12 +21,8 @@ import {
   type TeamsProgressMessages,
 } from '@core/channels/teams/progress.js';
 import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams/cards.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
-import {
-  configurePendingInteractionDurability,
-  DurableInteractionPersistenceError,
-} from '@core/application/interactions/pending-interaction-durability.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
   PendingInteraction,
   PermissionPrompt,
@@ -101,7 +97,7 @@ function configureTeamsPermissionRequest(
   },
 ) {
   const appId = request.appId || 'default';
-  const requestIds = request.permissionBatch?.requestIds || [request.requestId];
+  const requestIds = [request.requestId];
   const interactions: PendingInteraction[] = requestIds.map((requestId) => ({
     id: `pending-${request.sourceAgentFolder}-${requestId}`,
     appId,
@@ -483,7 +479,7 @@ describe('Teams JID helpers', () => {
 });
 
 describe('Teams Adaptive Card payloads', () => {
-  it('builds Action.Execute allow-once and cancel actions', () => {
+  it('builds Action.Execute Allow once and Deny actions', () => {
     const payload = buildTeamsApprovalDescriptorPayload({
       requestId: 'perm-1',
       sourceAgentFolder: 'teams_main',
@@ -516,7 +512,7 @@ describe('Teams Adaptive Card payloads', () => {
       }),
       expect.objectContaining({
         type: 'Action.Execute',
-        title: 'Cancel',
+        title: 'Deny',
         verb: 'gantry.permission.cancel',
         data: expect.objectContaining({
           callback: expect.objectContaining({
@@ -2985,200 +2981,6 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('binds a Teams permission batch before delivery and attaches its card id afterward', async () => {
-    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
-    const bindingEvents: string[] = [];
-    const batch = createPermissionBatchRequest(
-      ['perm-teams-batch-1', 'perm-teams-batch-2'].map((requestId) => ({
-        requestId,
-        sourceAgentFolder: 'teams_engineering',
-        decisionPolicy: 'same_channel',
-        targetJid: 'teams:19:abc@thread.v2',
-        toolName: 'Bash',
-      })),
-      ['1. Command', '2. Command'],
-    );
-    const repository = configureTeamsPermissionRequest(batch, {
-      onBind(input) {
-        bindingEvents.push(
-          input.externalPromptMessageId
-            ? `bind:${input.externalPromptMessageId}`
-            : 'bind:pending',
-        );
-      },
-    });
-    const sdkClient: TeamsSdkClient = {
-      start: vi.fn(async (input) => {
-        startInput = input;
-      }),
-      stop: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => {
-        bindingEvents.push('send');
-        return { externalMessageId: 'teams-batch-card' };
-      }),
-      updateAdaptiveCard: vi.fn(async () => ({})),
-    };
-    const channel = new TeamsChannel(
-      {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        tenantId: 'tenant-id',
-      },
-      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
-      sdkClient,
-    );
-    await channel.connect();
-
-    const approvalPromise = channel
-      .requestPermissionApproval('teams:19:abc@thread.v2', batch)
-      .then(requirePermissionDecision);
-    await vi.waitFor(() =>
-      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2),
-    );
-
-    expect(bindingEvents).toEqual([
-      'bind:pending',
-      'send',
-      'bind:teams-batch-card',
-    ]);
-    expect(repository.bindPendingPermissionPrompt).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        interactionId: batch.requestId,
-        matchKind: 'batch',
-        members: [
-          expect.objectContaining({
-            requestId: 'perm-teams-batch-1',
-            index: 0,
-          }),
-          expect.objectContaining({
-            requestId: 'perm-teams-batch-2',
-            index: 1,
-          }),
-        ],
-        externalPromptMessageId: 'teams-batch-card',
-      }),
-    );
-    await startInput?.onMessage({
-      conversationId: '19:abc@thread.v2',
-      from: { id: 'teams-user-1', name: 'Team Admin' },
-      value: {
-        action: 'permission_decision',
-        callback: latestTeamsPermissionCallback(sdkClient),
-        decision: 'allow_once',
-      },
-    });
-
-    await expect(approvalPromise).resolves.toMatchObject({ approved: true });
-    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
-  });
-
-  it('routes recovered Teams clicks through application orchestrator transport hooks', async () => {
-    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined;
-    const sdkClient: TeamsSdkClient = {
-      start: vi.fn(async (input) => {
-        startInput = input;
-      }),
-      stop: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'unused-live-card',
-      })),
-      updateAdaptiveCard: vi.fn(async () => ({})),
-    };
-    const channel = new TeamsChannel(
-      {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        tenantId: 'tenant-id',
-      },
-      { ...makeOpts(), isControlApproverAllowed: vi.fn(async () => true) },
-      sdkClient,
-    );
-    await channel.connect();
-    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
-      (suffix) => ({
-        requestId: `perm-teams-recovered-${suffix}`,
-        sourceAgentFolder: 'teams_engineering',
-        targetJid: 'teams:19:abc@thread.v2',
-        toolName: 'Bash',
-        decisionOptions: ['allow_once', 'cancel'],
-      }),
-    );
-    const batch = createPermissionBatchRequest(requests, [
-      '1. Command',
-      '2. Command',
-    ]);
-    const repository = configureTeamsPermissionRequest(batch);
-    const providerAlias = 'teams-recovered-batch';
-    const interactions = repository.interactions;
-    const recoveryEnvelope = {
-      version: 1 as const,
-      renderedDecisionOptions: ['allow_persistent_rule', 'cancel'] as const,
-      targetJid: 'teams:19:abc@thread.v2',
-      approvalContextJid: 'teams:19:abc@thread.v2',
-      threadId: null,
-      decisionPolicy: null,
-      renderedRequest: batch,
-    };
-    interactions.forEach((interaction, index) => {
-      interaction.payload.request = requests[index];
-    });
-    await repository.bindPendingPermissionPrompt({
-      id: 'teams-recovered-envelope',
-      appId: 'default',
-      sourceAgentFolder: 'teams_engineering',
-      interactionId: batch.requestId,
-      matchKind: 'batch',
-      members: requests.map((request, index) => ({
-        idempotencyKey: `default:permission:teams_engineering:${request.requestId}`,
-        requestId: request.requestId,
-        index,
-      })),
-      envelope: recoveryEnvelope,
-      fullView: null,
-      externalPromptProvider: 'teams',
-      externalPromptConversationId: '19:abc@thread.v2',
-      externalPromptMessageId: 'teams-recovered-card',
-      externalPromptThreadId: null,
-      providerAliases: [providerAlias],
-    });
-    await startInput?.onMessage({
-      id: 'teams-recovered-card',
-      conversationId: '19:abc@thread.v2',
-      from: { id: 'teams-user-1', name: 'Team Admin' },
-      value: {
-        action: 'permission_decision',
-        callback: {
-          providerAlias,
-          scope: {
-            appId: 'default',
-            sourceAgentFolder: 'teams_engineering',
-            interactionId: batch.requestId,
-          },
-          matchKind: 'batch',
-        },
-        decision: 'allow_persistent_rule',
-      },
-    });
-
-    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
-    expect(repository.settlePendingPermissionCallback).not.toHaveBeenCalled();
-    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: '19:abc@thread.v2',
-        messageId: 'teams-recovered-card',
-        card: expect.objectContaining({
-          body: expect.arrayContaining([
-            expect.objectContaining({
-              text: expect.stringMatching(/cancel|denied/i),
-            }),
-          ]),
-        }),
-      }),
-    );
-  });
-
   it('resolves every Teams permission waiter on disconnect when durable claims are retryable', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -3604,78 +3406,6 @@ describe('TeamsChannel adapter scaffold', () => {
     });
     await expect(approval).resolves.toMatchObject({ approved: true });
     expect(repository.claimPendingPermissionCallback).toHaveBeenCalledTimes(2);
-  });
-
-  it('settles a Teams batch when its post-send binding was already consumed', async () => {
-    vi.useFakeTimers();
-    const pending = ['perm-teams-race-1', 'perm-teams-race-2'].map(
-      (requestId) => ({
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        idempotencyKey: `default:permission:teams_engineering:${requestId}`,
-        payload: {
-          requestId,
-          sourceAgentFolder: 'teams_engineering',
-          request: {
-            requestId,
-            sourceAgentFolder: 'teams_engineering',
-            targetJid: 'teams:19:abc@thread.v2',
-            toolName: 'Bash',
-          },
-        },
-      }),
-    );
-    const repository = {
-      bindPendingPermissionPrompt: vi
-        .fn()
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce(null),
-    };
-    configurePendingInteractionDurability({ repository: repository as never });
-    const sdkClient: TeamsSdkClient = {
-      start: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'teams-raced-card',
-      })),
-    };
-    const channel = new TeamsChannel(
-      {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        tenantId: 'tenant-id',
-      },
-      makeOpts(),
-      sdkClient,
-    );
-    await channel.connect();
-    const batch = createPermissionBatchRequest(
-      pending.map((interaction) => ({
-        requestId: interaction.payload.requestId,
-        sourceAgentFolder: interaction.payload.sourceAgentFolder,
-        targetJid: 'teams:19:abc@thread.v2',
-        toolName: 'Bash',
-      })),
-      ['1. Command', '2. Command'],
-    );
-
-    await expect(
-      channel.requestPermissionApproval('teams:19:abc@thread.v2', batch),
-    ).resolves.toMatchObject({
-      kind: 'delivery_failure',
-      code: 'provider_failed',
-      retryable: false,
-      delivered: 'unknown',
-    });
-    expect(vi.getTimerCount()).toBe(0);
-    expect(
-      (
-        channel as unknown as {
-          pendingPermissionPrompts: Map<string, unknown>;
-        }
-      ).pendingPermissionPrompts.size,
-    ).toBe(0);
   });
 
   it('propagates a typed Teams post-send binding failure and retains the live waiter', async () => {

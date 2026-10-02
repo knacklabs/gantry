@@ -186,7 +186,6 @@ import {
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { slackRateLimitRetryDelayMs } from '@core/channels/slack/channel-retry-delay.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import {
   buildPermissionPromptContentBlocks,
   buildPermissionReceiptBlocks,
@@ -348,7 +347,7 @@ async function updatePendingInteractionPayload(
 
 function configureSlackPermissionRequest(request: PermissionApprovalRequest) {
   const appId = request.appId || 'default';
-  const requestIds = request.permissionBatch?.requestIds || [request.requestId];
+  const requestIds = [request.requestId];
   const interactions = requestIds.map((requestId) => ({
     id: `pending-${request.sourceAgentFolder}-${requestId}`,
     appId,
@@ -6995,160 +6994,6 @@ describe('Slack channel', () => {
     );
   });
 
-  it('routes recovered Slack clicks through application orchestrator transport hooks', async () => {
-    const opts = createOptsWithApproverHook(['U_APPROVER']);
-    const runtimeSettings = opts.runtimeSettings;
-    opts.runtimeSettings = () => {
-      const settings = runtimeSettings();
-      settings.bindings.slack_long_test_binding = {
-        ...settings.bindings.slack_test_binding,
-        conversation: 'slack_long_test_conversation',
-      };
-      return settings;
-    };
-    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
-    await channel.connect();
-    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
-      (suffix) => ({
-        requestId: `perm-recovered-${suffix}`,
-        sourceAgentFolder: 'slack_main',
-        targetJid: 'sl:C123',
-        toolName: 'Bash',
-        decisionOptions: ['allow_once', 'cancel'],
-      }),
-    );
-    const batch = createPermissionBatchRequest(requests, [
-      '1. Command',
-      '2. Command',
-    ]);
-    batch.approvalContextJid = 'sl:C1234567890';
-    const repository = configureSlackPermissionRequest(batch);
-    const providerAlias = 'slack-recovered-batch';
-    await bindPendingPermissionInteractionMessage({
-      request: batch,
-      decisionOptions: ['allow_persistent_rule', 'cancel'],
-      callbackId: providerAlias,
-    });
-    const respond = vi.fn().mockResolvedValue({});
-    const action = {
-      callback: {
-        providerAlias,
-        scope: {
-          appId: 'default',
-          sourceAgentFolder: 'slack_main',
-          interactionId: batch.requestId,
-        },
-        matchKind: 'batch',
-      },
-      decision: 'allow_once',
-    };
-
-    await appRef.current.actionHandlers.get(
-      'gantry_perm_decision_allow_once',
-    )?.({
-      ack: vi.fn().mockResolvedValue(undefined),
-      respond,
-      body: {
-        channel: { id: 'C123' },
-        user: { id: 'U_APPROVER', name: 'Approver' },
-      },
-      action: { value: JSON.stringify(action) },
-    });
-    expect(repository.claimPendingPermissionCallback).not.toHaveBeenCalled();
-
-    await appRef.current.actionHandlers.get(
-      'gantry_perm_decision_allow_persistent_rule',
-    )?.({
-      ack: vi.fn().mockResolvedValue(undefined),
-      respond,
-      body: {
-        channel: { id: 'C123' },
-        response_url: 'https://hooks.slack.test/actions/recovered-batch',
-        user: { id: 'U_APPROVER', name: 'Approver' },
-      },
-      action: {
-        value: JSON.stringify({
-          ...action,
-          decision: 'allow_persistent_rule',
-        }),
-      },
-    });
-
-    expect(respond).toHaveBeenCalledWith(
-      expect.objectContaining({
-        replace_original: true,
-        text: expect.stringMatching(/cancel|denied/i),
-      }),
-    );
-    expect(repository.claimPendingPermissionCallback).toHaveBeenCalledOnce();
-    expect(repository.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
-    expect(opts.isControlApproverAllowed).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationJid: 'sl:C1234567890' }),
-    );
-  });
-
-  it('terminalizes a recovered Slack batch with the durable callback id', async () => {
-    const opts = createOptsWithApproverHook(['U_APPROVER']);
-    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
-    await channel.connect();
-    const requests: PermissionApprovalRequest[] = ['one', 'two'].map(
-      (suffix) => ({
-        requestId: `perm-terminalize-${suffix}`,
-        sourceAgentFolder: 'slack_main',
-        targetJid: 'sl:C123',
-        toolName: 'Bash',
-        decisionOptions: ['allow_once', 'cancel'],
-      }),
-    );
-    const batch = createPermissionBatchRequest(requests, [
-      '1. Command',
-      '2. Command',
-    ]);
-    const repository = configureSlackPermissionRequest(batch);
-    const providerAlias = 'slack-terminalize-batch';
-    await bindPendingPermissionInteractionMessage({
-      request: batch,
-      decisionOptions: ['allow_persistent_rule', 'cancel'],
-      callbackId: providerAlias,
-    });
-    const terminalize = vi
-      .spyOn(channel as any, 'terminalizePermissionPrompt')
-      .mockResolvedValue(true);
-
-    await appRef.current.actionHandlers.get(
-      'gantry_perm_decision_allow_persistent_rule',
-    )?.({
-      ack: vi.fn().mockResolvedValue(undefined),
-      respond: vi.fn().mockResolvedValue({}),
-      body: {
-        channel: { id: 'C123' },
-        response_url: 'https://hooks.slack.test/actions/terminalize-batch',
-        user: { id: 'U_APPROVER', name: 'Approver' },
-      },
-      action: {
-        value: JSON.stringify({
-          callback: {
-            providerAlias,
-            scope: {
-              appId: 'default',
-              sourceAgentFolder: 'slack_main',
-              interactionId: batch.requestId,
-            },
-            matchKind: 'batch',
-          },
-          decision: 'allow_persistent_rule',
-        }),
-      },
-    });
-
-    expect(terminalize).toHaveBeenCalledWith(
-      batch.requestId,
-      expect.any(Object),
-      expect.any(String),
-      expect.any(Function),
-    );
-  });
-
   it('resolves every Slack permission waiter on disconnect after a retryable durable claim', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -7892,136 +7737,15 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
-  it('fails closed when a Slack permission batch cannot be bound durably', async () => {
-    vi.useFakeTimers();
-    configurePendingInteractionDurability({
-      repository: {
-        bindPendingPermissionPrompt: vi.fn(async () => null),
-      } as never,
-    });
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOptsWithApproverHook(['U_APPROVER']) as any,
-    );
-    await channel.connect();
-    const onPromptDelivered = vi.fn();
-    const batch = createPermissionBatchRequest(
-      [
-        {
-          requestId: 'perm-bind-1',
-          sourceAgentFolder: 'slack_main',
-          targetJid: 'sl:C123',
-          toolName: 'Bash',
-        },
-        {
-          requestId: 'perm-bind-2',
-          sourceAgentFolder: 'slack_main',
-          targetJid: 'sl:C123',
-          toolName: 'Write',
-        },
-      ],
-      ['1. Command', '2. File action'],
-    );
-
-    const approvalPromise = channel.requestPermissionApproval(
-      'sl:C123',
-      batch,
-      onPromptDelivered,
-    );
-    await flushSlackPromptRegistration();
-    await vi.runAllTimersAsync();
-
-    await expect(approvalPromise).resolves.toMatchObject({
-      kind: 'delivery_failure',
-      code: 'provider_failed',
-      retryable: true,
-      delivered: 'no',
-    });
-    expect(onPromptDelivered).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it('clears a live Slack batch prompt when its post-send binding is already resolved', async () => {
-    const requests = ['perm-bind-1', 'perm-bind-2'].map((requestId) => ({
-      id: `pending-${requestId}`,
-      appId: 'default',
-      runId: 'run-1',
-      kind: 'permission' as const,
-      status: 'pending' as const,
-      payload: {
-        sourceAgentFolder: 'slack_main',
-        requestId,
-        request: {
-          requestId,
-          sourceAgentFolder: 'slack_main',
-          targetJid: 'sl:C123',
-          runId: 'run-1',
-          toolName: 'Bash',
-        },
-      },
-      callbackRoute: null,
-      idempotencyKey: `default:permission:slack_main:${requestId}`,
-      approverRef: null,
-      resolution: null,
-      createdAt: '2026-07-16T00:00:00.000Z',
-      expiresAt: '2099-07-17T00:00:00.000Z',
-      resolvedAt: null,
-    }));
-    const bindPendingPermissionPrompt = vi
-      .fn()
-      .mockResolvedValueOnce({})
-      .mockResolvedValueOnce(null);
-    configurePendingInteractionDurability({
-      repository: {
-        bindPendingPermissionPrompt,
-      } as never,
-    });
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOptsWithApproverHook(['U_APPROVER']) as any,
-    );
-    await channel.connect();
-    const onPromptDelivered = vi.fn();
-    const batch = createPermissionBatchRequest(
-      requests.map((entry) => ({
-        requestId: String(entry.payload.requestId),
-        sourceAgentFolder: 'slack_main',
-        targetJid: 'sl:C123',
-        runId: 'run-1',
-        toolName: 'Bash',
-      })),
-      ['1. Command', '2. File action'],
-    );
-
-    await expect(
-      channel.requestPermissionApproval('sl:C123', batch, onPromptDelivered),
-    ).resolves.toMatchObject({
-      kind: 'delivery_failure',
-      code: 'provider_failed',
-      retryable: false,
-      delivered: 'unknown',
-    });
-
-    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledOnce();
-    expect(bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
-    expect(onPromptDelivered).not.toHaveBeenCalled();
-    expect((channel as any).pendingPermissionPrompts.size).toBe(0);
-  });
-
   it('escapes permission metadata before rendering Slack mrkdwn blocks', () => {
     const blocks = buildPermissionPromptContentBlocks({
       title: 'Allow command?',
       bodyLines: [],
       contextLines: ['agent <@U123> & ops · scheduled job: <deploy>'],
-      replyInMinutes: 5,
     });
     const contextBlock = blocks.find((block: any) => block.type === 'context');
     expect((contextBlock as any).elements[0].text).toBe(
-      'agent &lt;@U123&gt; &amp; ops · scheduled job: &lt;deploy&gt;\nReply in 5m',
+      'agent &lt;@U123&gt; &amp; ops · scheduled job: &lt;deploy&gt;',
     );
 
     expect(buildPermissionReceiptBlocks('Allowed by <@U123> & ops')).toEqual([

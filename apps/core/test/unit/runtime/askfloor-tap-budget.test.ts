@@ -97,28 +97,27 @@ describe('ASKFLOOR tap budget', () => {
     });
   });
 
-  it('S4 asks once for rm -rf build remembers the exact command runs it again with zero taps asks for rm -rf dist and remembers No exactly', async () => {
+  it('S4 asks once for rm -rf build remembers the exact command runs it again with zero taps and asks again for rm -rf dist because Deny saves nothing', async () => {
     const replay = await replayDestructiveExactMemory();
 
-    expect(replay.taps).toEqual([1, 0, 1, 0]);
+    expect(replay.taps).toEqual([1, 0, 1, 1]);
     expect(replay.claimedCodes).toEqual([
       'remember_allow_exact',
-      'remember_deny_exact',
+      'cancel',
+      'cancel',
     ]);
-    expect(replay.applications).toEqual(['allow_once', 'cancel']);
+    expect(replay.applications).toEqual(['allow_once', 'cancel', 'cancel']);
     expect(replay.decisions).toMatchObject([
       { approved: true, mode: 'allow_once', source: 'human_once' },
       { approved: true, mode: 'allow_once', source: 'human_decision' },
       { approved: false, mode: 'cancel', source: 'human_once' },
-      { approved: false, mode: 'cancel', source: 'human_decision' },
+      { approved: false, mode: 'cancel', source: 'human_once' },
     ]);
     expect(replay.rows).toMatchObject([
       { outcome: 'allow', scope: 'exact', principal: 'RunCommand' },
-      { outcome: 'deny', scope: 'exact', principal: 'RunCommand' },
     ]);
+    expect(replay.rows).toHaveLength(1);
     expect(replay.rows[0]?.scopeKey).toBe(replay.rows[0]?.effectHash);
-    expect(replay.rows[1]?.scopeKey).toBe(replay.rows[1]?.effectHash);
-    expect(replay.rows[0]?.scopeKey).not.toBe(replay.rows[1]?.scopeKey);
   });
 
   it('S5 remembers in chat runs the projected job with zero cards still cards the near-miss forgets and the same job asks again', async () => {
@@ -505,7 +504,7 @@ describe('ASKFLOOR tap budget', () => {
 
     console.info('ASKFLOOR tap totals', totals);
     expect(totals).toEqual({
-      interactiveAuto: 9,
+      interactiveAuto: 10,
       strict: 4,
       ask: 4,
       autonomous: 3,

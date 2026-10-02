@@ -1,6 +1,6 @@
 import {
-  redactSensitiveText,
-  sanitizeOutboundLlmText,
+  redactCredentials,
+  sanitizeCredentialText,
 } from '../shared/sensitive-material.js';
 
 const PERMISSION_MESSAGE_BUDGET = 2800;
@@ -19,7 +19,7 @@ export function sanitizePermissionText(
   head: number,
   tail: number,
 ): string {
-  const result = sanitizeOutboundLlmText(input);
+  const result = sanitizeCredentialText(input);
   if (result.blocked) {
     return 'Sensitive detail hidden.';
   }
@@ -31,7 +31,7 @@ export function sanitizePermissionCommandText(
   head: number,
   tail: number,
 ): string {
-  return clampCommandForDisplay(redactSensitiveText(input), head, tail);
+  return clampCommandForDisplay(redactCredentials(input), head, tail);
 }
 
 export function limitPermissionMessage(
@@ -43,7 +43,7 @@ export function limitPermissionMessage(
 }
 
 export function sanitizeReceiptDetail(input: string): string | null {
-  const result = sanitizeOutboundLlmText(input);
+  const result = sanitizeCredentialText(input);
   // Only drop the whole detail when a secret couldn't be safely span-masked.
   // When a real secret was span-redacted, show the command with just the span
   // masked (result.text is the span-redacted text) rather than hiding it all.
