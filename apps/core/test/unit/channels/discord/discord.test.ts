@@ -1585,7 +1585,6 @@ describe('DiscordChannel', () => {
   });
 
   it('stops Discord overflow sends when the stream resets between parts', async () => {
-    let channel!: DiscordChannel;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => {
@@ -1593,7 +1592,7 @@ describe('DiscordChannel', () => {
           channel.resetStreaming('dc:channel-1');
         return jsonResponse({ id: `stream-${fetchMock.mock.calls.length}` });
       });
-    channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     await expect(
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
@@ -2000,6 +1999,9 @@ describe('DiscordChannel', () => {
       if (url.endsWith('/gateway/bot')) {
         return jsonResponse({ url: 'wss://gateway.discord.test' });
       }
+      if (url.endsWith('/channels/channel-1')) {
+        return jsonResponse({ id: 'channel-1', type: 0 });
+      }
       if (url.endsWith('/success')) return new Response('captured bytes');
       return new Response('unreachable', { status: 403 });
     });
@@ -2078,6 +2080,9 @@ describe('DiscordChannel', () => {
       const url = String(input);
       if (url.endsWith('/gateway/bot')) {
         return jsonResponse({ url: 'wss://gateway.discord.test' });
+      }
+      if (url.endsWith('/channels/channel-1')) {
+        return jsonResponse({ id: 'channel-1', type: 0 });
       }
       if (url.endsWith('/stalled')) {
         stalledSignal = init?.signal ?? undefined;
@@ -2178,7 +2183,9 @@ describe('DiscordChannel', () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
         String(input).endsWith('/gateway/bot')
           ? jsonResponse({ url: 'wss://gateway.discord.test' })
-          : new Response('captured bytes'),
+          : String(input).endsWith('/channels/channel-1')
+            ? jsonResponse({ id: 'channel-1', type: 0 })
+            : new Response('captured bytes'),
       );
       const reclaim = vi.fn(async () => undefined);
       const channel = new DiscordChannel(
@@ -2347,7 +2354,6 @@ describe('DiscordChannel', () => {
         }
         return new Response('{}', { status: 404 });
       });
-    let channel!: DiscordChannel;
     const onMessage = vi.fn(
       async (
         jid: string,
@@ -2361,7 +2367,7 @@ describe('DiscordChannel', () => {
       },
     );
     const onChatMetadata = vi.fn();
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ onMessage, onChatMetadata }),
@@ -2427,6 +2433,77 @@ describe('DiscordChannel', () => {
     await channel.disconnect();
     vi.restoreAllMocks();
   });
+
+  it.each([
+    { name: 'a brief outage', failedLookups: 1, deliveredTo: 'dc:parent-1' },
+    { name: 'a lasting outage', failedLookups: 99, deliveredTo: null },
+  ])(
+    'routes a Discord thread message only to its parent conversation through $name of the parent lookup',
+    async ({ failedLookups, deliveredTo }) => {
+      let socket!: FakeWebSocket;
+      let lookups = 0;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const url = String(input);
+        if (url === 'https://discord.com/api/v10/gateway/bot') {
+          return jsonResponse({ url: 'wss://gateway.discord.test' });
+        }
+        if (url === 'https://discord.com/api/v10/channels/thread-1') {
+          lookups += 1;
+          return lookups <= failedLookups
+            ? new Response('{}', { status: 503 })
+            : jsonResponse({ id: 'thread-1', type: 11, parent_id: 'parent-1' });
+        }
+        return new Response('{}', { status: 404 });
+      });
+      const onMessage = vi.fn(async () => 'stored' as const);
+      const distrustHistoryCoverage = vi.fn();
+      const channel = new DiscordChannel(
+        'bot-token',
+        'app-id',
+        opts({
+          onMessage,
+          distrustHistoryCoverage,
+          providerAccountId: 'discord-account',
+        }),
+        (url) => {
+          socket = new FakeWebSocket(url);
+          return socket;
+        },
+      );
+
+      await channel.connect();
+      socket.receive({ op: 10, d: { heartbeat_interval: 60_000 } });
+      socket.receive({ op: 0, t: 'READY', s: 1, d: { user: { id: 'bot-1' } } });
+      socket.receive({
+        op: 0,
+        t: 'MESSAGE_CREATE',
+        s: 2,
+        d: {
+          id: 'message-2',
+          channel_id: 'thread-1',
+          content: 'thread reply',
+          timestamp: '2026-06-22T00:00:00.000Z',
+          author: { id: 'user-1', username: 'Ravi' },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      if (deliveredTo) {
+        expect(onMessage).toHaveBeenCalledWith(
+          deliveredTo,
+          expect.objectContaining({ thread_id: 'thread-1' }),
+        );
+        expect(distrustHistoryCoverage).not.toHaveBeenCalled();
+      } else {
+        expect(onMessage).not.toHaveBeenCalled();
+        expect(distrustHistoryCoverage).toHaveBeenCalledWith([
+          'discord-account',
+        ]);
+      }
+      await channel.disconnect();
+      vi.restoreAllMocks();
+    },
+  );
 
   it('retains Discord thread message channel ids used after the cache TTL', async () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(0);
@@ -2733,54 +2810,52 @@ describe('DiscordChannel', () => {
   });
 
   it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async (input) => {
-        const url = String(input);
-        if (url.includes('/messages?')) {
-          return jsonResponse([
-            {
-              id: 'message-ephemeral',
-              channel_id: 'channel-1',
-              flags: 64,
-              content: 'secret text',
-              timestamp: '2026-06-22T00:00:02.000Z',
-              author: { id: 'user-1', username: 'Ravi' },
-              attachments: [
-                {
-                  id: 'secret-file',
-                  filename: 'secret.txt',
-                  url: 'https://cdn.discordapp.com/attachments/private/secret',
-                },
-              ],
-            },
-            {
-              id: 'message-durable',
-              channel_id: 'channel-1',
-              content: 'durable text',
-              timestamp: '2026-06-22T00:00:01.000Z',
-              author: { id: 'user-2', username: 'Maya' },
-              attachments: [
-                {
-                  id: 'durable-file',
-                  filename: 'durable.txt',
-                  url: 'https://cdn.discordapp.com/attachments/private/durable',
-                },
-                {
-                  id: 'ephemeral-file',
-                  filename: 'ephemeral.txt',
-                  url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
-                  ephemeral: true,
-                },
-              ],
-            },
-          ]);
-        }
-        if (url === 'https://discord.com/api/v10/channels/channel-1') {
-          return jsonResponse({ id: 'channel-1', type: 0 });
-        }
-        return new Response('{}', { status: 404 });
-      });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/messages?')) {
+        return jsonResponse([
+          {
+            id: 'message-ephemeral',
+            channel_id: 'channel-1',
+            flags: 64,
+            content: 'secret text',
+            timestamp: '2026-06-22T00:00:02.000Z',
+            author: { id: 'user-1', username: 'Ravi' },
+            attachments: [
+              {
+                id: 'secret-file',
+                filename: 'secret.txt',
+                url: 'https://cdn.discordapp.com/attachments/private/secret',
+              },
+            ],
+          },
+          {
+            id: 'message-durable',
+            channel_id: 'channel-1',
+            content: 'durable text',
+            timestamp: '2026-06-22T00:00:01.000Z',
+            author: { id: 'user-2', username: 'Maya' },
+            attachments: [
+              {
+                id: 'durable-file',
+                filename: 'durable.txt',
+                url: 'https://cdn.discordapp.com/attachments/private/durable',
+              },
+              {
+                id: 'ephemeral-file',
+                filename: 'ephemeral.txt',
+                url: 'https://cdn.discordapp.com/attachments/private/ephemeral',
+                ephemeral: true,
+              },
+            ],
+          },
+        ]);
+      }
+      if (url === 'https://discord.com/api/v10/channels/channel-1') {
+        return jsonResponse({ id: 'channel-1', type: 0 });
+      }
+      return new Response('{}', { status: 404 });
+    });
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     const result = await channel.hydrateConversationContext({
@@ -6102,7 +6177,6 @@ describe('DiscordChannel', () => {
       if (interactionId) events.push(`ack:${interactionId}`);
       return jsonResponse({ id: 'message-1' });
     });
-    let channel!: DiscordChannel;
     durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockImplementation(
       async (input: { optionIndex?: number }) => {
         const pending = [
@@ -6113,7 +6187,7 @@ describe('DiscordChannel', () => {
         return true;
       },
     );
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ isControlApproverAllowed: vi.fn(async () => true) }),
