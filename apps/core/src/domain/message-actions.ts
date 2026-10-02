@@ -13,7 +13,6 @@ export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
   | 'scheduler_retry_ask'
-  | 'live_turn_stop'
   | 'job_permission_decision'
   | 'memory_forget'
   | 'memory_review_decision'
@@ -39,11 +38,6 @@ export type MessageActionAffordance =
       label: string;
       jobId: string;
       runId?: string | null;
-    }
-  | {
-      kind: 'live_turn_stop';
-      label: string;
-      actionToken: string;
     }
   | {
       kind: 'job_permission_decision';
@@ -80,14 +74,6 @@ export type MessageActionAffordance =
     };
 
 export type MessageActionCallbackInput =
-  | {
-      kind: 'live_turn_stop';
-      conversationJid: string;
-      providerAccountId?: string;
-      threadId?: string;
-      userId?: string;
-      actionToken?: string;
-    }
   | {
       kind: 'scheduler_run_now';
       conversationJid: string;

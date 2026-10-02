@@ -1,12 +1,7 @@
 import type { ProgressUpdateOptions } from '../domain/types.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
 import {
-  clearCachedCardIdentity,
-  deletePendingCardIdentity,
-  markStopCardIdentityLanded,
   resolveProgressCardTarget,
-  type CachedStopCardIdentity,
-  type ProgressCardIdentityRegistry,
   type ProgressCardTarget,
 } from './group-progress-card-identity.js';
 
@@ -23,8 +18,6 @@ type DesiredProgressPayload = {
   sequence: number;
   text: string;
   options?: ProgressUpdateOptions;
-  stopCardIdentity?: CachedStopCardIdentity;
-  terminalControlIdentity?: CachedStopCardIdentity;
   previousDesired?: DesiredProgressPayload;
 };
 
@@ -70,7 +63,7 @@ type ProgressSendChain = {
   lastLandedSequence?: number;
 };
 
-type ProgressOrderingRegistry = ProgressCardIdentityRegistry & {
+type ProgressOrderingRegistry = {
   chains: Map<string, ProgressSendChain>;
 };
 
@@ -93,7 +86,6 @@ function orderingRegistryFor(
   if (existing) return existing;
   const created: ProgressOrderingRegistry = {
     chains: new Map(),
-    stopCardIdentityByRoute: new Map(),
   };
   orderingRegistries.set(channelRuntime, created);
   return created;
@@ -103,14 +95,6 @@ export function progressOrderingRegistrySize(
   channelRuntime: GroupProcessingDeps['channelRuntime'],
 ): number {
   return orderingRegistries.get(channelRuntime)?.chains.size ?? 0;
-}
-
-export function progressCardIdentityCacheSize(
-  channelRuntime: GroupProcessingDeps['channelRuntime'],
-): number {
-  return (
-    orderingRegistries.get(channelRuntime)?.stopCardIdentityByRoute.size ?? 0
-  );
 }
 
 async function waitForProgressLink(link: ProgressSendLink): Promise<void> {
@@ -133,7 +117,6 @@ function deleteChain(
 ): void {
   if (registry.chains.get(key) !== chain) return;
   registry.chains.delete(key);
-  deletePendingCardIdentity(registry, key);
 }
 
 function maybeDeleteQuiescentChain(
@@ -306,8 +289,6 @@ function reconcile(
   chain.pending.add(link);
 
   let targetSequence: number | undefined;
-  let stopCardIdentity: CachedStopCardIdentity | undefined;
-  let terminalControlIdentity: CachedStopCardIdentity | undefined;
   let repairLanded = false;
   const result = (async () => {
     if (previous) await waitForProgressLink(previous);
@@ -316,8 +297,6 @@ function reconcile(
     if (!target || target.ownerEpoch !== chain.currentOwnerEpoch) return false;
     if (chain.lastLandedSequence === target.sequence) return false;
     targetSequence = target.sequence;
-    stopCardIdentity = target.stopCardIdentity;
-    terminalControlIdentity = target.terminalControlIdentity;
     link.ownerEpoch = target.ownerEpoch;
     link.sequence = target.sequence;
     link.dispatched = true;
@@ -351,12 +330,6 @@ function reconcile(
       repairLanded = landed;
       if (landed && targetSequence !== undefined) {
         chain.lastLandedSequence = targetSequence;
-        if (stopCardIdentity) {
-          markStopCardIdentityLanded(registry, stopCardIdentity);
-        }
-        if (terminalControlIdentity) {
-          clearCachedCardIdentity(registry, terminalControlIdentity);
-        }
       }
     },
     (err) => {
@@ -432,7 +405,6 @@ export function createProgressChannelSender(input: {
 
   const targetFor = (options?: ProgressUpdateOptions): ProgressCardTarget => {
     return resolveProgressCardTarget({
-      registry,
       chatJid: input.chatJid,
       defaultProviderAccountId: input.providerAccountId,
       defaultThreadId: input.threadId,
@@ -442,8 +414,6 @@ export function createProgressChannelSender(input: {
           input.chatJid,
           identityOptions,
         ),
-      canRegisterStopCard: (cardKey) =>
-        !owner.retired && !owner.supersededCards.has(cardKey),
     });
   };
 
@@ -490,8 +460,7 @@ export function createProgressChannelSender(input: {
     text: string,
     options?: ProgressUpdateOptions,
   ): Promise<boolean> => {
-    const { key, dispatchOptions, stopCardIdentity, terminalControlIdentity } =
-      targetFor(options);
+    const { key, dispatchOptions } = targetFor(options);
     const chain = claimCard(key);
     if (!chain) return Promise.resolve(false);
     if (options?.done) supersedePendingStallNotices(chain);
@@ -542,8 +511,6 @@ export function createProgressChannelSender(input: {
         sequence,
         text,
         ...(dispatchOptions ? { options: { ...dispatchOptions } } : {}),
-        ...(stopCardIdentity ? { stopCardIdentity } : {}),
-        ...(terminalControlIdentity ? { terminalControlIdentity } : {}),
         ...(chain.lastDesired ? { previousDesired: chain.lastDesired } : {}),
       };
       chain.lastDesired = desired;
@@ -588,12 +555,6 @@ export function createProgressChannelSender(input: {
     link.settled = result.then(
       (landed) => {
         originalLanded = landed;
-        if (landed && stopCardIdentity) {
-          markStopCardIdentityLanded(registry, stopCardIdentity);
-        }
-        if (landed && terminalControlIdentity) {
-          clearCachedCardIdentity(registry, terminalControlIdentity);
-        }
         if (landed) {
           chain.lastLandedSequence = link.sequence;
         }
@@ -635,8 +596,7 @@ export function createProgressChannelSender(input: {
     text: string,
     options?: ProgressUpdateOptions,
   ) => {
-    const { key, dispatchOptions, terminalControlIdentity } =
-      targetFor(options);
+    const { key, dispatchOptions } = targetFor(options);
     const chain = claimCard(key);
     if (!chain) return;
     supersedePendingStallNotices(chain);
@@ -647,14 +607,10 @@ export function createProgressChannelSender(input: {
       sequence,
       text,
       ...(dispatchOptions ? { options: { ...dispatchOptions } } : {}),
-      ...(terminalControlIdentity ? { terminalControlIdentity } : {}),
       ...(previousDesired ? { previousDesired } : {}),
     };
     chain.lastLandedSequence = sequence;
     chain.handleMayExist = true;
-    if (terminalControlIdentity) {
-      clearCachedCardIdentity(registry, terminalControlIdentity);
-    }
     maybeDeleteQuiescentChain(registry, key, chain);
   };
   sender.cancelPendingStallNotices = () => {
