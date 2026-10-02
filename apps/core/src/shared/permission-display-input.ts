@@ -2,7 +2,11 @@ import { isPlainObject } from './object.js';
 import {
   redactCredentials,
   sanitizeCredentialText,
+  SENSITIVE_KEY_PATTERN,
 } from './sensitive-material.js';
+
+/** What a field named like a credential shows, whatever its value. */
+export const HIDDEN = '[hidden]';
 
 /**
  * Every tool-input field a permission prompt renders. Prompts render only
@@ -76,10 +80,6 @@ export const PERMISSION_DISPLAY_INPUT_KEYS: ReadonlySet<string> = new Set([
   'diffSummary',
 ]);
 
-/** Generic fields with these names render as `[hidden]`. */
-export const SENSITIVE_DISPLAY_KEY_PATTERN =
-  /(secret|token|password|credential|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;
-
 // Internal runtime plumbing identifiers (chat jids, ipc dirs, run handles,
 // sandbox/agent/skill ids) carry no decision value and can leak internal
 // topology, so prompts never show them.
@@ -119,8 +119,8 @@ export function permissionDisplayToolInput(
     if (isInternalPlumbingKey(key)) continue;
     const shown = PERMISSION_DISPLAY_INPUT_KEYS.has(key)
       ? displayValue(value, 0, key === 'command' || key === 'cmd')
-      : SENSITIVE_DISPLAY_KEY_PATTERN.test(key)
-        ? '[hidden]'
+      : SENSITIVE_KEY_PATTERN.test(key)
+        ? HIDDEN
         : genericValue(value);
     if (shown !== undefined) display[key] = shown;
   }
@@ -141,7 +141,15 @@ function displayValue(value: unknown, depth: number, command = false): unknown {
   return Object.fromEntries(
     Object.entries(value)
       .slice(0, MAX_ITEMS)
-      .map(([key, item]) => [key, displayValue(item, depth + 1)] as const)
+      .map(
+        ([key, item]) =>
+          [
+            key,
+            SENSITIVE_KEY_PATTERN.test(key)
+              ? HIDDEN
+              : displayValue(item, depth + 1),
+          ] as const,
+      )
       .filter(([, item]) => item !== undefined),
   );
 }

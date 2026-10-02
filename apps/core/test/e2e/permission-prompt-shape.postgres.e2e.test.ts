@@ -19,7 +19,10 @@ import { decisionForMode } from '@core/channels/permission-interaction.js';
 import { parseTelegramPermissionCallbackData } from '@core/channels/telegram/channel-shared.js';
 import { prepareTelegramPermissionCardSend } from '@core/channels/telegram/prepared-permission-card.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
+import type { NewMessage } from '@core/domain/types.js';
 import { processTaskIpc } from '@core/jobs/ipc-handler.js';
+import { formatConversationContextMessages } from '@core/messaging/router.js';
+import { buildBaseRunnerEnv } from '@core/runtime/agent-spawn-helpers.js';
 import { taskIpcResponsePath } from '@core/jobs/ipc-shared.js';
 import { createAgentToolRuleSettingsMirror } from '@core/config/settings/agent-tool-rule-settings-mirror.js';
 import {
@@ -299,9 +302,70 @@ maybeDescribe('permission-prompt-shape', () => {
     expect(row?.status).toBe('cancelled');
   }, 60_000);
 
-  it('asks for a skill install with why from the turn, secrets hidden, and only Allow once and Deny, and a Deny tap installs nothing', async () => {
+  it('asks for a skill install with why from the turn, secrets hidden, and only Allow once and Deny, and a Deny tap installs nothing and says how to try again', async () => {
     const password = 'hunter2-secret-pass';
     const source = `https://ravi:${password}@git.example.com/acme/weather`;
+    // A chat turn whose earlier conversation fills far more than the
+    // 1,500 characters the runner's environment carries.
+    const message = (id: string, content: string): NewMessage => ({
+      id,
+      chat_jid: TARGET_JID,
+      sender: 'user:ravi',
+      sender_name: 'Ravi',
+      content,
+      timestamp: '2026-10-02T09:00:00.000Z',
+    });
+    const turnPrompt = formatConversationContextMessages(
+      {
+        recentChannelContext: Array.from({ length: 12 }, (_, index) =>
+          message(`history-${index}`, `Earlier chat line ${index} `.repeat(20)),
+        ),
+        activeThreadContext: [],
+        currentMessages: [
+          message(
+            'current',
+            `Install the weather skill from ${source} for the weekly note`,
+          ),
+        ],
+      },
+      'UTC',
+    );
+    expect(turnPrompt.length).toBeGreaterThan(3_000);
+    const runnerEnv = buildBaseRunnerEnv({
+      hostEnv: {},
+      preparedEnv: {},
+      runnerToolProcessEnv: {},
+      timezone: 'UTC',
+      mcpServerPath: '',
+      hostRuntimeGroupDir: '',
+      workspaceKey: AGENT_FOLDER,
+      runnerAppId: APP_ID,
+      agentId: AGENT_ID,
+      processName: 'prompt-shape',
+      workspaceExtraDir: '',
+      workspaceIpcDir: path.join(ipcBaseDir, AGENT_FOLDER),
+      ipcInputDir: '',
+      ipcAuthToken: ipcAuth.authToken,
+      chatJid: TARGET_JID,
+      runnerModel: 'model',
+      memoryIpcAuthToken: '',
+      memoryIpcAllowedActions: [],
+      responseVerifyKey: ipcAuth.responseVerifyKey,
+      responseKeyId: ipcAuth.responseKeyId,
+      hideAuthorityTools: false,
+      agentAccessPreset: 'full',
+      deploymentMode: 'workstation',
+      permissionMode: 'ask',
+      permissionLane: 'interactive',
+      turnIntentSummary: turnPrompt,
+      permissionTimeoutMs: 0,
+      egressProxyUrl: '',
+      sandboxRuntimeProxy: false,
+      deepAgentsShellEnv: {},
+      deepAgentsFilesystemEnv: {},
+      pickSafeHostEnv: () => ({}),
+      pickPreparedExecutionEnv: () => ({}),
+    });
     // The agent's Gantry tool server, started for this turn.
     vi.stubEnv('GANTRY_IPC_DIR', path.join(ipcBaseDir, AGENT_FOLDER));
     vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', ipcAuth.authToken);
@@ -314,7 +378,7 @@ maybeDescribe('permission-prompt-shape', () => {
     vi.stubEnv('GANTRY_PERMISSION_LANE', 'interactive');
     vi.stubEnv(
       'GANTRY_TURN_INTENT_SUMMARY',
-      `<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Install the weather skill from ${source} for the weekly note</message>\n</messages>`,
+      runnerEnv.GANTRY_TURN_INTENT_SUMMARY,
     );
     const { writeIpcFile } = await import('@core/runner/mcp/ipc.js');
     const { TASKS_DIR } = await import('@core/runner/mcp/context.js');
@@ -342,12 +406,13 @@ maybeDescribe('permission-prompt-shape', () => {
       interactionLifecycle: { logger: { error: vi.fn() } },
     });
     const runApprovedCommand = vi.fn(async () => undefined);
+    const sendMessage = vi.fn(async () => undefined);
     const claimed = runnerControl.claimRequest(AGENT_FOLDER, 'tasks', file);
     await processTaskIpc(
       parseTaskIpcData(claimed.raw, AGENT_FOLDER),
       AGENT_FOLDER,
       {
-        sendMessage: vi.fn(async () => undefined),
+        sendMessage,
         conversationRoutes: () => ({ [TARGET_JID]: { folder: AGENT_FOLDER } }),
         registerGroup: async () => undefined,
         syncGroups: async () => undefined,
@@ -386,6 +451,13 @@ maybeDescribe('permission-prompt-shape', () => {
       ok: false,
       code: 'permission_denied',
     });
+    // What the person sees says what happened and what to do next.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe(TARGET_JID);
+    expect(sendMessage.mock.calls[0]?.[1]).toMatch(
+      /^Did not install skill .+ was not granted\. To try again, ask me again and an approver can allow it\.$/,
+    );
+    expect(JSON.stringify(sendMessage.mock.calls)).not.toContain(password);
     const rows = await runtime.service.db
       .select()
       .from(pgSchema.pendingInteractionsPostgres)

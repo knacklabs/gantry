@@ -157,7 +157,22 @@ export function permissionTurnIntent(
 export function permissionRequestWhyText(
   turnIntentSummary: string | undefined,
 ): string | undefined {
-  const text = turnIntentSummary?.trim();
+  const plain = currentTurnRequest(turnIntentSummary);
+  if (!plain) return undefined;
+  const result = sanitizeCredentialText(plain);
+  if (result.blocked) return undefined;
+  return result.text.length <= WHY_MAX_CHARS
+    ? result.text
+    : `${result.text.slice(0, WHY_MAX_CHARS - 1).trimEnd()}…`;
+}
+
+/** The person's own request in a turn prompt, as plain text: a chat turn's
+ *  current message, or a job's prompt. Take it from the whole prompt: a
+ *  length cap would cut it off behind the conversation context. */
+export function currentTurnRequest(
+  turnPrompt: string | undefined,
+): string | undefined {
+  const text = turnPrompt?.trim();
   if (!text) return undefined;
   // A chat turn's prompt is the formatted conversation; a job's is plain text.
   const formatted = /<(context|messages|current_message)\b/.test(text);
@@ -176,11 +191,7 @@ export function permissionRequestWhyText(
   )
     .replace(/\s+/g, ' ')
     .trim();
-  const result = sanitizeCredentialText(plain);
-  if (!plain || result.blocked) return undefined;
-  return result.text.length <= WHY_MAX_CHARS
-    ? result.text
-    : `${result.text.slice(0, WHY_MAX_CHARS - 1).trimEnd()}…`;
+  return plain || undefined;
 }
 
 function unescapeXml(value: string): string {

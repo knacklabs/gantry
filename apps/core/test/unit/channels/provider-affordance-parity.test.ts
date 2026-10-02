@@ -1559,6 +1559,17 @@ describe('provider affordance parity', () => {
         lines: ['Runs: cd, ls, wc', why],
       },
       {
+        request: await askedThroughRunner(turnIntentSummary, {
+          ...shellAsk('npm test -- --runInBand'),
+          toolInput: {
+            command: 'npm test -- --runInBand',
+            description: 'Run the test suite',
+          },
+        }),
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: ['What it does: Run the test suite', 'Runs: npm', why],
+      },
+      {
         request: await askedThroughRunner(
           turnIntentSummary,
           shellAsk(

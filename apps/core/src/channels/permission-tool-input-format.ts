@@ -14,10 +14,8 @@ import {
 } from '../shared/runtime-env-command.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import { sanitizePermissionText } from './permission-text-sanitizer.js';
-import {
-  isInternalPlumbingKey,
-  SENSITIVE_DISPLAY_KEY_PATTERN,
-} from '../shared/permission-display-input.js';
+import { isInternalPlumbingKey } from '../shared/permission-display-input.js';
+import { SENSITIVE_KEY_PATTERN } from '../shared/sensitive-material.js';
 
 const PERMISSION_JSON_MAX_KEYS = 12;
 const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
@@ -103,7 +101,7 @@ export function formatPermissionCommandLines(
 ): string[] {
   if (typeof input.command !== 'string' || !input.command.trim()) return [];
   const displayCommand = runtimeDisplayCommand(input.command.trim());
-  const leadLine = commandLeadLine(
+  const leadLines = commandLeadLines(
     input,
     displayCommand.command,
     sanitizePermissionText,
@@ -122,7 +120,7 @@ export function formatPermissionCommandLines(
           )}`
         : null;
     return [
-      leadLine,
+      ...leadLines,
       'Command: generated skill action command; runtime path hidden.',
       `Action: ${sanitizePermissionText(generatedSkillPath, 180, 80)}`,
       ...(runtimeEnvLine ? [runtimeEnvLine] : []),
@@ -137,7 +135,7 @@ export function formatPermissionCommandLines(
   if (hasRedactionMarker(command)) {
     const program = shellProgramLabel(displayCommand.command);
     return [
-      leadLine,
+      ...leadLines,
       'Command: hidden because it may contain sensitive values.',
       ...(program
         ? [`Program: ${sanitizePermissionText(program, 120, 40)}`]
@@ -146,7 +144,7 @@ export function formatPermissionCommandLines(
     ];
   }
   return [
-    leadLine,
+    ...leadLines,
     'Command:',
     '```',
     command,
@@ -185,7 +183,7 @@ function formatGenericInputFields(
       break;
     }
     if (isInternalPlumbingKey(key)) continue;
-    if (SENSITIVE_DISPLAY_KEY_PATTERN.test(key)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
       lines.push(`  ${labelizeKey(key)}: [hidden]`);
       shown += 1;
       continue;
@@ -264,23 +262,25 @@ function hasRedactionMarker(value: string): boolean {
   return REDACTION_MARKER_PATTERN.test(value);
 }
 
-function commandLeadLine(
+/** The agent's description of a command, when it gave one, and always the
+ *  programs it runs. */
+function commandLeadLines(
   input: Record<string, unknown>,
   command: string,
   sanitizePermissionText: PermissionTextSanitizer,
-): string {
-  if (typeof input.description === 'string' && input.description.trim()) {
-    return `What it does: ${sanitizePermissionText(
-      input.description.trim(),
-      300,
-      100,
-    )}`;
-  }
+): string[] {
   const programs =
     summarizeBashCommandPrograms(command) ?? shellProgramLabel(command);
-  return `Runs: ${
+  const runs = `Runs: ${
     programs ? sanitizePermissionText(programs, 200, 80) : 'command'
   }`;
+  if (typeof input.description === 'string' && input.description.trim()) {
+    return [
+      `What it does: ${sanitizePermissionText(input.description.trim(), 300, 100)}`,
+      runs,
+    ];
+  }
+  return [runs];
 }
 
 function commandRiskLines(command: string): string[] {

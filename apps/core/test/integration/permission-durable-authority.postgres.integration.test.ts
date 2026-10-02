@@ -580,6 +580,8 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
   it('shows a recovered prompt with the same what, which and why after a restart, with secrets hidden', async () => {
     const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
     const password = 'hunter2-secret-pass';
+    const passphrase = 'open sesame';
+    const jsonPassword = 'test-password';
     const turnIntentSummary = `<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Set up weather from https://ravi:${password}@git.example.com/acme for the weekly note</message>\n</messages>`;
     const why = 'Why: Set up weather from https://';
     const skillSource = `https://ravi:${password}@git.example.com/acme/weather`;
@@ -592,11 +594,13 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
       decisionOptions: ['allow_once' as const, 'cancel' as const],
       turnIntentSummary,
     };
-    // Shapes as the shell gate, the skill-install handler and the MCP-server
-    // handler send them.
+    // Shapes as the shell gate, the skill-install handler, the MCP-server
+    // handler, the inline remote-MCP gate (raw input) and the file gate send
+    // them.
     const fixtures: Array<{
       request: PermissionApprovalRequest;
       lines: string[];
+      secrets?: string[];
     }> = [
       {
         request: {
@@ -643,6 +647,7 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
             activation: 'source_inventory_only',
           },
         },
+        secrets: [password],
         lines: [
           'Transport: stdio_template',
           'Install: https://',
@@ -652,9 +657,36 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
           why,
         ],
       },
+      {
+        request: {
+          ...admin,
+          requestId: 'req-perm-durable-recovered-remote-mcp',
+          toolName: 'mcp__vault__unlock',
+          displayName: 'mcp__vault__unlock',
+          decisionOptions: ['allow_once', 'cancel'],
+          toolInput: { vault: 'team', passphrase },
+        },
+        secrets: [passphrase],
+        lines: ['Vault: team', 'Passphrase: [hidden]', why],
+      },
+      {
+        request: {
+          ...admin,
+          requestId: 'req-perm-durable-recovered-write',
+          toolName: 'Write',
+          displayName: 'Write',
+          decisionOptions: ['allow_once', 'cancel'],
+          toolInput: {
+            file_path: '/workspace/config.json',
+            content: `{\n  "user": "ravi",\n  "password": "${jsonPassword}"\n}\n`,
+          },
+        },
+        secrets: [jsonPassword],
+        lines: ['/workspace/config.json', why],
+      },
     ];
 
-    for (const { request, lines } of fixtures) {
+    for (const { request, lines, secrets = [] } of fixtures) {
       await beginDurablePermissionInteraction({
         request,
         sourceAgentFolder: request.sourceAgentFolder,
@@ -709,6 +741,10 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
       for (const line of lines) expect(card.text).toContain(line);
       expect(card.text).not.toContain(secret);
       expect(card.text).not.toContain(password);
+      for (const hidden of secrets) {
+        expect(JSON.stringify(live)).not.toContain(hidden);
+        expect(JSON.stringify(card)).not.toContain(hidden);
+      }
       const [prompt] = await runtime.service.db
         .select()
         .from(pgSchema.permissionPromptsPostgres)
@@ -721,6 +757,7 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
       const stored = JSON.stringify(prompt?.renderedRequestJson);
       expect(stored).not.toContain(secret);
       expect(stored).not.toContain(password);
+      for (const hidden of secrets) expect(stored).not.toContain(hidden);
       expect(stored).not.toContain('sandbox-profile-internal');
       expect(stored).not.toContain('<message');
     }
