@@ -3,7 +3,7 @@
   "branch": "fix/tool-diagnostics-bound-payloads-two-diff",
   "done_when": "One bounded encoder limits tool diagnostic payloads, and the second traversal is deleted",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T13:23:21+00:00",
