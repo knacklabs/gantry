@@ -4,11 +4,24 @@
   "branch": "fix/progress-cards-show-a-stop-button-on-eve",
   "done_when": "No provider shows a Stop button on progress cards; the live_turn_stop affordance, its action tokens and its Telegram, Discord and Slack callbacks are deleted, and /stop still stops a running turn on every provider",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "8b55187b6e2a38fffe076e7977e88ff9401d1f9f9f9b25782f09607b599be2ec",
+    "commit": "a44ef9d820861e03f3a3d0e2c158810b29c187e0",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "3e3cce49aec562aa09d10ddaaac39a14d2a0f9709b246158fe05ecafd521099a"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T07:07:21+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T12:35:35+00:00",
+      "step": "review"
     }
   ],
   "why": "Progress cards show a Stop button on every provider though /stop is the one way to stop"
