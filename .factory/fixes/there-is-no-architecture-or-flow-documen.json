@@ -1,0 +1,14 @@
+{
+  "base": "c2047e791012ed4c6ceb2cd96b3a901173d2d0fe",
+  "branch": "fix/there-is-no-architecture-or-flow-documen",
+  "done_when": "docs/architecture/areas/ has one doc per audit area with architecture and flow diagrams and a plain-English walkthrough, checked against the code",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T17:01:12+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "There is no architecture or flow documentation per app area for explaining the system"
+}
