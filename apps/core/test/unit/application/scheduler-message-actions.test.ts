@@ -10,7 +10,7 @@ vi.mock('@core/runtime/ipc.js', () => ({
 }));
 
 import { DATA_DIR } from '@core/config/index.js';
-import { registerRuntimeLiveStopMessageAction } from '@core/app/bootstrap/runtime-live-stop-message-action.js';
+import { registerRuntimeMessageActions } from '@core/app/bootstrap/runtime-message-actions.js';
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '@core/application/jobs/job-readiness-service.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
@@ -218,14 +218,13 @@ describe('scheduler message actions (CARDFIX-1)', () => {
       isControlApproverAllowed: vi.fn(async () => true),
       sendMessage,
     };
-    registerRuntimeLiveStopMessageAction(
+    registerRuntimeMessageActions(
       channelWiring as never,
       {
         getConversationRoutes: () => ({
           'sl:C123': { folder: 'main_agent' },
         }),
       } as never,
-      { stopGroup: vi.fn() },
     );
     await handler?.({
       kind: 'scheduler_pause_job',
@@ -299,14 +298,13 @@ describe('scheduler message actions (CARDFIX-1)', () => {
       isControlApproverAllowed: vi.fn(async () => true),
       sendMessage: vi.fn(async () => undefined),
     };
-    registerRuntimeLiveStopMessageAction(
+    registerRuntimeMessageActions(
       channelWiring as never,
       {
         getConversationRoutes: () => ({
           'sl:C123': { folder: 'main_agent' },
         }),
       } as never,
-      { stopGroup: vi.fn() },
     );
     await handler?.({
       kind: 'scheduler_retry_ask',
