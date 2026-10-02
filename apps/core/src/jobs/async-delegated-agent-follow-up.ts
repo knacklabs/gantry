@@ -122,7 +122,8 @@ export async function deliverPendingCallableAgentFollowUp(input: {
       now: timestamp,
     },
   );
-  if (!admitted) return false;
+  // Overloaded: not delivered, so the recovery sweep retries it.
+  if (!admitted || admitted.outcome === 'overloaded') return false;
   const receipt = task.receiptJson;
   if (!receipt) return true;
   await input.repository.updateTaskReceipt(
