@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "d0f2509be896fe6143eff333db9a7d50dbbae3b0fb5944ff20dbdf8e790b306b",
-    "commit": "06034a8472215eda82c1a7565c03579fe8425fc2",
+    "changed": "1e0622b527a174575b4dbd2a1549f0655924f0bf6af301173d73b45dbcbd9a98",
+    "commit": "451577b9e2b5b803eff867e3232b3052f2ca5c1a",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "Denied one-time requests still grow the card indefinitely. Production gives each once-request a distinct identity (`job-permission-durability-wiring.ts:236\u2013239`), and reconciliation finishes a denial in state `denied` (`job-permission-reconciler.ts:552`). This settlement predicate excludes that state, so every denied request remains pending. `livingCardNeeds` retains all denials (`job-permission-card-projection.ts:327`), and each new revision stores every retained need in `representedNeeds` (lines 232\u2013235), despite limiting visible rows. Heartbeats consequently keep loading and rewriting the accumulated needs and growing revision payloads. The migration excludes denials too (lines 121\u2013127). Bound older terminal once-denials on writes and in the migration, preserving the required current receipt and replay behavior, and cover repeated denials in the Postgres regression test.",
-        "file": "apps/core/src/domain/job-permission-card-history.ts",
-        "line": 105,
-        "priority": "P1",
-        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their 's pay"
-      }
-    ],
-    "status": "blocked",
-    "tree": "65d82b34ed6c481ef882925310d206b72b53d73d9caa665e41787bdb003d4245"
+    "findings": [],
+    "status": "clean",
+    "tree": "dfc0d986559b1cc3e607451fc08d8ad0b8778a67ccbae9a8aa5a4fb2c74f323e"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:51:07+00:00",
@@ -40,6 +32,10 @@
     },
     {
       "at": "2026-10-02T05:04:21+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:22:02+00:00",
       "step": "review"
     }
   ],
