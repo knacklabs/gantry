@@ -22,7 +22,7 @@ export async function renderTeamsAgentTodo(input: {
 }): Promise<boolean> {
   const conversationId = teamsConversationIdFromJid(input.jid);
   if (!conversationId) return false;
-  const card = buildTeamsAgentTodoCard(input.render, input.jid);
+  const card = buildTeamsAgentTodoCard(input.render);
   const todoKey = `${input.jid}:${input.render.cardKind ?? 'todo'}:${input.render.threadId || ''}`;
 
   const existing = input.pendingTodos.get(todoKey);
