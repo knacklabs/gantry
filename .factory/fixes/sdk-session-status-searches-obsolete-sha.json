@@ -1,0 +1,14 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/sdk-session-status-searches-obsolete-sha",
+  "done_when": "Session status uses the canonical session handle and the shared queue key",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T13:04:01+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "SDK session status searches obsolete shapes and copies the queue-key encoder"
+}
