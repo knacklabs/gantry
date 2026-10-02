@@ -38,7 +38,6 @@ export async function routeLiveContinuation(input: {
   commandId: string;
   expectedTurnId?: string;
   idempotencyKey: string;
-  cursorAfter?: string | null;
   createdByWorkerId?: string | null;
   now?: string;
 }): Promise<LiveContinuationRouteResult> {
@@ -63,7 +62,6 @@ export async function routeLiveContinuation(input: {
     payload: {
       text: input.text,
       threadId: input.scope.threadId ?? null,
-      ...(input.cursorAfter ? { cursorAfter: input.cursorAfter } : {}),
     },
     createdByWorkerId: input.createdByWorkerId,
     now: input.now,
