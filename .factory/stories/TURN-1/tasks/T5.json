@@ -2,36 +2,14 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "379cf3f52945c2ef0ee777df153a898f6297b96181a2fd7d1f91dc2b27f5c903",
-    "commit": "613fd66e492dfcc3cea9e843c7c4ebfaffd2d84d",
+    "changed": "7ca85bf84d2c21caca6665ec323583cfb3b460ed1a2c129044180532d1af3122",
+    "commit": "995bb73a8ab22a60bcd6277207d54bbde2a80a3d",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The state/reason filters exclude unconsumed messages whose quiet window ended while they waited for execution capacity. GroupQueue accepts such waiting work (apps/core/src/runtime/group-queue.ts:245\u2013251), and the admission loop settles its items as completed without consuming them (apps/core/src/runtime/live-admission-work-loop.ts:276\u2013282). If ten messages are waiting behind another conversation, /stop cancels none of them. The active-command handler refuses the idle conversation (apps/core/src/app/bootstrap/runtime-services.ts:656\u2013668), and the eventual turn-start take reaches its ten-message limit before reaching /stop, so the cancelled request runs. Preserve the receive-order boundary, but include earlier unconsumed input regardless of its admission scheduling state.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
-        "line": 353,
-        "priority": "P1",
-        "title": "Not done: /stop cancels a batch that hasn't started"
-      },
-      {
-        "body": "External ingress targets an existing conversation route, but isSessionCommandText parses with an empty trigger (apps/core/src/application/sessions/session-command-parse.ts:278). For a route with trigger Andy, an allowlisted sender's `Andy /stop` or `Andy ! stop` is therefore saved with a quiet window, although turn-start parsing accepts it using the route trigger (apps/core/src/runtime/group-processing.ts:124). The channel-handler fix does not cover this ingress path. Carry the resolved route trigger into command classification so these accepted commands bypass the window too.",
-        "file": "apps/core/src/application/external-ingress/conversation-message-ingress.ts",
-        "line": 248,
-        "priority": "P1",
-        "title": "Not done: session commands never wait"
-      },
-      {
-        "body": "The take reads receive order, but presentation sorts by provider timestamp first. A message received second with an older provider timestamp is moved ahead of the first message in the agent prompt, violating the promised received-order batch. The existing test explicitly demonstrates this reversal (apps/core/test/unit/runtime/group-processing-flow.test.ts:8\u201377), while the new integration test supplies monotonically increasing timestamps and cannot expose it. Preserve receiveOrder when presenting the batch.",
-        "file": "apps/core/src/runtime/group-processing-flow.ts",
-        "line": 34,
-        "priority": "P1",
-        "title": "Not done: messages reach the turn in received order"
-      }
-    ],
-    "status": "blocked",
-    "tree": "ad0cf09eabe87d9a685bb1d6ab6431ab927234d8c9bd0312f0751688f2c280a9"
+    "findings": [],
+    "status": "clean",
+    "tree": "6a828ea660eafbdfa66792e5df1ce1d7fd16a3779d504f5b45a58cac006702b1"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T07:53:51+00:00",
@@ -47,6 +25,10 @@
     },
     {
       "at": "2026-10-02T14:03:58+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T22:21:08+00:00",
       "step": "review"
     }
   ]
