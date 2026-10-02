@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "ff82a8b3b4ad37855ec0210a31883c70c4a825340c4d7ae98f6b906336e13d13",
-    "commit": "af21f64787132945c45e120e2630917418bb81a5",
+    "changed": "96f3dc725df219b8de5b95f23b9791014f595fbc5d9d8737c09c9f8216ee48dc",
+    "commit": "0ffa8501571506c7b121a4deed00a4ef6e9dcaa6",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The Done-when requirement is only partially met. `docs/review-instructions.md:25\u201326` now states that end-to-end tests run nightly, not at close or in PR CI, but `apps/core/AGENTS.md` contains no equivalent statement. Its testing section adds the small-fix exception while leaving the required nightly scheduling rule unstated. Add that rule to this section so both named documents express all three promised policies.",
-        "file": "apps/core/AGENTS.md",
-        "line": 111,
-        "priority": "P1",
-        "title": "Not done: docs/review-instructions.md and apps/core/AGENTS.md say what the review rules say: a story proves each user-visible Done-when item"
-      }
-    ],
-    "status": "blocked",
-    "tree": "c09244b7247955d9b21281a5eedaad8c3946293cc2d2dffbae81545d16958355"
+    "findings": [],
+    "status": "clean",
+    "tree": "d210445b011fb6cf8fb6ab1cc94af54e628e470e37f37c8de45bb6fe38766993"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T03:39:57+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-02T04:27:21+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T06:47:58+00:00",
       "step": "review"
     }
   ],
