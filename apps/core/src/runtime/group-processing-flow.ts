@@ -252,19 +252,22 @@ export function resetGroupStreamingForTurn(input: {
   chatJid: string;
   groupName: string;
   channelRuntime: {
-    resetStreaming(jid: string, options?: { providerAccountId?: string }): void;
+    resetStreaming(
+      jid: string,
+      options: { providerAccountId?: string; threadId?: string },
+    ): void;
   };
   providerAccountId?: string;
+  threadId?: string;
   logger: { debug(payload: Record<string, unknown>, message: string): void };
 }): void {
   try {
-    if (input.providerAccountId) {
-      input.channelRuntime.resetStreaming(input.chatJid, {
-        providerAccountId: input.providerAccountId,
-      });
-    } else {
-      input.channelRuntime.resetStreaming(input.chatJid);
-    }
+    input.channelRuntime.resetStreaming(input.chatJid, {
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
+      threadId: input.threadId,
+    });
   } catch (err) {
     input.logger.debug(
       { err, group: input.groupName },

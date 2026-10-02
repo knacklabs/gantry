@@ -183,6 +183,8 @@ export interface JobPermissionDurabilityRepository {
     appId: string;
     jobId: string;
     initialCard: JobPermissionCardRecord;
+    /** Needs to load even when settled, e.g. the one a request re-attaches to. */
+    includeNeedIds?: string[];
     mutate: (state: JobPermissionDurabilityState) => {
       state: JobPermissionDurabilityState;
       result: T;

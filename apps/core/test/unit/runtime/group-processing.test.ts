@@ -6909,19 +6909,23 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('resets channel streaming state before running a new cycle', async () => {
+    it("resets only the turn's thread stream before running a new cycle", async () => {
       const resetStreaming = vi.fn();
       const streamingChannel = makeChannel({
         resetStreaming,
         sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
       });
-      const { deps } = setupHappyPath();
+      const { deps } = setupHappyPath({
+        messages: [makeMessage({ thread_id: '42' })],
+      });
       deps.channelRuntime = streamingChannel;
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
+      await processGroupMessages('group1@g.us::thread:42');
 
-      expect(resetStreaming).toHaveBeenCalledWith('group1@g.us');
+      expect(resetStreaming).toHaveBeenCalledWith('group1@g.us', {
+        threadId: '42',
+      });
     });
 
     it('handles non-string result by JSON.stringifying', async () => {
