@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { parseSkillFrontmatter } from '../shared/skill-artifact-helpers.js';
+
 import { toTrimmedString } from './ipc-shared.js';
 
 export type ParsedSkillPackageAssets =
@@ -164,35 +166,6 @@ function parseSkillMarkdownMetadata(content: string): {
       .map((value) => value.trim())
       .filter((value) => value.length > 0),
   };
-}
-
-function parseSkillFrontmatter(content: string): Record<string, string> {
-  if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
-    return {};
-  }
-  const normalized = content.replace(/\r\n/g, '\n');
-  const end = normalized.indexOf('\n---', 4);
-  if (end < 0) return {};
-  const lines = normalized.slice(4, end).split('\n');
-  const metadata: Record<string, string> = {};
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    const match = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/.exec(line);
-    if (!match) continue;
-    const key = match[1];
-    const rawValue = match[2];
-    if (rawValue === '|') {
-      const block: string[] = [];
-      while (i + 1 < lines.length && /^\s+/.test(lines[i + 1])) {
-        i += 1;
-        block.push(lines[i].replace(/^\s{2}/, ''));
-      }
-      metadata[key] = block.join('\n').trim();
-      continue;
-    }
-    metadata[key] = rawValue.replace(/^['"]|['"]$/g, '').trim();
-  }
-  return metadata;
 }
 
 function cleanMetadataText(value: string | undefined): string | undefined {
