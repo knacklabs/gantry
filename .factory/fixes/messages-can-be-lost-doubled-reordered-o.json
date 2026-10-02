@@ -1,0 +1,14 @@
+{
+  "base": "f7de785004e29235790076c6115fa17ce1e0ba41",
+  "branch": "fix/messages-can-be-lost-doubled-reordered-o",
+  "done_when": "A confirmed spec, One messaging pipeline for every provider, and its stories on the roadmap",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T03:55:37+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Messages can be lost, doubled, reordered or sent to the wrong place because each provider handles them its own way"
+}
