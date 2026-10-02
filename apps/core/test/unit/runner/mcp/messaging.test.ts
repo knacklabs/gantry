@@ -418,12 +418,11 @@ describe('send_message delivery result', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("returns the host's delivery error instead of claiming the message was sent", async () => {
-    const responseKeys = createIpcResponseSigningKeyPair();
-    contextState.responseVerifyKey = responseKeys.publicKeyPem;
+  async function sendMessageHandler() {
     const handlers = new Map<string, (...args: never[]) => unknown>();
     const server = {
       tool: (...args: unknown[]) => {
@@ -436,33 +435,68 @@ describe('send_message delivery result', () => {
     const { registerMessagingTools } =
       await import('@core/runner/mcp/tools/messaging.js');
     registerMessagingTools(server as never);
-    const sendMessage = handlers.get('send_message') as (
+    return handlers.get('send_message') as (
       args: Record<string, unknown>,
     ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+  }
+
+  it.each([
+    {
+      outcome: 'delivered',
+      host: { ok: true, message: 'Delivered to the chat.' },
+      text: 'Delivered to the chat.',
+      isError: undefined,
+    },
+    {
+      outcome: 'failed',
+      host: { ok: false, error: 'channel is offline' },
+      text: 'Delivery not confirmed: channel is offline',
+      isError: true,
+    },
+  ])(
+    "gives the agent the host's signed $outcome result",
+    async ({ host, text, isError }) => {
+      const responseKeys = createIpcResponseSigningKeyPair();
+      contextState.responseVerifyKey = responseKeys.publicKeyPem;
+      const sendMessage = await sendMessageHandler();
+
+      const pending = sendMessage({ text: 'hello' });
+      const messagesDir = path.join(contextState.ipcDir, 'messages');
+      const requestFile = await waitForJsonFile(messagesDir);
+      const request = JSON.parse(
+        fs.readFileSync(path.join(messagesDir, requestFile), 'utf-8'),
+      ) as { taskId: string };
+      const responsesDir = path.join(contextState.ipcDir, 'task-responses');
+      fs.mkdirSync(responsesDir, { recursive: true });
+      const response = { taskId: request.taskId, ...host };
+      fs.writeFileSync(
+        path.join(responsesDir, `task-${request.taskId}.json`),
+        JSON.stringify({
+          ...response,
+          signature: signIpcResponsePayload(
+            responseKeys.privateKeyPem,
+            response,
+          ),
+        }),
+      );
+
+      const result = await pending;
+      expect(result.content[0]?.text).toBe(text);
+      expect(result.isError).toBe(isError);
+    },
+  );
+
+  it('says delivery is not confirmed when the host never answers', async () => {
+    const sendMessage = await sendMessageHandler();
+    vi.useFakeTimers();
 
     const pending = sendMessage({ text: 'hello' });
-    const messagesDir = path.join(contextState.ipcDir, 'messages');
-    const requestFile = await waitForJsonFile(messagesDir);
-    const request = JSON.parse(
-      fs.readFileSync(path.join(messagesDir, requestFile), 'utf-8'),
-    ) as { taskId: string };
-    const responsesDir = path.join(contextState.ipcDir, 'task-responses');
-    fs.mkdirSync(responsesDir, { recursive: true });
-    const response = {
-      taskId: request.taskId,
-      ok: false,
-      error: 'channel is offline',
-    };
-    fs.writeFileSync(
-      path.join(responsesDir, `task-${request.taskId}.json`),
-      JSON.stringify({
-        ...response,
-        signature: signIpcResponsePayload(responseKeys.privateKeyPem, response),
-      }),
-    );
+    await vi.advanceTimersByTimeAsync(31_000);
 
     const result = await pending;
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toContain('channel is offline');
+    expect(result.content[0]?.text).toBe(
+      'Message queued, but delivery is not confirmed yet. Do not assume the user has seen it.',
+    );
+    expect(result.isError).toBeUndefined();
   });
 });

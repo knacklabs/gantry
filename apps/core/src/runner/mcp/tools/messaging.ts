@@ -476,7 +476,7 @@ export function registerMessagingTools(
           content: [
             {
               type: 'text' as const,
-              text: `Message not sent: ${response.error || 'delivery failed.'}`,
+              text: `Delivery not confirmed: ${response.error || 'delivery failed.'}`,
             },
           ],
           isError: true,
