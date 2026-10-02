@@ -32,6 +32,8 @@ import { createLiveTurnLocalRunnerHooks } from '@core/runtime/group-queue-live-t
 import { routeScopeActiveLiveTurnAdmissionFromInput } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
+import { decideBatch } from '@core/runtime/group-trigger-policy.js';
+import type { NewMessage } from '@core/domain/types.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 
 import {
@@ -213,6 +215,100 @@ maybeDescribe('live admission work items (Postgres)', () => {
     );
     for (const item of [mentioned, plain])
       await liveTurns.consumeInputItem({ id: item.id, consumedBy: 'history' });
+  });
+
+  it('counts a message as mid-turn only when a turn was running on arrival, not when a job posts after it', async () => {
+    const appId = 'app-mid-turn';
+    const chatJid = 'tg:mid-turn';
+    const pause = () => new Promise((resolve) => setTimeout(resolve, 25));
+    const save = async (id: string, content: string) => {
+      const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          sender: 'user-mid-turn',
+          sender_name: 'Member',
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+        },
+        { appId },
+      );
+      if (!admitted || admitted.outcome === 'overloaded')
+        throw new Error('Expected a saved admission item');
+      return admitted.item;
+    };
+    const turn = await liveTurns.claimLiveTurn({
+      id: 'live-turn:mid-turn',
+      scope: { appId, conversationId: chatJid, threadId: null },
+      workerInstanceId: 'worker-mid-turn',
+      now: toIso(nowMs() - 1_000),
+    });
+    expect(turn).not.toBeNull();
+    const during = await save('msg-during-turn', 'oh and use metric units');
+    await pause();
+    await liveTurns.transitionLiveTurnState({
+      id: 'live-turn:mid-turn',
+      toState: 'completed',
+      fromStates: ['claimed'],
+    });
+    await pause();
+    const plain = await save('msg-plain-after-turn', 'lunch anyone?');
+    await pause();
+    await runtime.ops.storeMessage({
+      id: 'outbound:job-post',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      providerAccountId: plain.providerAccountId ?? undefined,
+      sender: 'gantry',
+      sender_name: 'Gantry',
+      content: 'Daily report is ready.',
+      timestamp: toIso(nowMs()),
+      is_from_me: true,
+      is_bot_message: true,
+      delivery_status: 'sent',
+    });
+    const scope = {
+      appId,
+      conversationId: during.conversationId,
+      threadId: during.threadId,
+      agentId: during.agentId,
+      providerAccountId: during.providerAccountId,
+    };
+    const taken = await liveTurns.takeInput({
+      scope,
+      consumedBy: 'turn:mid-turn-check',
+      limit: 10,
+    });
+    expect(
+      taken.map(({ id, receivedDuringTurn }) => ({ id, receivedDuringTurn })),
+    ).toEqual([
+      { id: during.id, receivedDuringTurn: true },
+      { id: plain.id, receivedDuringTurn: false },
+    ]);
+    const [duringMessage, plainMessage] = await runtime.ops.getMessagesByIds(
+      scope,
+      [during.messageId, plain.messageId],
+    );
+    const decide = (message: NewMessage, receivedDuringTurn: boolean) =>
+      decideBatch({
+        group: {
+          folder: 'mid_turn',
+          requiresTrigger: true,
+          providerAccountId: plain.providerAccountId ?? undefined,
+        },
+        chatJid,
+        threadId: null,
+        triggerPattern: /^@Andy\b/i,
+        messages: [message],
+        receivedDuringTurn: new Set(receivedDuringTurn ? [message] : []),
+        messageRepository: runtime.ops,
+        pageSize: 50,
+      });
+    await expect(decide(duringMessage!, true)).resolves.toBe(true);
+    await expect(decide(plainMessage!, false)).resolves.toBe(false);
   });
 
   it('gives each message to one turn in database receive order, including a late arrival', async () => {

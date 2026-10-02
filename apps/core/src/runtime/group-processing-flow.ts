@@ -47,6 +47,7 @@ export async function takeGroupTurnInput(input: {
   threadId?: string | null;
 }): Promise<{
   missedMessages: NewMessage[];
+  receivedDuringTurn: ReadonlySet<NewMessage>;
   permitsUnmentionedCompletion: boolean;
   hasMore: boolean;
   activeThreadId?: string;
@@ -56,6 +57,7 @@ export async function takeGroupTurnInput(input: {
     message: NewMessage;
     receiveOrder: number | null;
     triggerDecision: Record<string, unknown>;
+    receivedDuringTurn: boolean;
   }> = [];
   for (let index = 0; index < input.maxMessages; index += 1) {
     const [item] = await input.repository.takeInput({
@@ -72,6 +74,7 @@ export async function takeGroupTurnInput(input: {
       message,
       receiveOrder: item.receiveOrder,
       triggerDecision: item.triggerDecision ?? {},
+      receivedDuringTurn: item.receivedDuringTurn === true,
     });
     if (
       extractSessionCommand(message.content, input.triggerPattern) ||
@@ -104,6 +107,11 @@ export async function takeGroupTurnInput(input: {
   });
   return {
     missedMessages,
+    receivedDuringTurn: new Set(
+      takenMessages
+        .filter(({ receivedDuringTurn }) => receivedDuringTurn)
+        .map(({ message }) => message),
+    ),
     permitsUnmentionedCompletion: takenMessages.some(
       ({ triggerDecision }) =>
         triggerDecision.source === 'callable_agent_follow_up' &&

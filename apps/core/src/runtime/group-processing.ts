@@ -110,6 +110,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     try {
       const {
         missedMessages,
+        receivedDuringTurn,
         permitsUnmentionedCompletion,
         hasMore,
         activeThreadId,
@@ -237,6 +238,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           threadId,
           triggerPattern: config.getTriggerPattern(group.trigger),
           messages: missedMessages,
+          receivedDuringTurn,
           messageRepository: opsRepository,
           pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))

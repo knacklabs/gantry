@@ -46,7 +46,7 @@ function storedRows(rows: NewMessage[]) {
     getContextMessagesSince: vi.fn(
       async (
         _chatJid: string,
-        since: string,
+        _since: string,
         _limit?: number,
         options: ReadOptions = {},
       ) =>
@@ -55,8 +55,7 @@ function storedRows(rows: NewMessage[]) {
             (!options.externalMessageId ||
               row.external_message_id === options.externalMessageId) &&
             (!('threadId' in options) ||
-              (row.thread_id ?? null) === options.threadId) &&
-            (!since || Date.parse(row.timestamp) > Date.parse(since)),
+              (row.thread_id ?? null) === options.threadId),
         ),
     ),
   };
@@ -66,6 +65,7 @@ function decide(
   messages: NewMessage[],
   stored: NewMessage[] = [],
   scope: { chatJid?: string; threadId?: string | null } = {},
+  receivedDuringTurn: NewMessage[] = [],
 ) {
   return decideBatch({
     group,
@@ -73,6 +73,7 @@ function decide(
     threadId: scope.threadId ?? null,
     triggerPattern: /^@Andy\b/i,
     messages,
+    receivedDuringTurn: new Set(receivedDuringTurn),
     messageRepository: storedRows(stored),
     pageSize: 50,
   });
@@ -141,21 +142,15 @@ describe('decideBatch', () => {
     },
   );
 
-  it('takes a message sent while the bot was still answering', async () => {
+  it('takes a message sent while an earlier turn was running', async () => {
     const followUp = message({
       id: 'mid-turn',
       content: 'oh and use metric units',
-      timestamp: '2026-10-01T10:00:00.000Z',
     });
-    await expect(
-      decide(
-        [followUp],
-        [followUp, { ...botReply, timestamp: '2026-10-01T10:00:03.000Z' }],
-      ),
-    ).resolves.toBe(true);
+    await expect(decide([followUp], [], {}, [followUp])).resolves.toBe(true);
   });
 
-  it('keeps an unrelated group message as history', async () => {
+  it('keeps an unrelated group message as history, even when a job posts after it', async () => {
     const unrelated = message({
       id: 'unrelated',
       content: 'lunch anyone?',
@@ -164,7 +159,7 @@ describe('decideBatch', () => {
     await expect(
       decide(
         [unrelated],
-        [{ ...botReply, timestamp: '2026-10-01T09:00:00.000Z' }, unrelated],
+        [unrelated, { ...botReply, timestamp: '2026-10-01T12:00:05.000Z' }],
       ),
     ).resolves.toBe(false);
   });
@@ -185,6 +180,9 @@ describe('decideBatch', () => {
     });
 
     await expect(decide([blockedMention], stored)).resolves.toBe(false);
+    await expect(
+      decide([blockedMention], [], {}, [blockedMention]),
+    ).resolves.toBe(false);
     await expect(decide([blockedFollowUp], stored, { threadId })).resolves.toBe(
       false,
     );

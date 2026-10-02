@@ -204,7 +204,31 @@ export async function takeInput(
       )
       .returning();
     const byId = new Map(rows.map((row) => [row.id, row]));
-    return candidates.map(({ id }) => toLiveAdmissionWorkItem(byId.get(id)!));
+    const turns = pgSchema.liveTurnsPostgres;
+    // A turn that has ended (so never the taker's own) and was running in this
+    // scope when the item was saved.
+    const duringTurn = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(
+        and(
+          inArray(
+            items.id,
+            candidates.map(({ id }) => id),
+          ),
+          sql`exists (select 1 from ${turns} where ${turns.appId} = ${items.appId}
+            and ${turns.conversationId} = ${items.conversationId}
+            and ${turns.threadId} is not distinct from ${items.threadId}
+            and (${items.agentSessionId} is null or ${turns.agentSessionId} = ${items.agentSessionId})
+            and ${turns.createdAt} <= ${items.createdAt}
+            and ${turns.endedAt} > ${items.createdAt})`,
+        ),
+      );
+    const receivedDuringTurn = new Set(duringTurn.map(({ id }) => id));
+    return candidates.map(({ id }) => ({
+      ...toLiveAdmissionWorkItem(byId.get(id)!),
+      receivedDuringTurn: receivedDuringTurn.has(id),
+    }));
   });
 }
 
