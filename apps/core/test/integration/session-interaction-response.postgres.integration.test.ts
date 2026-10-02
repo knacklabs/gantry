@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
 import {
   DEFAULT_AGENT_CONFIG_VERSION_ID,
@@ -65,6 +66,7 @@ maybeDescribe('session interaction response API (Postgres)', () => {
   let sessionId: string;
   let originalSettingsYaml: string;
   let originalEnv: Record<string, string | undefined>;
+  const messageChecks: string[] = [];
 
   beforeAll(async () => {
     runtime = await createPostgresIntegrationRuntime({
@@ -122,9 +124,11 @@ maybeDescribe('session interaction response API (Postgres)', () => {
       ],
       runtimeApp: {
         registerGroup: async () => undefined,
-        queue: { enqueueMessageCheck: () => undefined },
+        queue: {
+          enqueueMessageCheck: (queueKey: string) =>
+            messageChecks.push(queueKey),
+        },
       },
-      liveTurnsEnabled: false,
     });
 
     const ensured = await fetch(`${server.baseUrl}/v1/sessions/ensure`, {
@@ -500,5 +504,47 @@ maybeDescribe('session interaction response API (Postgres)', () => {
     const bad = await respond('req-iresp-bad-decision', 'allow_5_minutes');
     expect(bad.status).toBe(400);
     expect(bad.body.error.code).toBe('INVALID_REQUEST');
+  }, 60_000);
+  it('rejects an SDK message as busy without a wakeup when the active backlog is full', async () => {
+    // Fill the app's active backlog to the live admission cap (100).
+    for (let index = 0; index < 100; index += 1) {
+      const result =
+        await runtime.repositories.liveTurns.enqueueLiveAdmissionWorkItem({
+          id: `iresp-backlog-${index}`,
+          appId: APP_ID,
+          conversationId: 'conv-backlog',
+          queueJid: 'app:default:conv-backlog',
+          messageId: `message:iresp-backlog:${index}`,
+          messageCursor: `2026-07-21T00:00:00.000Z::iresp-backlog-${index}`,
+          idempotencyKey: `iresp-backlog:${index}`,
+        });
+      expect(result.outcome).toBe('enqueued');
+    }
+
+    const response = await fetch(
+      `${server.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ message: 'are you there?' }),
+      },
+    );
+    expect(response.status).toBe(429);
+    expect(((await response.json()) as { error: unknown }).error).toMatchObject(
+      {
+        code: 'RATE_LIMITED',
+        message: 'The agent is busy. Please resend in a moment.',
+      },
+    );
+    expect(messageChecks).toEqual([]);
+    const { rows } = await runtime.service.pool.query(
+      `SELECT id FROM ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+       WHERE app_id = $1 AND state IN ('queued', 'claimed', 'deferred')`,
+      [APP_ID],
+    );
+    expect(rows).toHaveLength(100);
   }, 60_000);
 });
