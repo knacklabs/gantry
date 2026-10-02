@@ -1,0 +1,12 @@
+{
+  "doc": "plans/MSG-1.md",
+  "status": "planning",
+  "steps": [
+    {
+      "at": "2026-10-02T09:20:29+00:00",
+      "step": "start"
+    }
+  ],
+  "title": "Every incoming message is saved before anything can fail",
+  "touches": 0
+}
