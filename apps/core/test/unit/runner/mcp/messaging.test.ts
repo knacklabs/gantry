@@ -8,9 +8,14 @@ import {
   validateIpcRequestFreshness,
   verifyIpcRequestPayload,
 } from '@core/infrastructure/ipc/request-signing.js';
+import {
+  createIpcResponseSigningKeyPair,
+  signIpcResponsePayload,
+} from '@core/infrastructure/ipc/response-signing.js';
 import { IPC_INTERACTION_RETENTION_TTL_MS } from '@core/shared/ipc-interaction-lifetime.js';
 
 const contextState = vi.hoisted(() => ({
+  responseVerifyKey: '',
   ipcDir: '',
   jobId: undefined as string | undefined,
   permissionLane: 'autonomous' as 'autonomous' | 'interactive',
@@ -28,8 +33,14 @@ vi.mock('@core/runner/mcp/context.js', () => ({
     return contextState.ipcDir;
   },
   IPC_RESPONSE_KEY_ID: 'test-response-key',
+  get IPC_RESPONSE_VERIFY_KEY() {
+    return contextState.responseVerifyKey;
+  },
   get MESSAGES_DIR() {
     return path.join(contextState.ipcDir, 'messages');
+  },
+  get TASK_RESPONSES_DIR() {
+    return path.join(contextState.ipcDir, 'task-responses');
   },
   threadId: undefined,
   get jobId() {
@@ -39,6 +50,7 @@ vi.mock('@core/runner/mcp/context.js', () => ({
     return contextState.permissionLane;
   },
   jobRunId: undefined,
+  runId: undefined,
   jobRunLeaseToken: undefined,
   jobRunLeaseFencingVersion: undefined,
 }));
@@ -392,5 +404,99 @@ describe('ask_user_question lane deadlines', () => {
       cancellation as SignedQuestionRequest,
       CANCELLATION_LIFETIME_MS,
     );
+  });
+});
+
+describe('send_message delivery result', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    vi.resetModules();
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-messaging-'));
+    contextState.ipcDir = path.join(tempDir, 'ipc');
+    contextState.jobId = undefined;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  async function sendMessageHandler() {
+    const handlers = new Map<string, (...args: never[]) => unknown>();
+    const server = {
+      tool: (...args: unknown[]) => {
+        const handler = args.at(-1);
+        if (typeof handler === 'function') {
+          handlers.set(String(args[0]), handler as never);
+        }
+      },
+    };
+    const { registerMessagingTools } =
+      await import('@core/runner/mcp/tools/messaging.js');
+    registerMessagingTools(server as never);
+    return handlers.get('send_message') as (
+      args: Record<string, unknown>,
+    ) => Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+  }
+
+  it.each([
+    {
+      outcome: 'delivered',
+      host: { ok: true, message: 'Delivered to the chat.' },
+      text: 'Delivered to the chat.',
+      isError: undefined,
+    },
+    {
+      outcome: 'failed',
+      host: { ok: false, error: 'channel is offline' },
+      text: 'Delivery not confirmed: channel is offline',
+      isError: true,
+    },
+  ])(
+    "gives the agent the host's signed $outcome result",
+    async ({ host, text, isError }) => {
+      const responseKeys = createIpcResponseSigningKeyPair();
+      contextState.responseVerifyKey = responseKeys.publicKeyPem;
+      const sendMessage = await sendMessageHandler();
+
+      const pending = sendMessage({ text: 'hello' });
+      const messagesDir = path.join(contextState.ipcDir, 'messages');
+      const requestFile = await waitForJsonFile(messagesDir);
+      const request = JSON.parse(
+        fs.readFileSync(path.join(messagesDir, requestFile), 'utf-8'),
+      ) as { taskId: string };
+      const responsesDir = path.join(contextState.ipcDir, 'task-responses');
+      fs.mkdirSync(responsesDir, { recursive: true });
+      const response = { taskId: request.taskId, ...host };
+      fs.writeFileSync(
+        path.join(responsesDir, `task-${request.taskId}.json`),
+        JSON.stringify({
+          ...response,
+          signature: signIpcResponsePayload(
+            responseKeys.privateKeyPem,
+            response,
+          ),
+        }),
+      );
+
+      const result = await pending;
+      expect(result.content[0]?.text).toBe(text);
+      expect(result.isError).toBe(isError);
+    },
+  );
+
+  it('says delivery is not confirmed when the host never answers', async () => {
+    const sendMessage = await sendMessageHandler();
+    vi.useFakeTimers();
+
+    const pending = sendMessage({ text: 'hello' });
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    const result = await pending;
+    expect(result.content[0]?.text).toBe(
+      'Message queued, but delivery is not confirmed yet. Do not assume the user has seen it.',
+    );
+    expect(result.isError).toBeUndefined();
   });
 });
