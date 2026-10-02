@@ -7,7 +7,7 @@ import type {
   RunnerSandboxProvider,
   RunnerSandboxResourceLimits,
 } from '../shared/runner-sandbox-provider.js';
-import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../shared/neutral-ca-trust-env.js';
+import { buildChildCommandEnv } from '../shared/child-command-env.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
 import type {
@@ -15,32 +15,6 @@ import type {
   AsyncCommandProcessHandle,
 } from './async-command-task-service.js';
 import type { AsyncCommandOutputSnapshot } from './async-command-task-helpers.js';
-
-const ASYNC_COMMAND_ENV_KEYS = [
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'ALL_PROXY',
-  'all_proxy',
-  'GRPC_PROXY',
-  'grpc_proxy',
-  'NO_PROXY',
-  'no_proxy',
-  'NODE_USE_ENV_PROXY',
-  'GODEBUG',
-  'GANTRY_EGRESS_PROXY_URL',
-  'NODE_EXTRA_CA_CERTS',
-  ...NEUTRAL_CA_TRUST_ENV_KEYS,
-  'PATH',
-  'HOME',
-  'TMPDIR',
-  'LANG',
-  'LC_ALL',
-  'USER',
-  'SHELL',
-  'TERM',
-] as const;
 
 export const DEFAULT_ASYNC_COMMAND_TIMEOUT_MS = 120_000;
 const OUTPUT_SNAPSHOT_INTERVAL_MS = 1_000;
@@ -307,12 +281,7 @@ export async function runSandboxedAsyncCommand(
 }
 
 export function buildAsyncCommandEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of ASYNC_COMMAND_ENV_KEYS) {
-    const value = process.env[key];
-    if (typeof value === 'string') env[key] = value;
-  }
-  return env;
+  return buildChildCommandEnv(process.env, process.env);
 }
 
 function asyncCommandLaunchScript(): string {
