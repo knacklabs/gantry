@@ -270,6 +270,7 @@ export abstract class PostgresInteractionRepositoryMethods {
     appId: string;
     jobId: string;
     initialCard: JobPermissionCardRecord;
+    includeNeedIds?: string[];
     mutate: (state: JobPermissionDurabilityState) => {
       state: JobPermissionDurabilityState;
       result: T;
@@ -346,7 +347,7 @@ export function readJobPermissionCard(
     Array.isArray(record.revisionDeliveries) &&
     Array.isArray(record.pendingBudgets) &&
     Array.isArray(record.rerunBarriers)
-    ? (structuredClone(record) as JobPermissionCardRecord)
+    ? (record as JobPermissionCardRecord)
     : null;
 }
 
