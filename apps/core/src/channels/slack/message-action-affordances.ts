@@ -70,7 +70,6 @@ function slackActionValue(
   action: MessageActionAffordance,
   providerAccountId?: string,
 ): string | undefined {
-  if (action.kind === 'live_turn_stop') return undefined;
   // ponytail: observer_feedback rendering lands in a later OBS-RESOLVE task.
   if (action.kind === 'observer_feedback') return undefined;
   // brain_dream_review_decision has its own renderer (brain-review-affordances).

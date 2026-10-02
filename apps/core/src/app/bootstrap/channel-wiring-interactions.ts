@@ -450,7 +450,6 @@ export function createAgentTodoRenderer(input: {
       {
         ...render,
         status: final.status,
-        stop: undefined,
         updatedAt: new Date().toISOString(),
         flush: true,
       },

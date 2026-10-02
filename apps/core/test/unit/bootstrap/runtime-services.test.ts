@@ -947,7 +947,6 @@ describe('startRuntimeServices', () => {
     }));
     const createSessionAgentRun = vi.fn(async () => 'agent-run:live-1');
     app.processGroupMessages = vi.fn(async (_queueJid, options: any) => {
-      await options.onLiveStopActionToken?.('stop-token-1');
       options.onRunResult?.('success');
       return true;
     });
@@ -1004,7 +1003,6 @@ describe('startRuntimeServices', () => {
           onFirstProgress: expect.any(Function),
           onFirstVisibleOutput: expect.any(Function),
           onTurnTerminal: expect.any(Function),
-          onLiveStopActionToken: expect.any(Function),
         }),
       );
       const runOptions = vi.mocked(app.processGroupMessages).mock
@@ -1035,7 +1033,6 @@ describe('startRuntimeServices', () => {
           conversationId: 'tg:primary',
           runId: 'agent-run:live-1',
           state: 'completed',
-          stopAliasJids: ['stop-token-1'],
         }),
       ]);
       expect(coordination.leases).toEqual([
@@ -1216,7 +1213,6 @@ describe('startRuntimeServices', () => {
         await channelWiring.renderAgentTodo('tg:primary', {
           summary: 'Plan running',
           status: 'running',
-          stop: { label: 'Stop', actionToken: 'stop-token-1' },
           items: [{ id: 'step-1', title: 'Work', status: 'inProgress' }],
         });
         options.onRunResult?.('stopped');
@@ -2383,209 +2379,6 @@ describe('startRuntimeServices', () => {
           providerAccountId: 'slack_beta',
         },
       },
-    );
-  });
-
-  it('routes live stop message actions through the active thread queue', async () => {
-    const app = makeApp();
-    const channelWiring = makeChannelWiring();
-    vi.mocked(app.queue.stopGroup as any).mockReturnValue(true);
-
-    await startRuntimeServices(
-      {
-        app,
-        channelWiring,
-      },
-      {
-        startSchedulerLoop: vi.fn() as any,
-        startIpcWatcher: vi.fn() as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {} as any,
-        getToolRepository: vi.fn(() => ({}) as any),
-        recoverPendingMessages: vi.fn() as any,
-        logger: {
-          info: vi.fn(),
-          warn: vi.fn(),
-          fatal: vi.fn(),
-        },
-        exit: vi.fn() as any,
-      },
-    );
-
-    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
-      .calls[0]?.[0];
-    expect(handler).toBeDefined();
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'tg:primary',
-      threadId: 'topic-42',
-      userId: 'user',
-      actionToken: '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
-    });
-
-    expect(app.queue.stopGroup).toHaveBeenCalledWith(
-      '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
-    );
-    expect(channelWiring.isControlApproverAllowed).toHaveBeenCalledWith({
-      conversationJid: 'tg:primary',
-      userId: 'user',
-      sourceAgentFolder: 'main',
-      decisionPolicy: 'same_channel',
-    });
-    expect(channelWiring.sendMessage).toHaveBeenCalledWith(
-      'tg:primary',
-      'Stopping current run.',
-      { durability: 'required', messageOptions: { threadId: 'topic-42' } },
-    );
-  });
-
-  it('scopes message actions to the originating provider account', async () => {
-    const app = makeApp();
-    app.getConversationRoutes = vi.fn(() => ({
-      [makeAgentThreadQueueKey('sl:C123', 'agent:alpha', null, 'slack-alpha')]:
-        {
-          name: 'Alpha',
-          folder: 'alpha',
-          trigger: '@A',
-          added_at: 't',
-          providerAccountId: 'slack-alpha',
-        },
-      [makeAgentThreadQueueKey('sl:C123', 'agent:beta', null, 'slack-beta')]: {
-        name: 'Beta',
-        folder: 'beta',
-        trigger: '@B',
-        added_at: 't',
-        providerAccountId: 'slack-beta',
-      },
-    }));
-    const channelWiring = makeChannelWiring();
-    vi.mocked(app.queue.stopGroup as any).mockReturnValue(true);
-
-    await startRuntimeServices(
-      { app, channelWiring },
-      {
-        startSchedulerLoop: vi.fn() as any,
-        startIpcWatcher: vi.fn() as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {} as any,
-        getToolRepository: vi.fn(() => ({}) as any),
-        recoverPendingMessages: vi.fn() as any,
-        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
-        exit: vi.fn() as any,
-      },
-    );
-
-    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
-      .calls[0]?.[0];
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'sl:C123',
-      providerAccountId: 'slack-beta',
-      userId: 'user',
-    });
-
-    expect(channelWiring.isControlApproverAllowed).toHaveBeenCalledWith({
-      conversationJid: 'sl:C123',
-      providerAccountId: 'slack-beta',
-      userId: 'user',
-      sourceAgentFolder: 'beta',
-      decisionPolicy: 'same_channel',
-    });
-    expect(app.queue.stopGroup).toHaveBeenCalledWith(
-      makeAgentThreadQueueKey('sl:C123', 'agent:beta', null, 'slack-beta'),
-    );
-    expect(channelWiring.sendMessage).toHaveBeenCalledWith(
-      'sl:C123',
-      'Stopping current run.',
-      {
-        durability: 'required',
-        messageOptions: { providerAccountId: 'slack-beta' },
-      },
-    );
-  });
-
-  it('does not fall back to the active thread queue when a live stop token is stale', async () => {
-    const app = makeApp();
-    const channelWiring = makeChannelWiring();
-    vi.mocked(app.queue.stopGroup as any).mockReturnValue(false);
-
-    await startRuntimeServices(
-      {
-        app,
-        channelWiring,
-      },
-      {
-        startSchedulerLoop: vi.fn() as any,
-        startIpcWatcher: vi.fn() as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {} as any,
-        getToolRepository: vi.fn(() => ({}) as any),
-        recoverPendingMessages: vi.fn() as any,
-        logger: {
-          info: vi.fn(),
-          warn: vi.fn(),
-          fatal: vi.fn(),
-        },
-        exit: vi.fn() as any,
-      },
-    );
-
-    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
-      .calls[0]?.[0];
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'tg:primary',
-      threadId: 'topic-42',
-      userId: 'user',
-      actionToken: '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
-    });
-
-    expect(app.queue.stopGroup).toHaveBeenNthCalledWith(
-      1,
-      '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
-    );
-    expect(app.queue.stopGroup).toHaveBeenCalledTimes(1);
-    expect(channelWiring.sendMessage).not.toHaveBeenCalledWith(
-      'tg:primary',
-      'Stopping current run.',
-      expect.any(Object),
-    );
-  });
-
-  it('does not stop live runs from unapproved message action callbacks', async () => {
-    const app = makeApp();
-    const channelWiring = makeChannelWiring();
-    vi.mocked(channelWiring.isControlApproverAllowed).mockResolvedValue(false);
-    vi.mocked(app.queue.stopGroup as any).mockReturnValue(true);
-
-    await startRuntimeServices(
-      { app, channelWiring },
-      {
-        startSchedulerLoop: vi.fn() as any,
-        startIpcWatcher: vi.fn() as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {} as any,
-        getToolRepository: vi.fn(() => ({}) as any),
-        recoverPendingMessages: vi.fn() as any,
-        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
-        exit: vi.fn() as any,
-      },
-    );
-
-    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
-      .calls[0]?.[0];
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'tg:primary',
-      threadId: 'topic-42',
-      userId: 'user',
-    });
-
-    expect(app.queue.stopGroup).not.toHaveBeenCalled();
-    expect(channelWiring.sendMessage).not.toHaveBeenCalledWith(
-      'tg:primary',
-      'Stopping current run.',
-      expect.any(Object),
     );
   });
 
