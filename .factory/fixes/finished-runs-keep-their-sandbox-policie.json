@@ -3,7 +3,7 @@
   "branch": "fix/finished-runs-keep-their-sandbox-policie",
   "done_when": "A run's sandbox policy is released when the run finishes, and child tasks keep theirs while live",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:34:20+00:00",
