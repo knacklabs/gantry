@@ -96,6 +96,7 @@ export interface MessageSaveWithExecutorResult {
 interface MessageListInput {
   jids: string[];
   ids?: readonly string[];
+  externalMessageId?: string;
   appId?: string;
   exactProviderAccountId?: boolean;
   providerAccountId?: string | null;
@@ -612,6 +613,9 @@ export class PostgresCanonicalMessageRepository {
             ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
             : undefined,
           input.ids ? inArray(m.id, [...input.ids]) : undefined,
+          input.externalMessageId
+            ? eq(m.externalMessageId, input.externalMessageId)
+            : undefined,
           directionFilter,
           afterFilter,
           beforeFilter,

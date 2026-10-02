@@ -245,6 +245,7 @@ export class CanonicalMessageOpsService {
     options: {
       threadId?: string | null;
       providerAccountId?: string | null;
+      externalMessageId?: string;
     } = {},
   ): Promise<NewMessage[]> {
     const cursor = decodeGroupMessageCursor(sinceCursor);
@@ -253,6 +254,7 @@ export class CanonicalMessageOpsService {
       'threadId',
     );
     const rows = await this.repository.listContextMessages({
+      externalMessageId: options.externalMessageId,
       jids: [chatJid],
       after: hasCursorBoundary(cursor)
         ? { timestamp: cursor.timestamp, chatJid, id: cursor.id }
@@ -372,6 +374,7 @@ export class CanonicalMessageOpsService {
       reply_to_message_content: ref.reply_to_message_content,
       reply_to_sender_name: ref.reply_to_sender_name,
       external_message_id: ref.external_message_id,
+      ...(externalRef.mentions_bot === true ? { mentionsBot: true } : {}),
       providerAccountId,
       ...(responseSchema &&
       typeof responseSchema === 'object' &&

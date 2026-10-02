@@ -4,6 +4,7 @@ import {
   triggerForRoute,
 } from '../../shared/trigger-pattern.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
+import { telegramMentionsBot } from './text-message-handler.js';
 
 type TelegramMediaQueue = {
   enqueue(task: () => Promise<void>): boolean;
@@ -134,6 +135,16 @@ export function registerTelegramMediaHandlers(input: {
         is_from_me: false,
         external_message_id: msgId,
         thread_id: threadId,
+        // The caption is matched alone, so the placeholder can't hide it.
+        ...(ctx.message.caption &&
+        telegramMentionsBot({
+          text: ctx.message.caption,
+          entities: ctx.message.caption_entities,
+          me: ctx.me,
+          routes: matchingGroups,
+        })
+          ? { mentionsBot: true }
+          : {}),
         attachments: attachment
           ? [
               {

@@ -141,6 +141,8 @@ export interface NewMessage {
   reply_to_message_content?: string;
   reply_to_sender_name?: string;
   external_message_id?: string;
+  /** Set by the channel adapter when the platform says the bot is mentioned. */
+  mentionsBot?: boolean;
   delivery_status?: MessageDeliveryStatus;
   delivered_at?: string;
   delivery_error?: string;

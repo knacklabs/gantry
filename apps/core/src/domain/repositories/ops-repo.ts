@@ -191,7 +191,11 @@ export interface RuntimeMessageRepository {
     conversationJid: string,
     sinceCursor: string,
     limit?: number,
-    options?: { threadId?: string | null; providerAccountId?: string | null },
+    options?: {
+      threadId?: string | null;
+      providerAccountId?: string | null;
+      externalMessageId?: string;
+    },
   ): Promise<NewMessage[]>;
   getRecentTopLevelMessagesBefore(
     conversationJid: string,

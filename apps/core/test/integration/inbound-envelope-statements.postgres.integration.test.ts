@@ -208,8 +208,6 @@ describe.runIf(hasPostgresIntegrationDatabase)(
           await handleTelegramTextMessage({
             ctx,
             opts: channelOpts,
-            assistantName: 'Main',
-            triggerPattern: /@Main\b/i,
             tryResolveOther: async () => false,
           });
         },
@@ -600,8 +598,6 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         await handleTelegramTextMessage({
           ctx,
           opts: channelOpts,
-          assistantName: 'Main',
-          triggerPattern: /@Main\b/i,
           tryResolveOther: async () => false,
         });
         expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
@@ -707,8 +703,6 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       await handleTelegramTextMessage({
         ctx,
         opts: channelOpts,
-        assistantName: 'Main',
-        triggerPattern: /@Main\b/i,
         tryResolveOther: async () => false,
       });
       expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
@@ -786,8 +780,6 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         await handleTelegramTextMessage({
           ctx: telegramContext,
           opts: channelOpts,
-          assistantName: 'Main',
-          triggerPattern: /@Main\b/i,
           tryResolveOther: async () => false,
         });
         expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);

@@ -210,6 +210,7 @@ export class PostgresRuntimeRepositoryBundle
     options: {
       threadId?: string | null;
       providerAccountId?: string | null;
+      externalMessageId?: string;
     } = {},
   ): Promise<NewMessage[]> {
     return this.messages.getContextMessagesSince(

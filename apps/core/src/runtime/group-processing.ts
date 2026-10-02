@@ -19,7 +19,6 @@ import {
   createGroupTurnChannelActions,
   createGroupTurnProgressSenders,
   finalRetryNotice,
-  hasTakenGroupTurnTrigger,
   handleFailure,
   resetGroupStreamingForTurn,
   resolveGroupTurnFinalProgressState,
@@ -27,6 +26,7 @@ import {
   takeGroupTurnInput,
   waitOutput,
 } from './group-processing-flow.js';
+import { decideBatch } from './group-trigger-policy.js';
 import {
   createGroupDoneProgressSender,
   sendGroupFinalProgress,
@@ -230,13 +230,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         return (sendProgressToChannel.retire(), cmdResult.success);
       }
       if (
-        !(await hasTakenGroupTurnTrigger({
+        !permitsUnmentionedCompletion &&
+        !(await decideBatch({
           group,
           chatJid,
+          threadId,
           triggerPattern: config.getTriggerPattern(group.trigger),
           messages: missedMessages,
-          permitsUnmentionedCompletion,
-          threadId,
           messageRepository: opsRepository,
           pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))

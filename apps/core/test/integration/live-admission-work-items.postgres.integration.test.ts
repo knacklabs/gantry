@@ -144,6 +144,77 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toEqual([]);
   });
 
+  it('keeps the bot-mention flag through storage and finds the bot message a reply points at', async () => {
+    const appId = 'app-mention-round-trip';
+    const chatJid = 'tg:mention-round-trip';
+    const save = async (id: string, mentionsBot?: boolean) => {
+      const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          sender: 'user-mention-round-trip',
+          sender_name: 'Mentioner',
+          content: 'hey @team_bot look',
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+          ...(mentionsBot ? { mentionsBot } : {}),
+        },
+        { appId },
+      );
+      if (!admitted || admitted.outcome === 'overloaded')
+        throw new Error('Expected a saved admission item');
+      return admitted.item;
+    };
+    const mentioned = await save('msg-mentions-bot', true);
+    const plain = await save('msg-plain');
+    const scope = {
+      appId: mentioned.appId,
+      conversationId: mentioned.conversationId,
+      threadId: mentioned.threadId,
+      agentId: mentioned.agentId,
+      providerAccountId: mentioned.providerAccountId,
+    };
+    const read = await runtime.ops.getMessagesByIds(scope, [
+      mentioned.messageId,
+      plain.messageId,
+    ]);
+    expect(read.map(({ id, mentionsBot }) => ({ id, mentionsBot }))).toEqual([
+      { id: 'msg-mentions-bot', mentionsBot: true },
+      { id: 'msg-plain', mentionsBot: undefined },
+    ]);
+
+    await runtime.ops.storeMessage({
+      id: 'outbound:mention-round-trip',
+      chat_jid: chatJid,
+      provider: 'telegram',
+      providerAccountId: mentioned.providerAccountId ?? undefined,
+      sender: 'gantry',
+      sender_name: 'Gantry',
+      content: 'Here is the plan.',
+      timestamp: toIso(nowMs()),
+      is_from_me: true,
+      is_bot_message: true,
+      external_message_id: 'bot-77',
+      delivery_status: 'sent',
+    });
+    const repliedTo = await runtime.ops.getContextMessagesSince!(
+      chatJid,
+      '',
+      1,
+      {
+        externalMessageId: 'bot-77',
+        providerAccountId: mentioned.providerAccountId,
+      },
+    );
+    expect(repliedTo.map(({ id, is_from_me }) => ({ id, is_from_me }))).toEqual(
+      [{ id: 'outbound:mention-round-trip', is_from_me: true }],
+    );
+    for (const item of [mentioned, plain])
+      await liveTurns.consumeInputItem({ id: item.id, consumedBy: 'history' });
+  });
+
   it('gives each message to one turn in database receive order, including a late arrival', async () => {
     const queueJid = 'tg:consumption-crossing';
     const scope = {

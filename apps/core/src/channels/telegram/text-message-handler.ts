@@ -2,6 +2,10 @@ import type { Filter } from 'grammy';
 
 import { logger } from '../../infrastructure/logging/logger.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
+import {
+  buildTriggerPattern,
+  triggerForRoute,
+} from '../../shared/trigger-pattern.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { resolveInboundConversationIdentityForChat } from '../inbound-conversation-identity.js';
 import type { TelegramContext } from './channel-shared.js';
@@ -9,11 +13,46 @@ import { shouldLogUnregisteredChatDrop } from '../unregistered-chat-drop-log.js'
 
 const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
 
+type TelegramEntity = {
+  type: string;
+  offset: number;
+  length: number;
+  user?: { id: number };
+};
+
+/**
+ * True when Telegram marks the bot as mentioned in the text or caption, or the
+ * text starts with one of the chat's own route triggers.
+ */
+export function telegramMentionsBot(input: {
+  text: string;
+  entities?: readonly TelegramEntity[];
+  me?: { id?: number; username?: string };
+  routes: ReadonlyArray<
+    readonly [string, { trigger?: string | null; name?: string | null }]
+  >;
+}): boolean {
+  const botUsername = input.me?.username?.toLowerCase();
+  const nativeMention = (input.entities ?? []).some((entity) =>
+    entity.type === 'text_mention'
+      ? entity.user?.id !== undefined && entity.user.id === input.me?.id
+      : entity.type === 'mention' &&
+        !!botUsername &&
+        input.text
+          .substring(entity.offset, entity.offset + entity.length)
+          .toLowerCase() === `@${botUsername}`,
+  );
+  return (
+    nativeMention ||
+    input.routes.some(([, route]) =>
+      buildTriggerPattern(triggerForRoute(route)).test(input.text.trim()),
+    )
+  );
+}
+
 export async function handleTelegramTextMessage(input: {
   ctx: Filter<TelegramContext, 'message:text'>;
   opts: ChannelOpts;
-  assistantName: string;
-  triggerPattern: RegExp;
   tryResolveOther: (input: {
     chatId: string;
     replyToMessageId: number;
@@ -29,7 +68,7 @@ export async function handleTelegramTextMessage(input: {
   }
 
   const chatJid = `tg:${ctx.chat.id}`;
-  let content = ctx.message.text;
+  const content = ctx.message.text;
   const timestamp = new Date(ctx.message.date * 1000).toISOString();
   const senderName =
     ctx.from?.first_name ||
@@ -66,35 +105,18 @@ export async function handleTelegramTextMessage(input: {
       ? senderName
       : (ctx.chat as { title?: string }).title || chatJid;
 
-  const botUsername = ctx.me?.username?.toLowerCase();
-  if (botUsername) {
-    const entities = ctx.message.entities || [];
-    const isBotMentioned = entities.some((entity) => {
-      if (entity.type === 'mention') {
-        const mentionText = content
-          .substring(entity.offset, entity.offset + entity.length)
-          .toLowerCase();
-        return mentionText === `@${botUsername}`;
-      }
-      return false;
-    });
-    if (isBotMentioned && !input.triggerPattern.test(content)) {
-      content = `@${input.assistantName} ${content}`;
-    }
-  }
-
   const isGroup = ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
   // Two different questions, deliberately answered with two different lookups.
   //
   // DELIVERY (below): unscoped, exactly as before. A route configured without a
   // providerAccountId still routes messages, and narrowing this would start
   // dropping group messages that used to be delivered.
-  const hasRegisteredRoute =
-    findConversationRoutesForChat(
-      input.opts.conversationRoutes(),
-      chatJid,
-      threadId?.toString(),
-    ).length > 0;
+  const chatRoutes = findConversationRoutesForChat(
+    input.opts.conversationRoutes(),
+    chatJid,
+    threadId?.toString(),
+  );
+  const hasRegisteredRoute = chatRoutes.length > 0;
   // METADATA: account-scoped. Two accounts can share a chat JID; an unscoped
   // match would see ANOTHER account's route, skip this account's metadata
   // write, and then have its message rejected by account-scoped persistence —
@@ -149,6 +171,14 @@ export async function handleTelegramTextMessage(input: {
     reply_to_message_id: replyToMessageId,
     reply_to_message_content: replyToContent,
     reply_to_sender_name: replyToSenderName,
+    ...(telegramMentionsBot({
+      text: content,
+      entities: ctx.message.entities,
+      me: ctx.me,
+      routes: chatRoutes,
+    })
+      ? { mentionsBot: true }
+      : {}),
   });
 
   logger.info(

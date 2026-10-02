@@ -1742,83 +1742,97 @@ describe('TelegramChannel', () => {
     });
   });
 
-  // --- @mention translation ---
+  // --- Bot mentions ---
 
-  describe('@mention translation', () => {
-    it('translates @bot_username mention to trigger format', async () => {
-      const opts = createTestOpts();
+  describe('bot mentions', () => {
+    const customTriggerOpts = () =>
+      createTestOpts({
+        conversationRoutes: vi.fn(() => ({
+          'tg:100200300': {
+            name: 'Helper Group',
+            folder: 'test-group',
+            trigger: '@Helper',
+            added_at: '2024-01-01T00:00:00.000Z',
+            providerAccountId: 'telegram_default',
+          },
+        })),
+      });
+
+    it('flags a native bot mention for a route with its own trigger and keeps the text as typed', async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: '@andy_ai_bot what time is it?',
-        entities: [{ type: 'mention', offset: 0, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
+      await triggerTextMessage(
+        createTextCtx({
+          text: 'hey @andy_ai_bot check this',
+          entities: [{ type: 'mention', offset: 4, length: 12 }],
+        }),
+      );
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '@Andy @andy_ai_bot what time is it?',
+          content: 'hey @andy_ai_bot check this',
+          mentionsBot: true,
         }),
       );
     });
 
-    it('does not translate if message already matches trigger', async () => {
-      const opts = createTestOpts();
+    it("flags text that starts with the route's own trigger", async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: '@Andy @andy_ai_bot hello',
-        entities: [{ type: 'mention', offset: 6, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
+      await triggerTextMessage(
+        createTextCtx({ text: '@Helper what time is it?' }),
+      );
 
-      // Should NOT double-prepend — already starts with @Andy
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({
-          content: '@Andy @andy_ai_bot hello',
-        }),
+        expect.objectContaining({ mentionsBot: true }),
       );
     });
 
-    it('does not translate mentions of other bots', async () => {
-      const opts = createTestOpts();
+    it('does not flag mentions of other bots', async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: '@some_other_bot hi',
-        entities: [{ type: 'mention', offset: 0, length: 15 }],
-      });
-      await triggerTextMessage(ctx);
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({
-          content: '@some_other_bot hi', // No translation
+      await triggerTextMessage(
+        createTextCtx({
+          text: '@some_other_bot hi',
+          entities: [{ type: 'mention', offset: 0, length: 15 }],
         }),
+      );
+
+      expect(opts.onMessage.mock.calls[0]![1]).not.toHaveProperty(
+        'mentionsBot',
       );
     });
 
-    it('handles mention in middle of message', async () => {
-      const opts = createTestOpts();
+    it("flags a captioned photo that starts with the route's trigger", async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: 'hey @andy_ai_bot check this',
-        entities: [{ type: 'mention', offset: 4, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
+      await triggerMediaMessage(
+        'message:photo',
+        createMediaCtx({
+          caption: '@Helper what is this?',
+          extra: { photo: [{ file_id: 'photo_id', width: 800 }] },
+        }),
+      );
+      await flushPromises();
+      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
 
-      // Bot is mentioned, message doesn't match trigger → prepend trigger
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '@Andy hey @andy_ai_bot check this',
+          content: expect.stringMatching(
+            /^\[Photo\].* @Helper what is this\?$/,
+          ),
+          mentionsBot: true,
         }),
       );
     });

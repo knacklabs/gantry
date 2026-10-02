@@ -100,6 +100,7 @@ export function externalRefForMessage(msg: NewMessage) {
     external_message_id: msg.external_message_id,
     reply_to_message_id: msg.reply_to_message_id,
     reply_to_sender_name: msg.reply_to_sender_name,
+    mentions_bot: msg.mentionsBot,
     response_schema: msg.responseSchema,
     effort: msg.agentControls?.effort,
     thinking: msg.agentControls?.thinking,
