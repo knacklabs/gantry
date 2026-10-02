@@ -484,9 +484,6 @@ maybeDescribe(
             appId,
             inputRepository: runtime.repositories.liveTurns,
             getConversationRoutes: app.getConversationRoutes,
-            getOrRecoverCursor: app.getOrRecoverCursor,
-            setAgentCursor: app.setAgentCursor,
-            saveState: app.saveState,
             hasChannel: channel.runtime.hasChannel,
             setTyping: channel.runtime.setTyping,
             sendProgressUpdate: channel.runtime.sendProgressUpdate,
@@ -1133,13 +1130,6 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         trigger: route.trigger,
       }),
     );
-    const cursorState = JSON.parse(
-      (await runtime.ops.getRouterState('last_agent_timestamp')) ?? '{}',
-    ) as Record<string, string>;
-    expect(JSON.parse(cursorState[admitted.item.queueJid] ?? '{}')).toEqual(
-      expect.objectContaining({ id: 'msg-live-e2e-real-runner' }),
-    );
-
     const runs = await runtime.service.db
       .select({
         id: pgSchema.agentRunsPostgres.id,
@@ -1184,17 +1174,8 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       ]),
     );
 
-    // A settings reload may restore an old marker. The record remains
-    // authoritative, so a later saved item still reaches the same user once.
-    await runtime.ops.setRouterState(
-      'last_agent_timestamp',
-      JSON.stringify({
-        [admitted.item.queueJid]: JSON.stringify({
-          timestamp: '9999-01-01T00:00:00Z',
-          id: 'z',
-        }),
-      }),
-    );
+    // After a settings reload, a later saved item still reaches the same user
+    // once.
     const {
       createDefaultRuntimeSettings,
       ensureConfiguredConversationBinding,

@@ -664,6 +664,74 @@ conversations:
     );
   });
 
+  describe('agents connected to a chat through provider accounts', () => {
+    const accounts = `agents:
+  agent_one:
+    name: One
+  agent_two:
+    name: Two
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+  slack_one_backup:
+    agent: agent_one
+    provider: slack
+    label: One Backup Bot
+  slack_two:
+    agent: agent_two
+    provider: slack
+    label: Two Slack Bot
+conversations:
+`;
+    const conversation = (
+      id: string,
+      externalId: string,
+      agent: string,
+      account: string,
+    ) => `  ${id}:
+    provider_account: ${account}
+    id: ${externalId}
+    type: channel
+    installed_agents:
+      ${agent}:
+        provider_account: ${account}
+`;
+
+    it('rejects one agent connected to the same chat through two accounts', () => {
+      expect(() =>
+        parseRuntimeSettings(
+          accounts +
+            conversation('first', 'slack:C123', 'agent_one', 'slack_one') +
+            conversation(
+              'second',
+              'slack:C123',
+              'agent_one',
+              'slack_one_backup',
+            ),
+        ),
+      ).toThrow(
+        'Agent "agent_one" is connected to slack chat "sl:C123" through two accounts ("slack_one" and "slack_one_backup"). Use one account per agent per chat.',
+      );
+    });
+
+    it('accepts two agents in one chat and one agent in two chats', () => {
+      const parsed = parseRuntimeSettings(
+        accounts +
+          conversation('first', 'slack:C123', 'agent_one', 'slack_one') +
+          conversation('second', 'slack:C123', 'agent_two', 'slack_two') +
+          conversation('third', 'slack:C456', 'agent_one', 'slack_one_backup'),
+      );
+
+      expect(Object.keys(parsed.conversations)).toEqual([
+        'first',
+        'second',
+        'third',
+      ]);
+    });
+  });
+
   it('rejects duplicate provider account native identity evidence', () => {
     expect(() =>
       parseRuntimeSettings(`agents:

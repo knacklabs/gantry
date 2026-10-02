@@ -29,7 +29,7 @@ import {
 import { claimLiveTurnExecution } from '@core/application/live-turns/live-turn-lease-service.js';
 import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import { createLiveTurnLocalRunnerHooks } from '@core/runtime/group-queue-live-turn-hooks.js';
-import { routeScopeActiveLiveTurnAdmissionFromCursor } from '@core/app/bootstrap/live-recovery-coordinator.js';
+import { routeScopeActiveLiveTurnAdmissionFromInput } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
@@ -854,7 +854,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       }),
     );
     expect(
-      await routeScopeActiveLiveTurnAdmissionFromCursor({
+      await routeScopeActiveLiveTurnAdmissionFromInput({
         scope,
         queueJid: admitted.item.queueJid,
         liveRunId: '',
@@ -868,8 +868,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
         inputRepository: liveTurns,
         getMessagesByIds: (inputScope, ids) =>
           runtime.ops.getMessagesByIds(inputScope, ids),
-        setAgentCursor: () => undefined,
-        saveState: () => undefined,
         routeMessage: (message) => authority.routeMessage(message),
       }),
     ).toBe(true);
@@ -1055,11 +1053,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
           threadId: null,
         },
         runId,
-        pendingMessage: {
-          kind: 'message_cursor',
-          queueJid: saved.item.queueJid,
-          cursorBefore: '',
-        },
+        pendingMessage: { queueJid: saved.item.queueJid },
         slotCapacity: 2,
         leaseTtlMs: 1_000,
         now: toIso(nowMs() - 60_000),
@@ -1134,9 +1128,6 @@ maybeDescribe('live admission work items (Postgres)', () => {
       appId,
       inputRepository: liveTurns,
       getConversationRoutes: app.getConversationRoutes,
-      getOrRecoverCursor: app.getOrRecoverCursor,
-      setAgentCursor: app.setAgentCursor,
-      saveState: app.saveState,
       hasChannel: channel.runtime.hasChannel,
       setTyping: channel.runtime.setTyping,
       sendProgressUpdate: channel.runtime.sendProgressUpdate,

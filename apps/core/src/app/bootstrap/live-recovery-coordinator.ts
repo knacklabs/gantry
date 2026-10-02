@@ -18,10 +18,6 @@ import {
   parseAgentThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
 import { buildLiveTurnContinuation } from './live-turn-continuation.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../../shared/message-cursor.js';
 
 /**
  * WP2: the singleton lease is now a RECOVERY COORDINATOR election, not a live
@@ -312,8 +308,6 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
     text: string;
     senderUserIds: readonly string[];
     idempotencyKey: string;
-    cursorAfter?: string | null;
-    onRouted: () => Promise<void> | void;
   } | null;
   routeMessage?: (input: {
     scope: LiveTurnScope;
@@ -321,7 +315,6 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
     text: string;
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
-    cursorAfter?: string | null;
     commandId?: string;
     expectedTurnId?: string;
   }) => Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'>;
@@ -339,12 +332,10 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
           text: input.continuation.text,
           senderUserIds: input.continuation.senderUserIds,
           idempotencyKey: input.continuation.idempotencyKey,
-          cursorAfter: input.continuation.cursorAfter,
         })
       : 'no_active_turn';
   // Once the command is durably queued, the follow-up stays consumed: a
-  // failed marker write or run settlement must not release it for a second
-  // delivery.
+  // failed run settlement must not release it for a second delivery.
   const afterQueued = (step: unknown) =>
     routed === 'queued_to_owner'
       ? Promise.resolve(step).catch((err) =>
@@ -354,9 +345,6 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
           ),
         )
       : step;
-  if (routed === 'queued_to_owner') {
-    await afterQueued(input.continuation?.onRouted());
-  }
   // The orphan-avoidance pre-check routes a continuation BEFORE any run row is
   // created (empty liveRunId), so there is nothing to terminal-mark in that
   // case. Only settle the run when admission actually minted one.
@@ -375,7 +363,7 @@ export async function routeScopeActiveLiveTurnAdmission(input: {
   return routed === 'queued_to_owner';
 }
 
-export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
+export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   scope: LiveTurnScope;
   queueJid: string;
   liveRunId: string;
@@ -394,8 +382,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     scope: LiveAdmissionInputScope,
     ids: readonly string[],
   ) => Promise<NewMessage[]>;
-  setAgentCursor: (queueJid: string, cursor: string) => void;
-  saveState: () => Promise<void> | void;
   enqueueMessageCheck?: (queueJid: string) => void;
   isActiveControlMessage?: (message: NewMessage) => boolean;
   handleActiveControlMessage?: (message: NewMessage) => Promise<boolean>;
@@ -452,11 +438,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
           consumedBy: 'control',
           expectedConsumedBy: consumer,
         });
-        input.setAgentCursor(
-          input.queueJid,
-          encodeGroupMessageCursor(toGroupMessageCursor(command)),
-        );
-        await input.saveState();
         return true;
       }
     }
@@ -466,12 +447,9 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     const replayMessages = replayBatch.map(({ message }) => message);
     const replayItemIds = replayBatch.map(({ itemId }) => itemId);
     const continuation = buildLiveTurnContinuation({
-      queueJid: input.queueJid,
       messages: replayMessages,
       itemIds: replayItemIds,
       timezone: input.timezone,
-      setAgentCursor: input.setAgentCursor,
-      saveState: input.saveState,
     });
     if (
       continuation &&
@@ -490,7 +468,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
           expectedConsumedBy: consumer,
         });
       }
-      await continuation.onRouted();
       if (input.liveRunId) {
         await input.completeSessionAgentRun?.({
           runId: input.liveRunId,
