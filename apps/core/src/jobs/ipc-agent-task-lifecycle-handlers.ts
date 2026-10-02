@@ -315,9 +315,6 @@ const todoUpdateHandler: TaskHandler = async (context) => {
           items,
           threadId,
           updatedAt,
-          stop: context.data.liveStopActionToken
-            ? { label: 'Stop', actionToken: context.data.liveStopActionToken }
-            : undefined,
         },
         context.data.providerAccountId
           ? { providerAccountId: context.data.providerAccountId }
