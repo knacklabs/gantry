@@ -32,7 +32,7 @@ This story adds the first of the spec's three durable lists, the inbox. Every in
 1. **A message the platform handed to Gantry gets its normal reply once, even if reading it fails at first or Gantry restarts before reading it.**
 2. **A message the platform delivers more than once gets one reply.**
 3. **Quick messages and photos from one chat thread reach the agent in the order Gantry received them, without holding up other chats or threads. /stop is handled at once even behind a message that is still being read, and the messages before it never start a turn later.**
-4. **A message that still can't be read after about 2 minutes is set aside with a plain reason shown in `gantry status`, the admin can retry or dismiss it, and the next message in that thread is answered.**
+4. **A message that still can't be read after about 2 minutes is set aside with a plain reason shown in Gantry's status report, the admin can retry or dismiss it, and the next message in that thread is answered.**
 5. **An edit or delete of a message the agent hasn't taken in yet changes what the agent sees: it reads the edited text, and never reads a deleted message, even when a set-aside message is retried.**
 
 ## Risks
