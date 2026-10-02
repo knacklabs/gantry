@@ -16,10 +16,6 @@ import {
   normalizeTeamsJid,
   teamsConversationIdFromJid,
 } from '@core/channels/teams/index.js';
-import {
-  sendTeamsProgressUpdate,
-  type TeamsProgressMessages,
-} from '@core/channels/teams/progress.js';
 import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams/cards.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
@@ -600,7 +596,6 @@ describe('TeamsChannel adapter scaffold', () => {
       threadId: 'reply-a',
       headline: 'Searching the web',
       status: 'running',
-      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('teams:19:abc@thread.v2', {
@@ -610,7 +605,6 @@ describe('TeamsChannel adapter scaffold', () => {
     await channel.renderAgentTodo('teams:19:abc@thread.v2', {
       threadId: 'reply-a',
       status: 'done',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
@@ -621,10 +615,7 @@ describe('TeamsChannel adapter scaffold', () => {
     const firstCard = vi.mocked(sdkClient.sendAdaptiveCard).mock.calls[0]?.[0]
       ?.card as any;
     expect(JSON.stringify(firstCard)).toContain('⏳ Searching the web');
-    expect(JSON.stringify(firstCard.actions)).toContain('stop-token-1');
-    expect(JSON.stringify(firstCard.actions)).toContain(
-      'teams:19:abc@thread.v2',
-    );
+    expect(firstCard.actions).toEqual([]);
     expect(sdkClient.sendAdaptiveCard).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ threadId: 'reply-b' }),
@@ -1631,88 +1622,6 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(result).not.toHaveProperty('coverage');
   });
 
-  it('routes Teams live stop card actions through the neutral message action callback', async () => {
-    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
-      undefined;
-    const onMessageAction = vi.fn(async () => {});
-    const sdkClient: TeamsSdkClient = {
-      start: vi.fn(async (input) => {
-        startInput = input;
-      }),
-      stop: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'teams-stop-card',
-      })),
-    };
-    const channel = new TeamsChannel(
-      {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        tenantId: 'tenant-id',
-      },
-      { ...makeOpts(), onMessageAction },
-      sdkClient,
-    );
-    await channel.connect();
-
-    await channel.sendMessage('teams:19:abc@thread.v2', 'Running...', {
-      threadId: 'root-message',
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'token-1',
-        },
-      ],
-    });
-
-    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: '19:abc@thread.v2',
-        threadId: 'root-message',
-        card: expect.objectContaining({
-          actions: [
-            expect.objectContaining({
-              type: 'Action.Execute',
-              verb: 'gantry.live.stop',
-              data: expect.objectContaining({
-                action: 'message_action',
-                kind: 'live_turn_stop',
-                actionToken: 'token-1',
-                targetJid: 'teams:19:abc@thread.v2',
-                threadId: 'root-message',
-              }),
-            }),
-          ],
-        }),
-      }),
-    );
-
-    await startInput?.onMessage({
-      conversationId: '19:abc@thread.v2',
-      from: { id: 'teams-user-1', name: 'Team Admin' },
-      value: {
-        data: {
-          action: 'message_action',
-          kind: 'live_turn_stop',
-          actionToken: 'token-1',
-          targetJid: 'teams:19:abc@thread.v2',
-          threadId: 'root-message',
-        },
-      },
-    });
-
-    expect(onMessageAction).toHaveBeenCalledWith({
-      kind: 'live_turn_stop',
-      conversationJid: 'teams:19:abc@thread.v2',
-      providerAccountId: 'teams_default',
-      threadId: 'root-message',
-      userId: 'teams-user-1',
-      actionToken: 'token-1',
-    });
-  });
-
   it('routes Teams scheduler retry card actions through the neutral message action callback', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;
@@ -2217,7 +2126,7 @@ describe('TeamsChannel adapter scaffold', () => {
     );
   });
 
-  it('updates Teams progress cards and clears stop actions when done', async () => {
+  it('updates Teams progress cards and settles the same generation when done', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -2243,9 +2152,9 @@ describe('TeamsChannel adapter scaffold', () => {
       generation: 7,
       actionAffordances: [
         {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'token-7',
+          kind: 'scheduler_pause_job',
+          label: 'Pause',
+          jobId: 'job-7',
         },
       ],
     });
@@ -2256,9 +2165,9 @@ describe('TeamsChannel adapter scaffold', () => {
       replaceOnly: true,
       actionAffordances: [
         {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'token-7',
+          kind: 'scheduler_pause_job',
+          label: 'Pause',
+          jobId: 'job-7',
         },
       ],
     });
@@ -2277,7 +2186,7 @@ describe('TeamsChannel adapter scaffold', () => {
     );
   });
 
-  it('sends action-only Teams progress cards with Stop action and no status body', async () => {
+  it('sends action-only Teams progress cards with a scheduler action and no status body', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -2302,9 +2211,9 @@ describe('TeamsChannel adapter scaffold', () => {
       actionOnly: true,
       actionAffordances: [
         {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'token-7',
+          kind: 'scheduler_pause_job',
+          label: 'Pause',
+          jobId: 'job-7',
         },
       ],
     });
@@ -2316,73 +2225,16 @@ describe('TeamsChannel adapter scaffold', () => {
           body: [],
           actions: [
             expect.objectContaining({
-              title: 'Stop',
+              title: 'Pause',
               data: expect.objectContaining({
-                kind: 'live_turn_stop',
-                actionToken: 'token-7',
+                kind: 'scheduler_pause_job',
+                jobId: 'job-7',
               }),
             }),
           ],
         }),
       }),
     );
-  });
-
-  it('settles the Teams Stop progress card across generation rollover', async () => {
-    const pendingProgress: TeamsProgressMessages = new Map();
-    const sdkClient: TeamsSdkClient = {
-      start: vi.fn(async () => {}),
-      stop: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({})),
-      sendAdaptiveCard: vi.fn(async () => ({
-        externalMessageId: 'progress-card-1',
-      })),
-      updateAdaptiveCard: vi.fn(async () => ({})),
-    };
-
-    await sendTeamsProgressUpdate({
-      sdkClient,
-      pendingProgress,
-      jid: 'teams:19:abc@thread.v2',
-      text: '',
-      options: {
-        threadId: 'root-message',
-        generation: 1,
-        actionOnly: true,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'token-1',
-          },
-        ],
-      },
-    });
-    await sendTeamsProgressUpdate({
-      sdkClient,
-      pendingProgress,
-      jid: 'teams:19:abc@thread.v2',
-      text: 'Done.',
-      options: {
-        threadId: 'root-message',
-        generation: 2,
-        done: true,
-      },
-    });
-
-    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
-    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        conversationId: '19:abc@thread.v2',
-        messageId: 'progress-card-1',
-        threadId: 'root-message',
-        card: expect.objectContaining({
-          body: [expect.objectContaining({ text: 'Done.' })],
-          actions: [],
-        }),
-      }),
-    );
-    expect(pendingProgress.size).toBe(0);
   });
 
   it('streams Teams output by updating one native card at the Teams cadence', async () => {

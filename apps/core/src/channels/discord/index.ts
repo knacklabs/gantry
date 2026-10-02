@@ -40,7 +40,6 @@ import {
   DiscordGatewayConnection,
   websocketFactory,
 } from './gateway.js';
-import { agentTodoStopActions } from '../agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
@@ -299,15 +298,7 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     options: ProgressUpdateOptions = {},
   ): string {
-    const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
-    const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
-    const hasStopAction = options.actionAffordances?.some(
-      (action) => action.kind === 'live_turn_stop',
-    );
-    return hasStopAction ||
-      (options.done && this.activeProgressMessages.has(controlKey))
-      ? controlKey
-      : generationKey;
+    return `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
   }
 
   async sendStreamingChunk(
@@ -451,12 +442,7 @@ export class DiscordChannel implements ChannelAdapter {
       render.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
     const todoKey = `${jid}:${render.cardKind ?? 'todo'}:${render.threadId || ''}`;
-    const components =
-      discordActionComponents({
-        actionAffordances: render.threadId
-          ? undefined
-          : agentTodoStopActions(render),
-      }) ?? [];
+    const components: unknown[] = [];
     const body = {
       content: formatDiscordAgentTodo(render),
       allowed_mentions: { parse: [] },
