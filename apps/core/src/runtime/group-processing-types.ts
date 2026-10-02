@@ -182,9 +182,6 @@ export interface GroupProcessingDeps {
       memoryUserId?: string;
     },
   ) => Promise<void> | void;
-  getCursor: (chatJid: string) => Promise<string> | string;
-  setCursor: (chatJid: string, timestamp: string) => void;
-  saveState: () => Promise<void> | void;
   setGroupModelOverride: (
     chatJid: string,
     model: string | undefined,

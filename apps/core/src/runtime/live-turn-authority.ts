@@ -365,7 +365,6 @@ export class LiveTurnAuthority {
     text: string;
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
-    cursorAfter?: string | null;
     commandId?: string;
     expectedTurnId?: string;
   }): Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'> {
@@ -377,7 +376,6 @@ export class LiveTurnAuthority {
       commandId: input.commandId ?? globalThis.crypto.randomUUID(),
       expectedTurnId: input.expectedTurnId,
       idempotencyKey: input.idempotencyKey,
-      cursorAfter: input.cursorAfter,
       createdByWorkerId: this.deps.leaseDeps.workerInstanceId,
     });
     if (result.outcome === 'queued_to_owner') {

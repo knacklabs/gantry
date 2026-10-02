@@ -41,7 +41,7 @@ import {
   startLiveAdmissionWorkLoop as defaultStartLiveAdmissionWorkLoop,
   type LiveAdmissionWorkLoopHandle,
 } from '../../runtime/live-admission-work-loop.js';
-import { routeScopeActiveLiveTurnAdmissionFromCursor } from './live-recovery-coordinator.js';
+import { routeScopeActiveLiveTurnAdmissionFromInput } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
 import { type SessionCommand } from '../../session/session-commands.js';
@@ -109,9 +109,6 @@ interface AdmissionApp {
     queueJid: string,
     options: GroupProcessOptions & { queued: boolean },
   ) => Promise<boolean>;
-  getOrRecoverCursor: (queueJid: string) => Promise<string>;
-  setAgentCursor: (queueJid: string, cursor: string) => void;
-  saveState: () => Promise<void> | void;
 }
 
 export function buildLiveAdmissionProcessor(input: {
@@ -168,7 +165,7 @@ export function buildLiveAdmissionProcessor(input: {
     (async () => {
       const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
       if (!owner?.runId) return false;
-      return routeScopeActiveLiveTurnAdmissionFromCursor({
+      return routeScopeActiveLiveTurnAdmissionFromInput({
         scope,
         queueJid,
         liveRunId,
@@ -180,8 +177,6 @@ export function buildLiveAdmissionProcessor(input: {
         timezone,
         inputRepository: input.inputRepository!,
         getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
-        setAgentCursor: app.setAgentCursor,
-        saveState: app.saveState,
         enqueueMessageCheck: input.enqueueMessageCheck,
         ...createActiveCompactRouteHandlers({
           route,
@@ -288,11 +283,7 @@ export function buildLiveAdmissionProcessor(input: {
         scope,
         turnId: `live-turn:${randomUUID()}`,
         runId: liveRunId,
-        pendingMessage: {
-          kind: 'message_cursor',
-          queueJid,
-          cursorBefore: '',
-        },
+        pendingMessage: { queueJid },
       });
       if (admission.outcome !== 'claimed') {
         if (admission.outcome === 'scope_active') {
@@ -308,9 +299,9 @@ export function buildLiveAdmissionProcessor(input: {
             route,
           );
         }
-        // no_capacity / lease_unavailable: terminal-mark the orphan run. The
-        // message cursor is NOT advanced, so the deferred message is re-polled
-        // and a worker with free capacity admits it next tick.
+        // no_capacity / lease_unavailable: terminal-mark the orphan run. No
+        // input was taken, so the deferred message is re-polled and a worker
+        // with free capacity admits it next tick.
         await opsRepository.completeSessionAgentRun?.({
           runId: liveRunId,
           status:
