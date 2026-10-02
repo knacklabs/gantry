@@ -2,62 +2,34 @@
   "branch": "task/PERMFLOW-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "578148c009c1e385b3682fc874f3e3ccdb22d78869369ae6df5f7e6a24070b3c",
-    "commit": "641ccf2c3785ccff801d42e2be6996eae0dde277",
+    "changed": "558824699f5c8894017dcbc2555f4d2296b8f6f80cb2d3d1b12ef5cf6c2d487f",
+    "commit": "6fd47bebed4426133609b298c384b6dbba54d43d",
     "dismissals": [],
     "findings": [
       {
-        "body": "The display-key pattern omits `passphrase`, although the runtime sanitizer explicitly recognizes it as sensitive. This matters on the inline remote-MCP path: `inline-agent-loop-tools.ts:328` computes sanitization flags but attaches the original input at line 351. A request containing a short, ordinary passphrase therefore passes through `genericValue` unchanged, is persisted in the new snapshot, and is displayed by `permission-tool-input-format.ts:188\u2013201`. Mask sensitive fields by their names before sanitizing their values, including passphrase fields.",
+        "body": "chunk 1/2:\n\nThe allowlist takes precedence over sensitive-field masking, and it includes `key`. An ordinary short credential supplied under that name therefore survives unchanged. The verified inline MCP path computes sanitization flags but passes the original input at `inline-agent-loop-tools.ts:328\u2013353`; `durable-interaction-handler.ts:181` then persists this projection. Although the generic renderer hides the field, the new durable snapshot retains its plaintext value. Apply credential-name masking to remote-tool inputs before allowing display fields, while preserving browser keyboard-key inputs explicitly.",
         "file": "apps/core/src/shared/permission-display-input.ts",
-        "line": 81,
+        "line": 120,
         "priority": "P1",
-        "title": "Not done: passphrase inputs have secrets hidden"
+        "title": "Not done: sensitive key values are hidden in durable snapshots"
       },
       {
-        "body": "This pattern cannot match a JSON credential field such as `\"password\": \"test-password\"`: the closing quote between the key and colon prevents the match. The earlier redaction rules also miss this shape, and an ordinary short password does not trigger the entropy check. Consequently, a Write request containing such JSON retains the password in its displayed content and newly persisted tool-input snapshot. The verified Write renderer consumes `content` at `permission-full-view.ts:167\u2013176`. This is additional evidence beyond the earlier authenticated-URL finding; handle quoted credential keys before displaying or persisting their values.",
-        "file": "apps/core/src/shared/sensitive-material.ts",
-        "line": 147,
+        "body": "chunk 1/2:\n\nShortening the string before redaction can remove the context identifying a retained secret. For example, a long command can place a quoted `password=` assignment in the omitted middle while the last 1,000 characters retain part of its credential value. Neither subsequent redaction pass can recognize that suffix. On the verified raw-input inline MCP path (`inline-agent-loop-tools.ts:351`), it is persisted through `durable-interaction-handler.ts:181` and can appear in the command preview (`permission-tool-input-format.ts:130\u2013150`). Redact the complete value before applying the head/tail limit.",
+        "file": "apps/core/src/shared/permission-display-input.ts",
+        "line": 177,
         "priority": "P1",
-        "title": "Not done: quoted credential fields have secrets hidden"
+        "title": "Not done: redact secrets before shortening prompt details"
       },
       {
-        "body": "Normal conversation history can remove the current request before this extraction runs. `messaging/router.ts:116\u2013122` places recent-channel and active-thread context before `<current_message>`, while `runtime/agent-spawn-helpers.ts:196` sends only the first 1,500 characters of that formatted prompt. With sufficient preceding history, this function returns undefined, so shell and admin prompts have no Why line even though the current request exists. The signed-IPC ruling establishes delivery, but did not weigh this verified truncation path. Extract the current request before applying the transport limit and add a history-bearing boundary case.",
-        "file": "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
-        "line": 165,
-        "priority": "P1",
-        "title": "Not done: every permission prompt includes why"
-      },
-      {
-        "body": "The reused `commandLeadLine` returns only `What it does` whenever input.description exists (`permission-tool-input-format.ts:272\u2013277`), replacing the Runs line. For example, the existing rendering fixture with description `Run the test suite` and command `npm test -- --runInBand` omits the program names; Slack and Discord additionally keep the command behind full view. The new four-channel fixtures omit descriptions, so they miss this required case. Show program names alongside the description rather than choosing between them.",
-        "file": "apps/core/src/channels/permission-tool-input-format.ts",
-        "line": 106,
-        "priority": "P1",
-        "title": "Not done: described commands show program names"
-      },
-      {
-        "body": "The required close command is red because this delegation changes the existing redaction output contract without reconciling its tests. For example, the supplied run reports `password=[REDACTED]` where `permission-classifier.test.ts:86\u201392` expects `password: [REDACTED]`. Its Bearer and Basic cases also expect the whole authorization value to be replaced, while the new helper retains the scheme; `ipc-auth-boundary.test.ts:1578\u20131580` likewise expects authText to be `[REDACTED]`. The standard requires that \u201ceach commit leaves the build working.\u201d Reconcile the intended output and owner assertions while retaining the secret-masking checks, then obtain a passing required suite.",
-        "file": "apps/core/src/runtime/ipc-tool-input-sanitization.ts",
-        "line": 15,
-        "priority": "P1",
-        "title": "Standard: each commit leaves the build working"
-      },
-      {
-        "body": "The claimed likely failure path checks only `ok: false` and `permission_denied`, while discarding the user-facing sendMessage output. The actual denial message is produced by `ipc-skill-install-handlers.ts:263\u2013274` through `shared/user-visible-messages.ts:45\u201346`; it reports that installation was not approved but gives no next action. The functional-check contract explicitly requires the exercised failure to say what to do next. Supply appropriate guidance for requesting approval again and assert the visible failure text at this boundary.",
+        "body": "chunk 1/2:\n\nThe named end-to-end test replaces the application's permission-approval surface, then implements binding, callback claiming and decision construction itself at lines 176\u2013200. It never delivers the tap through the real Telegram callback handler (`callback-handlers.ts:737\u2013793`). Consequently, broken native callback routing or decision resolution would leave this test green. This violates the required boundary rule, \u201cFake only third-party services at their edge.\u201d Drive the actual channel approval and callback paths, faking Telegram's external API only.",
         "file": "apps/core/test/e2e/permission-prompt-shape.postgres.e2e.test.ts",
-        "line": 385,
+        "line": 150,
         "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "The new option ordering preserves a request's omission of Allow once. The verified setup-pause producer at `application/jobs/setup-pause-permission-prompt.ts:190\u2013192` deliberately removes that option because the run has ended, leaving Allow for future / Deny rather than either promised button set. A meaningful once-only action requires changing that job lifecycle; the story explicitly assigns removal of setup pause to PERMFLOW-4. Track this remaining exception there rather than offering an Allow once button with nothing to execute.",
-        "file": "apps/core/src/channels/permission-decision-options.ts",
-        "line": 40,
-        "priority": "P2",
-        "title": "Later: finish the setup-pause prompt shape in PERMFLOW-4"
+        "title": "Not done: permission-prompt-shape exercises real channel callbacks"
       }
     ],
     "status": "blocked",
-    "tree": "5bf56e94c06145b1c32321153c1f3226c8d5b1f4429806bd145e19adb4bc5a38"
+    "tree": "4daafcaa49dff66ff062195589fe7839dc32b952453ae298137e7459fd6a84b0"
   },
   "status": "fixing",
   "steps": [
@@ -71,6 +43,10 @@
     },
     {
       "at": "2026-10-02T11:21:50+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T14:16:35+00:00",
       "step": "review"
     }
   ]
