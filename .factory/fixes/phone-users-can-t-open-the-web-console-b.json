@@ -1,0 +1,14 @@
+{
+  "base": "c05c2442f4da29738de8c84d82fd7f01c36f4182",
+  "branch": "fix/phone-users-can-t-open-the-web-console-b",
+  "done_when": "The console's navigation works at phone width instead of refusing the viewport, keyboard focus still works, and nothing overflows",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T12:12:58+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Phone users can't open the web console because it refuses small viewports"
+}
