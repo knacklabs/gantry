@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
@@ -1477,9 +1477,6 @@ maybeDescribe(
             appId,
             inputRepository: runtime.repositories.liveTurns,
             getConversationRoutes: app.getConversationRoutes,
-            getOrRecoverCursor: app.getOrRecoverCursor,
-            setAgentCursor: app.setAgentCursor,
-            saveState: app.saveState,
             hasChannel: channel.runtime.hasChannel,
             setTyping: channel.runtime.setTyping,
             sendProgressUpdate: channel.runtime.sendProgressUpdate,
@@ -1545,14 +1542,17 @@ maybeDescribe(
           (line) => JSON.parse(line) as string,
         );
       const spawns = () => readLines(spawnsPath(temp)).length;
-      // A message the runtime has finished with moves its cursor past it.
-      const settled = async (id: string) => {
-        const state = JSON.parse(
-          (await runtime.ops.getRouterState('last_agent_timestamp')) ?? '{}',
-        ) as Record<string, string>;
-        return Object.values(state).some(
-          (cursor) => (JSON.parse(cursor) as { id?: string }).id === id,
-        );
+      // How the runtime finished with a saved message: what consumed its input.
+      const consumedBy = async (id: string) => {
+        const [item] = await runtime.service.db
+          .select({
+            consumedBy: pgSchema.liveAdmissionWorkItemsPostgres.consumedBy,
+          })
+          .from(pgSchema.liveAdmissionWorkItemsPostgres)
+          .where(
+            like(pgSchema.liveAdmissionWorkItemsPostgres.messageId, `%:${id}`),
+          );
+        return item?.consumedBy ?? null;
       };
 
       try {
@@ -1585,7 +1585,8 @@ maybeDescribe(
           ),
         ).toBe('stored');
         await waitForLiveE2e(
-          () => settled('thread-bob-while-alive'),
+          async () =>
+            (await consumedBy('thread-bob-while-alive')) === 'history',
           'the follow-up from bob handled while the runner is alive',
         );
 
@@ -1627,7 +1628,7 @@ maybeDescribe(
           ),
         ).toBe('stored');
         await waitForLiveE2e(
-          () => settled('thread-bob-after-exit'),
+          async () => (await consumedBy('thread-bob-after-exit')) !== null,
           'the follow-up from bob handled after the runner exited',
           20_000,
         );
