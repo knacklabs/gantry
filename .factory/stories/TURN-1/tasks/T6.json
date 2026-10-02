@@ -2,55 +2,48 @@
   "branch": "task/TURN-1-T6",
   "review": {
     "blocking_level": "P1",
-    "changed": "4f6aa7df90631bfd766afec4e2a54a91b267b481a297a62225ea6a159c9ec357",
-    "commit": "68a2d9baa59c8111b16fa2d4696a8ca2de23dc90",
+    "changed": "a066f857f655d7713d01d2a16f132df49af302b5237ee1b961230fe866fe73c1",
+    "commit": "ae759caa0bb64dc4e7495c5d551737d84f6daece",
     "dismissals": [],
     "findings": [
       {
-        "body": "The sender allowlist is enforced only when this turn-start call runs. When a turn is already active, live-execution.ts:263\u2013271 routes directly through live-recovery-coordinator.ts:447\u2013461, bypassing decideBatch. live-turn-routing.ts:48\u201355 checks only requiredContinuationUserId, not the configured sender allowlist. Consequently, a disallowed sender's mid-turn request is forwarded to the agent despite the promised continuation gate. Apply the policy before forwarding active-turn input, keeping refused messages as history.",
-        "file": "apps/core/src/runtime/group-processing.ts",
-        "line": 235,
+        "body": "Telegram media messages never copy ctx.message.reply_to_message.message_id into reply_to_message_id in the emitted envelope (media-ingestion.ts:125\u2013163). After the bot finishes answering in a non-topic group, an allowed member replying with a photo, document, or voice message without a mention therefore fails every continuation check: group-trigger-policy.ts:85 requires the missing reply target. Preserve reply metadata for media messages so these replies reach the agent.",
+        "file": "apps/core/src/channels/telegram/media-ingestion.ts",
+        "line": 138,
         "priority": "P1",
         "title": "Not done: Mention-required groups follow the conversation"
       },
       {
-        "body": "This timestamp interval also matches turns that never ran an agent. live-execution.ts:281\u2013287 claims a live turn before invoking the processor at line 317; an unmentioned batch returns successfully without running the agent, and the wrapper finalizes that claim as completed at lines 339\u2013357. An unrelated message saved after that batch was taken but before its claim ends is therefore marked receivedDuringTurn and starts an agent turn later. Record whether the agent actually ran rather than treating every claimed interval as agent activity.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
-        "line": 223,
-        "priority": "P1",
-        "title": "Distinguish an actual running turn from a rejected admission"
-      },
-      {
-        "body": "The new end-to-end scenario exercises a Slack thread follow-up and unrelated history, but not a split mention batch, a direct reply to the bot, or mid-turn allowlist enforcement. Its helper invokes processGroupMessages directly, bypassing the active-turn admission path. The new mid-turn integration case merely claims a row and transitions it from claimed to completed (live-admission-work-items.postgres.integration.test.ts:243\u2013255); it never runs an agent. Extend the existing owner scenario through live admission with a held runner and an actual sender policy so these promised behaviours and routing defects are observable.",
+        "body": "The unrelated-message check saves its message after all earlier turns have settled. It never saves a message while an unmentioned admission is still claimed but has not run an agent\u2014the condition behind previous finding 2. The tests would still pass if 'claimed' were added to the state filter in live-admission-work-item-repository.postgres.ts:158. Add a Postgres regression proving that a message saved during such a rejected admission stays history and cannot enable a later turn.",
         "file": "apps/core/test/e2e/mention-group-follows-conversation.postgres.e2e.test.ts",
-        "line": 113,
+        "line": 364,
         "priority": "P1",
-        "title": "Not done: mention-required conversation end-to-end coverage"
+        "title": "Not done: rejected-admission continuation regression test"
       },
       {
-        "body": "The Functional check paragraphs exercise Slack thread continuation, unrelated history, and a repository-seeded claimed interval. They omit split-message continuation, a direct reply to the bot, and sender allowlist enforcement. The claimed-to-completed fixture here also never starts a runner, so it cannot substantiate the claimed check of a message arriving while the agent was working. Exercise the remaining covered paths through the runtime and update the Functional check with their observed outcomes.",
-        "file": "apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts",
-        "line": 255,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "The thread lookup reads only pageSize rows from the beginning. canonical-message-repository.postgres.ts:626\u2013631 orders these rows ascending and applies the limit. If a Telegram topic or another thread has 200 human messages before the bot first replies, subsequent unmentioned follow-ups are refused forever because that bot reply never enters the inspected page. Use a scoped outbound existence query or continue paging until a bot reply is found.",
-        "file": "apps/core/src/runtime/group-trigger-policy.ts",
-        "line": 75,
+        "body": "Normal channel persistence supplies agentId and providerAccountId but no agentSessionId (channel-persistence-handlers.ts:223\u2013233). Consequently this null-session condition matches any running agent in the same chat and thread, without checking the admitted agent or account. While @Helper is running, a plain follow-up also gets receivedDuringTurn on @Planner's admission and can start Planner without a mention. Resolve the current admission's session scope before recording this flag.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
+        "line": 156,
         "priority": "P2",
-        "title": "Find bot replies beyond the first history page"
+        "title": "Scope the running-turn marker to the admitted agent and account"
       },
       {
-        "body": "Matching any route's textual trigger sets a shared mentionsBot flag. channel-persistence-handlers.ts:223\u2013233 persists that same message for every matching route, and decideBatch accepts the flag without checking the current route's trigger. With @Helper and @Planner routes in one Telegram group, '@Helper do this' therefore starts both agents; previously each processor checked its own trigger. Reserve the shared flag for native bot mentions, or preserve route-specific trigger attribution through fan-out, including captions.",
+        "body": "Matching any route's textual trigger sets the shared mentionsBot flag. channel-persistence-handlers.ts:223\u2013233 persists the same envelope for every matching route, and group-trigger-policy.ts:59 accepts that flag independently of the current route's trigger. In a group with @Helper and @Planner, '@Helper do this' therefore starts both agents. The same issue affects captions through media-ingestion.ts:140\u2013146. Preserve route-specific trigger attribution instead of promoting a textual route match to a shared native-mention flag.",
         "file": "apps/core/src/channels/telegram/text-message-handler.ts",
         "line": 47,
         "priority": "P2",
         "title": "Keep textual route triggers specific to their agent"
+      },
+      {
+        "body": "The thread lookup still reads only pageSize rows from the beginning. canonical-message-repository.postgres.ts:626\u2013631 orders them ascending and applies the limit. If a topic has 200 human messages before the bot first replies, later unmentioned follow-ups never find that reply and remain history. Use a scoped outbound existence query or continue paging until a bot reply is found.",
+        "file": "apps/core/src/runtime/group-trigger-policy.ts",
+        "line": 82,
+        "priority": "P2",
+        "title": "Find bot replies beyond the first history page"
       }
     ],
     "status": "blocked",
-    "tree": "e15513fcf55754cc2e769d155a5ecd1a8014ac6b5de360f14d59d8f2419b2c42"
+    "tree": "d3bd40940c26e9f475933595e9f02420b3ed18c3d3271499b4a0fae48903e4d1"
   },
   "status": "fixing",
   "steps": [
@@ -60,6 +53,10 @@
     },
     {
       "at": "2026-10-02T16:56:40+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T22:16:36+00:00",
       "step": "review"
     }
   ]
