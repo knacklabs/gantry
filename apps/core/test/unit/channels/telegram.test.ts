@@ -1153,7 +1153,6 @@ describe('TelegramChannel', () => {
       threadId: '42',
       headline: 'Searching the web',
       status: 'running',
-      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('tg:-100123', {
@@ -1163,7 +1162,6 @@ describe('TelegramChannel', () => {
     await channel.renderAgentTodo('tg:-100123', {
       threadId: '42',
       status: 'done',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
@@ -3600,49 +3598,6 @@ describe('TelegramChannel', () => {
       expect(callbackCtx.editMessageText).not.toHaveBeenCalled();
     });
 
-    it('omits Telegram live stop action buttons but still routes stale callbacks', async () => {
-      const opts = createTestOpts({ onMessageAction: vi.fn() } as any);
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await channel.sendMessage('tg:100200300', 'Working...', {
-        actionAffordances: [
-          { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
-        ],
-      });
-
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '100200300',
-        'Working\\.\\.\\.',
-        expect.not.objectContaining({ reply_markup: expect.anything() }),
-      );
-
-      const callbackCtx = {
-        callbackQuery: {
-          data: 'lt:stop:token-1',
-          message: {
-            chat: { id: 100200300 },
-            message_thread_id: 42,
-          },
-        },
-        from: { id: 111 },
-        answerCallbackQuery: vi.fn(),
-      };
-      await triggerCallbackQuery(callbackCtx);
-
-      expect(opts.onMessageAction).toHaveBeenCalledWith({
-        kind: 'live_turn_stop',
-        conversationJid: 'tg:100200300',
-        providerAccountId: 'telegram_default',
-        threadId: '42',
-        userId: '111',
-        actionToken: 'token-1',
-      });
-      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Stopping current run.',
-      });
-    });
-
     it('strips tg: prefix from JID', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -4682,26 +4637,8 @@ describe('TelegramChannel', () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
-
-      const stopAction = {
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop' as const,
-            label: 'Stop',
-            actionToken: 'token-1',
-          },
-        ],
-      };
-      await channel.sendProgressUpdate(
-        'tg:-1001234567890',
-        'Working on it...',
-        stopAction,
-      );
-      await channel.sendProgressUpdate(
-        'tg:-1001234567890',
-        'Still working',
-        stopAction,
-      );
+      await channel.sendProgressUpdate('tg:-1001234567890', 'Working on it...');
+      await channel.sendProgressUpdate('tg:-1001234567890', 'Still working');
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '-1001234567890',
@@ -4733,13 +4670,6 @@ describe('TelegramChannel', () => {
 
       await channel.sendProgressUpdate('tg:-1001234567890', '', {
         actionOnly: true,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop' as const,
-            label: 'Stop',
-            actionToken: 'token-1',
-          },
-        ],
       });
 
       expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
@@ -4886,7 +4816,7 @@ describe('TelegramChannel', () => {
         await first.sendProgressUpdate('tg:100200300', 'Still working...', {
           generation: 4,
           actionAffordances: [
-            { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+            { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
           ],
         });
 
@@ -4951,9 +4881,9 @@ describe('TelegramChannel', () => {
       await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
         actionAffordances: [
           {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'token-1',
+            kind: 'scheduler_pause_job',
+            label: 'Pause',
+            jobId: 'job-1',
           },
         ],
       });
