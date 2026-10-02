@@ -1,0 +1,14 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/child-commands-build-their-environment-f",
+  "done_when": "Child commands inherit only whitelisted environment values from one shared builder",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T12:46:17+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Child commands build their environment from copied lists"
+}
