@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner OK 2026-10-02: merging main's turn changes and keeping the thread test working spread the sender check across the follow-up routing files",
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/anyone-can-get-a-reply-in-a-thread-an-al",
   "done_when": "A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the root sender is allowed and another person's follow-up gets no reply",
