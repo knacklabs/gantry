@@ -1,10 +1,52 @@
 {
   "branch": "task/PERMFLOW-1-T5",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "e0f6c029b306c1bd51a30bd0ba17b3a4738357af9484a5b615cad94f96b38270",
+    "commit": "45513c6e40e9baf2513a8b3ab039f2eb06e98e9b",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new Why line publishes and persists turn text after using a sanitizer that does not redact URL userinfo. A request containing an authenticated URL of the form `https://user:password@host` therefore retains the credentials in the card and durable snapshot. `shared/sensitive-material.ts:22` contains no URL-userinfo redaction, whereas `runtime/ipc-tool-input-sanitization.ts:20` already handles this credential format. Redact credential-bearing URLs before displaying or persisting the why text.",
+        "file": "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
+        "line": 112,
+        "priority": "P1",
+        "title": "Not done: secrets hidden in the why line"
+      },
+      {
+        "body": "Requests with a friendly capability name take this return path, whose formatter shows account, risk and network information but never renders the command or program names (`permission-interaction.ts:414`). The native-parts capability branch likewise omits program names. For the added Google Sheets fixture with `gog sheets get sheet-1`, Teams consequently shows neither the program nor the command because `teams/cards.ts:163` uses this formatter without a full-view action. Preserve the friendly capability title while also showing the sanitized command specifics required by item 3.",
+        "file": "apps/core/src/channels/permission-interaction.ts",
+        "line": 96,
+        "priority": "P1",
+        "title": "Not done: capability prompts show program names and the redacted command"
+      },
+      {
+        "body": "Only `turnIntentSummary` supplies the new Why line, but real request producers omit it. The skill-install admin request at `jobs/ipc-skill-install-handlers.ts:216` supplies only `decisionReason`; the inline remote-MCP request at `app/bootstrap/inline-agent-loop-tools.ts:327` also omits it, even though that path has `run.prompt` available at line 395. Those prompts therefore never display Why. The rendering test supplies the missing field manually, so it does not catch this production gap. Carry the turn's request into these permission requests without exposing internal policy reasons.",
+        "file": "apps/core/src/channels/permission-interaction.ts",
+        "line": 326,
+        "priority": "P1",
+        "title": "Not done: every permission prompt includes why"
+      },
+      {
+        "body": "This allowlist drops display inputs used by real prompts. For example, skill-install requests supply `commandSummary` at `jobs/ipc-skill-install-handlers.ts:234`, which the live renderer displays as Install at `channels/permission-tool-input-format.ts:469`; it is absent from the durable snapshot. MCP-server requests similarly lose transport, origin, tools and network details. Recovery returns this reduced snapshot as the request (`pending-interaction-permission-callback.ts:279`), so rebuilding the card loses the specifics shown before restart. Persist the sanitized display fields these renderers actually use and extend the recovery proof beyond the shell-command fixture.",
+        "file": "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
+        "line": 12,
+        "priority": "P1",
+        "title": "Not done: prompt details kept across restart"
+      }
+    ],
+    "status": "blocked",
+    "tree": "8aa20a32e713454f5d22d912bb21b99539eabedd0b57c256937c46de4c3fd4cd"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T02:39:54+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T06:07:35+00:00",
+      "step": "review"
     }
   ]
 }
