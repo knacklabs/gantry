@@ -146,9 +146,23 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     claimedAt: null,
     endedAt: null,
   };
+  const turns = pgSchema.liveTurnsPostgres;
+  // The agent is working only once a turn's runner registered; a claimed turn
+  // may still keep its batch as history without running it.
+  const receivedDuringTurn = sql`case when exists (select 1 from ${turns}
+    where ${turns.appId} = ${input.appId}
+    and ${turns.conversationId} = ${input.conversationId}
+    and ${turns.threadId} is not distinct from ${input.threadId ?? null}
+    and (${input.agentSessionId ?? null}::text is null
+      or ${turns.agentSessionId} = ${input.agentSessionId ?? null})
+    and ${turns.state} in ('running', 'awaiting_interaction', 'setup_required'))
+    then '{"receivedDuringTurn": true}'::jsonb else '{}'::jsonb end`;
   const inserted = await db
     .insert(pgSchema.liveAdmissionWorkItemsPostgres)
-    .values(row)
+    .values({
+      ...row,
+      triggerDecisionJson: sql`${JSON.stringify(row.triggerDecisionJson)}::jsonb || ${receivedDuringTurn}`,
+    })
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
@@ -204,31 +218,7 @@ export async function takeInput(
       )
       .returning();
     const byId = new Map(rows.map((row) => [row.id, row]));
-    const turns = pgSchema.liveTurnsPostgres;
-    // A turn that has ended (so never the taker's own) and was running in this
-    // scope when the item was saved.
-    const duringTurn = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(
-        and(
-          inArray(
-            items.id,
-            candidates.map(({ id }) => id),
-          ),
-          sql`exists (select 1 from ${turns} where ${turns.appId} = ${items.appId}
-            and ${turns.conversationId} = ${items.conversationId}
-            and ${turns.threadId} is not distinct from ${items.threadId}
-            and (${items.agentSessionId} is null or ${turns.agentSessionId} = ${items.agentSessionId})
-            and ${turns.createdAt} <= ${items.createdAt}
-            and ${turns.endedAt} > ${items.createdAt})`,
-        ),
-      );
-    const receivedDuringTurn = new Set(duringTurn.map(({ id }) => id));
-    return candidates.map(({ id }) => ({
-      ...toLiveAdmissionWorkItem(byId.get(id)!),
-      receivedDuringTurn: receivedDuringTurn.has(id),
-    }));
+    return candidates.map(({ id }) => toLiveAdmissionWorkItem(byId.get(id)!));
   });
 }
 

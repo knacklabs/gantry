@@ -154,8 +154,6 @@ export interface LiveAdmissionWorkItem {
   updatedAt: string;
   claimedAt: string | null;
   endedAt: string | null;
-  /** Set by takeInput: an earlier turn in this scope was running on arrival. */
-  receivedDuringTurn?: boolean;
 }
 
 export type LiveAdmissionWorkItemEnqueueResult =

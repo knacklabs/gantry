@@ -5,6 +5,20 @@ import {
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
 
+/** Decision 0090: in a group that needs a mention, may this sender reach the agent? */
+export function senderMayTrigger(
+  group: Pick<ConversationRoute, 'folder' | 'requiresTrigger'>,
+  chatJid: string,
+  message: Pick<NewMessage, 'sender' | 'is_from_me'>,
+  allowlistCfg = loadSenderAllowlist(),
+): boolean {
+  return (
+    group.requiresTrigger === false ||
+    message.is_from_me ||
+    isTriggerAllowed(chatJid, message.sender, allowlistCfg, group.folder)
+  );
+}
+
 /**
  * The one rule for whether a taken batch is for the agent. In a group that
  * needs a mention, a batch starts a turn when a message from a sender who may
@@ -33,15 +47,8 @@ export async function decideBatch(input: {
   const allowlistCfg = loadSenderAllowlist();
   // Only allowed senders count, so a continuation needs one in this batch;
   // who started a thread says nothing about who is asking now.
-  const allowed = input.messages.filter(
-    (message) =>
-      message.is_from_me ||
-      isTriggerAllowed(
-        input.chatJid,
-        message.sender,
-        allowlistCfg,
-        input.group.folder,
-      ),
+  const allowed = input.messages.filter((message) =>
+    senderMayTrigger(input.group, input.chatJid, message, allowlistCfg),
   );
   if (allowed.length === 0) return false;
   // The text trigger is the fallback for adapters that don't set the flag.

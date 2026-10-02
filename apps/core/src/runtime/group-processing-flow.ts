@@ -74,7 +74,7 @@ export async function takeGroupTurnInput(input: {
       message,
       receiveOrder: item.receiveOrder,
       triggerDecision: item.triggerDecision ?? {},
-      receivedDuringTurn: item.receivedDuringTurn === true,
+      receivedDuringTurn: item.triggerDecision?.receivedDuringTurn === true,
     });
     if (
       extractSessionCommand(message.content, input.triggerPattern) ||
