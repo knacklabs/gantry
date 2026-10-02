@@ -1,0 +1,14 @@
+{
+  "base": "c05c2442f4da29738de8c84d82fd7f01c36f4182",
+  "branch": "fix/starting-the-service-can-kill-an-unrelat",
+  "done_when": "The service starts only through the ownership-checked launcher, and the generated shell launcher is deleted",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T12:17:23+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Starting the service can kill an unrelated process through a generated fallback launcher"
+}
