@@ -2580,6 +2580,13 @@
       "spec": "docs/specs/subagents-end-to-end.md",
       "status": "pending",
       "order": 162
+    },
+    {
+      "key": "UX-1",
+      "title": "One way to do each thing, and nothing said twice",
+      "spec": "docs/specs/one-way-to-do-each-thing.md",
+      "status": "pending",
+      "order": 150
     }
   ],
   "epics": [

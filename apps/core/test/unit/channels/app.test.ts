@@ -750,7 +750,7 @@ describe('app channel', () => {
     await channel.sendProgressUpdate('app:demo:conversation', '', {
       actionOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
 
@@ -761,7 +761,7 @@ describe('app channel', () => {
           text: '',
           actionOnly: true,
           actionAffordances: [
-            { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+            { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
           ],
         }),
       }),

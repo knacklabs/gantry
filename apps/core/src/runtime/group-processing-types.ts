@@ -88,7 +88,6 @@ export type GroupProcessOptions = {
   }) => Promise<void> | void;
   onFirstVisibleOutput?: () => Promise<void> | void;
   onTurnTerminal?: () => Promise<void> | void;
-  onLiveStopActionToken?: (token: string) => Promise<void> | void;
 };
 
 export interface GroupProcessor {
