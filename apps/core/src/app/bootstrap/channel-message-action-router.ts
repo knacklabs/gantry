@@ -16,15 +16,6 @@ const OBSERVER_FEEDBACK_ACTIONS = new Set([
   'less_like_this',
 ]);
 
-function isLiveStopActionTokenValid(
-  input: MessageActionCallbackInput,
-): boolean {
-  if (input.kind !== 'live_turn_stop') return true;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    input.actionToken ?? '',
-  );
-}
-
 function isMessageActionValid(input: MessageActionCallbackInput): boolean {
   if (
     input.kind === 'scheduler_run_now' ||
@@ -62,7 +53,7 @@ function isMessageActionValid(input: MessageActionCallbackInput): boolean {
       (input.decision === 'approve' || input.decision === 'reject')
     );
   }
-  return isLiveStopActionTokenValid(input);
+  return false;
 }
 
 export function createChannelMessageActionRouter(): {
