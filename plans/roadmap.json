@@ -2505,34 +2505,6 @@
       "order": 129
     },
     {
-      "key": "PROV-1",
-      "title": "Slack and Discord stay within their limits and reconnect cleanly",
-      "spec": "docs/specs/provider-native-features.md",
-      "status": "pending",
-      "order": 140
-    },
-    {
-      "key": "PROV-2",
-      "title": "Telegram direct messages stream the reply as it is written",
-      "spec": "docs/specs/provider-native-features.md",
-      "status": "pending",
-      "order": 141
-    },
-    {
-      "key": "PROV-3",
-      "title": "Permission prompts use each provider's own button styles",
-      "spec": "docs/specs/provider-native-features.md",
-      "status": "pending",
-      "order": 142
-    },
-    {
-      "key": "PROV-4",
-      "title": "Slack replies use agent sessions and native progress steps",
-      "spec": "docs/specs/provider-native-features.md",
-      "status": "pending",
-      "order": 143
-    },
-    {
       "key": "MSG-1",
       "title": "Every incoming message is saved before anything can fail",
       "spec": "docs/specs/one-messaging-pipeline.md",
@@ -2559,6 +2531,41 @@
       "spec": "docs/specs/one-messaging-pipeline.md",
       "status": "pending",
       "order": 133
+    },
+    {
+      "key": "UX-1",
+      "title": "One way to do each thing, and nothing said twice",
+      "spec": "docs/specs/one-way-to-do-each-thing.md",
+      "status": "pending",
+      "order": 150
+    },
+    {
+      "key": "PROV-1",
+      "title": "Slack and Discord stay within their limits and reconnect cleanly",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 140
+    },
+    {
+      "key": "PROV-2",
+      "title": "Telegram direct messages stream the reply as it is written",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 141
+    },
+    {
+      "key": "PROV-3",
+      "title": "Permission prompts use each provider's own button styles",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 142
+    },
+    {
+      "key": "PROV-4",
+      "title": "Slack replies use agent sessions and native progress steps",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 143
     }
   ],
   "epics": [

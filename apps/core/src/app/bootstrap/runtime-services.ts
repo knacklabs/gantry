@@ -581,12 +581,7 @@ export async function startRuntimeServices(
       });
     },
   };
-  wireJobPermissionActions(
-    channelWiring,
-    app,
-    liveMessageQueue,
-    jobPermissionDurability,
-  );
+  wireJobPermissionActions(channelWiring, app, jobPermissionDurability);
   const decisionMemory = resolved.getPermissionDecisionMemoryRepository?.();
   const permissionRepository = resolved.getPermissionRepository?.();
   const readJobs = (jobIds: string[]) =>
