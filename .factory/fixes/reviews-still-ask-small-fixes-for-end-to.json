@@ -1,0 +1,14 @@
+{
+  "base": "f7de785004e29235790076c6115fa17ce1e0ba41",
+  "branch": "fix/reviews-still-ask-small-fixes-for-end-to",
+  "done_when": "docs/review-instructions.md and apps/core/AGENTS.md say what the review rules say: a story proves each user-visible Done-when item with one end-to-end test, a small fix is proven at its real boundary, and end-to-end tests run nightly",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T03:39:57+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Reviews still ask small fixes for end-to-end tests because two detail docs contradict the review rules"
+}
