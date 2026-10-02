@@ -75,6 +75,7 @@ They share the causes above.
   - How a batch is shown to the agent stays as One message, one turn defines it.
   - Intake still decides whether a message starts a turn: mention rules, the sender allowlist, the busy limit and /stop are unchanged. The guarantee here is that every saved message reaches intake exactly once.
 - **Outbox.** Everything that leaves goes through one durable outbox: replies, edits, streams, cards, questions, `send_message`, and notices. Each item is retried until the provider confirms it or it is reported failed.
+  - **A queued reply counts as replied.** Putting a turn's first reply into the outbox commits that turn's input in the same transaction. This is the commit-before-send step of One message, one turn. A turn that fails after that point never releases its input, and its queued reply is still delivered, so recovery can't produce a second reply.
   - **The agent's result.** For `send_message`, the agent is told "delivered" only after the provider confirms, and "failed" with the reason otherwise.
   - **Sends that may repeat.** Sometimes nobody can know whether the provider got a send:
     - the host died after calling the provider but before recording the receipt;
@@ -196,7 +197,8 @@ Adding WhatsApp or finishing Teams means writing an edge, a codec and its declar
   - a lookup fails and later succeeds;
   - saving to the inbox fails and the provider resends;
   - the host crashes between saving and unpacking;
-  - the host crashes between unpacking and intake.
+  - the host crashes between unpacking and intake;
+  - the host crashes after intake has taken the message into a turn but before the inbox event is marked done. The replay keeps the consumed record and adds no second input.
 
   Intake's normal rules then decide whether it starts a turn. An event that keeps failing is listed as set aside, with its reason, and later events in its thread go on without it.
 - **AC2. A redelivered event is unpacked once,** including when one connection serves two accounts and the event fans out to both routes.
@@ -204,6 +206,7 @@ Adding WhatsApp or finishing Teams means writing an edge, a codec and its declar
 - **AC4. Every outgoing item goes through the outbox and is retried until it is confirmed or reported failed.** This covers replies, streams, cards, questions and `send_message`.
   - `send_message` tells the agent the real result.
   - After a crash, a timeout or a dropped connection with an uncertain result, the item is sent at most once more.
+  - A turn that fails after its reply was queued but before it was sent delivers that reply once and starts no second reply.
   - A stream sends one edit at a time, and an edit with an uncertain result is followed by one repair with the newest text.
 - **AC5. Items outside their turn's address set are refused and logged.** An agent's attempt to reach another conversation sends nothing there. The same send succeeds after the permission gate allows that address. An approval card is accepted only at the approval address.
 - **AC6. A request from one provider's chat can be approved from another.** A test covers a requester on one provider and an approval address on another, including:

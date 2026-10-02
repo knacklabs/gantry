@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T04:21:25+00:00
-read_hash: 2acd12437f3c99157444438cb3dbb10c9e3729ed
-round: 4
+read_at: 2026-10-02T04:27:49+00:00
+read_hash: 9aad7098a45e9f57d18fe55f4ed3a0909d8f9691
+round: 6
 passed: yes
-doc_seen: 2acd12437f3c99157444438cb3dbb10c9e3729ed
+doc_seen: 9aad7098a45e9f57d18fe55f4ed3a0909d8f9691
 spec_seen: e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-notes_seen: 9f307f13c0c8baeae47e75d6f9f8393641b3d1aa
+notes_seen: d31612a1badd22e1f49c50f4da58bf1ac66afccb
 ---
 # Cold read notes
 
@@ -122,5 +122,19 @@ Only a genuine trade-off goes to the human, as a question with options.
    Disposition: keep amended: only chat asks join chat requests; a job run's request never joins or is joined; AC6 tests a chat and a job asking for the same action
 
 ## Round 4
+
+No findings.
+
+## Round 5
+
+25. Disputed keep 5: Unproven: item 1: intake commits, but the host crashes before marking the inbox event done.
+    The new idempotent approach can work, but AC1 stops at crashes before intake. Add a fault case that commits intake, consumes the message, then crashes before inbox completion; replay must preserve the consumed record and create no second input.
+   Disposition: keep amended: AC1 adds a crash after intake consumed the message but before the inbox event is marked done
+
+26. Durable queued replies have no defined relationship to turn recovery.
+    [One message, one turn](docs/specs/one-message-one-turn.md) releases input when a turn fails before replying. If its reply already exists in the outbox but has not been sent, recovery can generate another reply while the original remains deliverable. Both can then arrive without any uncertain provider call. Pin how recovery reuses or cancels the original queued output, and add this crash case to AC4 or AC7.
+   Disposition: keep amended: queuing a turn's first reply commits its input in the same transaction (One message, one turn's commit-before-send); AC4 adds the failed-after-queue case
+
+## Round 6
 
 No findings.
