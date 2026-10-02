@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T09:22:58+00:00
-read_hash: 3201108bf67cc8d2a22e1aa10bd1ff0f754591ee
-round: 5
-passed: no
-doc_seen: 3201108bf67cc8d2a22e1aa10bd1ff0f754591ee
+read_at: 2026-10-02T09:24:41+00:00
+read_hash: 68d3bf3d759569cc05507795b9449b7fb84ce4b0
+round: 6
+passed: yes
+doc_seen: 68d3bf3d759569cc05507795b9449b7fb84ce4b0
 spec_seen: 4edda298df1c470d20c40e288fd906d0cad5511b
-notes_seen: 8790b349c929233341432de1f71923fc3b7542fc
+notes_seen: ab1b351b6f8b0c26ec5f460acc88191ac7a53261
 ---
 # Cold read notes
 
@@ -130,3 +130,7 @@ No findings.
 25. T6’s new cleanup deliverable excludes the files defining and consuming the removed state.
     `domain/types.ts` defines `batchDecision`, batch claims and remember codes; `domain/ports/worker-coordination.ts` defines batch matching and review-each settlement. The callback owner, `worker-coordination-interaction.postgres.ts` and `permission-remember-codec.ts` also consume them. None is scoped to T6, and T5’s types scope permits only the request batch field. Assign these owners explicitly so the removal can compile without retaining compatibility branches.
    Disposition: keep amended: T6's scope names domain/types.ts, ports/worker-coordination.ts, the callback owner, the worker-coordination interaction repository and the remember codec
+
+## Round 6
+
+No findings.

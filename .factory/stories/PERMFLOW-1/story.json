@@ -34,6 +34,14 @@
     {
       "at": "2026-10-02T02:38:41+00:00",
       "step": "approved"
+    },
+    {
+      "at": "2026-10-02T09:22:58+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T09:24:42+00:00",
+      "step": "read"
     }
   ],
   "title": "One permission gate on the host that asks only when needed",
