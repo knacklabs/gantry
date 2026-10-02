@@ -3,7 +3,10 @@ import {
   resolveAgentPersona,
   type AgentPersona,
 } from '../shared/agent-persona.js';
-import { STRUCTURED_LOCAL_CLI_GUIDANCE } from '../shared/capability-guidance.js';
+import {
+  DELEGATION_GUIDANCE,
+  STRUCTURED_LOCAL_CLI_GUIDANCE,
+} from '../shared/capability-guidance.js';
 import { publicGantryToolNameForSdkTool } from '../shared/gantry-tool-facades.js';
 
 export type GantryAgentPromptMode = 'full' | 'minimal' | 'none';
@@ -137,12 +140,7 @@ function toolingSection(mode: GantryAgentPromptMode): string {
           STRUCTURED_LOCAL_CLI_GUIDANCE,
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];
-  return [
-    '## Tooling',
-    ...compactCatalog,
-    'Never use raw harness subagents. Delegation is available through Gantry delegate_task when mounted in this run.',
-    'If delegate_task is not mounted, name the actual gate using the run’s access information: AgentDelegation has not been granted, the agent has a locked access preset, or delegation tools are hidden. Tell the owner to grant AgentDelegation to this agent, use the full access preset, or enable the hidden tools, respectively, then start a fresh run. Do not guess which gate applies when the run does not expose it; ask the owner to check those settings.',
-  ].join('\n');
+  return ['## Tooling', ...compactCatalog, DELEGATION_GUIDANCE].join('\n');
 }
 
 function executionBiasSection(): string {
