@@ -7,6 +7,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
   getSelectedAgentPermissionMode,
+  getTriggerPattern,
 } from '../../config/index.js';
 import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
@@ -83,6 +84,7 @@ import { handleActiveNewSessionCommand } from './runtime-services-active-new.js'
 import {
   queueActiveCompactionForRuntime,
   sendActiveControlReceipt,
+  type ActiveControlCommandHandler,
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
@@ -94,7 +96,7 @@ import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
 import * as setupPause from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
-import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
+import { buildLiveAdmissionProcessor, startLiveExecutionServices, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
 import { buildLiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { startWaitingStatusMonitor } from './live-execution-waiting-status.js';
 import type { ProcessRole } from './roles/process-role.js';
@@ -507,6 +509,7 @@ export async function startRuntimeServices(
       warn: (context, message) => resolved.logger.warn(context, message),
       ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
+      getTriggerPattern: (trigger) => getTriggerPattern(trigger),
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
@@ -1121,6 +1124,7 @@ export async function startRuntimeServices(
     appId: channelWiring.getRuntimeAppId(),
     inputRepository: liveTurns,
     getConversationRoutes: () => app.getConversationRoutes(),
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     hasChannel: (chatJid, options) =>
       channelWiring.hasChannel(chatJid, options),
     setTyping: (chatJid, isTyping, options) =>

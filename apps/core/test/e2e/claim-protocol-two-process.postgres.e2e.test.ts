@@ -486,6 +486,7 @@ maybeDescribe(
             authority.registerLocalRunner(queueJid, hooks, routing),
           );
           const processor = buildLiveAdmissionProcessor({
+            getTriggerPattern,
             inputRepository: runtime.repositories.liveTurns,
             liveTurnAuthority: authority,
             app,
@@ -1892,6 +1893,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       authority.registerLocalRunner(queueJid, hooks, routing),
     );
     const processor = buildLiveAdmissionProcessor({
+      getTriggerPattern,
       inputRepository: runtime.repositories.liveTurns,
       liveTurnAuthority: authority,
       app,

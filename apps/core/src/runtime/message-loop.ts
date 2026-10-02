@@ -22,7 +22,6 @@ import {
   isSenderControlAllowed,
   loadSenderControlAllowlist,
 } from '../platform/sender-allowlist.js';
-import { buildTriggerPattern } from '../shared/trigger-pattern.js';
 import {
   makeAgentThreadQueueKey,
   normalizeThreadQueueId,
@@ -39,6 +38,8 @@ export interface MessageLoopDeps {
     | 'consumeAll'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
   hasChannel: (
     chatJid: string,
     options?: { providerAccountId?: string; threadId?: string },
@@ -280,7 +281,7 @@ export async function processLiveAdmissionWorkItem(
       message &&
       extractSessionCommand(
         message.content,
-        buildTriggerPattern(group.trigger ?? ''),
+        deps.getTriggerPattern(group.trigger),
       );
     if (
       message &&

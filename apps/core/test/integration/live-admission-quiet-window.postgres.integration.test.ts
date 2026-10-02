@@ -16,6 +16,7 @@ import {
   type RuntimeApp,
 } from '@core/app/bootstrap/runtime-app.js';
 import { ConversationMessageIngressModule } from '@core/application/external-ingress/conversation-message-ingress.js';
+import { isSessionCommandText } from '@core/application/sessions/session-command-parse.js';
 import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
 import { DEFAULT_TRIGGER, getTriggerPattern } from '@core/config/index.js';
 import { resolveConversationMessageRoute } from '@core/control/server/external-ingress-adapter.js';
@@ -212,7 +213,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     expect(row!.wait).toBeCloseTo(1.5, 1);
   });
 
-  async function appConversation(appId: string) {
+  async function appConversation(appId: string, trigger = 'Andy') {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
@@ -241,7 +242,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       name: 'Quiet window',
       folder,
       providerAccountId,
-      trigger: 'Andy',
+      trigger,
       added_at: toIso(nowMs()),
       requiresTrigger: false,
       conversationKind: 'dm',
@@ -255,6 +256,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       appId,
       inputRepository: runtime.repositories.liveTurns,
       getConversationRoutes: app.getConversationRoutes,
+      getTriggerPattern,
       hasChannel: () => true,
       setTyping: async () => undefined,
       sendProgressUpdate: async () => undefined,
@@ -287,7 +289,10 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
             providerAccountId,
             content,
             sender,
-            sessionCommand: content === '/stop',
+            sessionCommand: isSessionCommandText(
+              content,
+              getTriggerPattern(trigger),
+            ),
             timestamp,
           },
           agentId,
@@ -458,6 +463,30 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     const current = conversation.prompts[0]!.split('<current_message')[1];
     expect(current).toContain('a new request');
     expect(current).not.toContain('do the thing');
+  });
+
+  it('stops a running turn at once on "@<agent> /stop" in a chat with no trigger of its own', async () => {
+    const conversation = await appConversation('quiet-stop-default', '');
+    commandAdmins.add('admin');
+    const stop = await conversation.send(
+      'm1',
+      `${DEFAULT_TRIGGER} /stop`,
+      'admin',
+    );
+    expect(stop).toMatchObject({ state: 'queued', deferUntil: null });
+
+    const stopped: string[] = [];
+    const deps: MessageLoopDeps = {
+      ...conversation.loopDeps(),
+      // The running turn's owner stops it.
+      handleActiveControlCommand: async ({ command }) => {
+        stopped.push(command.kind);
+        return true;
+      },
+    };
+    expect(await processLiveAdmissionWorkItem(deps, stop)).toBe('completed');
+    expect(stopped).toEqual(['stop']);
+    expect(await consumers([stop])).toEqual([`control:${stop.id}`]);
   });
 
   it('never makes a session command wait, in any form the route accepts', async () => {
