@@ -192,15 +192,6 @@ export function createGroupTurnProgressSenders(input: {
   >['buildProgressOptions'];
 }) {
   return {
-    sendControlOnlyProgress: async () => {
-      if (!input.supportsProgress) return;
-      await input
-        .sendProgressToChannel('', {
-          ...input.buildProgressOptions(),
-          actionOnly: true,
-        })
-        .catch(() => undefined);
-    },
     sendWaitingForUserResponseProgress: async () => {
       if (!input.supportsProgress) return;
       await input
