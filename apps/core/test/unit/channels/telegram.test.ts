@@ -166,8 +166,6 @@ import { configurePendingInteractionDurability } from '@core/application/interac
 import { writeTelegramFetchResponseToFile } from '@core/channels/telegram-file-download.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
-import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
 import { telegramQuestionCallbackId } from '@core/channels/telegram/channel-shared.js';
 import { requirePermissionDecision } from './permission-approval-result-helpers.js';
 import type {
@@ -5531,8 +5529,8 @@ describe('TelegramChannel', () => {
           .then(requirePermissionDecision);
         await flushPromises();
         const callback = offered
-          ? latestPermissionCallback('Allow')
-          : latestPermissionCallback('Just this once').replace(
+          ? latestPermissionCallback('Allow for future')
+          : latestPermissionCallback('Allow once').replace(
               'allow_once',
               'remember_allow_exact',
             );
@@ -5781,13 +5779,13 @@ describe('TelegramChannel', () => {
         currentBot().api.sendMessage.mock.calls[0]?.[2]?.reply_markup
           .inline_keyboard,
       ).toEqual([
-        [expect.objectContaining({ text: 'Approve fix' })],
+        [expect.objectContaining({ text: 'Allow once' })],
         [expect.objectContaining({ text: 'Deny' })],
       ]);
 
       await triggerCallbackQuery({
         callbackQuery: {
-          data: latestPermissionCallback('Approve fix'),
+          data: latestPermissionCallback('Allow once'),
         },
         chat: { id: 100200300 },
         from: { id: 12345, first_name: 'Ravi' },
@@ -5823,7 +5821,7 @@ describe('TelegramChannel', () => {
         })
         .then(requirePermissionDecision);
       await flushPromises();
-      const secondCallback = latestPermissionCallback('Cancel');
+      const secondCallback = latestPermissionCallback('Deny');
       let secondSettled = false;
       void second.then(() => {
         secondSettled = true;
@@ -5922,68 +5920,6 @@ describe('TelegramChannel', () => {
       expect(claims.claimPendingPermissionCallback).toHaveBeenCalledTimes(2);
     });
 
-    it('clears a live batch prompt when its post-send binding is already resolved', async () => {
-      const requests = ['perm-bind-1', 'perm-bind-2'].map((requestId) => ({
-        id: `pending-${requestId}`,
-        appId: 'default',
-        runId: 'run-1',
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId,
-          request: {
-            requestId,
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            runId: 'run-1',
-            toolName: 'Bash',
-          },
-        },
-        callbackRoute: null,
-        idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-        approverRef: null,
-        resolution: null,
-        createdAt: '2026-07-16T00:00:00.000Z',
-        expiresAt: '2026-07-17T00:00:00.000Z',
-        resolvedAt: null,
-      }));
-      const repository = permissionClaimRepository(requests);
-      const bindPendingPermissionPrompt =
-        repository.bindPendingPermissionPrompt.getMockImplementation()!;
-      repository.bindPendingPermissionPrompt
-        .mockImplementationOnce(bindPendingPermissionPrompt)
-        .mockResolvedValueOnce(null);
-      configurePendingInteractionDurability({
-        repository: repository as never,
-      });
-      telegramPromptBindingBehavior.strict = true;
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      const onPromptDelivered = vi.fn();
-      const batch = createPermissionBatchRequest(
-        requests.map((entry) => ({
-          requestId: String(entry.payload.requestId),
-          sourceAgentFolder: 'whatsapp_main',
-          targetJid: 'tg:100200300',
-          runId: 'run-1',
-          toolName: 'Bash',
-        })),
-        ['1. Command', '2. File action'],
-      );
-
-      await expect(
-        channel
-          .requestPermissionApproval('tg:100200300', batch, onPromptDelivered)
-          .then(requirePermissionDecision),
-      ).resolves.toMatchObject({ approved: false });
-
-      expect(currentBot().api.sendMessage).toHaveBeenCalledOnce();
-      expect(repository.bindPendingPermissionPrompt).toHaveBeenCalledTimes(2);
-      expect(onPromptDelivered).not.toHaveBeenCalled();
-      expect((channel as any).pendingPermissionPrompts.size).toBe(0);
-    });
-
     it('propagates Telegram post-send permission persistence failure and retains the waiter', async () => {
       telegramPromptBindingBehavior.strict = true;
       const interactions = telegramPromptBindingBehavior.interactions;
@@ -6051,7 +5987,7 @@ describe('TelegramChannel', () => {
       await triggerCallbackQuery({
         callbackQuery: {
           data: promptButtons.find(
-            (button: { text: string }) => button.text === 'Cancel',
+            (button: { text: string }) => button.text === 'Deny',
           )?.callback_data,
         },
         chat: { id: 100200300 },
@@ -6061,415 +5997,6 @@ describe('TelegramChannel', () => {
       await expect(decisionPromise).resolves.toMatchObject({
         approved: false,
         mode: 'cancel',
-      });
-    });
-
-    it('acknowledges that Review each is starting individual review', async () => {
-      const requests = ['permission-1', 'permission-2'].map((requestId) => ({
-        id: `pending-${requestId}`,
-        appId: 'default',
-        runId: 'run-1',
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId,
-          request: {
-            requestId,
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            runId: 'run-1',
-            toolName: 'Bash',
-          },
-        } as Record<string, unknown>,
-        callbackRoute: null,
-        idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-        approverRef: null,
-        resolution: null,
-        createdAt: '2026-07-16T00:00:00.000Z',
-        expiresAt: '2026-07-17T00:00:00.000Z',
-        resolvedAt: null,
-      }));
-      configurePendingInteractionDurability({
-        repository: {
-          ...permissionClaimRepository(requests),
-          listPendingInteractions: vi.fn(async () => requests),
-          updatePendingInteractionPayload: vi.fn((input) =>
-            updatePendingInteractionPayload(requests, input),
-          ),
-        } as never,
-      });
-      const batch = createPermissionBatchRequest(
-        requests.map((entry) => ({
-          requestId: entry.payload.requestId as string,
-          sourceAgentFolder: 'whatsapp_main',
-          targetJid: 'tg:100200300',
-          runId: 'run-1',
-          toolName: 'Bash',
-        })),
-        ['1. Command (git status)', '2. Command (git diff)'],
-      );
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      const decisionPromise = channel
-        .requestPermissionApproval('tg:100200300', batch)
-        .then(requirePermissionDecision);
-      await flushPromises();
-      const buttons = currentBot()
-        .api.sendMessage.mock.calls.at(-1)?.[2]
-        .reply_markup.inline_keyboard.flat();
-      const callbackData = buttons.find(
-        (button: { text: string }) => button.text === 'Review each',
-      )?.callback_data;
-      const callbackCtx = {
-        callbackQuery: { data: callbackData },
-        chat: { id: 100200300 },
-        from: { id: 222, first_name: 'Admin' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-
-      await triggerCallbackQuery(callbackCtx);
-
-      await expect(decisionPromise).resolves.toMatchObject({
-        approved: true,
-        batchDecision: 'review_each',
-      });
-      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Starting individual review.',
-      });
-    });
-
-    it('opens individual Telegram prompts after Review each instead of cancelling the batch', async () => {
-      const requests = ['permission-1', 'permission-2'].map((requestId) => ({
-        id: `pending-${requestId}`,
-        appId: 'default',
-        runId: 'run-1',
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId,
-          request: {
-            requestId,
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            runId: 'run-1',
-            toolName: 'Bash',
-            toolInput: { command: `echo ${requestId}` },
-          },
-        } as Record<string, unknown>,
-        callbackRoute: null,
-        idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-        approverRef: null,
-        resolution: null,
-        createdAt: '2026-07-16T00:00:00.000Z',
-        expiresAt: '2026-07-17T00:00:00.000Z',
-        resolvedAt: null,
-      }));
-      configurePendingInteractionDurability({
-        repository: {
-          ...permissionClaimRepository(requests),
-          listPendingInteractions: vi.fn(async () => requests),
-          updatePendingInteractionPayload: vi.fn((input) =>
-            updatePendingInteractionPayload(requests, input),
-          ),
-        } as never,
-      });
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      vi.useFakeTimers();
-      const requester = createPermissionApprovalRequester({
-        findBoundChannel: () => channel,
-        asPermissionApprovalSurface: (bound) => bound as TelegramChannel,
-        interactionLifecycle: { logger: { error: vi.fn() } },
-      });
-      const decisions = requests.map((entry) =>
-        requester({
-          requestId: String(entry.payload.requestId),
-          sourceAgentFolder: 'whatsapp_main',
-          targetJid: 'tg:100200300',
-          runId: 'run-1',
-          toolName: 'Bash',
-          toolInput: { command: `echo ${entry.payload.requestId}` },
-        }).then(requirePermissionDecision),
-      );
-
-      await vi.advanceTimersByTimeAsync(1500);
-      vi.useRealTimers();
-      const batchButtons = currentBot()
-        .api.sendMessage.mock.calls.at(-1)?.[2]
-        .reply_markup.inline_keyboard.flat();
-      await triggerCallbackQuery({
-        callbackQuery: {
-          data: batchButtons.find(
-            (button: { text: string }) => button.text === 'Review each',
-          )?.callback_data,
-        },
-        chat: { id: 100200300 },
-        from: { id: 222, first_name: 'Admin' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      });
-      await flushPromises();
-
-      for (let index = 0; index < 2; index += 1) {
-        const buttons = currentBot()
-          .api.sendMessage.mock.calls.at(-1)?.[2]
-          .reply_markup.inline_keyboard.flat();
-        await triggerCallbackQuery({
-          callbackQuery: {
-            data: buttons.find(
-              (button: { text: string }) => button.text === 'Cancel',
-            )?.callback_data,
-          },
-          chat: { id: 100200300 },
-          from: { id: 222, first_name: 'Admin' },
-          answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-        });
-        await flushPromises();
-      }
-
-      await expect(Promise.all(decisions)).resolves.toEqual([
-        expect.objectContaining({ approved: false, mode: 'cancel' }),
-        expect.objectContaining({ approved: false, mode: 'cancel' }),
-      ]);
-      for (const request of requests) {
-        expect(request.envelopeId).toEqual(expect.any(String));
-        expect(request.memberIndex).toBe(0);
-      }
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
-    });
-
-    it('lets exactly one concurrent Allow all or Review each Telegram callback claim a batch', async () => {
-      const requests = ['permission-race-1', 'permission-race-2'].map(
-        (requestId) => ({
-          id: `pending-${requestId}`,
-          appId: 'default',
-          runId: 'run-race',
-          kind: 'permission' as const,
-          status: 'pending' as const,
-          payload: {
-            sourceAgentFolder: 'whatsapp_main',
-            requestId,
-            targetJid: 'tg:100200300',
-            decisionPolicy: 'same_channel',
-            request: {
-              requestId,
-              sourceAgentFolder: 'whatsapp_main',
-              targetJid: 'tg:100200300',
-              decisionPolicy: 'same_channel',
-              toolName: 'Bash',
-            },
-          } as Record<string, unknown>,
-          callbackRoute: null,
-          idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-          approverRef: null,
-          resolution: null,
-          createdAt: '2026-07-16T00:00:00.000Z',
-          expiresAt: '2026-07-17T00:00:00.000Z',
-          resolvedAt: null,
-        }),
-      );
-      const claims = permissionClaimRepository(requests);
-      configurePendingInteractionDurability({
-        repository: {
-          ...claims,
-          listPendingInteractions: vi.fn(async () => requests),
-          updatePendingInteractionPayload: vi.fn((input) =>
-            updatePendingInteractionPayload(requests, input),
-          ),
-        } as never,
-      });
-      const batch = createPermissionBatchRequest(
-        requests.map((entry) => ({
-          requestId: String(entry.payload.requestId),
-          sourceAgentFolder: 'whatsapp_main',
-          targetJid: 'tg:100200300',
-          runId: 'run-race',
-          toolName: 'Bash',
-        })),
-        ['1. Command (git status)', '2. Command (git diff)'],
-      );
-      const channel = new TelegramChannel('test-token', createTestOpts());
-      await channel.connect();
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        batch,
-      );
-      await flushPromises();
-      const buttons = currentBot()
-        .api.sendMessage.mock.calls.at(-1)?.[2]
-        .reply_markup.inline_keyboard.flat();
-      const allowAll = buttons.find(
-        (button: { text: string }) => button.text === 'Allow all',
-      )?.callback_data;
-      const reviewEach = buttons.find(
-        (button: { text: string }) => button.text === 'Review each',
-      )?.callback_data;
-      const providerCallbackId = String(allowAll).split(':').at(-1);
-      expect(claims.bindPendingPermissionPrompt).toHaveBeenCalledWith({
-        id: expect.any(String),
-        appId: 'default',
-        jobId: null,
-        setupFingerprint: null,
-        sourceAgentFolder: 'whatsapp_main',
-        interactionId: batch.requestId,
-        matchKind: 'batch',
-        members: requests.map((request, index) => ({
-          idempotencyKey: request.idempotencyKey,
-          requestId: request.payload.requestId,
-          index,
-        })),
-        envelope: expect.any(Object),
-        fullView: null,
-        externalPromptProvider: 'telegram',
-        externalPromptConversationId: '100200300',
-        externalPromptMessageId: '987',
-        externalPromptThreadId: null,
-        providerAliases: [providerCallbackId],
-      });
-      const allowContext = {
-        callbackQuery: { data: allowAll },
-        chat: { id: 100200300 },
-        from: { id: 222, first_name: 'Admin' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-      const reviewContext = {
-        callbackQuery: { data: reviewEach },
-        chat: { id: 100200300 },
-        from: { id: 333, first_name: 'Second Admin' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-
-      await Promise.all([
-        triggerCallbackQuery(allowContext),
-        triggerCallbackQuery(reviewContext),
-      ]);
-
-      await expect(decisionPromise).resolves.toMatchObject({
-        kind: 'decision',
-        decision: { approved: true },
-      });
-      const outcomes = [allowContext, reviewContext].map(
-        (context) => context.answerCallbackQuery.mock.calls.at(-1)?.[0]?.text,
-      );
-      expect(
-        outcomes.filter(
-          (outcome) => outcome === 'Permission request was already decided.',
-        ),
-      ).toHaveLength(1);
-
-      const replayContext = {
-        callbackQuery: { data: allowAll },
-        chat: { id: 100200300 },
-        from: { id: 444, first_name: 'Third Admin' },
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-      await triggerCallbackQuery(replayContext);
-
-      expect(claims.claimPendingPermissionCallback).toHaveBeenCalledTimes(2);
-      expect(replayContext.answerCallbackQuery).toHaveBeenLastCalledWith({
-        text: 'Permission request is no longer active.',
-        show_alert: true,
-      });
-    });
-
-    it('routes recovered Telegram clicks through application orchestrator transport hooks', async () => {
-      const requests = ['perm-batch-1', 'perm-batch-2'].map((requestId) => ({
-        id: `pending-${requestId}`,
-        appId: 'default',
-        runId: null,
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId,
-          conversationId: 'tg:100200300',
-          decisionPolicy: 'same_channel',
-          toolName: 'Bash',
-          request: {
-            requestId,
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            decisionPolicy: 'same_channel' as const,
-            toolName: 'Bash',
-          },
-        } as Record<string, unknown>,
-        callbackRoute: null,
-        idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-        approverRef: null,
-        resolution: null,
-        createdAt: '2026-07-16T00:00:00.000Z',
-        expiresAt: '2026-07-17T00:00:00.000Z',
-        resolvedAt: null,
-      }));
-      const repository = {
-        ...permissionClaimRepository(requests),
-        listPendingInteractions: vi.fn(async () => requests),
-        updatePendingInteractionPayload: vi.fn((input) =>
-          updatePendingInteractionPayload(requests, input),
-        ),
-        resolvePendingInteraction: vi.fn(async () => true),
-      };
-      configurePendingInteractionDurability({
-        repository: repository as never,
-      });
-      const batch = createPermissionBatchRequest(
-        requests.map((entry) => entry.payload.request as never),
-        ['1. Read file', '2. Run command'],
-      );
-      const originalChannel = new TelegramChannel(
-        'test-token',
-        createTestOpts(),
-      );
-      await originalChannel.connect();
-      void originalChannel.requestPermissionApproval('tg:100200300', batch);
-      await flushPromises();
-      const callbackData =
-        currentBot().api.sendMessage.mock.calls.at(-1)?.[2].reply_markup
-          .inline_keyboard[0][0].callback_data;
-
-      const recoveredChannel = new TelegramChannel(
-        'test-token',
-        createTestOpts(),
-      );
-      await recoveredChannel.connect();
-      const callbackCtx = {
-        callbackQuery: {
-          data: callbackData,
-          message: { message_id: 987, chat: { id: 100200300 } },
-        },
-        chat: { id: 100200300 },
-        from: { id: 222, first_name: 'Admin' },
-        api: currentBot().api,
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-
-      await triggerCallbackQuery(callbackCtx);
-
-      expect(repository.resolvePendingInteraction).toHaveBeenCalledTimes(2);
-      expect(repository.resolvePendingInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          idempotencyKey: 'default:permission:whatsapp_main:perm-batch-1',
-          status: 'resolved',
-          resolution: expect.objectContaining({
-            approved: true,
-            mode: 'allow_once',
-          }),
-        }),
-      );
-      expect(repository.resolvePendingInteraction).toHaveBeenCalledWith(
-        expect.objectContaining({
-          idempotencyKey: 'default:permission:whatsapp_main:perm-batch-2',
-          status: 'resolved',
-          resolution: expect.objectContaining({
-            approved: true,
-            mode: 'allow_once',
-          }),
-        }),
-      );
-      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Decision recorded.',
-        show_alert: false,
       });
     });
 
@@ -6498,109 +6025,6 @@ describe('TelegramChannel', () => {
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
         text: 'This permission request is no longer active.',
         show_alert: true,
-      });
-    });
-
-    it('expires a recovered Review-each batch and terminalizes the stale Telegram prompt', async () => {
-      const requests = ['perm-review-1', 'perm-review-2'].map((requestId) => ({
-        id: `pending-${requestId}`,
-        appId: 'default',
-        runId: null,
-        kind: 'permission' as const,
-        status: 'pending' as const,
-        payload: {
-          sourceAgentFolder: 'whatsapp_main',
-          requestId,
-          targetJid: 'tg:100200300',
-          decisionPolicy: 'same_channel',
-          request: {
-            requestId,
-            sourceAgentFolder: 'whatsapp_main',
-            targetJid: 'tg:100200300',
-            decisionPolicy: 'same_channel' as const,
-            toolName: 'Bash',
-          },
-        } as Record<string, unknown>,
-        idempotencyKey: `default:permission:whatsapp_main:${requestId}`,
-      }));
-      const claims = permissionClaimRepository(requests);
-      const repository = {
-        ...claims,
-        listPendingInteractions: vi.fn(async () => requests),
-        updatePendingInteractionPayload: vi.fn((input) =>
-          updatePendingInteractionPayload(requests, input),
-        ),
-        resolvePendingInteraction: vi.fn(async () => true),
-      };
-      configurePendingInteractionDurability({
-        repository: repository as never,
-      });
-      const batch = createPermissionBatchRequest(
-        requests.map((entry) => entry.payload.request as never),
-        ['1. Command without a shared scope', '2. Different command shape'],
-      );
-      batch.decisionOptions = ['allow_persistent_rule', 'cancel'];
-      const originalChannel = new TelegramChannel(
-        'test-token',
-        createTestOpts(),
-      );
-      await originalChannel.connect();
-      void originalChannel.requestPermissionApproval('tg:100200300', batch);
-      await flushPromises();
-      const buttons = currentBot()
-        .api.sendMessage.mock.calls.at(-1)?.[2]
-        .reply_markup.inline_keyboard.flat();
-      const callbackData = buttons.find(
-        (button: { text: string }) => button.text === 'Review each',
-      )?.callback_data;
-      expect(
-        buttons.some((button: { text: string }) => button.text === 'Allow all'),
-      ).toBe(false);
-
-      const recoveredChannel = new TelegramChannel(
-        'test-token',
-        createTestOpts(),
-      );
-      await recoveredChannel.connect();
-      const callbackCtx = {
-        callbackQuery: {
-          data: callbackData,
-          message: { message_id: 987, chat: { id: 100200300 } },
-        },
-        chat: { id: 100200300 },
-        from: { id: 222, first_name: 'Admin' },
-        api: currentBot().api,
-        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
-      };
-
-      await triggerCallbackQuery(callbackCtx);
-
-      expect(claims.claimPendingPermissionCallback).toHaveBeenCalledWith({
-        claim: expect.objectContaining({
-          intent: expect.objectContaining({ mode: 'allow_persistent_rule' }),
-          match: expect.objectContaining({ kind: 'batch' }),
-        }),
-      });
-      expect(claims.expirePendingPermissionReviewEach).toHaveBeenCalledOnce();
-      expect(claims.settlePendingPermissionCallback).not.toHaveBeenCalled();
-      expect(repository.resolvePendingInteraction).toHaveBeenCalledTimes(2);
-      expect(
-        repository.resolvePendingInteraction.mock.calls.map(
-          ([input]) => input.idempotencyKey,
-        ),
-      ).toEqual([
-        'default:permission:whatsapp_main:perm-review-1',
-        'default:permission:whatsapp_main:perm-review-2',
-      ]);
-      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
-        '100200300',
-        987,
-        expect.stringMatching(/cancel|denied/i),
-        expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
-      );
-      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Decision recorded.',
-        show_alert: false,
       });
     });
 

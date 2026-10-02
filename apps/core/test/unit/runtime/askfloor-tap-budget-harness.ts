@@ -222,7 +222,10 @@ interface ExactMemoryReplay {
 
 async function replayExactMemorySequence(
   scenario: string,
-  steps: Array<{ command: string; rememberCode?: PermissionRememberCode }>,
+  steps: Array<{
+    command: string;
+    rememberCode?: PermissionRememberCode | 'cancel';
+  }>,
   options: {
     classifierConsult?: () => Promise<
       TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
@@ -386,8 +389,8 @@ export function replayDestructiveExactMemory(
     [
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
       { command: 'rm -rf build' },
-      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
-      { command: 'rm -rf dist' },
+      { command: 'rm -rf dist', rememberCode: 'cancel' },
+      { command: 'rm -rf dist', rememberCode: 'cancel' },
     ],
     options,
   );
@@ -610,7 +613,6 @@ export function inMemoryDecisionMemory(
       row.revokedAt = input.nowIso;
       return 'applied';
     },
-    countExactAllowsByTool: async () => ({}),
   };
 }
 

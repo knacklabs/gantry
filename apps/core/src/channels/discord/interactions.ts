@@ -144,15 +144,10 @@ export class DiscordInteractionHandler {
         sourceAgentFolder: request.sourceAgentFolder,
         interactionId: request.requestId,
       },
-      matchKind: request.permissionBatch
-        ? ('batch' as const)
-        : ('individual' as const),
+      matchKind: 'individual' as const,
     };
     const modes = permissionDecisionOptions(request);
-    const parts = buildPermissionPromptParts(
-      request,
-      PERMISSION_APPROVAL_TIMEOUT_MS,
-    );
+    const parts = buildPermissionPromptParts(request);
     const buttons = [
       ...(parts.fullView
         ? [
@@ -166,8 +161,8 @@ export class DiscordInteractionHandler {
           ]
         : []),
       ...modes.map((mode) => ({
-        label: permissionButtonLabel(mode, request),
-        style: mode === 'cancel' || mode === 'remember_deny_exact' ? 4 : 1,
+        label: permissionButtonLabel(mode),
+        style: mode === 'cancel' ? 4 : 1,
         custom_id: permissionCustomId(callback.providerAlias, mode),
       })),
     ];
@@ -251,7 +246,7 @@ export class DiscordInteractionHandler {
         );
         if (!bound)
           throw new Error('Discord permission message binding failed');
-      } catch (err) {
+      } catch {
         // Post-send persistence = delivered:'unknown' (0128, R7): the
         // card may be live; never retry into a duplicate.
         clearTimeout(timeout);
@@ -346,7 +341,6 @@ export class DiscordInteractionHandler {
           appId: this.input.opts.appId || 'default',
           applicationId: this.input.applicationId,
           botToken: this.input.botToken,
-          timeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
           pendingPermissions: this.pendingPermissions,
           resolveConversationContext: (channelId) =>
             this.input.resolveInteractionConversationContext(channelId),

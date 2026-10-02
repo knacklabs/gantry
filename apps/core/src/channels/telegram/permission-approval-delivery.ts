@@ -105,9 +105,7 @@ export async function requestTelegramPermissionApproval(input: {
       sourceAgentFolder: input.request.sourceAgentFolder,
       interactionId: input.request.requestId,
     },
-    matchKind: input.request.permissionBatch
-      ? ('batch' as const)
-      : ('individual' as const),
+    matchKind: 'individual' as const,
   };
   const timeoutPermissionPrompt = async (
     retryWindowMs: number,

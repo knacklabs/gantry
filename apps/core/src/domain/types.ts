@@ -233,10 +233,6 @@ export interface PermissionApprovalRequest {
   promotionHintCount?: number;
   firstAskedAt?: string;
   interaction?: InteractionDescriptor;
-  permissionBatch?: {
-    requestIds: string[];
-    rows: string[];
-  };
 }
 
 export interface PermissionApprovalCancellation {

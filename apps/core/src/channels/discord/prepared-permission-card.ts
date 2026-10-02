@@ -43,8 +43,8 @@ export function prepareDiscordPermissionCardSend(input: {
         ]
       : []),
     ...permissionDecisionOptions(view.request).map((mode) => ({
-      label: permissionButtonLabel(mode, view.request),
-      style: mode === 'cancel' || mode === 'remember_deny_exact' ? 4 : 1,
+      label: permissionButtonLabel(mode),
+      style: mode === 'cancel' ? 4 : 1,
       custom_id: permissionCustomId(callback.providerAlias, mode),
     })),
   ];

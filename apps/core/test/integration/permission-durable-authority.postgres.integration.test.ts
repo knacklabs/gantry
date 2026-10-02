@@ -19,11 +19,13 @@ import {
   claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   configurePendingInteractionPermissionPersistence,
+  findDurablePermissionInteractionByRequestId,
   resolveDurablePermissionInteractionByRequestId,
 } from '@core/application/interactions/pending-interaction-durability.js';
 import { durablePermissionRequestSnapshot } from '@core/application/interactions/pending-interaction-permission-envelope.js';
 import { synthesizeHostPermissionSuggestions } from '@core/application/permissions/permission-suggestion-synthesis.js';
 import { RuntimeEventExchange } from '@core/application/runtime-events/runtime-event-exchange.js';
+import { buildBoundedPermissionCard } from '@core/channels/permission-card.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
 import { createAgentToolRuleSettingsMirror } from '@core/config/settings/agent-tool-rule-settings-mirror.js';
 import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
@@ -573,5 +575,76 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
       ),
     ).toBe(false);
     expect((await restartAndEvaluateGate(command)).allowed).toBe(false);
+  }, 60_000);
+
+  it('shows a recovered prompt with the same what, which and why after a restart, with secrets hidden', async () => {
+    const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    const request: PermissionApprovalRequest = {
+      ...makeRequest(
+        'req-perm-durable-recovered-display',
+        `GITHUB_TOKEN=${secret} gh repo list --limit 5`,
+      ),
+      turnIntentSummary:
+        '<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">List my five newest repos for the weekly note</message>\n</messages>',
+    };
+    await beginDurablePermissionInteraction({
+      request,
+      sourceAgentFolder: request.sourceAgentFolder,
+      payload: {
+        sourceAgentFolder: request.sourceAgentFolder,
+        requestId: request.requestId,
+        toolName: request.toolName,
+        request: durablePermissionRequestSnapshot(request),
+      },
+      callbackRoute: null,
+    });
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        request,
+        decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
+      }),
+    ).resolves.toBe(true);
+    const live = buildBoundedPermissionCard({ request, providerAlias: 'live' });
+
+    const recovered = await withRestartedServices(async (repositories) => {
+      configurePendingInteractionDurability({
+        repository: repositories.workerCoordination,
+      });
+      try {
+        return await findDurablePermissionInteractionByRequestId({
+          scope: {
+            appId: APP_ID,
+            sourceAgentFolder: AGENT_FOLDER,
+            interactionId: request.requestId,
+          },
+        });
+      } finally {
+        configurePendingInteractionDurability({
+          repository: runtime.repositories.workerCoordination,
+        });
+      }
+    });
+    expect(recovered).not.toBeNull();
+    const card = buildBoundedPermissionCard({
+      request: recovered!.request,
+      providerAlias: 'recovered',
+    });
+
+    expect(card.text).toBe(live.text);
+    expect(card.text).toContain('Runs: gh');
+    expect(card.text).toContain(
+      'Why: List my five newest repos for the weekly note',
+    );
+    expect(card.text).not.toContain(secret);
+    const [prompt] = await runtime.service.db
+      .select()
+      .from(pgSchema.permissionPromptsPostgres)
+      .where(
+        eq(pgSchema.permissionPromptsPostgres.interactionId, request.requestId),
+      );
+    expect(JSON.stringify(prompt?.renderedRequestJson)).not.toContain(secret);
+    expect(JSON.stringify(prompt?.renderedRequestJson)).not.toContain(
+      '<message',
+    );
   }, 60_000);
 });

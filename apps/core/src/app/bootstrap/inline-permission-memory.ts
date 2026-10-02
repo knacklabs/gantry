@@ -5,6 +5,7 @@ import {
   type PermissionRememberContext,
 } from '../../application/permissions/human-decision-learning.js';
 import { gantryNativeCanonicalToolName } from '../../application/permissions/gantry-tool-risk.js';
+import { buildPermissionCardAffordances } from '../../application/permissions/permission-card-affordances.js';
 import {
   computePermissionEffectHash,
   EFFECT_SCHEMA_VERSION,
@@ -20,7 +21,6 @@ import type { AutoLaneAnalysis } from '../../application/permissions/auto-lane-a
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { HumanDecisionProjectionInput } from '../../runtime/permission-decision-coordinator.js';
 import { learnPermissionRememberSettlement } from '../../runtime/permission-remember-settlement.js';
-import { buildPermissionRememberPromptModel } from '../../runtime/permission-remember-settlement.js';
 import type { InlineCoreToolHostDeps } from './inline-agent-loop-tool-types.js';
 
 export interface InlinePermissionMemoryInputs {
@@ -135,15 +135,11 @@ export async function inlinePermissionRememberContext(input: {
     kindVariant: 'category',
   });
   if (!context.eligible) return context;
-  const model = await buildPermissionRememberPromptModel({
+  input.request.cardAffordances = buildPermissionCardAffordances({
     request: input.request,
-    context,
-    canonicalRoot: input.canonicalRoot,
-    repository: facts.decisionMemory,
-    warn: input.deps.warn,
+    rememberContext: context,
   });
-  input.request.cardAffordances = model.cardAffordances;
-  return model.rememberContext;
+  return context;
 }
 
 export function inlineRememberSettlement(

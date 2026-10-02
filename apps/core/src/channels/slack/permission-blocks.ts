@@ -14,7 +14,7 @@ type SlackBlock = Record<string, unknown>;
 /**
  * Content blocks for a permission prompt: a header (title), a section (the
  * tool-input body, which renders ``` fenced code natively in mrkdwn), a muted
- * context block (metadata + reply window), and a divider. The caller appends
+ * context block (why, agent and context), and a divider. The caller appends
  * the actions block with the decision buttons.
  */
 export function buildPermissionPromptContentBlocks(
@@ -44,17 +44,17 @@ export function buildPermissionPromptContentBlocks(
       });
     }
   }
-  blocks.push({
-    type: 'context',
-    elements: [
-      {
-        type: 'mrkdwn',
-        text: [...parts.contextLines, `Reply in ${parts.replyInMinutes}m`]
-          .map(escapeSlackMrkdwnText)
-          .join('\n'),
-      },
-    ],
-  });
+  if (parts.contextLines.length > 0) {
+    blocks.push({
+      type: 'context',
+      elements: [
+        {
+          type: 'mrkdwn',
+          text: parts.contextLines.map(escapeSlackMrkdwnText).join('\n'),
+        },
+      ],
+    });
+  }
   blocks.push({ type: 'divider' });
   return blocks;
 }

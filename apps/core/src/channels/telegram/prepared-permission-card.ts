@@ -45,7 +45,7 @@ export function prepareTelegramPermissionCardSend(input: {
   const replyMarkup = {
     inline_keyboard: permissionDecisionOptions(view.request).map((mode) => [
       {
-        text: permissionButtonLabel(mode, view.request),
+        text: permissionButtonLabel(mode),
         callback_data: telegramPermissionCallbackData(
           mode,
           callback.providerAlias,

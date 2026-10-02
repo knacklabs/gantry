@@ -1,5 +1,25 @@
 import type { PermissionApprovalRequest } from '../../domain/types.js';
+import {
+  redactSensitiveText,
+  sanitizeOutboundLlmText,
+} from '../../shared/sensitive-material.js';
 import { parsePermissionCardAffordances } from '../permissions/permission-card-affordances.js';
+
+const WHY_MAX_CHARS = 200;
+const MESSAGE_PATTERN = /<message\b[^>]*>([\s\S]*?)(?:<\/message>|$)/g;
+// Inputs a prompt shows: the command and its programs, the friendly
+// capability name, the account and the file or URL.
+const DISPLAY_TOOL_INPUT_KEYS = [
+  'command',
+  'cmd',
+  'description',
+  'capabilityId',
+  'capabilityDisplayName',
+  'accountLabel',
+  'file_path',
+  'path',
+  'url',
+] as const;
 
 export interface DurablePermissionFullView {
   label: string;
@@ -13,6 +33,7 @@ export function durablePermissionRequestSnapshot(
 ): PermissionApprovalRequest {
   const capabilityTemplateAmendment =
     request.toolName === 'capability_template_amendment';
+  const displayToolInput = durableDisplayToolInput(request.toolInput);
   return {
     requestId: request.requestId,
     appId: request.appId,
@@ -35,12 +56,17 @@ export function durablePermissionRequestSnapshot(
     cardAffordances: request.cardAffordances,
     decisionPolicy: request.decisionPolicy,
     semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
-    permissionBatch: request.permissionBatch,
+    // What, which and why survive a restart, with secrets hidden.
+    displayName: request.displayName,
+    title: request.title,
+    jobName: request.jobName,
+    risk_level: request.risk_level,
+    risk_category: request.risk_category,
+    turnIntentSummary: permissionRequestWhyText(request.turnIntentSummary),
+    ...(displayToolInput ? { toolInput: displayToolInput } : {}),
     ...(capabilityTemplateAmendment
       ? {
           requestFamily: request.requestFamily,
-          displayName: request.displayName,
-          title: request.title,
           description: request.description,
           toolInput:
             typeof request.toolInput?.diffPreview === 'string'
@@ -56,6 +82,64 @@ export function durablePermissionRequestSnapshot(
         }
       : {}),
   };
+}
+
+/** The "why" line: the person's own request from the turn prompt, plain and
+ *  with secrets hidden. A prompt whose current message was cut off shows no
+ *  why rather than an older message. */
+export function permissionRequestWhyText(
+  turnIntentSummary: string | undefined,
+): string | undefined {
+  const text = turnIntentSummary?.trim();
+  if (!text) return undefined;
+  // A chat turn's prompt is the formatted conversation; a job's is plain text.
+  const formatted = /<(context|messages|current_message)\b/.test(text);
+  const current = text.lastIndexOf('<current_message');
+  if (formatted && current < 0 && /<recent_channel_context\b/.test(text)) {
+    return undefined;
+  }
+  const scope = current < 0 ? text : text.slice(current);
+  const lastMessage = [...scope.matchAll(MESSAGE_PATTERN)].at(-1);
+  if (formatted && !lastMessage) return undefined;
+  const plain = unescapeXml(
+    (lastMessage ? lastMessage[1] : text).replace(
+      /<quoted_message\b[\s\S]*?<\/quoted_message>/g,
+      '',
+    ),
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+  const result = sanitizeOutboundLlmText(plain);
+  if (!plain || result.blocked) return undefined;
+  return result.text.length <= WHY_MAX_CHARS
+    ? result.text
+    : `${result.text.slice(0, WHY_MAX_CHARS - 1).trimEnd()}…`;
+}
+
+function unescapeXml(value: string): string {
+  return value
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
+}
+
+function durableDisplayToolInput(
+  input: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+  const display: Record<string, string> = {};
+  for (const key of DISPLAY_TOOL_INPUT_KEYS) {
+    const value = input[key];
+    if (typeof value !== 'string' || !value.trim()) continue;
+    if (key === 'command' || key === 'cmd') {
+      display[key] = redactSensitiveText(value);
+      continue;
+    }
+    const result = sanitizeOutboundLlmText(value);
+    if (!result.blocked) display[key] = result.text;
+  }
+  return Object.keys(display).length ? display : undefined;
 }
 
 export function readDurablePermissionFullView(

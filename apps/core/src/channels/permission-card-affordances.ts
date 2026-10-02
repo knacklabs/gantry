@@ -6,47 +6,23 @@ import type {
 } from '../domain/types.js';
 import { permissionDecisionOptions as scalarPermissionDecisionOptions } from './permission-decision-options.js';
 
+/** Allow once, then Allow for future when the card can save, then Deny.
+ *  Deny is the scalar cancel: a denial is never remembered. */
 export function permissionCardDecisionOptions(
   affordances: PermissionCardAffordances,
 ): (PermissionApprovalDecisionMode | PermissionRememberCode)[] {
   if (!affordances.eligible) return [];
-  const offers = (code: PermissionRememberCode) =>
-    affordances.offered.includes(code);
-  // A card always carries a way to say no: the remembered No when it is
-  // offered, otherwise the scalar denial.
-  const denial = offers('remember_deny_exact')
-    ? ('remember_deny_exact' as const)
-    : ('cancel' as const);
-  if (affordances.protected) {
-    return ['allow_once', denial];
-  }
-  const alternative = affordances.alternative;
-  const showAlternative =
-    alternative &&
-    (!isPermissionRememberCode(alternative.code) || offers(alternative.code));
-  return [
-    ...(offers('remember_allow_exact')
-      ? ['remember_allow_exact' as const]
-      : []),
-    ...(showAlternative ? [alternative.code] : []),
-    'allow_once',
-    denial,
-  ];
-}
-
-function isPermissionRememberCode(
-  code: PermissionApprovalDecisionMode | PermissionRememberCode,
-): code is PermissionRememberCode {
-  return code.startsWith('remember_');
+  return affordances.offered.includes('remember_allow_exact')
+    ? ['allow_once', 'remember_allow_exact', 'cancel']
+    : ['allow_once', 'cancel'];
 }
 
 export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
-  matchKind?: 'individual' | 'batch',
 ): (PermissionApprovalDecisionMode | PermissionRememberCode)[] {
   return hasEligiblePermissionCardAffordances(request)
     ? permissionCardDecisionOptions(request.cardAffordances)
-    : scalarPermissionDecisionOptions(request, matchKind);
+    : scalarPermissionDecisionOptions(request);
 }
 
 export function hasEligiblePermissionCardAffordances(
@@ -55,20 +31,6 @@ export function hasEligiblePermissionCardAffordances(
   cardAffordances: PermissionCardAffordances & { eligible: true };
 } {
   return request?.cardAffordances?.eligible === true;
-}
-
-export function permissionCardButtonLabel(
-  code: PermissionApprovalDecisionMode | PermissionRememberCode,
-  affordances: PermissionCardAffordances,
-): string | undefined {
-  if (code === affordances.alternative?.code)
-    return affordances.alternative.label;
-  if (code === 'remember_allow_exact') return 'Allow';
-  if (code === 'allow_once')
-    return affordances.protected ? 'Allow once' : 'Just this once';
-  if (code === 'remember_deny_exact') return 'No';
-  if (code === 'cancel' && affordances.eligible) return 'No';
-  return undefined;
 }
 
 export function formatPermissionCardPreTapLines(
