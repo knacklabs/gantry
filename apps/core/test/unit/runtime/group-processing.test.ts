@@ -775,6 +775,42 @@ describe('createGroupProcessor', () => {
       expect(mockFormatConversationContextMessages).not.toHaveBeenCalled();
     });
 
+    it('ignores a thread follow-up from a sender who is not allowed', async () => {
+      const group = makeGroup({
+        requiresTrigger: true,
+        trigger: 'Andy',
+      });
+      const reply = makeMessage({
+        chat_jid: 'sl:C123',
+        sender: 'bob',
+        content: 'yes, continue with that',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: 'root-message',
+      });
+      const root = makeMessage({
+        id: 'root-message',
+        chat_jid: 'sl:C123',
+        sender: 'alice',
+        content: '@Andy please help',
+        thread_id: '1710000000.000100',
+      });
+      const { deps } = setupHappyPath({ group, messages: [reply] });
+      mockGetMessagesSince.mockImplementation(
+        (_chatJid, cursor, _limit, options) =>
+          cursor === '' && options?.threadId === '1710000000.000100'
+            ? [root]
+            : [reply],
+      );
+      mockIsTriggerAllowed.mockImplementation(
+        (_jid: string, sender: string) => sender === 'alice',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:C123::thread:1710000000.000100');
+
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
     it('allows an untagged continuation in a trigger-owned Slack thread', async () => {
       const group = makeGroup({
         requiresTrigger: true,

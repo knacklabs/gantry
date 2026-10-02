@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
-import type { NewMessage } from '../../domain/types.js';
+import type { ConversationRoute, NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type {
@@ -11,6 +11,10 @@ import type {
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
 import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
+import {
+  admissionPermitsUnmentionedCompletion,
+  batchHasAllowedSender,
+} from '../../runtime/group-trigger-policy.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -370,6 +374,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   ownerRunId: string;
   chatJid: string;
   threadId: string | null;
+  route: Pick<ConversationRoute, 'folder' | 'requiresTrigger'>;
   messageFetchPageSize: number;
   timezone: string;
   inputRepository: Pick<
@@ -410,6 +415,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
     message: NewMessage;
     itemId: string;
     receiveOrder: number | null;
+    triggerDecision: Record<string, unknown>;
   }> = [];
   let queued = false;
   try {
@@ -422,7 +428,12 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
+      batch.push({
+        message,
+        itemId: item.id,
+        receiveOrder: item.receiveOrder,
+        triggerDecision: item.triggerDecision ?? {},
+      });
       if (input.isActiveControlMessage?.(message)) break;
     }
     const controlIndex = batch.findIndex(
@@ -444,15 +455,47 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
     );
     const replayMessages = replayBatch.map(({ message }) => message);
     const replayItemIds = replayBatch.map(({ itemId }) => itemId);
+    const continuation = buildLiveTurnContinuation({
+      messages: replayMessages,
+      itemIds: replayItemIds,
+      timezone: input.timezone,
+    });
+    if (
+      continuation &&
+      !replayBatch.some(({ triggerDecision }) =>
+        admissionPermitsUnmentionedCompletion(triggerDecision),
+      ) &&
+      !batchHasAllowedSender({
+        group: input.route,
+        chatJid: input.chatJid,
+        messages: replayMessages,
+      })
+    ) {
+      // Nobody here may talk to the agent: the batch stays history and
+      // reaches neither the running turn nor a new one.
+      for (const id of replayItemIds) {
+        await input.inputRepository.consumeInputItem({
+          id,
+          consumedBy: 'history',
+          expectedConsumedBy: consumer,
+        });
+      }
+      if (input.liveRunId) {
+        await input.completeSessionAgentRun?.({
+          runId: input.liveRunId,
+          status: 'canceled',
+          errorSummary:
+            'Live-turn admission kept a follow-up from a sender who may not trigger the agent as history.',
+        });
+      }
+      input.enqueueMessageCheck?.(input.queueJid);
+      return true;
+    }
     const routed = await routeScopeActiveLiveTurnAdmission({
       scope: input.scope,
       queueJid: input.queueJid,
       liveRunId: input.liveRunId,
-      continuation: buildLiveTurnContinuation({
-        messages: replayMessages,
-        itemIds: replayItemIds,
-        timezone: input.timezone,
-      }),
+      continuation,
       routeMessage: (message) =>
         input.routeMessage({
           ...message,

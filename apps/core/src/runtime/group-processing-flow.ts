@@ -12,7 +12,10 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { createGroupTurnTypingSender } from './group-liveness-state.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
+import {
+  admissionPermitsUnmentionedCompletion,
+  groupTurnHasRequiredTrigger,
+} from './group-trigger-policy.js';
 import type { ConversationRoute } from '../domain/types.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
@@ -106,10 +109,8 @@ export async function takeGroupTurnInput(input: {
   });
   return {
     missedMessages,
-    permitsUnmentionedCompletion: takenMessages.some(
-      ({ triggerDecision }) =>
-        triggerDecision.source === 'callable_agent_follow_up' &&
-        triggerDecision.requiresTrigger === false,
+    permitsUnmentionedCompletion: takenMessages.some(({ triggerDecision }) =>
+      admissionPermitsUnmentionedCompletion(triggerDecision),
     ),
     hasMore,
     activeThreadId,

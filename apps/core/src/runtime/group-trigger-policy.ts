@@ -5,6 +5,41 @@ import {
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
 
+export function admissionPermitsUnmentionedCompletion(
+  decision: Record<string, unknown>,
+): boolean {
+  return (
+    decision.source === 'callable_agent_follow_up' &&
+    decision.requiresTrigger === false
+  );
+}
+
+/**
+ * An untagged batch may reach the agent only when the route needs no trigger
+ * or someone in the batch may trigger it. New turns and follow-ups routed to
+ * a running turn share this rule.
+ */
+export function batchHasAllowedSender(
+  input: {
+    group: Pick<ConversationRoute, 'folder' | 'requiresTrigger'>;
+    chatJid: string;
+    messages: readonly NewMessage[];
+  },
+  allowlistCfg = loadSenderAllowlist(),
+): boolean {
+  if (input.group.requiresTrigger === false) return true;
+  return input.messages.some(
+    (message) =>
+      message.is_from_me ||
+      isTriggerAllowed(
+        input.chatJid,
+        message.sender,
+        allowlistCfg,
+        input.group.folder,
+      ),
+  );
+}
+
 export async function groupTurnHasRequiredTrigger(input: {
   group: ConversationRoute;
   chatJid: string;
@@ -31,6 +66,9 @@ export async function groupTurnHasRequiredTrigger(input: {
         )),
   );
   if (hasTrigger) return true;
+  // A thread continuation still needs an allowed sender in this batch; the
+  // root's sender says who started the thread, not who is asking now.
+  if (!batchHasAllowedSender(input, allowlistCfg)) return false;
 
   const continuation = input.continuation;
   if (!continuation?.threadId || !continuation.hasPriorCursor) {

@@ -1,0 +1,60 @@
+{
+  "allow_large": "Owner OK 2026-10-02: merging main's turn changes and keeping the thread test working spread the sender check across the follow-up routing files",
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/anyone-can-get-a-reply-in-a-thread-an-al",
+  "done_when": "A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the root sender is allowed and another person's follow-up gets no reply",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "f64478634bc69bd46fbc06d831faea620ecec4a92569dfb59fa6f6712cc3fae4",
+    "commit": "ad82882528778e5fe6804811dd2483673f1c0ef8",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "992b1cfb7be8d0f53c21e1bd42215288334c7008399364e92bffd1297c599184"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T10:04:20+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T11:38:57+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T12:45:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T14:03:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T15:52:23+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T06:02:29+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:47:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T13:31:10+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T15:36:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T19:44:39+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Anyone can get a reply in a thread an allowed person started, because the thread check never looks at who sent the new message"
+}
