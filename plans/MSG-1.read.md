@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T09:32:11+00:00
-read_hash: 39423dc5750de995f24491882f12cbe173a7b6f4
-round: 1
+read_at: 2026-10-02T10:43:37+00:00
+read_hash: be8d456c27b7fbeef42b2bb04e4e3f72329b298b
+round: 2
 passed: no
-doc_seen: 39423dc5750de995f24491882f12cbe173a7b6f4
+doc_seen: be8d456c27b7fbeef42b2bb04e4e3f72329b298b
 spec_seen: 0647451ab330dc4afef14f2bba398594e44808ed
-notes_seen: e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+notes_seen: e06cc97fff54b56b71557321df7e3901d31cf214
 ---
 # Cold read notes
 
@@ -92,3 +92,29 @@ Only a genuine trade-off goes to the human, as a question with options.
 18. Split: T2 → unpack worker/fan-out and durable stop-cutoff integration.
     The reference worker alone is 355 lines; wiring, fan-out, admission schema changes and the stop boundary make this substantially larger than 400 changed lines. The split should retain one owner end-to-end test for each promised behavior.
    Disposition: keep amended: Split T2 into worker, route extraction, persistence, fan-out/wiring, provenance/cutoff storage, raw control and recovery proof with bounded owners.
+
+## Round 2
+
+19. Disputed keep 3: replayed `/stop` can cancel a newer turn.
+    Existing stop routing resolves the currently active turn, and command idempotency is scoped by `liveTurnId`. A crash after cancellation but before inbox settlement can therefore replay the stop against a successor. Pin the original turn—or “no active turn”—durably with the cutoff/control receipt, and extend T9’s restart case to prove a later turn survives replay.
+   Disposition: keep amended: T20 pins the original turn or explicit no-active-turn with cutoff/command in one transaction; T9 replay proof keeps a successor running.
+
+20. The held-delete guard can bypass the deletion retries the plan promises to preserve.
+    The guard throws before the direct callback runs, but raw deletion retention currently happens inside `createChannelAttachmentDeletionHandler`. A guard failure therefore never reaches that retry worker. T10/T14 must pin how both guard and existing attachment deletion survive failure, with a boundary case proving eventual cleanup.
+   Disposition: keep amended: T21 puts the held guard inside the existing retained raw deletion retry, pins raw scope before T10/T14 and owns eventual attachment-cleanup proof.
+
+21. Trap: blanket Discord interaction deferral breaks modal-opening buttons: item 1.
+    `openDiscordRichFormInteraction` opens a modal through the initial type-9 response; it cannot do that after a deferred acknowledgement. Give modal-opening buttons an immediate response path and add the corresponding T14 boundary case. [Discord’s response types](https://docs.discord.com/developers/interactions/receiving-and-responding#interaction-callback-type).
+   Disposition: keep amended: T14 preserves the immediate rich-form modal branch before generic deferral and owns the stalled-dispatch type-9/expired-form boundary case.
+
+22. Telegram utility handling has contradictory save rules.
+    The supported-input section excludes `/chatid` and `/ping` from the inbox, while Builder traps says `next()` runs **after save** for those utilities. Pin them as unsupported inputs passed directly to the utility handlers without saving, and make T12’s middleware test assert that distinction.
+   Disposition: keep amended: T12 classifies /chatid and /ping as unsupported, calls next without saving and asserts that supported text saves without propagation.
+
+23. T12 has no owned bridge for its promised post-save media handling.
+    Existing media handling is available only through registered grammY callbacks and an asynchronous queue; it does not return an unpack result. T12 excludes that implementation, and T13 converts it later. Pin media activation to T13 while preserving the current path during T12, or explicitly assign the intermediate bridge and its proof.
+   Disposition: keep amended: T12 keeps media on existing unsaved handlers/queue; T13 owns returning media codec, activation and single-path middleware proof together.
+
+24. Completed control receipts retain content outside the fields settlement clears.
+    `InboundControl` contains raw text and parsed command arguments in `control_json`, but settlement clears only payload and cached decode. That contradicts the promise to retain compact identities without incoming content. T2 must clear content-bearing control fields on completion and assert this in its settlement case.
+   Disposition: keep amended: T2 atomically clears control_json with payload/cached decode, retains content-free receipts and owns settlement/redelivery proof.
