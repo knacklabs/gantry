@@ -3,7 +3,7 @@
   "branch": "fix/single-server-bindings-repeat-the-batch",
   "done_when": "A single binding write reuses the transactional batch helper with its sorted locks",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T13:29:59+00:00",
