@@ -1,0 +1,36 @@
+{
+  "allow_large": "Owner OK 2026-10-02: the sixth file is the control-server shutdown bug this fix's own Postgres test exposed (close did not wait for a running webhook flush)",
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/web-sdk-and-delegated-agent-messages-are",
+  "done_when": "An overloaded SDK session message is rejected as busy and an overloaded delegated follow-up is retried instead of marked delivered, proven by tests",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "0c394608081a0f19de1d508c7015c214a95066584095c4111caf80b0246a8155",
+    "commit": "facab8fd214828fe5c8fd691e39344d1b79249d8",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "af2433fc862f4df20339950711763850fd8731b705b4e8f84403eadecd036a68"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T10:17:26+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T19:57:18+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T05:16:10+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T08:10:50+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Web, SDK and delegated-agent messages are dropped silently when the backlog is full"
+}

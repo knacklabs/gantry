@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { PostgresAsyncTaskRepository } from '@core/adapters/storage/postgres/repositories/async-task-repository.postgres.js';
 import {
   DEFAULT_AGENT_ID,
   DEFAULT_APP_ID,
 } from '@core/adapters/storage/postgres/seeds.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
+import { nowMs, toIso } from '@core/shared/time/datetime.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -185,5 +187,105 @@ maybeDescribe('delegated agent task lifecycle (Postgres)', () => {
         terminalAt: '2026-07-21T00:00:01.000Z',
       }),
     ).resolves.toBeNull();
+  });
+  it('keeps a delegated follow-up pending while the backlog is full and admits it once capacity frees', async () => {
+    const liveTurns = runtime.repositories.liveTurns;
+    // Fill the app's active backlog to the live admission cap (100).
+    for (let index = 0; index < 100; index += 1) {
+      const result = await liveTurns.enqueueLiveAdmissionWorkItem({
+        id: `backlog-${index}`,
+        appId: DEFAULT_APP_ID,
+        conversationId: 'conversation:backlog',
+        queueJid: 'conversation:backlog',
+        messageId: `message:backlog:${index}`,
+        messageCursor: `2026-07-21T00:00:00.000Z::backlog-${index}`,
+        idempotencyKey: `backlog:${index}`,
+      });
+      expect(result.outcome).toBe('enqueued');
+    }
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let markRunning!: () => void;
+    const running = new Promise<void>((resolve) => (markRunning = resolve));
+    const runner = new AsyncCommandTaskService(
+      runtime.repositories.asyncTasks,
+      { run: async () => ({}) },
+    );
+    const started = await runner.startDelegatedAgent({
+      appId: DEFAULT_APP_ID,
+      agentId: DEFAULT_AGENT_ID,
+      conversationId: CONVERSATION_ID,
+      objective: 'Summarize durable delegation',
+      targetAgentId: TARGET_AGENT_ID,
+      authorityToolName: 'AgentDelegation',
+      workspaceFolder: TARGET_AGENT_FOLDER,
+      run: async () => {
+        markRunning();
+        await released;
+        return { outputSummary: 'Follow-up result.' };
+      },
+    });
+    if (!started.ok) throw new Error(started.message);
+    const taskId = started.task.id;
+    await running;
+    await expect(
+      runner.markDelegatedTaskAsyncFallback({
+        taskId,
+        appId: DEFAULT_APP_ID,
+        agentId: DEFAULT_AGENT_ID,
+        conversationId: CONVERSATION_ID,
+      }),
+    ).resolves.toBeNull();
+    release();
+    await expect(started.completion.wait(5_000)).resolves.toMatchObject({
+      status: 'completed',
+    });
+
+    const recovery = new AsyncCommandTaskService(
+      new PostgresAsyncTaskRepository(runtime.service.db),
+      { run: async () => ({}) },
+      { completionMessageRepository: runtime.ops },
+    );
+    const followUpRows = async () => {
+      const { rows } = await runtime.service.pool.query(
+        `SELECT id FROM ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+         WHERE trigger_decision_json->>'taskId' = $1`,
+        [taskId],
+      );
+      return rows.length;
+    };
+
+    await recovery.recoverPendingDelegatedAgentFollowUps({
+      appId: DEFAULT_APP_ID,
+    });
+    expect(
+      (await runtime.repositories.asyncTasks.getTask(taskId))?.receiptJson,
+    ).not.toHaveProperty('callableAgentFollowUp');
+    expect(await followUpRows()).toBe(0);
+
+    const [claimed] = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: DEFAULT_APP_ID,
+      workerInstanceId: 'worker-backlog',
+      claimToken: 'claim-backlog',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+    });
+    await liveTurns.settleLiveAdmissionWorkItem({
+      id: claimed!.id,
+      workerInstanceId: 'worker-backlog',
+      claimToken: 'claim-backlog',
+      state: 'completed',
+    });
+
+    await expect(
+      recovery.recoverPendingDelegatedAgentFollowUps({ appId: DEFAULT_APP_ID }),
+    ).resolves.toBe(1);
+    expect(
+      (await runtime.repositories.asyncTasks.getTask(taskId))?.receiptJson,
+    ).toMatchObject({
+      callableAgentFollowUp: { deliveredAt: expect.any(String) },
+    });
+    expect(await followUpRows()).toBe(1);
   });
 });
