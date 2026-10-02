@@ -1,0 +1,14 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/subagents-refuse-hang-lose-results-and-i",
+  "done_when": "A confirmed spec for subagents that work end to end, with its stories on the roadmap after current work",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T14:18:29+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Subagents refuse, hang, lose results and ignore job and permission rules"
+}
