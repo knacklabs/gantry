@@ -3,11 +3,24 @@
   "branch": "fix/the-two-agent-engines-use-different-diag",
   "done_when": "Both engines expose diagnostics through one switch: sanitized stderr with host-side filtering; the extra engine switch is deleted",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "c8a7c1fe3d372014b2280051dbc2011358f7aaf4bd487aa721331d1ff5300bd1",
+    "commit": "8f897aaeb6bc752787d310306f88febbf184b199",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "59e98cf7d5de5cc50ac315d79d979ede2be0a3aeb79211932480bade8049fd7f"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T12:31:12+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:24:05+00:00",
+      "step": "review"
     }
   ],
   "why": "The two agent engines use different diagnostic switches"
