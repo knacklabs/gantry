@@ -105,7 +105,6 @@ export function createGroupAgentRunner(input: {
       existingRunLeaseToken?: string;
       existingRunLeaseWorkerInstanceId?: string;
       existingRunLeaseFencingVersion?: number;
-      liveStopActionToken?: string;
       maintenanceProviderSession?: {
         providerSessionId: string;
         externalSessionId: string;
@@ -573,9 +572,6 @@ export function createGroupAgentRunner(input: {
                     options.existingRunLeaseFencingVersion,
                 }
               : {}),
-            ...(options?.liveStopActionToken
-              ? { liveStopActionToken: options.liveStopActionToken }
-              : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {
@@ -584,12 +580,7 @@ export function createGroupAgentRunner(input: {
               memoryReviewerIsControlApprover && memoryReviewerUserId
                 ? { requiredContinuationUserId: memoryReviewerUserId }
                 : undefined;
-            const stopAliasJids = [
-              ...(queueJid === chatJid ? [] : [chatJid]),
-              ...(options?.liveStopActionToken
-                ? [options.liveStopActionToken]
-                : []),
-            ];
+            const stopAliasJids = [...(queueJid === chatJid ? [] : [chatJid])];
             deps.queue.registerProcess(
               queueJid,
               proc,

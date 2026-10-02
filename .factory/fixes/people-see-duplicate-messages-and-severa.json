@@ -1,0 +1,27 @@
+{
+  "base": "392632a8c237c964f722d8f1171cbf2e669e6e48",
+  "branch": "fix/people-see-duplicate-messages-and-severa",
+  "done_when": "A confirmed spec for one way to do each thing, with its story on the roadmap after current work",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "ffbe9b72dfd788e8e66c44e11f00facfda18a03446194187856132034652afaf",
+    "commit": "e328bffd48c58bf72df2a5640f769f7ee6ea71de",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "98fcc7113a34a3b76272d828fb12e403c14f917e1644322ece88fef58b0bc93c"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T09:30:06+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T13:12:21+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "People see duplicate messages and several ways to do one thing"
+}
