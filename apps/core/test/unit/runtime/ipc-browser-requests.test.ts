@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID, createHmac } from 'crypto';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { signIpcRequestPayload } from '@core/infrastructure/ipc/request-signing.js';
 import {
@@ -14,7 +14,10 @@ import {
 } from '@core/runtime/ipc-auth.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import { processBrowserRequestDirectory } from '@core/runtime/ipc-browser-requests.js';
-import { clearIpcRateLimitState } from '@core/runtime/ipc-rate-limit.js';
+import {
+  canProcessIpcFile,
+  clearIpcRateLimitState,
+} from '@core/runtime/ipc-rate-limit.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 
 const tempRoots: string[] = [];
@@ -72,6 +75,7 @@ function deps(): IpcDeps {
 
 describe('processBrowserRequestDirectory', () => {
   afterEach(() => {
+    vi.useRealTimers();
     clearIpcRateLimitState();
     for (const root of tempRoots.splice(0)) {
       fs.rmSync(root, { recursive: true, force: true });
@@ -155,6 +159,85 @@ describe('processBrowserRequestDirectory', () => {
         requestId,
         ok: true,
       });
+    } finally {
+      revokeBrowserIpcAuthorization({
+        workspaceKey: sourceAgentFolder,
+        chatJid,
+      });
+    }
+  });
+
+  it('keeps an authorized browser request over the limit pending and runs it after the window', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const root = tempRoot();
+    const sourceAgentFolder = 'team';
+    const chatJid = 'tg:team';
+    const runnerControlPort = new FilesystemRunnerControlPort(root);
+    const browserRequestsDir = path.join(
+      root,
+      sourceAgentFolder,
+      'browser-requests',
+    );
+    const responsesDir = path.join(
+      root,
+      sourceAgentFolder,
+      'browser-responses',
+    );
+    fs.mkdirSync(browserRequestsDir, { recursive: true });
+    while (canProcessIpcFile(sourceAgentFolder, 'browser')) {
+      // use up this minute's authorized browser quota
+    }
+    const responseEnvelope = createIpcAuthEnvelope(sourceAgentFolder);
+    const requestId = `browser-${randomUUID()}`;
+    const payload = {
+      browserTurnToken: 'test-turn-token',
+      requestId,
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      action: 'status',
+      payload: {},
+      context: { chatJid, responseKeyId: responseEnvelope.responseKeyId },
+    };
+    registerBrowserIpcAuthorization({
+      turnToken: 'test-turn-token',
+      browserProfileName: 'gantry',
+      workspaceKey: sourceAgentFolder,
+      chatJid,
+    });
+    const processDirectory = () =>
+      processBrowserRequestDirectory({
+        ipcBaseDir: root,
+        sourceAgentFolder,
+        browserRequestsDir,
+        runnerControlPort,
+        deps: deps(),
+        logger: { warn: () => undefined, error: () => undefined },
+      });
+    try {
+      fs.writeFileSync(
+        path.join(browserRequestsDir, `${requestId}.json`),
+        JSON.stringify(signBrowserPayload(sourceAgentFolder, chatJid, payload)),
+      );
+
+      processDirectory();
+      expect(fs.readdirSync(browserRequestsDir)).toEqual([`${requestId}.json`]);
+      expect(fs.existsSync(path.join(root, 'errors'))).toBe(false);
+
+      vi.setSystemTime(Date.now() + 61_000);
+      processDirectory();
+      await vi.waitFor(() =>
+        expect(
+          fs.existsSync(path.join(responsesDir, `${requestId}.json`)),
+        ).toBe(true),
+      );
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(responsesDir, `${requestId}.json`),
+            'utf-8',
+          ),
+        ),
+      ).toMatchObject({ requestId, ok: true });
     } finally {
       revokeBrowserIpcAuthorization({
         workspaceKey: sourceAgentFolder,
