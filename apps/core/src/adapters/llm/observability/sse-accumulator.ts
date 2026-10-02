@@ -1,4 +1,8 @@
-import { TRACE_CONTENT_MAX_CHARS } from '../../../infrastructure/observability/tracing.js';
+import {
+  boundedToolIdentity,
+  boundedToolValue,
+  TRUNCATION_SUFFIX,
+} from './genai-message-attributes.js';
 import {
   createSseFrameSplitter,
   MAX_PENDING_CHARS,
@@ -15,12 +19,9 @@ export {
 export type SseStreamKind = 'anthropic' | 'openai';
 
 const MAX_COMPLETION_CHARS = 256 * 1024;
-const MAX_TOOL_PAYLOAD_CHARS = 16 * 1024;
 const MAX_AGGREGATE_TOOL_ARGUMENT_CHARS = 1024 * 1024;
-const MAX_TOOL_IDENTITY_CHARS = TRACE_CONTENT_MAX_CHARS;
 const MAX_TOOL_CALLS = 128;
 const MAX_OPENAI_CHOICES = 128;
-const TRUNCATED_SUFFIX = '…[truncated]';
 
 export interface SseToolCall {
   id?: string;
@@ -85,79 +86,20 @@ interface OpenAiChoiceState {
   pendingToolCalls: Map<number, PendingToolCall>;
 }
 
-function boundedToolValue(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, max - TRUNCATED_SUFFIX.length)}${TRUNCATED_SUFFIX}`;
-}
-
-function boundedStructuredValue(
-  value: unknown,
-  stringLimit: number,
-  arrayLimit: number,
-  depth = 0,
-): unknown {
-  if (typeof value === 'string') {
-    return boundedToolValue(value, stringLimit);
-  }
-  if (
-    value === null ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return value;
-  }
-  if (depth >= 8) return TRUNCATED_SUFFIX;
-  if (Array.isArray(value)) {
-    return value
-      .slice(0, arrayLimit)
-      .map((entry) =>
-        boundedStructuredValue(entry, stringLimit, arrayLimit, depth + 1),
-      );
-  }
-  if (typeof value !== 'object') return String(value ?? '');
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(value as Record<string, unknown>).slice(
-    0,
-    64,
-  )) {
-    result[key] = boundedStructuredValue(
-      (value as Record<string, unknown>)[key],
-      stringLimit,
-      arrayLimit,
-      depth + 1,
-    );
-  }
-  return result;
-}
-
-function boundedStructuredArguments(value: unknown): unknown {
-  let stringLimit = MAX_TOOL_PAYLOAD_CHARS;
-  let arrayLimit = 64;
-  for (;;) {
-    const bounded = boundedStructuredValue(value, stringLimit, arrayLimit);
-    if (JSON.stringify(bounded).length <= MAX_TOOL_PAYLOAD_CHARS) {
-      return bounded;
-    }
-    if (stringLimit > 256) stringLimit = Math.floor(stringLimit / 2);
-    else if (arrayLimit > 1) arrayLimit = Math.floor(arrayLimit / 2);
-    else return { truncated: true };
-  }
-}
-
 function structuredArguments(value: string): unknown {
   try {
-    return boundedStructuredArguments(JSON.parse(value) as unknown);
+    return boundedToolValue(JSON.parse(value) as unknown);
   } catch {
-    return boundedToolValue(value, MAX_TOOL_PAYLOAD_CHARS);
+    return boundedToolIdentity(value);
   }
 }
 
 function initialArguments(value: unknown): unknown {
   if (value === undefined) return undefined;
   try {
-    return boundedStructuredArguments(value);
+    return boundedToolValue(value);
   } catch {
-    return boundedToolValue(String(value), MAX_TOOL_PAYLOAD_CHARS);
+    return boundedToolIdentity(String(value));
   }
 }
 
@@ -266,10 +208,7 @@ export function createSseAccumulator(
     fragment: unknown,
   ): string | undefined => {
     if (typeof fragment !== 'string') return current;
-    return boundedToolValue(
-      `${current ?? ''}${fragment}`,
-      MAX_TOOL_IDENTITY_CHARS,
-    );
+    return boundedToolIdentity(`${current ?? ''}${fragment}`);
   };
 
   const appendArguments = (call: PendingToolCall, fragment: unknown) => {
@@ -287,7 +226,7 @@ export function createSseAccumulator(
       retainedToolArgumentChars += fragment.length;
       return;
     }
-    const suffix = TRUNCATED_SUFFIX.slice(0, available);
+    const suffix = TRUNCATION_SUFFIX.slice(0, available);
     const contentLength = Math.max(0, available - suffix.length);
     call.argumentText += `${fragment.slice(0, contentLength)}${suffix}`;
     retainedToolArgumentChars += available;

@@ -1647,8 +1647,10 @@ describe('observeGatewayCall', () => {
     const completion = JSON.parse(String(attributes['gen_ai.completion'])) as {
       content: string;
     }[];
-    expect(prompt[0]?.content).toHaveLength(16_012);
-    expect(completion[0]?.content).toHaveLength(16_012);
+    // String caps include the truncation marker, rather than appending it
+    // beyond the allowance.
+    expect(prompt[0]?.content).toHaveLength(16_000);
+    expect(completion[0]?.content).toHaveLength(16_000);
     expect(prompt[0]?.content).toMatch(/…\[truncated\]$/);
     expect(completion[0]?.content).toMatch(/…\[truncated\]$/);
   });
