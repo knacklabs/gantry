@@ -5,20 +5,27 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "c105d15950180028f0f0f05168dfbd1d22c733996ffae7825ced11d22882e47d",
-    "commit": "530d067e33ec9ac3ab7751afef3ad2d0bd81c4a7",
+    "changed": "414bc3e58081ef58a243e4a273424528ace31eafa184810a07d3a6a5cdb3876c",
+    "commit": "7aa018cf03cdda365d146638f8c2247e0bc811da",
     "dismissals": [],
     "findings": [
       {
-        "body": "The required end-to-end proof is still missing. This test exercises real persistence and admission, but replaces the internal runner with `runAgent` and replaces continuation delivery with an array append (lines 141\u2013145). The fake runner never handles a continuation or produces its reply. Production instead defaults to `spawnAgent` (apps/core/src/app/bootstrap/runtime-app.ts:155). These assertions meaningfully cover forwarding, but do not meet the review requirement to fake only third-party services at their edge. Add a required test through the running runtime and real runner transport, faking the channel/model services at their external boundaries, that proves Bob receives no reply with Alice's runner both stopped and still waiting.",
-        "file": "apps/core/test/integration/thread-follow-up-sender-allowlist.postgres.integration.test.ts",
-        "line": 152,
+        "body": "The new test cannot finish with a real database: `settled()` waits for `last_agent_timestamp`, but production no longer writes that cursor. The migration at apps/core/src/adapters/storage/postgres/schema/migrations/20261001084406_delete_last_agent_timestamp.sql:1 deletes it, while message consumption now updates `consumedAt` and `consumedBy` (apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts:198). Consequently, the first Bob follow-up wait times out before the remaining authorization assertions execute. Observe the real input-consumption state instead. This is new evidence of a broken test, rather than a renewed request for end-to-end coverage for a small fix.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 1551,
         "priority": "P1",
-        "title": "Not done: prove thread follow-up sender authorization through the real runtime"
+        "title": "Not done: answers a thread follow-up only when its sender may trigger the agent (real runner)"
+      },
+      {
+        "body": "The added line brings this file to 701 lines against the enforced 700-line budget in scripts/architecture-map.json:17. The supplied close run confirms that `check:architecture` fails here and stops the command before typechecking and tests. This violates \u201ceach commit leaves the build working\u201d; docs/review-instructions.md:6\u20138 also explicitly makes new architecture violations blocking and forbids waiving file-size violations. Make a substantive code reduction so the required check passes.",
+        "file": "apps/core/src/app/bootstrap/live-execution.ts",
+        "line": 176,
+        "priority": "P1",
+        "title": "Standard: each commit leaves the build working"
       }
     ],
     "status": "blocked",
-    "tree": "b86ec8f8aacd0b3522d6287c7bce76c80446636dc22bab563d2ebf3ece5dac4a"
+    "tree": "22367ecda5abf05dad87e897b0b85a379ece4a4e5432a1804713025fa4e1253d"
   },
   "status": "fixing",
   "steps": [
@@ -40,6 +47,10 @@
     },
     {
       "at": "2026-10-01T15:52:23+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T06:02:29+00:00",
       "step": "review"
     }
   ],
