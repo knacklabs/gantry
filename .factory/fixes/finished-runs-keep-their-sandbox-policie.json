@@ -3,11 +3,24 @@
   "branch": "fix/finished-runs-keep-their-sandbox-policie",
   "done_when": "A run's sandbox policy is released when the run finishes, and child tasks keep theirs while live",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "d8c8db481e2b87bb87bdeee2dce1e283480acc80c477401c6a07fd2c7e2c9cce",
+    "commit": "70b2bed3f77f6a962a494cc5086b7378b10d726a",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "342b5fbfe85161b71ed2a5380a139e74c1be89ea0ac5146990ed2bb3056d780e"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T12:34:20+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:26:27+00:00",
+      "step": "review"
     }
   ],
   "why": "Finished runs keep their sandbox policies forever"
