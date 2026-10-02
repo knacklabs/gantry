@@ -2503,6 +2503,34 @@
       "spec": "docs/specs/one-permission-flow.md",
       "status": "pending",
       "order": 129
+    },
+    {
+      "key": "PROV-1",
+      "title": "Slack and Discord stay within their limits and reconnect cleanly",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 130
+    },
+    {
+      "key": "PROV-2",
+      "title": "Telegram direct messages stream the reply as it is written",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 131
+    },
+    {
+      "key": "PROV-3",
+      "title": "Permission prompts use each provider's own button styles",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 132
+    },
+    {
+      "key": "PROV-4",
+      "title": "Slack replies use agent sessions and native progress steps",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 133
     }
   ],
   "epics": [
