@@ -1,0 +1,14 @@
+{
+  "base": "4762c119368383a5a590808a626226a84ae08dde",
+  "branch": "fix/reviews-ask-small-fixes-for-end-to-end-t",
+  "done_when": "AGENTS.md Review rules say end-to-end tests prove a story's user-visible Done-when items, and a small fix is proven by a test at its real boundary",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T02:02:11+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Reviews ask small fixes for end-to-end tests that the owner wants only for stories"
+}
