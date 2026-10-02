@@ -27,6 +27,7 @@ import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import type { MessageLoopDeps } from '@core/runtime/message-loop.js';
 import type { ChildProcess } from 'node:child_process';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { TeamsChannel } from '@core/channels/teams/index.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
@@ -612,6 +613,123 @@ maybeDescribe(
           }),
         );
       }
+    }, 60_000);
+
+    it('delivers complete replies to two threads of one chat answering at once', async () => {
+      const { _setRuntimeStorageForTest } =
+        await import('@core/adapters/storage/postgres/runtime-store.js');
+      _setRuntimeStorageForTest(runtime.storageRuntime);
+      const jid = 'teams:19:two-threads@thread.v2';
+      const folder = 'two_thread_replies';
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: 'two-threads',
+        chatJid: jid,
+        workspaceFolder: folder,
+      });
+      // A real channel streaming path: its stream guard decides what reaches the chat.
+      const cards = new Map<string, string>();
+      const cardText = (card: unknown) =>
+        (card as { body: Array<{ text: string }> }).body[0]!.text;
+      const teams = new TeamsChannel(
+        { clientId: 'client', clientSecret: 'secret', tenantId: 'tenant' },
+        {} as never,
+        {
+          start: async () => undefined,
+          stop: async () => undefined,
+          sendMessage: async () => ({ externalMessageId: 'unused' }),
+          sendAdaptiveCard: async ({ card }) => {
+            const id = `card-${cards.size + 1}`;
+            cards.set(id, cardText(card));
+            return { externalMessageId: id };
+          },
+          updateAdaptiveCard: async ({ messageId, card }) => {
+            cards.set(messageId, cardText(card));
+            return {};
+          },
+        },
+      );
+      await teams.connect();
+      let alphaStreamed: () => void = () => undefined;
+      let betaStreamed: () => void = () => undefined;
+      const alphaStarted = new Promise<void>((resolve) => {
+        alphaStreamed = resolve;
+      });
+      const betaFinished = new Promise<void>((resolve) => {
+        betaStreamed = resolve;
+      });
+      const app = createRuntimeApp({
+        opsRepository: runtime.ops,
+        ensureCredentialBinding: async () => ({ created: false }),
+        runAgent: async (_group, input, _onProcess, onOutput) => {
+          if (input.prompt.includes('beta question')) {
+            await onOutput?.({ status: 'success', result: 'Beta reply.' });
+            betaStreamed();
+            return { status: 'success', result: null };
+          }
+          await onOutput?.({ status: 'success', result: 'Alpha part one.' });
+          alphaStreamed();
+          await betaFinished;
+          await onOutput?.({ status: 'success', result: ' Alpha part two.' });
+          return { status: 'success', result: null };
+        },
+      });
+      app.setChannelRuntime({
+        ...createFakeChannelRuntime((candidate) => candidate === jid).runtime,
+        supportsStreaming: () => true,
+        sendStreamingChunk: (chatJid, text, options) =>
+          teams.sendStreamingChunk(chatJid, text, options),
+        resetStreaming: (chatJid, options) =>
+          teams.resetStreaming(chatJid, options),
+      });
+      await app.registerGroup(jid, {
+        name: 'Two thread replies',
+        folder,
+        providerAccountId: 'channel-providerAccount:default:teams',
+        trigger: 'Andy',
+        added_at: nowIso(),
+        requiresTrigger: false,
+        conversationKind: 'group',
+        agentConfig: { model: 'opus' },
+      });
+      const save = async (threadId: string, content: string) => {
+        const result = await runtime.ops.storeMessageWithLiveAdmission(
+          {
+            id: `message:${threadId}`,
+            chat_jid: jid,
+            provider: 'teams',
+            sender: 'user-two-threads',
+            sender_name: 'User',
+            content,
+            thread_id: threadId,
+            timestamp: nowIso(),
+            is_from_me: false,
+            is_bot_message: false,
+          },
+          { appId, agentId: agentIdForFolder(folder) },
+        );
+        if (!result || result.outcome === 'overloaded')
+          throw new Error('Expected a saved admission item');
+        return result.item;
+      };
+      const alpha = await save('thread-alpha', 'alpha question');
+      const beta = await save('thread-beta', 'beta question');
+
+      const alphaTurn = app.processGroupMessages(alpha.queueJid, {
+        existingRunId: 'run:thread-alpha',
+      });
+      await alphaStarted;
+      await expect(
+        app.processGroupMessages(beta.queueJid, {
+          existingRunId: 'run:thread-beta',
+        }),
+      ).resolves.toBe(true);
+      await expect(alphaTurn).resolves.toBe(true);
+
+      expect([...cards.values()].sort()).toEqual([
+        'Alpha part one. Alpha part two.',
+        'Beta reply.',
+      ]);
     }, 60_000);
   },
 );

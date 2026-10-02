@@ -24,6 +24,19 @@ export function canProcessIpcFile(
   return true;
 }
 
+// Peek without counting: true when the next request would be refused.
+export function isIpcRateLimited(
+  sourceAgentFolder: string,
+  kind: string,
+): boolean {
+  const state = ipcRateLimitState.get(`${sourceAgentFolder}:${kind}`);
+  return (
+    !!state &&
+    currentTimeMs() - state.windowStart < IPC_RATE_LIMIT_WINDOW_MS &&
+    state.count >= IPC_RATE_LIMIT_MAX_FILES_PER_WINDOW
+  );
+}
+
 export function clearIpcRateLimitState(): void {
   ipcRateLimitState.clear();
 }
