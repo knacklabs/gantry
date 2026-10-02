@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner OK 2026-10-02: owner identity is filled correctly in both account routes; the response shape is unchanged",
   "base": "c05c2442f4da29738de8c84d82fd7f01c36f4182",
   "branch": "fix/account-owners-disappear-from-capped-acc",
   "done_when": "Owner identity shows for every account whatever its page, using ownership ids and detail queries rather than joins over one page",
