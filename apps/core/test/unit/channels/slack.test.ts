@@ -7045,7 +7045,7 @@ describe('Slack channel', () => {
       '1. Command',
       '2. Command',
     ]);
-    const repository = configureSlackPermissionRequest(batch);
+    configureSlackPermissionRequest(batch);
     const providerAlias = 'slack-terminalize-batch';
     await bindPendingPermissionInteractionMessage({
       request: batch,

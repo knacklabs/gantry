@@ -2,7 +2,6 @@ import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -44,11 +43,7 @@ import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
-import type {
-  DiscordMessageCreate,
-  WebSocketFactory,
-  WebSocketLike,
-} from './types.js';
+import type { DiscordMessageCreate, WebSocketFactory } from './types.js';
 import {
   discordMessageAttachments,
   discordMessageContent,

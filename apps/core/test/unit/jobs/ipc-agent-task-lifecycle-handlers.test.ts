@@ -373,11 +373,8 @@ describe('agent task lifecycle IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const {
-      agentTaskLifecycleHandlers,
-      taskData,
-      registerAsyncCommandSandboxPolicy,
-    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
     const renderAgentTodo = vi.fn(async () => undefined);
 
     await agentTaskLifecycleHandlers.todo_update(
@@ -459,11 +456,8 @@ describe('agent task lifecycle IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const {
-      agentTaskLifecycleHandlers,
-      taskData,
-      registerAsyncCommandSandboxPolicy,
-    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
     const renderAgentTodo = vi.fn();
 
     await agentTaskLifecycleHandlers.todo_update(

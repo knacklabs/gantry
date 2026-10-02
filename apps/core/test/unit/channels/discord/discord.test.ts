@@ -1501,7 +1501,6 @@ describe('DiscordChannel', () => {
   });
 
   it('stops Discord overflow sends when the stream resets between parts', async () => {
-    let channel!: DiscordChannel;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => {
@@ -1509,7 +1508,7 @@ describe('DiscordChannel', () => {
           channel.resetStreaming('dc:channel-1');
         return jsonResponse({ id: `stream-${fetchMock.mock.calls.length}` });
       });
-    channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     await expect(
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
@@ -2263,7 +2262,6 @@ describe('DiscordChannel', () => {
         }
         return new Response('{}', { status: 404 });
       });
-    let channel!: DiscordChannel;
     const onMessage = vi.fn(
       async (
         jid: string,
@@ -2277,7 +2275,7 @@ describe('DiscordChannel', () => {
       },
     );
     const onChatMetadata = vi.fn();
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ onMessage, onChatMetadata }),
@@ -2649,7 +2647,7 @@ describe('DiscordChannel', () => {
   });
 
   it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
-    const fetchMock = vi
+    const _fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (input) => {
         const url = String(input);
@@ -6020,7 +6018,6 @@ describe('DiscordChannel', () => {
       if (interactionId) events.push(`ack:${interactionId}`);
       return jsonResponse({ id: 'message-1' });
     });
-    let channel!: DiscordChannel;
     durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockImplementation(
       async (input: { optionIndex?: number }) => {
         const pending = [
@@ -6031,7 +6028,7 @@ describe('DiscordChannel', () => {
         return true;
       },
     );
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ isControlApproverAllowed: vi.fn(async () => true) }),

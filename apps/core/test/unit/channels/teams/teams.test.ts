@@ -19,10 +19,7 @@ import {
 import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams/cards.js';
 import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
-import {
-  configurePendingInteractionDurability,
-  DurableInteractionPersistenceError,
-} from '@core/application/interactions/pending-interaction-durability.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
   PendingInteraction,
   PermissionPrompt,

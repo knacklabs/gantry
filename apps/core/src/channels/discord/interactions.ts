@@ -251,7 +251,7 @@ export class DiscordInteractionHandler {
         );
         if (!bound)
           throw new Error('Discord permission message binding failed');
-      } catch (err) {
+      } catch (_err) {
         // Post-send persistence = delivered:'unknown' (0128, R7): the
         // card may be live; never retry into a duplicate.
         clearTimeout(timeout);

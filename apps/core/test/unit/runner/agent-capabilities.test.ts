@@ -9,7 +9,6 @@ import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   BASELINE_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
-  DEFAULT_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   selectedMemoryIpcActions,
@@ -96,13 +95,6 @@ const UNAVAILABLE_DEFAULT_TOOLS = [
   'ExitWorktree',
   'mcp__gantry__list_models',
   'mcp__gantry__*',
-] as const;
-
-const DEFAULT_AVAILABLE_TOOLS = [
-  'WebSearch',
-  'WebFetch',
-  'ToolSearch',
-  'Skill',
 ] as const;
 
 const DEVELOPER_AVAILABLE_TOOLS = [
