@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "99774c2221a38f78e590df5735893fb71211737d578eadbcb680a2842f7886b7",
-    "commit": "fc7f978fa84c49e9cd262ff95c24c49f86ffb2a4",
+    "changed": "f7162306f5b785ea4155f098d7b5edb7ee7fb0384de817c60f2f9ff0a889e03b",
+    "commit": "3f4403b04136f00d4930b65e2b1bf37e8f4e9aa0",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "Both promised behaviors have only mocked unit proof. This test supplies `overloaded` followed by `enqueued` and calls recovery manually against MemoryAsyncTaskRepository; the SDK test at apps/core/test/unit/application/sessions/session-interaction-module.test.ts:358 similarly supplies an overloaded publication result. Neither exercises a full Postgres backlog through the real entry point, and no corresponding end-to-end case exists. docs/review-instructions.md:30\u201335 requires real-runtime/Postgres proof for Done-when behaviors. Add owner-boundary tests proving that the SDK endpoint returns the busy rejection and that recovery retains an overloaded delegated follow-up, then admits it after capacity becomes available. The successful close run does not fill this coverage gap.",
-        "file": "apps/core/test/unit/jobs/async-command-task-service.test.ts",
-        "line": 2328,
-        "priority": "P1",
-        "title": "Not done: An overloaded SDK session message is rejected as busy and an overloaded delegated follow-up is retried instead of marked delivered"
-      }
-    ],
-    "status": "blocked",
-    "tree": "beaa802fa5a3652344682f789593d3afaea3a060573f68ff00c13a777f65d882"
+    "findings": [],
+    "status": "clean",
+    "tree": "b6fea4249a578c28e2b08e3297cb1fe101bbb3e0719b86d6d8919172276a3c4d"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:17:26+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-01T19:57:18+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T05:16:10+00:00",
       "step": "review"
     }
   ],
