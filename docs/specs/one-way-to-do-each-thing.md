@@ -1,8 +1,10 @@
 ---
 slug: one-way-to-do-each-thing
 title: One way to do each thing, and nothing said twice
-status: draft
+status: confirmed
 saved: 2026-10-02T09:30:35+00:00
+confirmed_by: "Ravi"
+confirmed_hash: a9c418ca9b40fe1a331defde6829ab08b5023b428993289ff0f25119640ae635
 ---
 
 # One way to do each thing, and nothing said twice
