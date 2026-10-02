@@ -77,7 +77,10 @@ import {
 } from './agent-spawn-mcp-source-records.js';
 import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
 import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
-import { configureSpawnAsyncCommandSandboxPolicy } from './async-command-sandbox-policy.js';
+import {
+  configureSpawnAsyncCommandSandboxPolicy,
+  releaseAsyncCommandSandboxPolicy,
+} from './async-command-sandbox-policy.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
 import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import {
@@ -270,7 +273,6 @@ async function spawnAgentWithContext(
   let preparedExecution:
     | Awaited<ReturnType<typeof executionAdapter.prepare>>
     | undefined;
-  let output: AgentOutput | undefined;
   try {
     const projectedCredentials = await hostStartup.measureAsync(
       'credentialProjectionMs',
@@ -324,8 +326,7 @@ async function spawnAgentWithContext(
       const failure =
         generatedRuntimeError ??
         `LLM runtime materialization failed: ${errorText}`;
-      output = { status: 'error', result: null, error: failure };
-      return output;
+      return { status: 'error', result: null, error: failure };
     }
     const command = process.execPath;
     const args = preparedExecution.runnerArgs;
@@ -754,7 +755,7 @@ async function spawnAgentWithContext(
         compiledSystemPrompt,
       },
     });
-    output = await executeRunnerProcess({
+    return await executeRunnerProcess({
       group,
       input: runnerInput,
       command,
@@ -795,8 +796,8 @@ async function spawnAgentWithContext(
         },
       }),
     });
-    return output;
   } finally {
+    releaseAsyncCommandSandboxPolicy(group.folder, processName);
     unregisterPermissionRunRestriction();
     cleanupRunnerTempDir(runnerTempDir, logger.warn.bind(logger));
     if (browserIpcEnabled) {
