@@ -3,7 +3,7 @@
   "branch": "fix/phone-users-can-t-open-the-web-console-b",
   "done_when": "The console's navigation works at phone width instead of refusing the viewport, keyboard focus still works, and nothing overflows",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:12:58+00:00",
