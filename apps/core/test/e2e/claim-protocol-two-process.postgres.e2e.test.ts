@@ -37,6 +37,7 @@ import {
 import { PostgresRuntimeRepositoryBundle } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
 import { _setRuntimeStorageForTest as setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
 import { TeamsChannel } from '@core/channels/teams/index.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
@@ -735,6 +736,13 @@ maybeDescribe(
       };
       const alpha = await save('thread-alpha', 'alpha question');
       const beta = await save('thread-beta', 'beta question');
+      // End both quiet windows through the database clock, so each thread's
+      // turn takes its message now.
+      await runtime.service.pool.query(
+        `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+         SET defer_until = clock_timestamp() WHERE id = ANY($1)`,
+        [[alpha.id, beta.id]],
+      );
 
       const alphaTurn = app.processGroupMessages(alpha.queueJid, {
         existingRunId: 'run:thread-alpha',
@@ -1944,6 +1952,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       resolved: {
         appId,
         logger: { info: () => undefined, warn: () => undefined },
+        getTriggerPattern,
       } as unknown as ChannelWiringDeps,
       ops: () => inboundOps,
       persistenceQueue: new AsyncTaskQueue(1, 4),

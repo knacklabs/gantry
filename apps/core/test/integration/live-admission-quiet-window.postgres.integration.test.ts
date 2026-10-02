@@ -15,7 +15,10 @@ import {
   createRuntimeApp,
   type RuntimeApp,
 } from '@core/app/bootstrap/runtime-app.js';
+import { ConversationMessageIngressModule } from '@core/application/external-ingress/conversation-message-ingress.js';
 import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import { DEFAULT_TRIGGER, getTriggerPattern } from '@core/config/index.js';
+import { resolveConversationMessageRoute } from '@core/control/server/external-ingress-adapter.js';
 import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
 import type { ConversationRoute } from '@core/domain/types.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
@@ -73,6 +76,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       providerAccountId?: string;
       // The inbound handler's decision for this route.
       sessionCommand?: boolean;
+      timestamp?: string;
     },
     agentId?: string,
   ): Promise<LiveAdmissionWorkItem> => {
@@ -87,7 +91,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
         sender: message.sender ?? 'user',
         sender_name: 'User',
         content: message.content,
-        timestamp: toIso(nowMs()),
+        timestamp: message.timestamp ?? toIso(nowMs()),
         is_from_me: false,
         is_bot_message: false,
       },
@@ -215,7 +219,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     const folder = appId.replace(/-/g, '_');
     const chatJid = `app:${appId}:conversation`;
     const providerAccountId = `control:${appId}`;
-    await runtime.control.ensureAppSession({
+    const session = await runtime.control.ensureAppSession({
       appId,
       conversationId: 'conversation',
       chatJid,
@@ -265,9 +269,15 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       loopDeps,
       app,
       chatJid,
+      conversationId: session.canonicalConversationId,
       prompts,
       replies: () => channel.outbound.map((message) => message.text),
-      send: (id: string, content: string, sender = 'user') =>
+      send: (
+        id: string,
+        content: string,
+        sender = 'user',
+        timestamp?: string,
+      ) =>
         save(
           appId,
           {
@@ -278,6 +288,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
             content,
             sender,
             sessionCommand: content === '/stop',
+            timestamp,
           },
           agentId,
         ),
@@ -293,10 +304,11 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     };
   }
 
-  it('starts one turn with three quick messages from any sender, in order', async () => {
+  it('starts one turn with three quick messages from any sender, in received order', async () => {
     const conversation = await appConversation('quiet-batch');
     const first = await conversation.send('m1', 'alpha', 'ann');
-    await conversation.send('m2', 'beta', 'bob');
+    // Received second, but the provider's clock says it was sent first.
+    await conversation.send('m2', 'beta', 'bob', toIso(nowMs() - 60_000));
     await conversation.send('m3', 'gamma', 'ann');
 
     // One due time for the whole batch, so one claim picks up all of it.
@@ -313,7 +325,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       existingRunId: 'run:after-batch',
     });
     expect(conversation.prompts).toHaveLength(1);
-    const prompt = conversation.prompts[0]!;
+    const prompt = conversation.prompts[0]!.split('<current_message')[1]!;
     expect(prompt.indexOf('alpha')).toBeLessThan(prompt.indexOf('beta'));
     expect(prompt.indexOf('beta')).toBeLessThan(prompt.indexOf('gamma'));
   });
@@ -373,6 +385,42 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     expect(current).not.toContain('do the thing');
   });
 
+  it('cancels a full batch whose window ended while it waited for capacity', async () => {
+    const conversation = await appConversation('quiet-stop-capacity');
+    commandAdmins.add('admin');
+    const waiting: LiveAdmissionWorkItem[] = [];
+    for (let index = 1; index <= 10; index += 1) {
+      waiting.push(await conversation.send(`m${index}`, `request ${index}`));
+    }
+    // The admission worker hands them to a queue that is busy with another
+    // conversation: their window is over, but no turn has taken them.
+    for (const item of await conversation.claimLater()) {
+      await runtime.repositories.liveTurns.settleLiveAdmissionWorkItem({
+        id: item.id,
+        claimToken: 'claim',
+        workerInstanceId: 'worker',
+        state: 'completed',
+      });
+    }
+    const stop = await conversation.send('m11', '/stop', 'admin');
+
+    let runs = 0;
+    const deps: MessageLoopDeps = {
+      ...conversation.loopDeps(async (queueJid) => {
+        runs += 1;
+        await conversation.app.processGroupMessages(queueJid, {
+          existingRunId: `run:capacity-${runs}`,
+        });
+      }),
+      // No turn is running, so the active-run handler refuses.
+      handleActiveControlCommand: async () => false,
+    };
+    await processLiveAdmissionWorkItem(deps, stop);
+    expect(conversation.prompts).toEqual([]);
+    expect(conversation.replies()).toEqual(['No active run to stop.']);
+    expect(await consumers(waiting)).toEqual(Array(10).fill('stopped'));
+  });
+
   it('cancels only the batch received before /stop when the admission worker stops a running turn', async () => {
     const conversation = await appConversation('quiet-stop-active');
     commandAdmins.add('admin');
@@ -430,6 +478,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       resolved: {
         appId: DEFAULT_APP_ID,
         logger: { info: () => undefined, warn: () => undefined },
+        getTriggerPattern,
       } as unknown as ChannelWiringDeps,
       ops: () => runtime.ops,
       persistenceQueue: new AsyncTaskQueue(1, 4),
@@ -474,6 +523,7 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       ops: runtime.ops,
       repositories: {} as never,
       runtimeEvents: runtime.storageRuntime.runtimeEvents,
+      getTriggerPattern,
       now: () => toIso(nowMs()) as never,
       createId: randomUUID,
       stableHash: (input) => createHash('sha256').update(input).digest('hex'),
@@ -482,7 +532,13 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       appId: 'quiet-sdk',
       conversationId: 'conversation',
     });
-    for (const message of ['/stop', 'please hold on', '/gantry new']) {
+    // An SDK group has no trigger, so turn start parses with the default one.
+    for (const message of [
+      '/stop',
+      'please hold on',
+      '/gantry new',
+      `${DEFAULT_TRIGGER} /stop`,
+    ]) {
       await sessions.acceptMessage(
         { appId: 'quiet-sdk', sessionId: session.sessionId, message },
         DEFAULT_APP_ID,
@@ -496,6 +552,69 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       'queued',
       'deferred',
       'queued',
+      'queued',
+    ]);
+  });
+
+  it('never makes a session command from external ingress wait, under the route trigger', async () => {
+    const conversation = await appConversation('quiet-ingress');
+    const ingress = new ConversationMessageIngressModule({
+      conversations: {
+        // The app session's conversation, addressed as a provider one is.
+        getConversation: async (
+          id: Parameters<
+            typeof runtime.repositories.conversations.getConversation
+          >[0],
+        ) => {
+          const stored =
+            await runtime.repositories.conversations.getConversation(id);
+          return (
+            stored && {
+              ...stored,
+              externalRef: {
+                kind: 'conversation',
+                value: conversation.chatJid,
+              },
+            }
+          );
+        },
+      } as never,
+      ops: runtime.ops,
+      runtimeEvents: runtime.storageRuntime.runtimeEvents,
+      liveAdmissionAppId: 'quiet-ingress',
+      isConversationRoutable: () => true,
+      providerForConversationJid: () => 'app',
+      makeQueueKey: (jid) => jid,
+      getTriggerPattern,
+      resolveRoute: ({ conversationJid, threadId, providerAccountId }) =>
+        resolveConversationMessageRoute(
+          conversation.app.getConversationRoutes(),
+          conversationJid,
+          threadId,
+          providerAccountId,
+        ),
+      now: () => toIso(nowMs()),
+      createId: randomUUID,
+    });
+    // The route's trigger is Andy.
+    const messages = ['Andy /stop', 'Andy ! stop', 'Andy, are you there?'];
+    for (const [index, message] of messages.entries()) {
+      await ingress.acceptMessage({
+        appId: 'quiet-ingress',
+        invocationId: `ingress-${index}`,
+        conversationId: conversation.conversationId,
+        message,
+        senderId: 'ops-bot',
+      });
+    }
+    const { rows } = await runtime.service.pool.query<{ state: string }>(
+      `SELECT state FROM ${table} WHERE app_id = $1 ORDER BY receive_order`,
+      ['quiet-ingress'],
+    );
+    expect(rows.map((row) => row.state)).toEqual([
+      'queued',
+      'queued',
+      'deferred',
     ]);
   });
 

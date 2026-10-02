@@ -96,6 +96,7 @@ export type SessionInteractionDeps = {
   };
   runtimeEvents: RuntimeEventExchange;
   getConfiguredAgentRuntime?: (agentFolder: string) => AgentRuntime | undefined;
+  getTriggerPattern: (trigger?: string) => RegExp;
   now: () => IsoTimestamp;
   createId: () => string;
   stableHash: (input: string) => string;
@@ -440,7 +441,11 @@ export class SessionInteractionModule {
             source: 'sdk_session',
             responseMode,
           },
-          sessionCommand: isSessionCommandText(text),
+          // SDK groups have no trigger of their own (makeAppGroup).
+          sessionCommand: isSessionCommandText(
+            text,
+            this.deps.getTriggerPattern(),
+          ),
           now,
         },
       });

@@ -4,6 +4,7 @@ import {
   SessionInteractionModule,
   makeAppGroup,
 } from '@core/application/sessions/session-interaction-module.js';
+import { getTriggerPattern } from '@core/config/index.js';
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
@@ -82,6 +83,7 @@ function makeModule(overrides?: {
     runtimeEvents: runtimeEvents as never,
     getConfiguredAgentRuntime:
       overrides?.getConfiguredAgentRuntime ?? vi.fn(() => 'inline'),
+    getTriggerPattern,
     now: () => '2026-04-30T00:00:00.000Z' as never,
     createId: () => 'id-1',
     stableHash: () => '123456789abc',

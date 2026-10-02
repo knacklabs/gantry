@@ -52,6 +52,7 @@ import {
 } from '@core/adapters/storage/postgres/seeds.js';
 import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
 import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
@@ -166,6 +167,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       const resolved = {
         appId: DEFAULT_APP_ID,
         providerIds: [],
+        getTriggerPattern,
         opsRepository: runtime.ops,
         loadSenderAllowlist: () =>
           input.senderAllowlist ?? PERMISSIVE_SENDER_ALLOWLIST,

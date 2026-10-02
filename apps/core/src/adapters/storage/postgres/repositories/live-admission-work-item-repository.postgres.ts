@@ -347,13 +347,11 @@ export async function consumeAll(
           : eq(items.agentId, input.scope.agentId),
         sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
         isNull(items.consumedAt),
+        // Whatever its admission state: a batch whose window ended while it
+        // waited for capacity is still a batch that hasn't started.
         input.waitingBefore === undefined
           ? undefined
-          : and(
-              eq(items.state, 'deferred'),
-              eq(items.deferredReason, QUIET_WINDOW_REASON),
-              lt(items.receiveOrder, input.waitingBefore),
-            ),
+          : lt(items.receiveOrder, input.waitingBefore),
       ),
     )
     .returning({ id: items.id });

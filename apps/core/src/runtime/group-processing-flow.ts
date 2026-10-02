@@ -17,27 +17,6 @@ import type { ConversationRoute } from '../domain/types.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
-function providerSecond(timestamp: string): number {
-  const parsed = Date.parse(timestamp);
-  return Math.floor(
-    (Number.isNaN(parsed) ? Number(timestamp) * 1000 : parsed) / 1000,
-  );
-}
-
-export function orderBatchForPresentation<
-  T extends { message: NewMessage; receiveOrder: number | null },
->(batch: T[]): T[] {
-  return [...batch].sort((left, right) => {
-    const timeOrder =
-      providerSecond(left.message.timestamp) -
-      providerSecond(right.message.timestamp);
-    if (Number.isFinite(timeOrder) && timeOrder !== 0) return timeOrder;
-    return left.receiveOrder !== null && right.receiveOrder !== null
-      ? left.receiveOrder - right.receiveOrder
-      : 0;
-  });
-}
-
 export async function takeGroupTurnInput(input: {
   repository: Pick<LiveAdmissionWorkItemRepository, 'takeInput'>;
   messages: Pick<RuntimeMessageRepository, 'getMessagesByIds'>;
@@ -92,16 +71,8 @@ export async function takeGroupTurnInput(input: {
       lastTaken.responseSchema !== undefined ||
       lastTaken.agentControls !== undefined);
   const hasMore = takenMessages.length === input.maxMessages || endsAtControl;
-  // The command or control message that ended the take stays last, so its
-  // handler sees every earlier-received message before it.
-  const missedMessages = (
-    endsAtControl
-      ? [
-          ...orderBatchForPresentation(takenMessages.slice(0, -1)),
-          takenMessages[takenMessages.length - 1]!,
-        ]
-      : orderBatchForPresentation(takenMessages)
-  ).map(({ message }) => message);
+  // Gantry's receive order, as taken; the provider's clock never reorders it.
+  const missedMessages = takenMessages.map(({ message }) => message);
   const { activeThreadId, reactionTarget } = resolveGroupReactionTarget({
     chatJid: input.chatJid,
     routeThreadId: input.threadId ?? undefined,

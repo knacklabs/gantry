@@ -66,7 +66,7 @@
     "apps/core/src/control/server/routes/models.ts": 714,
     "apps/core/src/shared/model-catalog.ts": 800,
     "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts": 745,
-    "apps/core/src/application/sessions/session-interaction-module.ts": 745,
+    "apps/core/src/application/sessions/session-interaction-module.ts": 750,
     "apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts": 1230,
     "apps/core/src/control/server/routes/browser-auth.ts": 1400,
     "apps/core/src/adapters/storage/postgres/repositories/authentication-repository.postgres.ts": 720,

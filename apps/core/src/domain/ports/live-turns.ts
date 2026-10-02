@@ -230,7 +230,7 @@ export interface LiveAdmissionWorkItemRepository {
   consumeAll(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
-    /** Only items still in their quiet window received before this order. */
+    /** Only unconsumed items received before this order. */
     waitingBefore?: number;
   }): Promise<number>;
   /**

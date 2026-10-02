@@ -12,8 +12,7 @@ import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
 import { createRuntimeProviderAttachmentMaterializer } from './runtime-services.js';
-import { extractSessionCommand } from '../../application/sessions/session-command-parse.js';
-import { buildTriggerPattern } from '../../shared/trigger-pattern.js';
+import { isSessionCommandText } from '../../application/sessions/session-command-parse.js';
 
 type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -232,13 +231,10 @@ export function createChannelPersistenceHandlers({
                   requiresTrigger: route.requiresTrigger !== false,
                   conversationKind: route.conversationKind ?? null,
                 },
-                // The route-trigger parse the admission worker uses, so every
-                // command form skips the quiet window and nothing else does.
-                sessionCommand:
-                  extractSessionCommand(
-                    msg.content,
-                    buildTriggerPattern(route.trigger ?? ''),
-                  ) !== null,
+                sessionCommand: isSessionCommandText(
+                  msg.content,
+                  resolved.getTriggerPattern(route.trigger),
+                ),
               });
             }
             stored = true;

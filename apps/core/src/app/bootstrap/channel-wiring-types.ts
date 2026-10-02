@@ -144,6 +144,8 @@ export type RecoveryDispatchPermit = RecoveryDispatchPermitInput & {
 export interface ChannelWiringDeps {
   appId: AppId;
   providerIds: readonly Provider[];
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;

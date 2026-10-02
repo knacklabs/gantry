@@ -37,6 +37,7 @@ type ConversationMessageThreadRouting = {
 type ConversationMessageRouteResolution = {
   agentId?: string | null;
   queueKey: string;
+  trigger?: string;
 };
 
 export class ConversationMessageIngressModule {
@@ -87,6 +88,8 @@ export class ConversationMessageIngressModule {
         conversationJid: string,
         threadId: string | null,
       ) => string;
+      /** The route-trigger pattern turn start parses commands with. */
+      getTriggerPattern: (trigger?: string) => RegExp;
       resolveRoute?: (input: {
         conversationJid: string;
         threadId: string | null;
@@ -245,7 +248,10 @@ export class ConversationMessageIngressModule {
                 source: 'external_ingress',
                 conversationKind: conversation.kind,
               },
-              sessionCommand: isSessionCommandText(text),
+              sessionCommand: isSessionCommandText(
+                text,
+                this.deps.getTriggerPattern(route.trigger),
+              ),
             },
           },
         );
