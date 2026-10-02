@@ -702,8 +702,6 @@ export function resolveSlackDisconnectQuestions(input: {
 export async function disconnectSlackDelivery(input: {
   app: App | null;
   activeStreams: Map<string, ActiveStreamState>;
-  streamGenerationByJid: Map<string, number>;
-  sealedStreamGenerationByJid: Map<string, number>;
   activeProgress: Map<string, ActiveProgressState>;
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
   stopNativeStream: (channelId: string, streamTs: string) => Promise<boolean>;
@@ -718,8 +716,6 @@ export async function disconnectSlackDelivery(input: {
     }
   }
   input.activeStreams.clear();
-  input.streamGenerationByJid.clear();
-  input.sealedStreamGenerationByJid.clear();
   input.activeProgress.clear();
 
   if (input.app) await input.app.stop();

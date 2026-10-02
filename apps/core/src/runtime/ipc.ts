@@ -12,8 +12,10 @@ import type { IpcDeps } from './ipc-domain-types.js';
 // prettier-ignore
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
+import { writeTaskIpcResponse } from '../jobs/ipc-shared.js';
+import { isPlainObject, toTrimmedString } from '../shared/object.js';
 // prettier-ignore
-import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
+import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest, type ParsedIpcMessage } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import {
   isLongRunningTask,
@@ -210,19 +212,20 @@ export function startIpcWatcher(deps: IpcDeps): void {
               'messages',
             );
             for (const file of messageFiles) {
+              // Over the quota: leave this and later files for the next pass.
+              if (!canProcessIpcFile(sourceAgentFolder, 'messages')) break;
               let claimedPath = path.join(messagesDir, file);
+              let rawData: unknown;
+              let data: ParsedIpcMessage | undefined;
               try {
-                if (!canProcessIpcFile(sourceAgentFolder, 'messages')) {
-                  throw new Error('IPC message rate limit exceeded');
-                }
                 const claimed = runnerControlPort.claimRequest(
                   sourceAgentFolder,
                   'messages',
                   file,
                 );
                 claimedPath = claimed.claimedPath;
-                const rawData = claimed.raw;
-                const data = parseIpcMessage(rawData, sourceAgentFolder);
+                rawData = claimed.raw;
+                data = parseIpcMessage(rawData, sourceAgentFolder);
                 const route = resolveRunnerIpcRoute({
                   routes: groupRegistry,
                   sourceAgentFolder,
@@ -230,7 +233,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   threadId: data.threadId,
                   providerAccountId: data.providerAccountId,
                 });
-                await sendCoreMessage({
+                const result = await sendCoreMessage({
                   deps: {
                     ...deps,
                     readWorkspaceAttachment: readWorkspaceMessageAttachment,
@@ -252,12 +255,36 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   { chatJid: route.targetJid, sourceAgentFolder },
                   'IPC message sent',
                 );
+                writeTaskIpcResponse(
+                  sourceAgentFolder,
+                  data.taskId,
+                  { ok: true, message: result.message },
+                  data.threadId,
+                  data.responseKeyId,
+                );
                 runnerControlPort.removeClaimedRequest(claimedPath);
               } catch (err) {
                 incrementOperationalError('ipc', 'message_dispatch');
                 logger.error(
                   { file, sourceAgentFolder, err },
                   'Error processing IPC message',
+                );
+                // Unparsed requests answer from raw fields; the
+                // signing key still has to match this workspace and thread.
+                const raw = isPlainObject(rawData) ? rawData : {};
+                const rawContext = isPlainObject(raw.context)
+                  ? raw.context
+                  : {};
+                writeTaskIpcResponse(
+                  sourceAgentFolder,
+                  data?.taskId ?? toTrimmedString(raw.taskId, { maxLen: 128 }),
+                  {
+                    ok: false,
+                    error: err instanceof Error ? err.message : String(err),
+                  },
+                  data?.threadId ?? toTrimmedString(rawContext.threadId),
+                  data?.responseKeyId ??
+                    toTrimmedString(rawContext.responseKeyId),
                 );
                 runnerControlPort.archiveFailedRequest(
                   sourceAgentFolder,
@@ -292,12 +319,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
               'tasks',
             );
             for (const file of taskFiles) {
+              if (!canProcessIpcFile(sourceAgentFolder, 'tasks')) break;
               let claimedPath = path.join(tasksDir, file);
               let rawTaskData: unknown;
               try {
-                if (!canProcessIpcFile(sourceAgentFolder, 'tasks')) {
-                  throw new Error('IPC task rate limit exceeded');
-                }
                 const claimed = runnerControlPort.claimRequest(
                   sourceAgentFolder,
                   'tasks',
@@ -361,11 +386,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
               'memory-requests',
             );
             for (const file of memoryFiles) {
+              if (!canProcessIpcFile(sourceAgentFolder, 'memory')) break;
               let claimedPath = path.join(memoryRequestsDir, file);
               try {
-                if (!canProcessIpcFile(sourceAgentFolder, 'memory')) {
-                  throw new Error('Memory IPC rate limit exceeded');
-                }
                 const claimed = runnerControlPort.claimRequest(
                   sourceAgentFolder,
                   'memory-requests',
@@ -460,14 +483,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
               'permission-requests',
             );
             for (const file of permissionFiles) {
+              if (!canProcessIpcFile(sourceAgentFolder, 'permission')) break;
               let claimedPath = path.join(permissionRequestsDir, file);
               let requestId: string | undefined;
               let requestThreadId: string | undefined;
               let responseKeyId: string | undefined;
               try {
-                if (!canProcessIpcFile(sourceAgentFolder, 'permission')) {
-                  throw new Error('Permission IPC rate limit exceeded');
-                }
                 const claimed = runnerControlPort.claimRequest(
                   sourceAgentFolder,
                   'permission-requests',
@@ -624,14 +645,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
               'user-questions',
             );
             for (const file of questionFiles) {
+              if (!canProcessIpcFile(sourceAgentFolder, 'user-question')) break;
               let claimedPath = path.join(userQuestionRequestsDir, file);
               let requestId: string | undefined;
               let requestThreadId: string | undefined;
               let responseKeyId: string | undefined;
               try {
-                if (!canProcessIpcFile(sourceAgentFolder, 'user-question')) {
-                  throw new Error('User question IPC rate limit exceeded');
-                }
                 const claimed = runnerControlPort.claimRequest(
                   sourceAgentFolder,
                   'user-questions',
