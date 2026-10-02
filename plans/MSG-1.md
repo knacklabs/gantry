@@ -1,182 +1,121 @@
 # Every incoming message is saved before anything can fail
 
-8 parts · Risks: a new table that holds raw incoming messages until they are read; one unreadable message can hold up its own chat thread for about 2 minutes · New moving parts: the inbox table and the worker that reads it
+19 parts · Risks: a new table stores incoming messages; a failing message can hold up its thread for about 2 minutes; set-aside messages wait for a later story's recovery tools · New moving parts: the saved-message inbox and the worker that reads it
 
 ## What changes for you
 
-- Messages from Slack, Telegram and Discord are saved the moment the platform hands them over, before Gantry looks anything up.
-  - Today a failed lookup can lose a message without anyone noticing: a Discord thread's parent channel, a Slack channel name, the sender's identity, or a photo download. So can a restart at the wrong moment.
-  - After this story that message still gets its normal reply, once.
+- Messages from Slack, Telegram and Discord are saved before Gantry tells the platform it has received them, and before looking up a sender, finding a thread or downloading a photo. Teams follows the same rule when its transport is available.
+- A temporary failure or restart no longer loses a saved message. When it can be read, it reaches the agent once under the normal reply rules.
 - If a platform sends the same message twice, you get one reply.
-- Quick messages and photos from one chat reach the agent in the order Gantry received them. A slow photo no longer lets the text sent after it jump ahead.
-- /stop works at once, even if an earlier message is still being read, and the messages sent before it never start a turn later.
-- Editing or deleting a message before the agent has read it changes what the agent sees: it reads the edited text, and never reads a deleted message.
-- If a message truly can't be read, `gantry status` says so, with the platform and a plain reason. You can retry it or dismiss it. The rest of that chat carries on.
-- Rarely, a message waits a little longer, up to about 2 minutes, while an earlier message in the same thread is retried. Other chats and threads aren't held up.
+- Quick messages and photos in one thread reach the agent in the order Gantry received them. Other chats and threads carry on independently.
+- /stop works at once, even behind a message still being read. Messages received before it never start a turn later.
+- A message still unreadable after about 2 minutes is set aside, and its thread carries on. Gantry logs a plain reason; its status report shows only the count on each platform. Inspection and recovery tools come in a later story.
 
 ## Why
 
-See the spec: [One messaging pipeline for every provider](../docs/specs/one-messaging-pipeline.md).
+Today Gantry can acknowledge a message before saving it. A failed lookup, photo download or restart can then lose it. Messages can also be saved out of order, and a slow photo can let later text jump ahead.
 
-Today each provider does its lookups and downloads before anything is saved, and many failures end in a log line:
-- Slack has already acknowledged the event.
-- Telegram skips an update whose handler failed, and its photos wait in a memory-only queue.
-- Discord handles events in parallel and swallows failures.
-
-The host then saves through a memory-only queue that can commit two messages from one chat out of order.
-
-This story adds the first of the spec's three durable lists, the inbox. Every incoming message is written to Postgres first, then acknowledged, then read in received order by one shared worker. That worker feeds the existing intake from One message, one turn, so there's still one record of what the agent has taken in.
+This story saves each message first, then reads saved messages through one shared worker. It keeps the existing rules for who gets a reply and which messages the agent has already read. It delivers the saving, duplicate detection and ordering part of [One messaging pipeline for every provider](../docs/specs/one-messaging-pipeline.md).
 
 ## Done when
 
-1. **A message the platform handed to Gantry gets its normal reply once, even if reading it fails at first or Gantry restarts before reading it.**
+1. **On every supported platform, Gantry saves an incoming message before acknowledging it or doing lookups and downloads, and a temporary failure or restart still lets it reach the agent once under the normal reply rules.**
 2. **A message the platform delivers more than once gets one reply.**
-3. **Quick messages and photos from one chat thread reach the agent in the order Gantry received them, without holding up other chats or threads. /stop is handled at once even behind a message that is still being read, and the messages before it never start a turn later.**
-4. **A message that still can't be read after about 2 minutes is set aside with a plain reason shown in Gantry's status report, the admin can retry or dismiss it, and the next message in that thread is answered.**
-5. **An edit or delete of a message the agent hasn't taken in yet changes what the agent sees: it reads the edited text, and never reads a deleted message, even when a set-aside message is retried.**
+3. **Messages and photos in one chat thread reach the agent in received order without holding up other chats or threads; /stop works at once even behind a stuck message, and messages received before it never start a turn later.**
 
 ## Risks
 
-- **New table, added by a migration (one-way).** `inbound_events` holds each raw event, message text included, until it is read.
-  - Read events are deleted at once.
-  - Set-aside events are deleted when the admin dismisses them, or after 30 days. A message nobody retried within 30 days is lost for good; the spec lists this.
-- **Waiting behind a failing message is deliberate.** A message waits behind an earlier one from the same thread while that one is retried, for about 2 minutes, before the failing one is set aside.
-- **Slack: Gantry takes over Bolt's handling of message events.** Bolt 4.7.3 acknowledges Events API events before any listener runs. So the Slack edge saves in the Socket Mode event hook and only then acknowledges. A Bolt upgrade could change that hook; an edge test pins it.
-- **While Postgres is down, receiving pauses instead of losing.**
-  - Telegram stops polling; Telegram keeps updates for up to 24 hours.
-  - Discord stops handling events. If Discord drops the session meanwhile, nothing in that gap is replayed. That gap, like a restart, still relies on the existing "re-read history after reconnect" rule.
-  - Slack gets no acknowledgement and redelivers.
-- **History distrust after a failed handler is deleted.** The reconnect, lease-loss and disconnect fallbacks stay, because they cover messages the platform never handed over.
-- **Decisions amended:**
-  - 0085: the fused inbound transaction runs from the inbox worker, not the memory queue.
-  - 0087: a failed handler no longer bumps the history-coverage generation; only reconnects, lease loss and disconnects do.
-- **Teams has no live transport yet.** Its handler is converted, but it can't be checked live.
+- **New table, added by a one-way migration.** Incoming content stays until it is read or set aside. Completed events discard raw/cached content but retain compact identities for 30 days to recognise duplicates. Set-aside rows do not expire in this story; their recovery tools and 30-day retention move to the later story.
+- **Waiting behind a failing message is deliberate.** Later messages in its thread wait up to about 2 minutes; other threads continue. Deadline expiry sets aside the event and releases the thread.
+- **Slack's acknowledgement hook needs a boundary test.** Gantry saves supported messages at the Socket Mode event hook before Bolt acknowledges them. An upgrade can change that hook.
+- **Receiving pauses while the database is down.** Slack redelivers without acknowledgement; Telegram waits to advance polling. Discord can resume only while its session remains available. A provider that gives up is outside the guarantee; reconnect, lease-loss and disconnect history recovery remain.
+- **Current edit and deletion paths remain.** This story adds only a guard against handing off a message deleted while still held in the inbox. Full mutation recovery and persisted-history changes move to the later story.
+- **Teams has no live transport yet.** Its handler follows the saving rule, with an SDK boundary check rather than a live check.
+- **Decisions amended:** 0085 moves the fused inbound transaction from the memory queue to the inbox worker; 0087 removes history distrust for failed saved-message handling while keeping existing direct-path, reconnect, lease-loss and disconnect behavior.
 
 ## For the builders
 
 ### Done-when details
 
-1. **What is covered.**
-   - **Supported inputs:**
-     - Slack: `message` (including `file_share`), `app_mention` and `/gantry`.
-     - Telegram: text, photo, video, voice, audio, document, sticker, location, venue and contact messages, including the plain-text reply that answers a question.
-     - Discord: `MESSAGE_CREATE` and the `/gantry` application command.
-     - Teams: messages.
-   - **Excluded** (still handled directly; button taps move in MSG-3): button taps, card submits, permission decisions and `my_chat_member`.
-   - **"Handed over" means:**
-     - Slack: a Socket Mode event before we acknowledge it.
-     - Telegram: an update before the next `getUpdates` call.
-     - Discord: a dispatch frame before the resume sequence moves past it.
-     - Teams: a request before we reply to it.
-   - **When the save itself fails:**
-     - Slack sends no acknowledgement, so Slack redelivers.
-     - Telegram and Discord retry the save in place with backoff, and receiving waits. Telegram must never throw here: grammY skips an update whose handler threw.
-     - Teams returns an error.
-   - **Lookups** happen only after the save: thread parent, names, sender identity and downloads. A failure throws, and the worker retries.
-   - **Proof:** the T2 end-to-end tests, plus each provider's save-before-acknowledge test at its channel boundary with only the platform faked (T4 to T7).
-2. **Duplicates.**
-   - **Sources of duplicates:** Slack retries; Slack's paired `message` and `app_mention` for one post; Telegram re-polling after a restart; Discord replay on resume.
-   - **How they are caught:**
-     - While the event is unread, the inbox unique key drops the duplicate.
-     - After it's read, the messages redelivery index and the admission idempotency key catch it. The key is kept 30 days.
-   - **Proof:** T2 end-to-end, with a duplicate delivered before and after the first copy was read.
-3. **Order and /stop.**
-   - **Order.**
-     - The inbox `seq` within a source chat and thread is the only order: a Slack channel plus `thread_ts`, a Telegram chat plus topic, a Discord channel or thread, or a Teams conversation.
-     - The worker reads one event at a time per source thread, so intake `receive_order` follows `seq`.
-   - **Downloads** happen during unpacking. A failed download falls back to the placeholder text, as today; it is not a retry reason.
-   - **/stop.**
-     - Session commands are recognised from the raw event with no lookup, by the codec's pure classifier, and are saved with `control = true`. A control event is claimed without waiting for earlier events in its thread.
-     - When a stop is processed, the admission scope records the inbox `seq` it stopped through. An event with a lower `seq` that reaches intake later is consumed as `stopped` history and never starts a turn.
-     - This builds on TURN-1 T5's `consumeAll(..., waitingBefore)`.
-   - **Excluded:** the order of earlier history shown as context, which still follows the platform's timestamp, as One message, one turn defines.
-   - **Proof:** T2 end-to-end, covering a slow photo then quick text from the same thread, a message in another chat answered meanwhile, and a /stop behind a failing message.
-4. **Retries and set-aside.**
-   - **Schedule:** 6 attempts, with backoff of 1, 4, 10, 25 and 40 seconds between them, about 2 minutes in all. Then the event becomes `set_aside`.
-   - **The reason** is plain English. It names the platform and what failed, and never includes message text or tokens.
-   - **Admin view.** `gantry status` shows the count per platform and the newest reason, for example: `Incoming messages set aside: 1 (Discord: couldn't find which channel thread 123 belongs to)`.
-   - **Admin actions.** `gantry inbox retry <id>` and `gantry inbox dismiss <id>`.
-   - **Retention.** Set-aside events older than 30 days are deleted in bounded batches by the existing retention sweep.
-   - **The rest of the thread.** The next event in that thread proceeds.
-   - **Proof:** T3 end-to-end.
-5. **Edits and deletes.**
-   - **What is covered:**
-     - deletes Gantry handles today: Slack `message_deleted` and Discord `MESSAGE_DELETE` / `MESSAGE_DELETE_BULK`, which remove attachments;
-     - edits, which are ignored today: Slack `message_changed`, Discord `MESSAGE_UPDATE` and Telegram `edited_message`.
-   - **How they flow:** they are saved to the inbox like messages, keyed by their target.
-   - **When the target is still in the inbox** (pending, claimed or set aside):
-     - an edit replaces the payload text used at unpack;
-     - a delete marks the target so that it is dropped when unpacked or retried.
-   - **When the target was already read but not yet taken into a turn:**
-     - an edit updates the saved message;
-     - a delete consumes it as history and removes its attachments.
-   - **After it's taken into a turn:**
-     - an edit is kept in history and starts no turn;
-     - a delete marks it deleted in history.
-   - **A target in neither the inbox nor history** is logged and ignored.
-   - **Proof:** T8 end-to-end.
+1. **Saved before reading; recovery finishes each route once.**
+   - Supported: Slack message/file_share, app_mention and /gantry; Telegram text, photo, video, voice, audio, document, sticker, location, venue and contact, including a plain-text question answer; Discord MESSAGE_CREATE and /gantry; Teams messages. Edits/deletes retain their current direct paths, with only the held-delete guard below.
+   - Button taps, card submits, permission decisions, my_chat_member, and /chatid and /ping utilities stay direct. They are not folded into this inbox slice.
+   - Handed over means the Socket Mode envelope before acknowledgement, Telegram update before polling advances, Discord dispatch before resume advancement, or Teams request before its response. Parent/name/service-identity lookups, metadata and downloads happen after save.
+   - Slack leaves a failed save unacknowledged. Telegram retries the same save until committed or shutdown, without throwing to grammY. Ordinary Discord saves retry in place; interactions have the deadline/failure rule below. Teams propagates save failure to its transport.
+   - Cache successful decode and selected route identities durably before fan-out. Each account/agent route commits separately: canonical message, admission and route receipt in one transaction. Settle only when every route has a receipt. Restart resumes unfinished routes and preserves consumed/committed input.
+   - Telegram force-reply bindings use the existing pending interaction payload, qualified by app, account, chat, topic, prompt message id, request, question index and source agent. Persist the scoped force-reply intent with the existing callback alias before sending its prompt; include that alias as a host question reference in the bot prompt. Bind the returned message id before acknowledging the Other callback as ready for a reply. If a reply races that binding or the host crashes between send and bind, the bot-authored reply-to prompt reference finds the saved intent and binds the message id under lock. Verify bot author, app/account/chat/topic and alias before using it; a failed intent/binding read retries, never falls through. The answer/progress and inbox route receipt commit together before resolving a memory waiter or updating the prompt. Retain bindings for answered/expired/cancelled questions for the 30-day receipt window: a matched reply never becomes an ordinary message on restart or replay. Only a genuinely missing binding takes the normal reply path; lookup failure throws. Current approver checks still apply.
+   - **Owner:** T17 E2E `recovers each saved route once through every handoff boundary`, parameterised over providers and crashes before decode, after cached decode, after the first of two account routes commits, after intake commits, and after consumption/first output commits before settlement. Use a shared connection/two accounts/two workers with one route already consumed and the other unfinished; preserve consumption and one reply per eligible route. T11 owns the separate behavior `answers a Telegram question once across restart and settlement replay`. Transport acknowledgement tests guard a distinct channel boundary.
+2. **Duplicate identities survive settlement.**
+   - Unique identity is app/provider/connection/kind/event key, independent of which account opens a shared connection. Account/agent route copies retain existing canonical/admission keys.
+   - Keep completed identities for 30 days after settlement, including bot echoes, unrouted messages and all drop outcomes. Settlement clears raw payload and cached decode but never deletes the identity immediately. Duplicate receipt does not refresh retention or invoke the codec.
+   - **Owner:** T17 E2E `unpacks a redelivered event once and replies once on each eligible account route`: pending, claimed and completed duplicates, restart, Slack paired message/mention and shared-account fan-out. Assert codec calls, inputs and replies. An interrupted decode with no committed successful result may run again during recovery.
+3. **Commit order, and /stop without slots or lookups.**
+   - Bind one FIFO saver per inbound connection before any asynchronous event hook yields. Keep its position across retries. Allocate seq inside the save transaction after taking the per-connection transaction advisory lock; release only at commit/definitive rollback. A later save cannot commit/escape a claim while the earlier transaction is uncommitted. No provider calls run under that lock.
+   - Ordinary heads are ordered by seq within app/provider/connection/raw channel/raw thread. Claim at most four different raw threads; pending/claimed predecessors block, set-aside/completed do not. Intake still owns receive_order; inbox seq is provenance, not another consumption cursor.
+   - Raw session commands use a separate control claim/wake lane, execution capacity and DB connection. Controls may run alongside their own thread's head. They never wait for ordinary worker slots. Raw delete observation bypasses unpack slots and the head rule; existing direct deletion still runs.
+   - /stop parses raw actor, text/entities, channel/thread and route selector using current configured routes/triggers. It does not invoke ordinary unpack, provider parent/name/identity lookup or the admission message lookup. Resolve account/agent targets from the bound accounts, configured routes/control allowlists and existing stop aliases.
+   - A Discord thread's raw channel id is already its stop address even if a parent lookup is hanging. Enumerate configured destination candidates on bound accounts and keep only scopes where the actor is authorised. Qualify by destination conversation, account, agent and raw thread; later handoff matches that exact destination. Active cancellation matches the same qualified raw thread, never an unscoped alias that can stop another account.
+   - Accepted stop atomically stores a monotonic cutoff in existing router_state, keyed by app/provider/connection/raw channel/thread and full destination admission scope, and consumes waiting predecessors. Subsequent admission checks the cutoff under the same lock: lower seq becomes stopped history, even after restart; higher seq proceeds normally. A refused stop writes no cutoff/cancellation. No active run is necessary to cancel a waiting batch.
+   - Record/append the existing durable live-turn stop command with event/route idempotency, then invoke active cancellation. A crash after cutoff before cancellation resumes the unapplied command before settlement. Other session commands use reserved capacity with their existing command-specific behavior.
+   - Downloads get the remaining event budget, never a new deadline per file. Definite download failure uses today's placeholder; overall deadline expiry sets aside the event.
+   - **Owners:** T17 E2E `delivers a slow photo and later text in receive order while another thread answers`, with overlapping save commits and two workers. T9 E2E `stops a raw thread with all unpack slots occupied and keeps its predecessors as history`, including hanging Discord parent lookup, restart, late completion, set-aside predecessor, refusal, unrelated account/thread and a later message.
+
+**Deadline and set-aside behavior supporting items 1–3:**
+
+- First claim persists deadline_at = DB now + 120 seconds; reclaims/restart never extend it. At most six attempts; gaps 1, 4, 10, 25 and 40 seconds, clipped to remaining budget. Each attempt is at most 20 seconds, also clipped. The budget covers lookup, decode, handoff and gaps.
+- Abort on attempt/overall timeout, lost claim or shutdown. Claim TTL is 30 seconds and renewal is capped at the overall deadline. Set aside expired work before decoding, fence/clear its token and release its slot. Late results cannot cache, persist, settle, answer a question or send; reclaim late materialised files. Each effect/write checks token/state/deadline in its transaction; DB statement/lock timeouts use the remaining budget. During DB outage, recording waits for recovery; recovery sets expired work aside before trying again.
+- Log platform and failed operation in plain English, without raw exception text, message content or credentials. Example: "Slack message set aside: could not read the sender." Status shows only `Set-aside messages: Slack 2, Telegram 0, Discord 1, Teams 0`, scoped to the selected runtime home/app. If storage cannot be read, show `Set-aside messages: unavailable`, never a false zero. No ids, newest reason, message bodies or admin actions.
+- Extend the existing scheduler retention callback with a bounded sweep of completed identities after settled_at + 30 days. Recheck state/time under lock; keep pending, claimed and set-aside rows. Stop cutoffs remain in router_state independently of receipt expiry. Existing reference-aware file cleanup stays.
+- T2 storage cases and T4's controlled clock prove deadline fencing and release; T17's received-order owner case also proves an expired head releases the next message and a late result produces no input. T3 owns count formatting/app isolation and completed-identity expiry checks. These support items 1–3, not an admin Done-when item.
+
+**Minimal held-delete guard:**
+
+- Slack message_deleted and Discord MESSAGE_DELETE/MESSAGE_DELETE_BULK retain their existing direct routes and onMessageAttachmentsDeleted callback, account qualification and attachment cleanup/retries. Edits keep today's behavior: Slack ignores message_changed, Telegram registers message inputs rather than edited_message, and Discord has no MESSAGE_UPDATE handler. No edit overlay, mutation event or canonical version/tombstone is added.
+- Before the existing direct delete route, observe its raw channel and external message ids through the bound connection's FIFO. Wait for earlier saves to commit, never for unpack or ordinary slots. Under the same app admission lock as handoff, mark matching pending/claimed/set-aside inbox messages deleted, scoped by app/provider/connection/raw channel/message key regardless of thread metadata. Bulk ids are unique/sorted; no match is a no-op, with no tombstone for future messages. A failed guard throws through the provider failure path rather than silently letting handoff proceed.
+- Cache and every unfinished route handoff reread deleted under that lock before canonical/admission writes. Deleted held targets get drop receipts and no new input, with normal completed-identity retention. Already committed routes remain the existing direct handler's responsibility. Set-aside targets retain the flag without a recovery action. A guard committed before handoff wins across restart/stale decode; a handoff already committed remains today's persisted-message deletion case.
+- T2's Postgres crossing check races the guard against claimed caching, including pending/set-aside targets, missing thread metadata, bulk ids, another source/account and restart. T6 proves the real handoff boundary with a paused stale decode and concurrent delete. T10/T14 preserve direct deletion boundary checks. This is the spec's held-message non-resurrection guard, not item 5's replacement pipeline.
 
 ### The shared seam, pinned by T1
 
-**Table `inbound_events`** (Drizzle schema `schema/inbound-events.ts`, plus a migration):
+T1 pins shared signatures for this slice; staged methods stay unused until their owning task implements them. New files below are proposed in verified existing directories.
 
-| column | type | meaning |
-|---|---|---|
-| `id` | text pk | uuid |
-| `seq` | bigint generated always as identity | our receive counter, the only order |
-| `app_id` | text not null, foreign key to apps | |
-| `provider` | text not null | canonical provider id |
-| `provider_account_id` | text not null | the account whose connection received it |
-| `source_channel` | text not null | the platform's chat id, from the raw event with no lookup |
-| `source_thread` | text not null default '' | thread or topic id from the raw event, or '' |
-| `kind` | text not null | `message`, `edit` or `delete` |
-| `event_key` | text not null | the platform's identity for this event: Slack `channel:ts` (for an edit, plus the edit's `ts`), Telegram `chat:message_id` (edits add `edit_date`), Discord message or interaction id (edits add `edited_timestamp`), Teams activity id |
-| `target_key` | text | for an edit or delete, the `event_key` of the message it changes |
-| `control` | boolean not null default false | a session command, claimed without waiting |
-| `payload` | jsonb not null | the raw event as received |
-| `deleted` | boolean not null default false | the target was deleted before it was read |
-| `state` | text not null default `'pending'` | `pending`, `claimed` or `set_aside`; read events are deleted |
-| `attempts` | int not null default 0 | |
-| `next_attempt_at` | timestamptz | backoff |
-| `claim_token`, `claim_expires_at` | text, timestamptz | |
-| `last_error` | text | plain reason, never message text |
-| `received_at` | timestamptz default `clock_timestamp()` | |
+**Identities and classifier** (new apps/core/src/domain/ports/inbound-events.ts; channel-facing exports in apps/core/src/channels/channel-provider.ts):
 
-- Unique on `(app_id, provider, provider_account_id, kind, event_key)`.
-- Partial index on `(app_id, provider, provider_account_id, source_channel, source_thread, seq)` where `state IN ('pending','claimed')`.
+- InboundConnectionId is stable across restart/reconnect and account iteration order. Hash app/provider/sorted credential-reference grouping already used by provider-account-channel-connect.ts, reusing shared/stable-hash.ts; a non-shared connection uses its account id. Representative account is not the duplicate scope. T1 also pins InboundRoute (existing destination conversation/thread/account/agent fields) and the routing helper input/output used by persistence and control. No new lease/checkpoint.
+- HeldDeleteScope = { sourceChannel: string; messageKeys: readonly string[] }. Bound connection supplies app/provider/connection. This observer feeds only the inbox guard, not a replacement delete handler.
+- classifyInbound(payload: unknown): InboundClassification is pure: { outcome: 'event'; event: InboundEvent } | { outcome: 'unsupported' } | { outcome: 'malformed'; event: InboundMalformedEvent; reason: string }. Edits/deletes, non-message interactions and utilities keep direct handling; /gantry is a supported message input. Malformed supported inputs save with stable envelope identity (stableSha256Json(raw) if absent), raw scope if known, kind malformed and a safe reason, then bounded retry/set-aside. No silent drop, invalid-input exception or I/O.
+- InboundEvent is a message with messageKey, optional control, eventKey, raw source channel/thread and received time. InboundControl pins parsed session command, raw actor/text and optional explicit route selector, never a lookup-dependent parent/name.
+- Receipt keys: Slack paired message/mention uses channel:ts; slash uses trigger_id or Socket Mode envelope_id, never current time. Telegram uses update_id; messageKey is message_id within the raw chat. Discord create uses channel:id; interaction uses interaction.id. Teams uses conversation:activity.id; missing id is malformed, never time-based. kind is in uniqueness; provider timestamps never order intake. Pure raw-delete parsing is separate from receipt classification.
 
-**Edge contract** (`channels/channel-provider.ts`):
-- `ChannelOpts.saveInbound(event: { sourceChannel; sourceThread; kind; eventKey; targetKey?; control }, payload: unknown): Promise<void>`. It resolves only after commit and inserts with `ON CONFLICT DO NOTHING`.
-- The edge acknowledges only after `saveInbound` resolves.
-- Building the event fields is pure: the codec's `classifyInbound(payload)` does no lookups.
+**Record** (new apps/core/src/adapters/storage/postgres/schema/inbound-events.ts, schema/index.ts export and migration):
 
-**Codec contract:**
-- `ChannelAdapter.classifyInbound(payload)` is pure.
-- `ChannelAdapter.unpackInbound(payload): Promise<{ kind: 'messages'; messages: NewMessage[] } | { kind: 'drop'; reason: string }>` may do lookups and downloads.
-- Throw `InboundUnpackError(plainReason)` to retry with that reason. Any other error retries with "couldn't read this <Platform> message (<error name>)".
-- `drop` covers bot echoes, unrouted chats and a reply that answered a question. It deletes the event and logs, as today.
+| Fields | Contract |
+|---|---|
+| id, seq, app_id, provider, connection_id | UUID, bigint identity allocated under connection save lock, app foreign key, stable source |
+| source_channel, source_thread, kind, event_key, message_key, control_json | Raw ordering scope; thread defaults empty; typed classifier output; malformed unknown channel is empty, not an invented route |
+| payload, unpacked_json, routes_json, route_receipts_json | Nullable raw/cached decode; selected destination route identities and each route's committed handoff/drop/question/control outcome |
+| deleted | Boolean held-delete guard, initially false; survives restart/set-aside |
+| state, attempts, next_attempt_at, deadline_at | pending/claimed/set_aside/completed; first-claim deadline survives recovery |
+| claim_token, claim_expires_at, last_error | Fenced lease capped at deadline; safe reason |
+| received_at, set_aside_at, settled_at | DB clock; settlement starts completed retention |
 
-**The worker's claim** (`runtime/inbound-unpack-loop.ts`):
-- Modelled on `runtime/live-admission-work-loop.ts`: claim, renew, release on stop.
-- It runs wherever channels are connected and claims only events for accounts bound in this process.
-- It wakes in-process when `saveInbound` commits, with a 2-second poll as backstop.
-- It reads up to 4 events at once, always from different threads.
-- Claim TTL is 30 seconds, renewed while unpacking.
-- **The head rule:** a non-control event is claimable only when no earlier `pending` or `claimed` event has the same app, provider, account, source channel and source thread. Use `FOR UPDATE SKIP LOCKED` in `seq` order, the same claim shape as `live-admission-work-item-repository.postgres.ts`. Control events skip the head rule.
+Unique (app_id, provider, connection_id, kind, event_key) includes completed receipts. Index raw-scope heads/seq, due controls, raw channel/message keys for held-delete guard, per-platform state counts and completed retention. Pin fields now rather than letting later tasks invent formats.
 
-**After unpacking,** the shared step runs for each message:
-- **Fan-out:** fan out over the bound connection's `inboundProviderAccountIds`. This logic moves out of the `onMessage` wrapper in `provider-account-channel-connect.ts`.
-- **Host handler:** call the host persistence handler: route check, service-identity check, `storeMessageWithLiveAdmission` per route, and TURN-1 T7's busy notice. The admission item carries the inbox `seq`.
-- **Settle:** `DELETE ... WHERE id = $id AND claim_token = $token`.
-- **No single transaction.** These steps are safe to repeat, as the spec says: a crash between them re-reads the event, and the message and admission keys dedupe it.
-- **On failure:**
-  - set `state='pending'`, `next_attempt_at = now() + backoff(attempts)`, `last_error = reason`;
-  - on the sixth failed attempt, set `state='set_aside'`.
+**Types and operations:**
 
-**One crossing test, owned by T1:**
-- A fake edge saves twice for one thread, once for another thread, and one control event behind a failing event.
-- Claims across two connections return only the heads plus the control event.
-- Settling unblocks the next event; a retry blocks its thread; set-aside unblocks it.
+- saveInbound(event: InboundEvent | InboundMalformedEvent, payload: unknown): Promise<{ id: string; seq: bigint; duplicate: boolean }> commits before resolving. Binding owns connection/FIFO. Duplicate returns existing receipt without refreshing timestamps. The delete observer uses the same FIFO to mark already held targets.
+- unpackInbound(event, { signal, deadlineAt }): Promise<InboundUnpackResult> returns messages/NewMessage[], drop/plain reason, or question_reply/{ reply: InboundQuestionReply; fallback: NewMessage }. InboundQuestionReply pins prompt id, bot author/reference alias from the reply-to prompt, raw chat/topic, account, actor and answer. Injected durable reply handler returns handled, not_a_question or stale_claim; only not_a_question uses fallback. InboundUnpackError(plainReason) retries; unexpected errors use allowlisted operation/error name, not raw text.
+- Port signatures: save, claimHeads, claimControls, renew, release, cacheUnpacked, settle, retryLater, setAside, countSetAside, sweepCompleted, markHeldDeleted, recordStop and recordRouteReceipt; guarded writes include token/deadline. No admin/edit operations. markHeldDeleted takes HeldDeleteScope and bound source scope, returns matched count and commits before the direct handler continues.
+- InboundOrigin = { eventId; connectionId; sourceChannel; sourceThread; seq; claimToken; deadlineAt } passes explicitly through runtime persistence port, wrapper, canonical service/repository and admission. InboundStopScope = raw source scope + complete LiveAdmissionInputScope. recordStop stores max seq in a namespaced router_state key and consumes waiting predecessors in one transaction. This is a cancellation cutoff, not a consumption cursor.
+- T1 crossing test: typed fake edge classification → real Postgres save, stable receipt identity and held-delete scope. T2 extends it: hold first uncommitted save, begin later save and concurrent claim, prove no later head escapes, release first; different connections/threads, expired claims, retry blocks and set-aside unblocks. Barriers/database state, no sleeps.
+
+**Worker and transaction boundary:**
+
+- Bound inbound connections only, wake after commit with two-second polling backstop. Separate ordinary/control claims; 30-second lease capped at persisted 120-second deadline; restart sets expired budgets aside before work.
+- Lookup/download work is outside transactions with no admission/answer side effects. Cache successful decoded result and selected route identities using token/state/deadline/deleted checks. Current route eligibility is rechecked at handoff; removed routes get a committed drop receipt.
+- Reuse live_admission_active_backlog:<app> transaction advisory lock for route handoff, stop, held-delete guard and intake's existing atomic take. Lock order: app, inbox, canonical/admission. Delete observation takes connection save lock before app; no path takes connection lock after app. No provider call/harvest/send/unlink under locks. Add ponytail comment: app-wide write lock, narrow only if measured contention needs it.
+- Route transaction validates token/state/deadline and rereads deleted, saves message, inserts/reuses admission with cutoff check, records receipt. Existing receipt returns before any canonical upsert (currently message_parts is written before admission deduplication). A held-delete flag returns a drop receipt before those writes. Notify/optional harvest after commit cannot create admission on replay.
+- Separate account-route and settlement commits are intentional: decoded cache, route receipts and existing intake consumption make partial boundaries repeatable. Settlement is guarded completed state, never immediate identity deletion.
 
 ### Deleted in this story (replacing behaviour deletes the old path)
 
@@ -191,63 +130,67 @@ This story adds the first of the spec's three durable lists, the inbox. Every in
   - Discord: `resolveDiscordConversationContext` and attachment capture, in the message handler and `/gantry`.
   - Teams: `resolveTeamsInboundIdentity`.
 - **Discord's lenient thread lookup** that silently routes a thread message to its parent channel when the lookup fails, along with the retry loop from the stopgap fix. The codec always fails closed and the inbox retries. Button and interaction lookups keep their lenient path.
-- **Discord's `void this.handle(...).catch(...)`.** It is replaced by one ordered chain.
-- **The history-distrust trigger on handler failure:** `onDispatchFailure` (`conversation-history-coverage-lifecycle.ts`, `slack/channel-connect.ts`, `discord/gateway.ts`). The rest of `ConversationHistoryCoverageDistrust` stays.
-- **The old inbound contract:**
-  - `ChannelOpts.onMessage`;
-  - the fan-out wrapper (`provider-account-channel-connect.ts:161-186`);
-  - `InboundMessageDeliveryError` and `InboundMessageDeliveryResult`;
-  - `onMessageAttachmentsDeleted` as a direct callback.
+- **Discord's `void this.handle(...).catch(...)`.** Replace with ordered saves and contiguous resume accounting, preserving interaction and raw-control/delete observation bypasses.
+- **History distrust for failed saved-message handling:** narrow `onDispatchFailure` use (`conversation-history-coverage-lifecycle.ts`, `slack/channel-connect.ts`, `discord/gateway.ts`) so durable message retries do not invoke it. Keep existing direct deletion failure behavior and reconnect/disconnect/lease-loss distrust; do not delete a callback still needed by a direct path.
+- **The replaced external message path:** ordinary Slack/Telegram/Discord/Teams use of `ChannelOpts.onMessage` and its fan-out wrapper moves to inbox handoff. Keep the callback/result types needed by App and its existing ingress; remove only delivery-error code with no remaining caller.
+- **Deletion contracts stay:** preserve `onMessageAttachmentsDeleted`, its bound-account wrapper, direct routes and both raw/durable attachment deletion retries.
 - **The silent drop when the identity lookup fails** (`channel-persistence-handlers.ts:194-205`). It now throws, so the worker retries.
+
 
 ### Builder traps
 
-- **Slack:**
-  - Handle `receiver.client`'s `slack_event` yourself.
-  - For `events_api` message events (including `message_changed` and `message_deleted`), `app_mention` and `slash_commands`: classify, `await saveInbound`, then `ack()`.
-  - Everything else goes to `app.processEvent` exactly as Bolt did.
-- **Telegram:**
-  - One middleware for `message` and `edited_message` saves the update. It calls `next()` only for `/chatid` and `/ping`.
-  - A failed save retries with backoff until it succeeds or the bot stops, and never throws.
-  - The codec reads the raw `Update`, not a grammY `ctx`. Take the bot username from `bot.botInfo`.
-- **Discord:**
-  - Control opcodes are handled immediately.
-  - Dispatch frames go through one promise chain.
-  - `this.sequence` moves only after the save commits.
-  - `/gantry` saves, then acknowledges, within Discord's 3 seconds.
-  - `discord/index.ts` is at 739 of its 740-line budget. Move message handling into the new codec file.
-- **Wiring:**
-  - Start and stop the worker from a new `app/bootstrap/inbound-unpack-wiring.ts`; `channel-wiring.ts` is at 777 of 790 lines.
-  - Bootstrap files only wire.
-- **Engines:** nothing here is engine-specific. Both runners see the same intake.
+- **Slack:** intercept receiver.client slack_event before Bolt acknowledges; supported events/slash classify-save-ack, others still app.processEvent. No duplicate acknowledging listener. T10 owns channel-state lookup errors and both channel-interactions ingestion wrappers returning codec results, not just registration. Direct deletes observe held targets then continue the existing route; edits are not saved as messages; download/canvas operations use remaining budget.
+- **Telegram:** save middleware precedes registerTelegramBotCommands, whose utility handlers currently run first. next() after save only for /chatid and /ping; callbacks/membership remain direct. Decode raw Update using cached bot.botInfo. T12 text/edge precedes T13 media/queue deletion; T11 owns Other binding, reply finalisation and storage durability, including terminal binding lookup.
+- **Discord interactions:** parse frame synchronously, handle control opcodes immediately. INTERACTION_CREATE bypasses ordinary dispatch work. Buttons/modals defer immediately before lookups/effects; finish via the existing response API. /gantry reserves its FIFO save position immediately, with at most two seconds to confirm commit; only then ack/defer, before lookup or command work. Earlier retries/handlers do not block its acknowledgement timer. If save cannot confirm in budget, cancel/rollback pending work and send a plain failure response within three seconds when failure is definite; never acknowledge successful receipt. Unknown commit/expired interaction leaves a replay gap and logs it, without promising redelivery of an expired interaction. A committed event remains durable if acknowledgement itself fails.
+- **Discord resume:** completion ledger advances sequence only through the contiguous completed prefix of received dispatches (numeric sequence gaps are possible). A later bypass never skips an unsaved earlier frame. Direct frame completes after handler settles, not on defer; hanging direct work cannot hold later acknowledgement timers. Bound the incomplete ledger; saturation reconnects from last completed resume point. Keep reconnect/history distrust for unresumable gaps. T15 uses existing failClosed for message parent lookup; interactions keep their routing policy. No stopgap local retry survives.
+- **Preserve direct paths:** routeSlackDeletion, routeDiscordDeletion, onMessageAttachmentsDeleted and its account wrapper/retry workers remain. Raw observation runs before those handlers independently of unpack work. Preserve ignored edits. Cleanup never removes deletion callbacks/routing because ordinary messages moved to codecs.
+- **Intermediate builds:** T1 adds optional inbox capability; outbound-only App requires no codec. External conversion requires codec/saver in its constructor/connect path without fallback. Remove replaced external ordinary-message callbacks/fan-out only after every external adapter converts; preserve App/web ingress and direct deletion/interaction contracts. No dual reads remain for converted messages.
+- **Wiring:** new bootstrap/inbound-unpack-wiring.ts only composes injected runtime code. Shared behavior belongs in new runtime/inbound-routing.ts, inbound-persistence.ts and inbound-control.ts. T5 moves only the existing route matcher (~140 lines, counted twice for relocation); T7 moves message persistence; T8 owns fan-out/wiring, so the extraction is not disguised as one 400-line task. Extract/replace owned behavior to respect existing channel-wiring.ts, discord/index.ts and storage wrapper ceilings, rather than raise them.
+- **Checks:** real runtime/isolated Postgres with external platform/model faked. Reuse test/harness/fake-channel.ts and postgres-integration-runtime.ts; tiny fake inbound transport never implements ordering/deduplication. New Postgres filenames match existing integration/e2e configs automatically. E2E nightly, not close; removal uses existing suites/type/architecture checks. Both runners use the same intake.
 
 ## Tasks
 
+Sizes estimate changed authored lines including owned checks, about 400 maximum; generated migration metadata is separate mechanical output. Each task covers at most three Done-when items. IDs are sequential; After lists only this story's prerequisites. Paths marked new are proposals in existing directories.
+
 | ID | Name | What it delivers | Covers | Scope | Tests | After | User-facing |
 |---|---|---|---|---|---|---|---|
-| T1 | The inbox and its contract | The `inbound_events` table and migration. The repository and port: save, claimHeads (control events skip the head rule), renew, settle, retryLater, setAside, retry, dismiss, countSetAside, applyToTarget. The edge and codec types and `InboundUnpackError`. No production caller yet. | 1, 2, 3 | `apps/core/src/adapters/storage/postgres/schema/inbound-events.ts`, `apps/core/src/adapters/storage/postgres/schema/index.ts`, `apps/core/src/adapters/storage/postgres/schema/migrations/**`, `apps/core/src/adapters/storage/postgres/repositories/inbound-event-repository.postgres.ts`, `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts`, `apps/core/src/domain/ports/inbound-events.ts`, `apps/core/src/channels/channel-provider.ts` (new types only) | `apps/core/test/integration/inbound-events.postgres.integration.test.ts`: the crossing test; a duplicate key is ignored; heads only, across two connections and two threads; a control event is claimed behind a failing head; an expired claim is reclaimed; retry blocks its thread; set-aside unblocks it | | no |
-| T2 | The worker reads every saved message in order | `runtime/inbound-unpack-loop.ts` with claim, unpack, the shared step and settle; backoff; set-aside on the sixth attempt. The fan-out helper is extracted in `provider-account-channel-connect.ts`, and `saveInbound` is bound per connection with an in-process wake. Admission items carry the inbox `seq`, and a stop records the `seq` it stopped through. A fake provider harness. | 1, 2, 3 | `apps/core/src/runtime/inbound-unpack-loop.ts`, `apps/core/src/app/bootstrap/inbound-unpack-wiring.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts` (start/stop lines only), `apps/core/src/channels/provider-account-channel-connect.ts`, `apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts` (inbox seq and stopped-through), `apps/core/src/adapters/storage/postgres/schema/live-turns.ts`, `apps/core/src/adapters/storage/postgres/schema/migrations/**`, `apps/core/src/domain/ports/live-turns.ts`, `apps/core/test/harness/fake-inbound-provider.ts` | End-to-end `apps/core/test/e2e/inbound-inbox.postgres.e2e.test.ts`: `answers a handed-over message once after its lookup fails twice`; `answers a message saved before a restart once after the restart`; `answers a twice-delivered message once, before and after it was read`; `gives a slow photo and the quick text after it to the agent in received order while another chat is answered`; `handles /stop at once behind a message still being read and never starts a turn for the earlier message`. Unit `apps/core/test/unit/runtime/inbound-unpack-loop.test.ts`: the backoff schedule and releasing claims on stop | T1 | yes |
-| T3 | An admin sees, retries and dismisses messages that couldn't be read | `gantry status` shows set-aside counts per platform and the newest plain reason; `gantry inbox retry` and `gantry inbox dismiss`; set-aside rows older than 30 days are deleted by the retention sweep | 4 | `apps/core/src/cli/status.ts`, `apps/core/src/cli/inbox.ts`, the CLI command registry entry, the existing retention sweep file | End-to-end `apps/core/test/e2e/inbound-set-aside.postgres.e2e.test.ts`: `sets aside an unreadable message with a plain reason shown by status and answers the next one in that thread`; `answers a set-aside message once the admin retries it after the lookup recovers`. Unit `apps/core/test/unit/cli/status.test.ts` for the status line. Postgres retention case in the existing retention test file | T2 | yes |
-| T4 | Slack saves before acknowledging | The Slack edge in the Socket Mode hook. A pure classifier, plus a codec built from `ingestSlackMessage` and `ingestSlackSlashCommand` that returns messages. Bolt's message and command listeners go. Slack's `onDispatchFailure` goes. | 1, 2 | `apps/core/src/channels/slack/channel-connect.ts`, `apps/core/src/channels/slack/channel-message-ingest.ts`, `apps/core/src/channels/slack/slash-command-ingest.ts`, `apps/core/src/channels/slack/slack-message-deletion.ts`, `apps/core/src/channels/slack/channel-interactions.ts` (registration only), `apps/core/src/channels/slack/channel-delivery.ts` | `apps/core/test/unit/channels/slack-socket-mode-lifecycle.test.ts`: acks only after the save commits; no ack when the save fails; `message` plus `app_mention` saved once. `apps/core/test/unit/channels/slack.test.ts`: classify and unpack cases (file share, thread, `/gantry` as a control event, unrouted chat dropped, a failed channel lookup throws) | T2 | yes |
-| T5 | Telegram saves before taking the next update | The Telegram edge middleware with retry in place. A pure classifier and one codec for text and media (downloads during unpack, placeholder fallback), plus the question-answer reply. The media queue and its drain are deleted. | 1, 3 | `apps/core/src/channels/telegram/channel-connect.ts`, `apps/core/src/channels/telegram/text-message-handler.ts`, `apps/core/src/channels/telegram/media-ingestion.ts`, `apps/core/src/channels/telegram/channel-state.ts`, `apps/core/src/channels/telegram/channel-delivery.ts`, `apps/core/src/channels/telegram/disconnect.ts` | `apps/core/test/unit/channels/telegram.test.ts`: an update isn't finished until it is saved; a failed save is retried, not skipped; classify and unpack cases (photo with caption, reply to the bot, topic thread, `/stop` as a control event, `mentionsBot` kept); a failed download keeps the placeholder | T2 | yes |
-| T6 | Discord saves before moving its resume point | The ordered dispatch chain, with the sequence moved after the save. A new `discord/inbound-codec.ts` (pure classifier, message and `/gantry`) whose parent lookup fails closed. `/gantry` saves, then acknowledges. Discord's `onDispatchFailure`, the lenient thread fallback and the stopgap retry loop go; `index.ts` gets smaller. | 1 | `apps/core/src/channels/discord/gateway.ts`, `apps/core/src/channels/discord/gateway-dispatch.ts`, `apps/core/src/channels/discord/index.ts`, `apps/core/src/channels/discord/inbound-codec.ts`, `apps/core/src/channels/discord/live-attachment-capture.ts`, `apps/core/src/channels/discord/conversation-context.ts`, `apps/core/src/channels/discord/message-deletion.ts`, `apps/core/src/channels/discord/interactions.ts` (`/gantry` only) | `apps/core/test/unit/channels/discord/discord.test.ts`: frames are handled in arrival order; the resume sequence moves only after the save; a failed thread lookup throws and is never routed to the parent; `/gantry` is saved before its acknowledgement | T2 | yes |
-| T7 | Teams joins, and the old inbound path is deleted | Teams `ingestMessage` becomes edge plus codec; card submits stay direct. Deletes `ChannelOpts.onMessage`, the fan-out wrapper, `InboundMessageDeliveryError`, the persistence queue and its drain, `async-task-queue.ts` and its test, and the remaining `onDispatchFailure`. A failed identity lookup now throws. Decisions 0085 and 0087 amended. | 1, 3 | `apps/core/src/channels/teams/index.ts`, `apps/core/src/channels/teams/types.ts`, `apps/core/src/channels/channel-provider.ts`, `apps/core/src/channels/provider-account-channel-connect.ts`, `apps/core/src/channels/conversation-history-coverage-lifecycle.ts`, `apps/core/src/app/bootstrap/channel-persistence-handlers.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/app/bootstrap/async-task-queue.ts` (delete), `apps/core/test/unit/bootstrap/async-task-queue.test.ts` (delete), `apps/core/test/unit/bootstrap/channel-wiring.test.ts`, `apps/core/test/integration/inbound-envelope-statements.postgres.integration.test.ts`, `docs/decisions/0085-*`, `docs/decisions/0087-*` | `apps/core/test/integration/inbound-envelope-statements.postgres.integration.test.ts`: the statement budget, measured through the shared step, and a failed sender-identity lookup retried, not dropped. `apps/core/test/unit/channels/teams/teams.test.ts`: a Teams message is saved before it is read. Type check: no `onMessage` left on channel options | T4, T5, T6 | yes |
-| T8 | Edits and deletes follow their message | Slack `message_changed` and `message_deleted`, Telegram `edited_message`, and Discord `MESSAGE_UPDATE`, `MESSAGE_DELETE` and `MESSAGE_DELETE_BULK` are classified as `edit` or `delete` with a `target_key`. `applyToTarget` changes a target still in the inbox; the shared step updates or consumes a saved message not yet taken into a turn, or records the change in history. | 5 | `apps/core/src/runtime/inbound-unpack-loop.ts` (edit and delete branch), `apps/core/src/channels/slack/channel-message-ingest.ts`, `apps/core/src/channels/slack/slack-message-deletion.ts`, `apps/core/src/channels/telegram/text-message-handler.ts`, `apps/core/src/channels/discord/inbound-codec.ts`, `apps/core/src/channels/discord/message-deletion.ts`, `apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts` (edit and delete of an unconsumed message) | End-to-end `apps/core/test/e2e/inbound-edits-deletes.postgres.e2e.test.ts`: `reads the edited text of a message edited before it was taken in`; `never reads a message deleted before it was taken in, even after the admin retries it`; `keeps an edit after the turn as history without starting a turn` | T4, T5, T6 | yes |
+| T1 | Pin inbox and shared contracts | Schema/migration, ordered save and classifier/control/origin/deadline/held-delete signatures. ~340 lines. | 1, 2, 3 | `apps/core/src/domain/ports/inbound-events.ts` (new), `apps/core/src/channels/channel-provider.ts` (types only), `apps/core/src/adapters/storage/postgres/schema/inbound-events.ts` (new), `apps/core/src/adapters/storage/postgres/schema/index.ts`, `apps/core/src/adapters/storage/postgres/schema/migrations/**`, `apps/core/src/adapters/storage/postgres/repositories/inbound-event-repository.postgres.ts` (new), `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts` (bundle only), `apps/core/test/integration/inbound-events.postgres.integration.test.ts` (new) | Typed edge→Postgres crossing; stable message/slash/shared-connection ids; held-delete scope; malformed/unsupported contract |  | no |
+| T2 | Claim, retry and guard held messages | Heads/control claims, fences, cache/receipts/settlement/deadlines and held-delete guard. ~395 lines. | 1, 2, 3 | `apps/core/src/adapters/storage/postgres/repositories/inbound-event-repository.postgres.ts`, `apps/core/test/integration/inbound-events.postgres.integration.test.ts` | Crossing extended with overlapping saves/concurrent claims, expired tokens/deadlines, retry/set-aside and completed drop dedupe; held delete vs claimed cache/restart, bulk/missing-thread/source isolation | T1 | no |
+| T3 | Count set-aside messages and retain completed identities | Per-platform status counts; bounded completed-identity sweep in existing scheduler callback; combine retained storage and reduced status work. ~320 lines. | 2, 3 | `apps/core/src/adapters/storage/postgres/repositories/inbound-event-repository.postgres.ts`, `apps/core/src/cli/status.ts`, `apps/core/src/jobs/scheduler.ts` (retention callback only), `apps/core/test/integration/inbound-events.postgres.integration.test.ts`, `apps/core/test/unit/cli/status.test.ts` | App/runtime-home counts and unavailable output; 30-day completed/drop expiry, state/time recheck and partial batches; pending/claimed/set-aside kept; no admin E2E | T2 | yes |
+| T4 | Read heads within a deadline | Ordinary worker, independent control hook, cancellation/late-result fencing, remaining budget and release. ~380 lines. | 1, 3 | `apps/core/src/runtime/inbound-unpack-loop.ts` (new), `apps/core/test/unit/runtime/inbound-unpack-loop.test.ts` (new) | Controlled clock: cap/backoff, hang expires despite renewal, late result discarded/files reclaimed, slot/claim released | T2 | no |
+| T5 | Extract existing route selection | Move route matching/identity checks from host handler into shared runtime routing; preserve exact account/thread selection. ~350 lines. | 1, 3 | `apps/core/src/runtime/inbound-routing.ts` (new), `apps/core/src/app/bootstrap/channel-persistence-handlers.ts`, `apps/core/test/unit/bootstrap/channel-wiring.test.ts` | Existing configured-route/account/thread cases at the persistence boundary; extraction keeps behavior and intermediate build | T1 | no |
+| T6 | Store provenance and stop cutoffs | Origin across wrappers; replay/deleted guards and route receipt/admission transaction; admission fields; max cutoff and atomic enqueue/consume. ~395 lines. | 1, 2, 3 | `apps/core/src/domain/repositories/ops-repo.ts`, `apps/core/src/domain/ports/live-turns.ts`, `apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts`, `apps/core/src/adapters/storage/postgres/schema/live-turns.ts`, `apps/core/src/adapters/storage/postgres/schema/migrations/**`, `apps/core/src/adapters/storage/postgres/services/canonical-message-ops-service.ts`, `apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts`, `apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts`, `apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts` (delegation), `apps/core/src/adapters/storage/postgres/repositories/canonical-router-state-repository.postgres.ts` (executor/max helper), `apps/core/test/integration/inbound-handoff.postgres.integration.test.ts` (new) | Receipt/admission rollback/replay; held delete vs real handoff with paused stale decode; stop vs enqueue/take; exact account/agent/raw-thread scope; existing consumption kept; cutoff survives receipt expiry | T2 | no |
+| T7 | Persist through the shared runtime handler | Move message persistence/identity checks to runtime; guarded origin handoff, direct worker entry and temporary queued callback for unconverted adapters. ~380 lines. | 1, 3 | `apps/core/src/runtime/inbound-persistence.ts` (new), `apps/core/src/app/bootstrap/channel-persistence-handlers.ts`, `apps/core/test/integration/inbound-envelope-statements.postgres.integration.test.ts` | Existing fused-envelope check through shared step; identity failure retries instead of drops; type/architecture; runtime owners T17 | T6, T5 | no |
+| T8 | Connect saves, fan-out and worker | Bind FIFO/connection identity, bound raw-delete observer, account fan-out and injected worker/codec handlers; bootstrap lifecycle and tiny external transport harness. ~350 lines. | 1, 3 | `apps/core/src/channels/provider-account-channel-connect.ts`, `apps/core/src/app/bootstrap/inbound-unpack-wiring.ts` (new), `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/app/bootstrap/channel-wiring-types.ts`, `apps/core/test/harness/fake-inbound-provider.ts` (new), `apps/core/test/harness/fake-channel.ts`, `apps/core/test/harness/postgres-integration-runtime.ts`, `apps/core/test/unit/channels/provider-account-channel-connect.test.ts` | Shared-account binding and shutdown/claim release at existing channel boundary; type/architecture checks; runtime owners T17 | T4, T7 | no |
+| T9 | Stop without slots or lookups | Raw control handler, configured authority/qualified target and durable cancellation integrated into authorised session stop. ~390 lines. | 3 | `apps/core/src/runtime/inbound-control.ts` (new), `apps/core/src/runtime/inbound-unpack-loop.ts` (control hook), `apps/core/src/runtime/message-loop.ts` (control bypass), `apps/core/src/runtime/group-session-command-state.ts`, `apps/core/src/runtime/group-processing-session-command-handlers.ts`, `apps/core/src/session/session-commands.ts` (stop transaction hook), `apps/core/src/app/bootstrap/live-execution.ts`, `apps/core/src/app/bootstrap/runtime-live-stop-message-action.ts` (shared handler injection), `apps/core/src/runtime/live-turn-authority.ts`, `apps/core/src/runtime/group-queue.ts` (qualified raw aliases only), `apps/core/test/e2e/inbound-stop.postgres.e2e.test.ts` (new) | Owner E2E: stops a raw thread with all unpack slots occupied and keeps its predecessors as history; restart/refused/late/set-aside/shared accounts | T8 | yes |
+| T10 | Slack saves before ack | Socket hook/codec, lookup failures and returning wrappers; preserve direct edits/deletes with held-delete observer. ~390 lines. | 1, 2 | `apps/core/src/channels/slack/channel-connect.ts`, `apps/core/src/channels/slack/channel-message-ingest.ts`, `apps/core/src/channels/slack/slash-command-ingest.ts`, `apps/core/src/channels/slack/channel-state.ts`, `apps/core/src/channels/slack/channel-interactions.ts` (wrappers/registration), `apps/core/src/channels/slack/channel-delivery.ts` (wiring), `apps/core/src/channels/slack/inbound-attachment-download.ts`, `apps/core/src/channels/slack/canvas.ts` (shared budget only), `apps/core/test/unit/channels/slack-socket-mode-lifecycle.test.ts`, `apps/core/test/unit/channels/slack.test.ts` | Save-before-ack/failure, paired receipt/slash id, file/thread/unrouted and retryable lookup; abort/budget; existing direct deletion proof kept. Runtime owners T17 | T8 | yes |
+| T11 | Durable Telegram question replies | Force-reply locator, terminal binding lookup and atomic progress/answer/inbox receipt; waiter/render after commit. ~390 lines. | 1 | `apps/core/src/channels/telegram/callback-handlers.ts` (Other binding), `apps/core/src/channels/telegram/channel-prompts.ts` (reply/finalise), `apps/core/src/channels/telegram/channel-delivery.ts` (progress), `apps/core/src/application/interactions/pending-interaction-durability.ts`, `apps/core/src/application/interactions/pending-interaction-question-recovery.ts`, `apps/core/src/domain/ports/worker-coordination.ts`, `apps/core/src/adapters/storage/postgres/repositories/worker-coordination-interaction.postgres.ts`, `apps/core/src/adapters/storage/postgres/repositories/worker-coordination-interaction-repository.postgres.ts`, `apps/core/test/e2e/inbound-question-reply.postgres.e2e.test.ts` (new) | Owner E2E: answers a Telegram question once across restart and settlement replay; crash after prompt send before binding, crash after answer, duplicate/refused/expired and account/topic mismatch | T8 | yes |
+| T12 | Telegram saves before text handling | Middleware before utility registration, raw text classifier/codec and mentions; media remains post-save until T13. ~330 lines. | 1, 3 | `apps/core/src/channels/telegram/channel-connect.ts`, `apps/core/src/channels/telegram/text-message-handler.ts`, `apps/core/src/channels/telegram/bot-setup.ts`, `apps/core/test/unit/channels/telegram.test.ts` | Polling waits for save; retry no throw; middleware-before-utilities; raw topic/mention/stop and question candidate. Runtime owners T17 | T8, T11 | yes |
+| T13 | Decode Telegram media | Raw media codec and shared abort/budget; remove media queue/drain. ~390 lines. | 1, 3 | `apps/core/src/channels/telegram/media-ingestion.ts`, `apps/core/src/channels/telegram/channel-connect.ts`, `apps/core/src/channels/telegram/channel-state.ts`, `apps/core/src/channels/telegram/channel-prompts.ts` (download only), `apps/core/src/channels/telegram/channel-delivery.ts` (queue only), `apps/core/src/channels/telegram/disconnect.ts`, `apps/core/src/channels/telegram-file-download.ts`, `apps/core/test/unit/channels/telegram.test.ts` | Existing supported media/caption/topic/account cases on raw saved updates, placeholder on failed download and late-file reclamation; order owner T17 | T12 | yes |
+| T14 | Discord interaction bypass | Ordered save/resume completion ledger; immediate opcodes and deadline/defer bypass; slash save replaces eager ack; raw-delete observer before existing direct dispatch. ~395 lines. | 1, 3 | `apps/core/src/channels/discord/gateway.ts`, `apps/core/src/channels/discord/gateway-dispatch.ts`, `apps/core/src/channels/discord/interactions.ts` (ack/slash), `apps/core/src/channels/discord/interaction-helpers.ts` (deferred completion), `apps/core/src/channels/discord/types.ts`, `apps/core/src/channels/discord/index.ts` (observer injection only), `apps/core/test/unit/channels/discord/discord.test.ts` | Earlier save/direct handler stalled: later slash/button deferred ack or definite failed-save response within three seconds; no resume leap; late completion/reconnect gap; direct single/bulk deletion kept | T8 | yes |
+| T15 | Decode saved Discord messages | Move handling from index into codec, fail-closed parent and attachment budget; keep direct deletes. ~390 lines. | 1 | `apps/core/src/channels/discord/index.ts`, `apps/core/src/channels/discord/inbound-codec.ts` (new), `apps/core/src/channels/discord/gateway-dispatch.ts` (message registration), `apps/core/src/channels/discord/live-attachment-capture.ts`, `apps/core/src/channels/discord/conversation-context.ts`, `apps/core/test/unit/channels/discord/discord.test.ts` | Save before parent lookup; failure throws without wrong route; budget/reclamation/mentions; remove stopgap local retry if present. Runtime owners T17 | T14 | yes |
+| T16 | Teams saves before reading | Edge/codec with required activity identity, metadata after save; submits direct. ~240 lines. | 1 | `apps/core/src/channels/teams/index.ts`, `apps/core/src/channels/teams/types.ts`, `apps/core/src/channels/teams/conversation-context.ts`, `apps/core/test/unit/channels/teams/teams.test.ts` | SDK boundary save-before-read/response; propagated save failure; malformed missing id; submits preserved. Runtime owners T17 | T8 | yes |
+| T17 | Prove recovery, duplicates and order | Three runtime owner cases and partial-commit/provider matrix on shared harness. ~390 lines. | 1, 2, 3 | `apps/core/test/harness/fake-inbound-provider.ts`, `apps/core/test/e2e/inbound-inbox.postgres.e2e.test.ts` (new) | Owner E2Es: recovers each saved route once through every handoff boundary; unpacks a redelivered event once and replies once on each eligible account route; delivers a slow photo and later text in receive order while another thread answers; includes expired head release and late-result suppression | T10, T13, T11, T15, T16 | no |
+| T18 | Delete replaced callbacks | Replaced external message fan-out and unused delivery errors; handler-failure distrust; decisions; preserve direct deletes/App ingress. ~270 lines. | 1 | `apps/core/src/channels/channel-provider.ts`, `apps/core/src/channels/provider-account-channel-connect.ts`, `apps/core/src/channels/conversation-history-coverage-lifecycle.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts` (callbacks), `apps/core/src/app/bootstrap/channel-persistence-handlers.ts` (old entry only), `apps/core/src/channels/slack/channel-connect.ts`, `apps/core/src/channels/slack/channel-delivery.ts`, `apps/core/src/channels/discord/gateway.ts`, `apps/core/src/channels/discord/live-attachment-capture.ts` (old delivery error), `apps/core/test/unit/bootstrap/channel-wiring.test.ts`, `apps/core/test/unit/channels/provider-account-channel-connect.test.ts`, `apps/core/test/unit/channels/slack.test.ts`, `apps/core/test/unit/channels/discord/discord.test.ts`, `docs/decisions/0085-lat-4a-fused-inbound-envelope-transaction.md`, `docs/decisions/0087-lat-5-durable-provider-history-coverage.md` | Existing suites/type/architecture; reconnect/disconnect/lease-loss distrust preserved; obsolete callback tests replaced by current boundary proof; no new removal E2E | T16, T9, T3, T17 | no |
+| T19 | Delete unused save queue | Persistence/metadata queue and drains; AsyncTaskQueue/test deletion; finish harness conversion. ~390 lines. | 1, 3 | `apps/core/src/app/bootstrap/channel-persistence-handlers.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/app/bootstrap/async-task-queue.ts` (delete), `apps/core/test/unit/bootstrap/async-task-queue.test.ts` (delete), `apps/core/test/unit/bootstrap/channel-wiring.test.ts`, `apps/core/test/integration/inbound-envelope-statements.postgres.integration.test.ts` | Existing metadata/persistence/fused-envelope checks without queue; type/architecture; no queue-named replacement or removal E2E | T18, T13 | no |
 
-New moving parts: the `inbound_events` table (items 1–5); the inbox unpack worker loop (items 1, 3, 4, 5). No new notify channel or service.
+New moving parts: the inbound_events table (items 1–3) and shared unpack worker with reserved control lane (items 1, 3). Existing router state holds cutoffs, pending interactions hold question bindings, and the existing scheduler callback expires completed receipts. No second consumption list, notify channel, service, retention job or inbox admin command.
 
 ## Notes
 
-- **Out of scope** (later stories):
-  - button taps, card submits and permission decisions through the inbox (MSG-3);
-  - moving connection ownership and saving connection checkpoints (MSG-4);
-  - the outbox for every send (MSG-2);
-  - folding the web SDK path and `external_ingress_invocations`, which are already durable, into this table;
-  - a web admin view of set-aside messages.
-- **Planning decisions:**
-  - Set-aside messages are shown to the admin only; the sender gets no notice.
-  - The stopgap Discord retry fix merges now; T6 deletes it.
-- **TURN-1 coupling:**
-  - Tasks start only after these TURN-1 parts merge (Forge also blocks overlapping files): T2 after TURN-1 T5; T5 after TURN-1 T6; T6 and T7 after TURN-1 T7.
-  - The busy notice for an overloaded backlog stays TURN-1 T7's. It runs inside the host handler, which the shared step calls.
-  - Intake order stays `receive_order` and `takeInput`. The inbox adds no second consumption record.
+- **Owner choice, 2026-10-02:** split the unapproved 23-task plan. This story has 19 tasks covering only Done-when 1–3. The retained count/completed-retention work from former admin-storage and administration tasks is merged. Runtime/provider owners stay split to respect the approximately 400-line ceiling. Generated migration metadata is separate.
+- **Retention:** completed/drop identities remain for 30 days after settlement, including deleted held targets, while raw/cached content is discarded. Set-aside rows stay until the later story supplies retry, dismiss and 30-day set-aside retention. No MSG-1 sweep deletes them.
+- **Verified boundaries:** canonical-message-repository.postgres.ts upserts message_parts before admission deduplication: T6 guards replay before that write. Question finders return only pending/unexpired rows: T11 adds terminal bindings/receipts. Telegram force-reply locators are memory maps and utilities register ahead of inbound handling. The scheduler's existing sweepTerminalLiveAdmissions callback already receives the cutoff: T3 adds completed inbox expiry and combines bounded-sweep progress, without a new job or scheduler engine API. Queue removal includes metadata and harness users.
+- **Held-delete limit:** owned here by T2 (storage), T8 (bound observer), T10 (Slack), T14 (Discord) and T6 (handoff). Direct routes and onMessageAttachmentsDeleted stay. They currently mark attachment deletion, not canonical-message tombstones; no new promise about a delete after handoff. Full mutations belong to the later story. Telegram supplies no message-delete update here; Teams gains no deletion transport.
+- **Cross-story waits, never After entries:** T6/T7/T8/T9 wait for TURN-1 task 2, task 5 and task 8: intake switch, waiting-batch cancellation and durable commit-before-output/atomic take are recovery prerequisites. T10/T12/T13 wait for TURN-1 task 6 where mention/reference formats overlap. T14/T15/T16/T18 wait for TURN-1 task 7's Discord/shared persistence changes. Re-read merged seams before building; no unmerged behavior is assumed here.
+- TURN-1 still owns quiet window, trigger/sender policy, busy notice and consumption with its two takeInput callers. MSG-1 adds receipts/source order/cutoffs, no outbox. Notice/harvest effects follow commit; preserve existing notice idempotency.
+- Button/card/permission inbox work remains MSG-3; outgoing guarantees MSG-2; leased connections/durable checkpoints/takeover MSG-4. Web SDK/external ingress stay on their durable paths; no web admin view. Teams converts its SDK handler without adding its missing live transport.
+- Discord's stopgap retry, if merged, is removed by T15, not copied into the codec. Failed/expired interactions remain under the spec's provider-given-up exclusion. Keep the round-1 three-second interaction response boundary and distinct Telegram update identities.
+- Reuse existing hash/transaction/question/attachment owners. New files are only inbox port/schema/repository, runtime worker/routing/persistence/control, bootstrap composition and owned checks. No generic event bus or concurrency framework.
+- **Surface impact:** runtime, Postgres, provider adapters and tests are Changed for items 1–3. CLI is Changed only for status counts. Audit/events are Changed for safe set-aside reasons. Docs/prompts are Changed for decisions 0085/0087 and durable Telegram question references. settings.yaml is Unchanged by design: no new setting. Control API and SDK/contracts are Unchanged by design: existing ingress stays. Gantry MCP tools/admin skill is Deferred: list/retry/dismiss belongs to the later story.
+- **Verification:** owners run named focused unit/Postgres integration files with repo scripts; migration owners run db:migrations:check, and runtime/adapter owners run typecheck and scripts/check_architecture.py. Named runtime E2Es run nightly. Cleanup searches cover persistenceQueue, enqueueAndWait, mediaIngestionQueue, enqueueMediaStore, AsyncTaskQueue, InboundMessageDeliveryError/Result and onDispatchFailure; distinguish retained App/direct-interaction uses. Verify onMessageAttachmentsDeleted, routeSlackDeletion, routeDiscordDeletion and attachment deletion retry workers retain their callers. This plan rewrite needs document consistency and scope checks, not runtime tests.
+
+## Moved to a later story
+
+- **Former Done-when 4 — set-aside administration:** inspect/list events with ids and safe reasons, retry/dismiss, guarded missing/terminal/concurrent outcomes, and 30-day set-aside retention with sweep races/expiry logs. Former T1-B's admin storage and set-aside sweep, and T3's inbox CLI/list/actions, actionable id/reason status and admin runtime proof move together. MSG-1 keeps deadline/set-aside logging, platform counts and completed-identity retention.
+- **Former Done-when 5 — edits and deletes follow their message:** edits/deletes for inbox-held and persisted targets, including partial/textless edits, bulk/missing targets, account isolation, set-aside retry, atomic handoff/consumption, stale snapshot/create replay protection and durable canonical deletion/attachment cleanup. Former T1-C's overlays/versions, T8's canonical mutation transaction and T8-A's replacement provider edges/five mutation owner cases move together. T7-A's deletion-callback/raw-retry removal waits until replacement is ready. MSG-1 preserves direct paths and owns only the minimal held-delete guard above.
