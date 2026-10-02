@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T10:43:37+00:00
-read_hash: be8d456c27b7fbeef42b2bb04e4e3f72329b298b
-round: 2
-passed: no
-doc_seen: be8d456c27b7fbeef42b2bb04e4e3f72329b298b
+read_at: 2026-10-02T10:59:40+00:00
+read_hash: 6ee288a4c7032c1c246d33d255ce082d95cf8d65
+round: 3
+passed: yes
+doc_seen: 6ee288a4c7032c1c246d33d255ce082d95cf8d65
 spec_seen: 0647451ab330dc4afef14f2bba398594e44808ed
-notes_seen: e06cc97fff54b56b71557321df7e3901d31cf214
+notes_seen: 5591b365510634675daaa026bad7ee7dccdd08c6
 ---
 # Cold read notes
 
@@ -118,3 +118,7 @@ Only a genuine trade-off goes to the human, as a question with options.
 24. Completed control receipts retain content outside the fields settlement clears.
     `InboundControl` contains raw text and parsed command arguments in `control_json`, but settlement clears only payload and cached decode. That contradicts the promise to retain compact identities without incoming content. T2 must clear content-bearing control fields on completion and assert this in its settlement case.
    Disposition: keep amended: T2 atomically clears control_json with payload/cached decode, retains content-free receipts and owns settlement/redelivery proof.
+
+## Round 3
+
+No findings.

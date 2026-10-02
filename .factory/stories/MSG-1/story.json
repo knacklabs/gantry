@@ -1,10 +1,22 @@
 {
   "doc": "plans/MSG-1.md",
-  "status": "planning",
+  "status": "read",
   "steps": [
     {
       "at": "2026-10-02T09:20:29+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T09:32:11+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T10:43:37+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T10:59:41+00:00",
+      "step": "read"
     }
   ],
   "title": "Every incoming message is saved before anything can fail",
