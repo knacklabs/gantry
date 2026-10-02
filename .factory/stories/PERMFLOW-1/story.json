@@ -1,6 +1,15 @@
 {
+  "approval": {
+    "at": "2026-10-02T02:38:41+00:00",
+    "by": "human-via-Claude",
+    "event": "toolu_011rddRkq6V5MBrvj1UL5Vbe",
+    "hash": "a8127a5dead643aa9b7d4145654ee65f02e9e3c6d3a496d4beeca7c693dd2349",
+    "round": 4,
+    "runtime": "claude",
+    "session": "a69a30fe-23d4-5b7d-9b59-8360571f490c"
+  },
   "doc": "plans/PERMFLOW-1.md",
-  "status": "read",
+  "status": "approved",
   "steps": [
     {
       "at": "2026-10-01T17:55:50+00:00",
@@ -21,8 +30,12 @@
     {
       "at": "2026-10-02T02:13:00+00:00",
       "step": "read"
+    },
+    {
+      "at": "2026-10-02T02:38:41+00:00",
+      "step": "approved"
     }
   ],
   "title": "One permission gate on the host that asks only when needed",
-  "touches": 0
+  "touches": 1
 }
