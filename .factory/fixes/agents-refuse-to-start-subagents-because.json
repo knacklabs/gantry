@@ -4,11 +4,39 @@
   "branch": "fix/agents-refuse-to-start-subagents-because",
   "done_when": "The agent's instructions no longer claim delegation is unavailable; when delegation isn't enabled the agent names the real reason and how the owner enables it; the SDK subagent denial points to Gantry delegation; a delegated child's full answer is kept; and a chat delegate_task wakes the parent with the result",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "dd710695281898959e6efa919888f0675353b499eb07050e2a48a91a383439df",
+    "commit": "bc63000b542b73114372632b84aa248e88808d5a",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The new Tooling guidance leaves contradictory instructions in the actual compiled prompt. `apps/core/src/application/agents/prompt-profile-service.ts:95` still says \u201cGantry delegation is unavailable until a delegated-task executor is mounted\u201d; lines 102, 109, 116 and 132 repeat this for the other non-developer personas. That service includes these instructions during compilation at lines 509\u2013515, and this renderer inserts the compiled profile at lines 54\u201367. Consequently, agents with mounted delegation tools still receive the refusal-producing instruction this fix is meant to remove. Update the built-in persona guidance as well.",
+        "file": "apps/core/src/runner/gantry-agent-system-prompt.ts",
+        "line": 143,
+        "priority": "P1",
+        "title": "Not done: The agent's instructions no longer claim delegation is unavailable; when delegation isn't enabled the agent names the real reason"
+      },
+      {
+        "body": "No test protects the changed agent instructions or their owner-facing recovery guidance. The existing `apps/core/test/unit/runner/gantry-agent-system-prompt.test.ts` checks section structure and unrelated guidance, while the new Postgres fixture ignores the child's instructions and extracts only its release path (`delegated-answer-and-parent-wakeup.postgres.integration.test.ts:96\u201397`). Those tests would pass if the new delegation guidance disappeared or the refusal-producing persona instructions remained. Add a regression check through the real profile-compilation and prompt-rendering boundary that verifies delegation guidance and the gate-specific owner actions. This is proof for the fix's own Done-when behaviour.",
+        "file": "apps/core/src/runner/gantry-agent-system-prompt.ts",
+        "line": 144,
+        "priority": "P1",
+        "title": "Not done: A regression test for delegation availability and owner recovery guidance"
+      }
+    ],
+    "status": "blocked",
+    "tree": "a013539c1c95c92f235719f3daf60a196d02f044ddfef3d5300a986093b675d4"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T14:01:46+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T17:43:02+00:00",
+      "step": "review"
     }
   ],
   "why": "Agents refuse to start subagents because their instructions say delegation is unavailable"
