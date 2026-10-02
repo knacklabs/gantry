@@ -2565,21 +2565,21 @@
       "title": "A subagent's answer reaches the parent, waiting or in the background",
       "spec": "docs/specs/subagents-end-to-end.md",
       "status": "pending",
-      "order": 144
+      "order": 160
     },
     {
       "key": "SUB-2",
       "title": "Subagents follow the same authority, job and budget rules as their parent",
       "spec": "docs/specs/subagents-end-to-end.md",
       "status": "pending",
-      "order": 145
+      "order": 161
     },
     {
       "key": "SUB-3",
       "title": "Subagents can be steered, cancelled and recovered, and show on the progress card",
       "spec": "docs/specs/subagents-end-to-end.md",
       "status": "pending",
-      "order": 146
+      "order": 162
     }
   ],
   "epics": [
