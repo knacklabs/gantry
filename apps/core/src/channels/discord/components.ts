@@ -6,7 +6,6 @@ import type {
   UserQuestionRequest,
 } from '../../domain/types.js';
 
-export const LIVE_STOP_CUSTOM_ID_PREFIX = 'gantry:live_stop:';
 export const MEMORY_FORGET_CUSTOM_ID_PREFIX = 'gantry:memory_forget:';
 export const SCHEDULER_RUN_NOW_CUSTOM_ID_PREFIX = 'gantry:scheduler_run_now:';
 export const SCHEDULER_PAUSE_JOB_CUSTOM_ID_PREFIX =
@@ -33,18 +32,8 @@ function truncateDiscordButtonLabel(label: string): string {
 export function discordActionComponents(
   options?: MessageSendOptions | ProgressUpdateOptions,
 ) {
-  const stopAction = options?.actionAffordances?.find(
-    (action) => action.kind === 'live_turn_stop',
-  );
   const buttons: Array<{ label: string; style: number; custom_id: string }> =
     [];
-  if (stopAction?.kind === 'live_turn_stop') {
-    buttons.push({
-      style: 4,
-      label: stopAction.label,
-      custom_id: `${LIVE_STOP_CUSTOM_ID_PREFIX}${stopAction.actionToken}`,
-    });
-  }
   for (const action of options?.actionAffordances ?? []) {
     if (action.kind === 'memory_forget') {
       const customId = `${MEMORY_FORGET_CUSTOM_ID_PREFIX}${action.recordId}:${action.agentRouteKey}`;
@@ -101,16 +90,7 @@ export function discordActionComponents(
 
 export function parseDiscordDirectMessageAction(
   customId: string,
-):
-  | { kind: 'live_turn_stop'; actionToken: string }
-  | { kind: 'memory_forget'; recordId: string; agentRouteKey: string }
-  | null {
-  if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
-    return {
-      kind: 'live_turn_stop',
-      actionToken: customId.slice(LIVE_STOP_CUSTOM_ID_PREFIX.length),
-    };
-  }
+): { kind: 'memory_forget'; recordId: string; agentRouteKey: string } | null {
   if (customId.startsWith(MEMORY_FORGET_CUSTOM_ID_PREFIX)) {
     const [recordId, agentRouteKey] = customId
       .slice(MEMORY_FORGET_CUSTOM_ID_PREFIX.length)
