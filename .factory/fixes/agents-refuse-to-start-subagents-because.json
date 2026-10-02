@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner OK 2026-10-02: the subagent fix spans the agent instructions, the denial wording, and the host's result accumulation and parent wake-up paths",
   "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
   "branch": "fix/agents-refuse-to-start-subagents-because",
   "done_when": "The agent's instructions no longer claim delegation is unavailable; when delegation isn't enabled the agent names the real reason and how the owner enables it; the SDK subagent denial points to Gantry delegation; a delegated child's full answer is kept; and a chat delegate_task wakes the parent with the result",
