@@ -13,7 +13,10 @@ import {
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { ChannelOpts } from '../channel-provider.js';
-import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import {
+  StreamGenerationFence,
+  StreamResetEpochs,
+} from '../stream-reset-epochs.js';
 import { hydrateSlackConversationContext } from './conversation-context.js';
 import {
   encodeSlackActionValue,
@@ -42,11 +45,7 @@ import {
   downloadSlackAttachmentToFolder,
   type SlackAttachmentDownloadResult,
 } from './inbound-attachment-download.js';
-import {
-  isSlackCanvasFile,
-  SlackCanvasService,
-  type SlackCanvasFileLike,
-} from './canvas.js';
+import { isSlackCanvasFile, SlackCanvasService } from './canvas.js';
 
 type SlackMessageAttachments = NonNullable<NewMessage['attachments']>;
 type UQSelection = { selected: string | string[]; answeredBy?: string };
@@ -121,8 +120,7 @@ export abstract class SlackChannelState {
   protected channelNameCache = new Map<string, string>();
   protected activeStreams = new Map<string, ActiveStreamState>();
   protected readonly streamResetEpochs = new StreamResetEpochs();
-  protected streamGenerationByJid = new Map<string, number>();
-  protected sealedStreamGenerationByJid = new Map<string, number>();
+  protected readonly streamGenerations = new StreamGenerationFence();
   protected activeProgress = new Map<string, ActiveProgressState>();
   protected sealedProgressGenerationByKey = new Map<string, number>();
   protected progressStateLoaded = false;
@@ -384,75 +382,6 @@ export abstract class SlackChannelState {
       );
     }
   }
-  protected clearStreamingStateForJid(jid: string): void {
-    for (const [key, state] of this.activeStreams.entries()) {
-      if (!key.startsWith(`${jid}:`)) continue;
-      if (state.nativeStreamTs) {
-        void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
-      }
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-    }
-  }
-
-  protected shouldAcceptStreamingChunk(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) {
-      return false;
-    }
-
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) {
-      this.streamGenerationByJid.set(jid, generation);
-      return true;
-    }
-    if (generation < latest) {
-      return false;
-    }
-    if (generation > latest) {
-      this.clearStreamingStateForJid(jid);
-      this.streamGenerationByJid.set(jid, generation);
-    }
-    return true;
-  }
-
-  protected markStreamingGenerationDone(
-    jid: string,
-    generation?: number,
-  ): void {
-    if (generation === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, generation);
-    }
-  }
-
-  protected sealStreamingGenerationOnReset(jid: string): void {
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || latest > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, latest);
-    }
-  }
-
-  protected isCurrentStreamingGeneration(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) {
-      return false;
-    }
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return true;
-    return generation === latest;
-  }
-
   protected parseJid(jid: string): { channelId: string } | null {
     if (!jid.startsWith('sl:')) return null;
     const channelId = jid.slice(3).trim();

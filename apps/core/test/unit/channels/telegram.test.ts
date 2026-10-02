@@ -4191,34 +4191,40 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });
 
-    it('seals previous generation on resetStreaming to reject late stale chunks', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
+    it('finishes one topic reply while another topic in the chat starts a turn', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
+      const jid = 'tg:-1001234567890';
+      currentBot()
+        .api.sendMessage.mockResolvedValueOnce({ message_id: 501 })
+        .mockResolvedValueOnce({ message_id: 502 });
 
-      await channel.sendStreamingChunk('tg:-1001234567890', 'old', {
+      await channel.sendStreamingChunk(jid, 'Alpha one', {
         generation: 1,
+        threadId: '11',
       });
-
-      channel.resetStreaming('tg:-1001234567890');
-      currentBot().api.sendMessage.mockClear();
-      currentBot().api.editMessageText.mockClear();
-
-      await channel.sendStreamingChunk('tg:-1001234567890', 'stale', {
-        generation: 1,
-      });
-
-      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
-      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
-
-      await channel.sendStreamingChunk('tg:-1001234567890', 'fresh', {
+      channel.resetStreaming(jid, { threadId: '22' });
+      await channel.sendStreamingChunk(jid, 'Beta', {
         generation: 2,
+        threadId: '22',
       });
+      await channel.sendStreamingChunk(jid, ' two', {
+        generation: 1,
+        threadId: '11',
+      });
+      await expect(
+        channel.sendStreamingChunk(jid, '', {
+          generation: 1,
+          threadId: '11',
+          done: true,
+        }),
+      ).resolves.toBe(true);
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+      expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
         '-1001234567890',
-        'fresh',
-        {},
+        501,
+        'Alpha one two',
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
       );
     });
 
