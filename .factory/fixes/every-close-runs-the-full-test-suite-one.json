@@ -1,0 +1,14 @@
+{
+  "base": "f7de785004e29235790076c6115fa17ce1e0ba41",
+  "branch": "fix/every-close-runs-the-full-test-suite-one",
+  "done_when": "forge.toml's test command runs only format, architecture, changed-file lint and typecheck, and the CI workflow still runs the full unit and Postgres integration suites on every pull request",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T04:33:26+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Every close runs the full test suite one at a time on this machine, though PR CI already runs it"
+}
