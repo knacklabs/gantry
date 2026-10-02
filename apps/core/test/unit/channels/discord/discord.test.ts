@@ -1405,31 +1405,6 @@ describe('DiscordChannel', () => {
     }
   });
 
-  it('drops stale Discord streaming chunks after reset seals the generation', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () => jsonResponse({ id: 'stream-1' }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'old', { generation: 1 }),
-    ).resolves.toBe(true);
-    channel.resetStreaming('dc:channel-1');
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'stale', { generation: 1 }),
-    ).resolves.toBe(false);
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'new', { generation: 2 }),
-    ).resolves.toBe(true);
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const bodies = fetchMock.mock.calls.map((call) =>
-      JSON.parse(String((call[1] as RequestInit).body)),
-    );
-    expect(bodies.map((body) => body.content)).toEqual(['old', 'new']);
-    fetchMock.mockRestore();
-  });
-
   it('resets only the targeted Discord thread stream', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

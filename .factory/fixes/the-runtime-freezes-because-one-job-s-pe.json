@@ -1,0 +1,44 @@
+{
+  "allow_large": "Owner OK 2026-10-02: the one-way migration that trims job permission card history is the freeze fix itself",
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/the-runtime-freezes-because-one-job-s-pe",
+  "done_when": "A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their payload, a migration shrinks existing oversized cards, and the runtime warns when its main thread is blocked, proven by tests including one that grows a card past 1,000 runs",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "1e0622b527a174575b4dbd2a1549f0655924f0bf6af301173d73b45dbcbd9a98",
+    "commit": "451577b9e2b5b803eff867e3232b3052f2ca5c1a",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "205aecb1b19b0d0ed3b9d48d04d36f6cd17a44becd3b73e3564ec2c0f77335ee"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T10:51:07+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T13:29:45+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T15:00:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T18:12:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T05:04:21+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:22:02+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The runtime freezes because one job's permission card grows forever and is reloaded every 5 seconds"
+}

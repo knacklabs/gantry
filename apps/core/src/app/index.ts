@@ -43,6 +43,7 @@ import {
   registerBrowserProfileLockLeasePort,
 } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
+import { startEventLoopDelayMonitor } from '../infrastructure/logging/event-loop-delay-monitor.js';
 import {
   createControlAgentSettingsPort,
   createControlSettingsImportPort,
@@ -100,6 +101,7 @@ export async function startGantryRuntime(
   // value already threw above.
   const roleCaps = roleCapabilities(processRole);
   logger.info({ processRole, capabilities: roleCaps }, 'Resolved process role');
+  startEventLoopDelayMonitor();
 
   const app = getDefaultRuntimeApp({
     processRole,

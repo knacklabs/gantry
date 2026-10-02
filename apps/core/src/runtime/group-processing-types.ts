@@ -132,7 +132,7 @@ export interface GroupProcessingDeps {
     ) => Promise<boolean>;
     resetStreaming: (
       chatJid: string,
-      options?: { providerAccountId?: string },
+      options?: { providerAccountId?: string; threadId?: string },
     ) => void;
     setTyping: (
       chatJid: string,

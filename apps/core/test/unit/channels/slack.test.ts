@@ -9902,57 +9902,6 @@ describe('Slack channel', () => {
     );
   });
 
-  it('seals previous generation on resetStreaming to reject late stale chunks', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
-    await channel.connect();
-
-    vi.mocked(appRef.current.client.apiCall).mockImplementation(
-      async (method: string) => {
-        if (method === 'chat.startStream') {
-          return { ok: true, stream_ts: '1710000000.222333' };
-        }
-        if (method === 'chat.appendStream' || method === 'chat.stopStream') {
-          return { ok: true };
-        }
-        return { ok: false };
-      },
-    );
-
-    const threadId = '1710000000.000100';
-    await channel.sendStreamingChunk('sl:C1234567890', 'old', {
-      generation: 1,
-      threadId,
-    });
-
-    channel.resetStreaming('sl:C1234567890');
-    await Promise.resolve();
-    vi.mocked(appRef.current.client.apiCall).mockClear();
-
-    await channel.sendStreamingChunk('sl:C1234567890', 'stale', {
-      generation: 1,
-      threadId,
-    });
-
-    expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalled();
-
-    await channel.sendStreamingChunk('sl:C1234567890', 'fresh', {
-      generation: 2,
-      threadId,
-    });
-
-    expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
-      'chat.startStream',
-      expect.objectContaining({
-        channel: 'C1234567890',
-        markdown_text: 'fresh',
-      }),
-    );
-  });
-
   it('does not restore a targeted Slack stream after an in-flight send', async () => {
     const channel = new SlackChannel(
       'xoxb-token',

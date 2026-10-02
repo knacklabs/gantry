@@ -444,13 +444,19 @@ export class SessionInteractionModule {
       });
       accepted = result.event;
       admissionResult = result.liveAdmissionResult;
-      durableAdmissionCreated =
-        !!admissionResult && admissionResult.outcome !== 'overloaded';
+      if (admissionResult?.outcome === 'overloaded') {
+        // The message stays as history only; no turn will take it.
+        throw new ApplicationError(
+          'RATE_LIMITED',
+          'The agent is busy. Please resend in a moment.',
+        );
+      }
+      durableAdmissionCreated = !!admissionResult;
     } else {
       await this.deps.ops.storeMessage(message);
       accepted = await this.deps.runtimeEvents.publish(acceptedEvent);
     }
-    if (admissionResult && admissionResult.outcome !== 'overloaded') {
+    if (admissionResult) {
       await this.deps.ops.notifyLiveAdmissionWorkItem?.(admissionResult);
     }
     return {

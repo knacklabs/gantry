@@ -134,32 +134,31 @@ export class JobPermissionReconciler {
         const currentTracking = state.card.revisionDeliveries.find(
           (entry) => entry.revision === revision.revision,
         );
-        if (!currentRevision || !currentTracking) {
+        if (
+          !currentRevision ||
+          !currentTracking ||
+          !['pending', 'ambiguous'].includes(currentTracking.status)
+        ) {
           return { state, result: false };
         }
-        const changed =
-          currentTracking.status !== outcome.status ||
-          currentTracking.reason !== outcome.reason;
         currentTracking.status = outcome.status;
         currentTracking.reason = outcome.reason;
         currentTracking.updatedAt = now;
+        // An ambiguous entry is settled here so no later tick selects it
+        // again: the resend supersedes it, and past the cap it is exhausted.
         if (outcome.status === 'ambiguous') {
           if (
             currentRevision.deliveryAttempt <
             MAX_AMBIGUOUS_CARD_DELIVERY_ATTEMPTS
           ) {
+            currentTracking.status = 'cancelled';
             projection.reviseLivingCard(state, this.capacity, now, {
               force: true,
               deliveryAttempt: currentRevision.deliveryAttempt + 1,
             });
+            return { state, result: true };
           }
-          return {
-            state,
-            result:
-              changed ||
-              currentRevision.deliveryAttempt <
-                MAX_AMBIGUOUS_CARD_DELIVERY_ATTEMPTS,
-          };
+          currentTracking.status = 'exhausted';
         }
         for (const represented of currentRevision.representedNeeds) {
           const need = state.needs.find(
