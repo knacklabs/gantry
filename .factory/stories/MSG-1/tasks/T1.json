@@ -1,10 +1,45 @@
 {
   "branch": "task/MSG-1-T1",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "71a4ed9bf5209ba75bbe527f7855b85e8616c3d7e7b90655700cc3589cad9908",
+    "commit": "f4487fbe9eaa580caeb8b92891a0875e873d5940",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The approved T1 seam requires malformed supported inputs to retain a stable envelope identity, raw payload and safe reason so they can be saved and eventually set aside (plans/MSG-1.md:91). This branch instead gives malformed classifications no event or reason. Storage also accepts only message/slash kinds and nonempty raw channels, so a malformed envelope with unknown scope cannot be represented or saved. Pin a distinct saveable malformed-event contract and prove its persistence separately from rejection of invalid repository inputs. This concerns T1's classifier/storage contract, not later runtime execution.",
+        "file": "apps/core/src/domain/ports/inbound-events.ts",
+        "line": 43,
+        "priority": "P1",
+        "title": "Not done: durable malformed supported-input contract"
+      },
+      {
+        "body": "The shared seam explicitly requires a question_reply result containing the qualified reply candidate and ordinary-message fallback (plans/MSG-1.md:112). This union permits only ordinary messages or drops, and no InboundQuestionReply or durable-handler result is declared. NewMessage (apps/core/src/domain/types.ts:125) does not carry the bot-author identity and qualified question locator needed by that contract. Later codecs therefore cannot return the promised side-effect-free question candidate through the pinned boundary. Add these shared signatures here; durable answer execution and its owner test remain T11's responsibility.",
+        "file": "apps/core/src/domain/ports/inbound-events.ts",
+        "line": 76,
+        "priority": "P1",
+        "title": "Not done: shared question-reply unpack contract"
+      },
+      {
+        "body": "The approved record contract requires an app foreign key (plans/MSG-1.md:99), but app_id is unconstrained text in both the schema and migration. The integration fixture creates no app rows before successfully saving inbox-app and other-app events, demonstrating that raw incoming content can be persisted without a valid owning app. Add the apps.id reference in the schema and migration, create real app fixtures, and verify that nonexistent app ownership is rejected.",
+        "file": "apps/core/src/adapters/storage/postgres/schema/inbound-events.ts",
+        "line": 28,
+        "priority": "P1",
+        "title": "Not done: app foreign key in the inbox schema"
+      }
+    ],
+    "status": "blocked",
+    "tree": "f86545b5cf3fa48438bda85c5f5f32b6a10bc77ff2d26969747046b16fc9a5eb"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T11:37:28+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T14:12:49+00:00",
+      "step": "review"
     }
   ]
 }
