@@ -27,6 +27,8 @@ export {
   jobPermissionRecordExpiresAt,
 } from './job-permission-durability-state.js';
 
+const MAX_NEED_REQUEST_SNAPSHOTS = 5;
+
 export interface JobPermissionCardCapacity {
   maxRows: number;
   maxGrantAtomsPerRow: number;
@@ -263,6 +265,7 @@ export class JobPermissionDurabilityService {
         appId: input.appId,
         jobId: input.jobId,
         initialCard: initialCard(input, now),
+        includeNeedIds: [needId],
         mutate: (state) => {
           let need = state.needs.find(
             (candidate) => candidate.canonicalIdentity === canonicalIdentity,
@@ -319,6 +322,11 @@ export class JobPermissionDurabilityService {
               requestId: input.requestSnapshot.requestId,
               request: structuredClone(input.requestSnapshot),
             });
+            // Any snapshot of one scope revalidates the same grant; keep
+            // only the newest few so a long-unanswered need stays small.
+            need.requestSnapshots = need.requestSnapshots.slice(
+              -MAX_NEED_REQUEST_SNAPSHOTS,
+            );
           }
           if (
             need.state !== 'asking' &&
