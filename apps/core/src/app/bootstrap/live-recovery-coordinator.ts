@@ -11,7 +11,10 @@ import type {
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
 import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
-import { batchHasAllowedSender } from '../../runtime/group-trigger-policy.js';
+import {
+  admissionPermitsUnmentionedCompletion,
+  batchHasAllowedSender,
+} from '../../runtime/group-trigger-policy.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -412,6 +415,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
     message: NewMessage;
     itemId: string;
     receiveOrder: number | null;
+    triggerDecision: Record<string, unknown>;
   }> = [];
   let queued = false;
   try {
@@ -424,7 +428,12 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
+      batch.push({
+        message,
+        itemId: item.id,
+        receiveOrder: item.receiveOrder,
+        triggerDecision: item.triggerDecision ?? {},
+      });
       if (input.isActiveControlMessage?.(message)) break;
     }
     const controlIndex = batch.findIndex(
@@ -453,6 +462,9 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
     });
     if (
       continuation &&
+      !replayBatch.some(({ triggerDecision }) =>
+        admissionPermitsUnmentionedCompletion(triggerDecision),
+      ) &&
       !batchHasAllowedSender({
         group: input.route,
         chatJid: input.chatJid,

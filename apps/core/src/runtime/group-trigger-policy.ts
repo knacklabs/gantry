@@ -5,6 +5,15 @@ import {
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
 
+export function admissionPermitsUnmentionedCompletion(
+  decision: Record<string, unknown>,
+): boolean {
+  return (
+    decision.source === 'callable_agent_follow_up' &&
+    decision.requiresTrigger === false
+  );
+}
+
 /**
  * An untagged batch may reach the agent only when the route needs no trigger
  * or someone in the batch may trigger it. New turns and follow-ups routed to

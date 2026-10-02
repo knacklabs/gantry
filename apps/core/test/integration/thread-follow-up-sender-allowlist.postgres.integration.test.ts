@@ -23,6 +23,7 @@ import {
 } from '@core/config/settings/runtime-settings.js';
 import type { AppId } from '@core/domain/app/app.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
+import { deliverPendingCallableAgentFollowUp } from '@core/jobs/async-delegated-agent-follow-up.js';
 import {
   invalidateSenderAllowlistCache,
   isSenderAllowed,
@@ -356,6 +357,40 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
       expect(continued).toHaveLength(1);
       expect(continued[0]).toContain('and send it to me');
       expect(continued[0]).not.toContain('also do the other thing');
+
+      // Internal completions carry a trusted admission decision, even though
+      // their sender is not a person on the channel's allowlist.
+      const task = await runtime.repositories.asyncTasks.createTask({
+        id: 'thread-delegated-completion',
+        appId,
+        agentId: `agent:${folder}`,
+        conversationId: chatJid,
+        threadId,
+        kind: 'delegated_agent',
+        status: 'completed',
+        admissionClass: 'task',
+        authoritySnapshotJson: { toolName: 'AgentDelegation' },
+        privateCorrelationJson: {
+          providerAccountId,
+          callableAgentFollowUp: { pendingAt: nowIso() },
+        },
+        leaseToken: 'thread-delegated-completion-lease',
+        fencingVersion: 1,
+        now: nowIso(),
+      });
+      expect(
+        await deliverPendingCallableAgentFollowUp({
+          task,
+          repository: runtime.repositories.asyncTasks,
+          messageRepository: runtime.ops,
+        }),
+      ).toBe(true);
+      await waitFor(
+        () => continued.length === 2,
+        'the delegated completion delivered to the running turn',
+      );
+      expect(continued[1]).toContain('Task ID: thread-delegated-completion');
+      expect(continued[1]).toContain('Delegated task completed.');
       expect(presented).toHaveLength(2);
       expect(replies()).toBe(2);
     } finally {
