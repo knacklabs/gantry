@@ -27,12 +27,6 @@ import { logger } from '../../infrastructure/logging/logger.js';
 
 export function readTeamsMessageAction(value: unknown):
   | {
-      kind: 'live_turn_stop';
-      actionToken: string;
-      targetJid: string;
-      threadId?: string;
-    }
-  | {
       kind: 'scheduler_run_now';
       jobId: string;
       targetJid: string;
@@ -210,16 +204,7 @@ export function readTeamsMessageAction(value: unknown):
         : {}),
     };
   }
-  if (payload.kind !== 'live_turn_stop') return null;
-  if (typeof payload.actionToken !== 'string') return null;
-  return {
-    kind: 'live_turn_stop',
-    actionToken: payload.actionToken,
-    targetJid: payload.targetJid,
-    ...(typeof payload.threadId === 'string'
-      ? { threadId: payload.threadId }
-      : {}),
-  };
+  return null;
 }
 
 /**
@@ -512,15 +497,5 @@ export async function handleTeamsMessageAction(input: {
     });
     return true;
   }
-  await input.onMessageAction?.({
-    kind: 'live_turn_stop',
-    conversationJid: input.jid,
-    ...(input.providerAccountId
-      ? { providerAccountId: input.providerAccountId }
-      : {}),
-    userId: input.userId,
-    actionToken: payload.actionToken,
-    ...(payload.threadId ? { threadId: payload.threadId } : {}),
-  });
-  return true;
+  return false;
 }

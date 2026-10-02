@@ -53,7 +53,6 @@ export interface AgentCapabilityContext {
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
-  liveStopActionToken?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
@@ -317,9 +316,6 @@ const gantryMcpProvider: AgentCapabilityProvider = {
               ctx.runLeaseFencingVersion,
             ),
           }
-        : {}),
-      ...(ctx.liveStopActionToken
-        ? { GANTRY_LIVE_STOP_ACTION_TOKEN: ctx.liveStopActionToken }
         : {}),
       GANTRY_MEMORY_USER_ID: ctx.memoryUserId || '',
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
