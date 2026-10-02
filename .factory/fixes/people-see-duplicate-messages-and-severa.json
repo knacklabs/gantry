@@ -1,0 +1,14 @@
+{
+  "base": "392632a8c237c964f722d8f1171cbf2e669e6e48",
+  "branch": "fix/people-see-duplicate-messages-and-severa",
+  "done_when": "A confirmed spec for one way to do each thing, with its story on the roadmap after current work",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T09:30:06+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "People see duplicate messages and several ways to do one thing"
+}
