@@ -5,27 +5,20 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "d19a7279a636c8d781c782d218f83df02304c6370fc320e332893343769bb778",
-    "commit": "9fb442b4ab47f79a8edc39456a57b3c76b12149d",
+    "changed": "4087a23dbb239252f47fb331976b0c409a1ea9635fc378613fb11d72668c334b",
+    "commit": "388a04bd1569501f576e6835900b6e1d7aea912e",
     "dismissals": [],
     "findings": [
       {
-        "body": "The remaining test gap from previous finding 2 is still open. This runner test supplies only a signed failure response; it never checks successful confirmation or the no-response timeout. The existing stdio cases at apps/core/test/unit/runner/ipc-mcp-stdio.test.ts:867 and :888 check exit status and request contents, not the returned delivery note. Restoring 'Message sent.' in the timeout branch would therefore leave these tests green. Add runner-boundary assertions for confirmed success and unconfirmed timeout. The small-fix exception removes the end-to-end requirement, but these Done-when behaviours still need proof.",
-        "file": "apps/core/test/unit/runner/mcp/messaging.test.ts",
-        "line": 424,
+        "body": "The supplied standard requires: \"Tests build their own data with factories, own that data, don't depend on order, and never sleep.\" This new host test waits a fixed 200 ms before checking the deferred request. Only Date is faked, so this is a real wall-clock sleep. Drive the watcher timers deterministically or observe a completed processing pass instead.",
+        "file": "apps/core/test/unit/runtime/ipc-message-delivery.test.ts",
+        "line": 132,
         "priority": "P1",
-        "title": "Not done: runner tests prove confirmed delivery and the not-confirmed timeout note"
-      },
-      {
-        "body": "Every host error is prefixed with 'Message not sent', although some errors explicitly mean delivery occurred. Telegram throws after delivering earlier chunks at apps/core/src/channels/telegram/extracted-helpers.ts:113, and channel wiring also throws after a successful provider send when durable settlement fails at apps/core/src/app/bootstrap/channel-wiring.ts:587. These reach this branch as failure responses, producing contradictory delivery reports and potentially encouraging a full resend. Use a neutral failure prefix or preserve the host's partial/uncertain delivery wording.",
-        "file": "apps/core/src/runner/mcp/tools/messaging.ts",
-        "line": 479,
-        "priority": "P2",
-        "title": "Preserve uncertainty when delivery was partial or already visible"
+        "title": "Standard: Tests never sleep"
       }
     ],
     "status": "blocked",
-    "tree": "a82f508a220ff8f946ef675c141000d67b0223012394ab84c04e4818b83b226f"
+    "tree": "92279d3f83fb2a8147bb5373965196f1140d1903815102442c2a34ab47d05f45"
   },
   "status": "fixing",
   "steps": [
@@ -39,6 +32,10 @@
     },
     {
       "at": "2026-10-02T03:47:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T05:43:52+00:00",
       "step": "review"
     }
   ],
