@@ -359,7 +359,6 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE, runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId, callableAgentManifest: agentInput.callableAgentManifest,
     runLeaseToken: agentInput.runLeaseToken, runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
-    liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,
     memoryUserId: agentInput.memoryUserId, memoryDefaultScope: agentInput.memoryDefaultScope,
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona, browserProfileName: agentInput.browserProfileName,

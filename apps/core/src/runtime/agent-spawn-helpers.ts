@@ -83,7 +83,6 @@ export function buildBaseRunnerEnv(input: {
   parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
-  liveStopActionToken?: string;
   browserIpcAuthToken?: string;
   memoryIpcAuthToken: string;
   memoryIpcAllowedActions: readonly string[];
@@ -169,9 +168,6 @@ export function buildBaseRunnerEnv(input: {
             input.runLeaseFencingVersion,
           ),
         }
-      : {}),
-    ...(input.liveStopActionToken
-      ? { GANTRY_LIVE_STOP_ACTION_TOKEN: input.liveStopActionToken }
       : {}),
     ...(input.browserIpcAuthToken
       ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: input.browserIpcAuthToken }
