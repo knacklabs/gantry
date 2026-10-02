@@ -27,6 +27,7 @@ import type { AgentRuntime } from '../../shared/agent-runtime.js';
 import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
+import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { isSessionCommandText } from './session-command-parse.js';
 import { hasProviderResumeHandle } from './session-resume-handle.js';
@@ -222,7 +223,8 @@ export class SessionInteractionModule {
         ? {
             provider: providerSession.provider,
             status: providerSession.status,
-            hasProviderResume: hasProviderResumeHandle(providerSession),
+            hasProviderResume:
+              providerSession.externalSessionId.trim().length > 0,
             createdAt: providerSession.createdAt,
             updatedAt: providerSession.updatedAt,
           }
@@ -474,7 +476,7 @@ export class SessionInteractionModule {
       enqueue: {
         conversationJid: session.conversationJid,
         threadId,
-        queueKey: makeSessionQueueKey(session.conversationJid, threadId),
+        queueKey: makeThreadQueueKey(session.conversationJid, threadId),
         durableAdmissionCreated,
       },
     };
@@ -683,15 +685,6 @@ export function makeAppGroup(input: {
     systemSenderIds: ['sdk'],
     conversationKind: input.conversationKind ?? 'channel',
   };
-}
-
-export function makeSessionQueueKey(
-  conversationJid: string,
-  threadId?: string | null,
-): string {
-  const normalized = threadId?.trim();
-  if (!normalized) return conversationJid;
-  return `${conversationJid}::thread:${encodeURIComponent(normalized)}`;
 }
 
 function sanitizeSegment(value: string): string {

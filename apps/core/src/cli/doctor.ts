@@ -555,7 +555,7 @@ export function runDoctor(
       status: hasSystemdUser() ? 'pass' : 'warn',
       message: hasSystemdUser()
         ? 'systemd user session is available.'
-        : 'systemd user session is not available. Background service will use a nohup fallback.',
+        : 'systemd user session is not available. Background service will use a detached Node process.',
       nextAction: linuxServiceNextAction,
       action: linuxServiceNextAction
         ? { type: 'run_verification', label: linuxServiceNextAction }

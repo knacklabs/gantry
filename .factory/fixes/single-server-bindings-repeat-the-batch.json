@@ -1,0 +1,27 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/single-server-bindings-repeat-the-batch",
+  "done_when": "A single binding write reuses the transactional batch helper with its sorted locks",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "dc81c7b84476f8d2fabb02c121420975e9e4b959ee375f57290d392e7d0f0baf",
+    "commit": "07c021b53688c8cb34dca8c3c10e0d5d8ea534ab",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "08fe6d740d1394fa6612193b2bb636753aa0574861439208b7f802a14f359362"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T13:29:59+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:59:26+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Single server bindings repeat the batch write logic"
+}
