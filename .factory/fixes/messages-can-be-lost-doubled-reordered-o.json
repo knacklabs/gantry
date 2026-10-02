@@ -3,11 +3,24 @@
   "branch": "fix/messages-can-be-lost-doubled-reordered-o",
   "done_when": "A confirmed spec, One messaging pipeline for every provider, and its stories on the roadmap",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "cdfbf61969ba8e12854c2baaaf6715bfb103620fefe510d41c10a2afb5ec627a",
+    "commit": "634adffcf581b9cbc6689a1c8499b3747b0f5975",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "9f013083c732493cdbcc5a55c59956c1187a464d39548b2278a27c63a21ad623"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T03:55:37+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T06:14:31+00:00",
+      "step": "review"
     }
   ],
   "why": "Messages can be lost, doubled, reordered or sent to the wrong place because each provider handles them its own way"
