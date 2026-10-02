@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-01T18:22:39+00:00
-read_hash: 20b2c0e07bd60211726c45508e976af82c1ba38a
-round: 2
+read_at: 2026-10-02T02:08:13+00:00
+read_hash: a09f2c9301563cd0730eb2aecc31a42dc7b23dbc
+round: 3
 passed: no
-doc_seen: 20b2c0e07bd60211726c45508e976af82c1ba38a
+doc_seen: a09f2c9301563cd0730eb2aecc31a42dc7b23dbc
 spec_seen: 4edda298df1c470d20c40e288fd906d0cad5511b
-notes_seen: 16fce2271eb20aa8baae860d69855579dd97441b
+notes_seen: fe240cab0bc63265433a920f0e4bdd8d4fab3c2e
 ---
 # Cold read notes
 
@@ -93,4 +93,22 @@ Only a genuine trade-off goes to the human, as a question with options.
 
 18. Unproven: items 1 and 4: invocation identity cannot reuse another run’s answer.
     T1 must pin the authenticated run/app/agent scope of an engine-supplied ID and reject reuse with a different action. Add cases for the same ID in different runs, changed arguments under one ID, and missing/malformed IDs. The current tests distinguish aliases and separate IDs only.
+   Disposition: cut
+
+## Round 3
+
+19. T2 still contradicts the decision to retain the memory-boundary check.
+    Its deliverable reduces runner checks to sandbox networking and the wait-only Bash guard, while the builder details retain memory checks too. Update T2’s deliverable so following the task table cannot remove that protection.
+   Disposition: cut
+
+20. The new `auto` default has no production owner or test.
+    `shared/permission-mode.ts` currently defaults to `ask`, and no task scopes that canonical resolver. Assign the change and test an unset mode across chat, jobs and inline execution, while preserving explicit owner settings.
+   Disposition: cut
+
+21. Item 2’s public promise contradicts the retained `ask` mode.
+    “Otherwise the safety judge decides” remains unconditional in Done when and What changes for you, but the owner-selected `ask` mode deliberately bypasses the judge. Qualify those sections with the settled mode behavior; no new owner decision is needed.
+   Disposition: cut
+
+22. Unproven: items 1 and 4: the added proof cases lack complete assignment in the Tasks table.
+    Assign missing/removed-route cases to T1 and cross-run IDs, changed arguments and missing/malformed IDs to T3’s Tests cell. T6 still names five fault cases although the details now name six; explicitly include recovered approval with edit failure and no extra message.
    Disposition: cut
