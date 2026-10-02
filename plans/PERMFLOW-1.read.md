@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T02:08:13+00:00
-read_hash: a09f2c9301563cd0730eb2aecc31a42dc7b23dbc
-round: 3
-passed: no
-doc_seen: a09f2c9301563cd0730eb2aecc31a42dc7b23dbc
+read_at: 2026-10-02T02:12:57+00:00
+read_hash: d75d91d98fa335aa70232e9b166aaa7d2699dd8b
+round: 4
+passed: yes
+doc_seen: d75d91d98fa335aa70232e9b166aaa7d2699dd8b
 spec_seen: 4edda298df1c470d20c40e288fd906d0cad5511b
-notes_seen: fe240cab0bc63265433a920f0e4bdd8d4fab3c2e
+notes_seen: 5968fa6c7a5467796a96c1bee6521231bd0edb49
 ---
 # Cold read notes
 
@@ -112,3 +112,7 @@ Only a genuine trade-off goes to the human, as a question with options.
 22. Unproven: items 1 and 4: the added proof cases lack complete assignment in the Tasks table.
     Assign missing/removed-route cases to T1 and cross-run IDs, changed arguments and missing/malformed IDs to T3’s Tests cell. T6 still names five fault cases although the details now name six; explicitly include recovered approval with edit failure and no extra message.
    Disposition: cut
+
+## Round 4
+
+No findings.
