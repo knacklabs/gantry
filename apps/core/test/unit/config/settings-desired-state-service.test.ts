@@ -1300,13 +1300,15 @@ describe('SettingsDesiredStateService', () => {
 agents:
   main_agent:
     name: Main
+  second_agent:
+    name: Second
 provider_accounts:
   slack_one:
     agent: main_agent
     provider: slack
     label: Slack One
   slack_two:
-    agent: main_agent
+    agent: second_agent
     provider: slack
     label: Slack Two
 conversations:
@@ -1325,7 +1327,7 @@ conversations:
     type: channel
     display_name: Sales Two
     installed_agents:
-      main_agent:
+      second_agent:
         provider_account: slack_two
         trigger: "@main"
 `);
@@ -1336,7 +1338,8 @@ conversations:
         getProviderAccount: vi.fn(async (id: string) => ({
           id,
           appId: 'default',
-          agentId: 'agent:main_agent',
+          agentId:
+            id === 'slack_two' ? 'agent:second_agent' : 'agent:main_agent',
           providerId: 'slack',
           label: id,
           status: 'active',
@@ -1376,7 +1379,7 @@ conversations:
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       makeAgentThreadQueueKey(
         'sl:C123',
-        'agent:main_agent',
+        'agent:second_agent',
         undefined,
         'slack_two',
       ),
