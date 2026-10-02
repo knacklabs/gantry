@@ -3,7 +3,6 @@ import type {
   AgentTodoRender,
   AgentTodoStatus,
 } from '../domain/ports/task-lifecycle.js';
-import type { MessageActionAffordance } from '../domain/types.js';
 
 const AGENT_TODO_STATUS_EMOJI: Record<AgentTodoStatus, string> = {
   completed: '✅',
@@ -64,25 +63,4 @@ export function formatAgentTodoHeader(
     ? `${AGENT_TODO_CARD_STATUS_EMOJI[render.status]} ${title}`
     : title;
   return escapeText(label);
-}
-
-export function agentTodoStopActions(
-  render: AgentTodoRender,
-): MessageActionAffordance[] | undefined {
-  if (
-    render.status === 'done' ||
-    render.status === 'failed' ||
-    render.status === 'stopped'
-  ) {
-    return undefined;
-  }
-  const token = render.stop?.actionToken.trim();
-  if (!token) return undefined;
-  return [
-    {
-      kind: 'live_turn_stop',
-      label: render.stop?.label?.trim() || 'Stop',
-      actionToken: token,
-    },
-  ];
 }

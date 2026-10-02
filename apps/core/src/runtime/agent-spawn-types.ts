@@ -94,7 +94,6 @@ export interface AgentInput {
   callableAgentManifest?: CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
-  liveStopActionToken?: string;
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';
   assistantName?: string;
   compiledSystemPrompt?: string;
