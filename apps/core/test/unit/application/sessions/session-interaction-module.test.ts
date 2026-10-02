@@ -227,7 +227,7 @@ describe('SessionInteractionModule', () => {
               value: 'anthropic:claude-session-secret',
             },
             status: 'active',
-            metadata: { resumeHandle: 'claude-session-secret' },
+            metadata: { label: 'private-provider-label' },
             createdAt: '2026-04-30T00:00:00.000Z',
             updatedAt: '2026-04-30T00:00:00.000Z',
           })),
@@ -464,7 +464,7 @@ describe('SessionInteractionModule', () => {
     expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
   });
 
-  it('summarizes provider resume state without exposing raw metadata handles', async () => {
+  it('reports an empty provider handle as unavailable without exposing metadata', async () => {
     const { module } = makeModule({
       repositories: {
         agentSessions: {
@@ -490,11 +490,7 @@ describe('SessionInteractionModule', () => {
               value: '',
             },
             status: 'active',
-            metadata: {
-              resume: {
-                session_id: 'short-handle-from-metadata',
-              },
-            },
+            metadata: { label: 'private-provider-label' },
             createdAt: '2026-04-30T00:00:00.000Z',
             updatedAt: '2026-04-30T00:00:00.000Z',
           })),
@@ -510,12 +506,12 @@ describe('SessionInteractionModule', () => {
     expect(details.providerSession).toMatchObject({
       provider: 'anthropic',
       status: 'active',
-      hasProviderResume: true,
+      hasProviderResume: false,
       createdAt: '2026-04-30T00:00:00.000Z',
       updatedAt: '2026-04-30T00:00:00.000Z',
     });
     expect(JSON.stringify(details.providerSession)).not.toContain(
-      'short-handle-from-metadata',
+      'private-provider-label',
     );
     expect(details.providerSession).not.toHaveProperty('externalSessionId');
     expect(details.providerSession).not.toHaveProperty('providerRef');

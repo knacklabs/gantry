@@ -2,8 +2,6 @@ import type { Span } from '@opentelemetry/api';
 
 import type { NormalizedModelUsage } from '../../../shared/model-catalog.js';
 import {
-  ATTR_COMPLETION,
-  ATTR_PROMPT,
   boundedContent,
   MAX_ATTRIBUTE_CHARS,
   TRACE_CONTENT_MAX_CHARS,
@@ -48,7 +46,7 @@ export function boundedTraceValue(
 ): unknown {
   if (typeof value === 'string') {
     return value.length > stringLimit
-      ? `${value.slice(0, stringLimit)}${TRUNCATION_SUFFIX}`
+      ? `${value.slice(0, stringLimit - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
       : value;
   }
   if (
