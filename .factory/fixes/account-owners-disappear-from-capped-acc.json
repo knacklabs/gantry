@@ -4,11 +4,24 @@
   "branch": "fix/account-owners-disappear-from-capped-acc",
   "done_when": "Owner identity shows for every account whatever its page, using ownership ids and detail queries rather than joins over one page",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "c77f56ce63f124d963b80f769c8b49bb27248730da71100a2e820a281a9b6b99",
+    "commit": "480da418e90175af4fb2a336e0a108d45a912ebf",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "a2f39263c4e10d6f0647b1ff4397e50d089991e1646fec0fdb95eb33f6127dec"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T12:13:07+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T17:38:29+00:00",
+      "step": "review"
     }
   ],
   "why": "Account owners disappear from capped account lists"
