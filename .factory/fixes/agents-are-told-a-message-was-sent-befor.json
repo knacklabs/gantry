@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "4087a23dbb239252f47fb331976b0c409a1ea9635fc378613fb11d72668c334b",
-    "commit": "388a04bd1569501f576e6835900b6e1d7aea912e",
+    "changed": "540070b8a6ebb781e6c6f252cb5160882ec2e16d4e89337cec7d07a3111e8072",
+    "commit": "5f5d91c0c9e6c571245e396a0ac81ac32fb67b9d",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The supplied standard requires: \"Tests build their own data with factories, own that data, don't depend on order, and never sleep.\" This new host test waits a fixed 200 ms before checking the deferred request. Only Date is faked, so this is a real wall-clock sleep. Drive the watcher timers deterministically or observe a completed processing pass instead.",
-        "file": "apps/core/test/unit/runtime/ipc-message-delivery.test.ts",
-        "line": 132,
-        "priority": "P1",
-        "title": "Standard: Tests never sleep"
-      }
-    ],
-    "status": "blocked",
-    "tree": "92279d3f83fb2a8147bb5373965196f1140d1903815102442c2a34ab47d05f45"
+    "findings": [],
+    "status": "clean",
+    "tree": "0a542cf7e67a83292f1f0e2ff57b5c683a9013de874177acd8f3681beb6be044"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:17:17+00:00",
@@ -36,6 +28,10 @@
     },
     {
       "at": "2026-10-02T05:43:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:33:55+00:00",
       "step": "review"
     }
   ],
