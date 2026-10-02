@@ -1,8 +1,10 @@
 ---
 slug: subagents-end-to-end
 title: Subagents work end to end
-status: draft
+status: confirmed
 saved: 2026-10-02T14:21:06+00:00
+confirmed_by: "Ravi"
+confirmed_hash: 9bc47c819e5dda6dabc5febd485280b739ecec56f59346aa8659633b47f81adf
 ---
 
 # Subagents work end to end
