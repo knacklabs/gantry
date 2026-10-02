@@ -3,7 +3,7 @@
   "branch": "fix/child-commands-build-their-environment-f",
   "done_when": "Child commands inherit only whitelisted environment values from one shared builder",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:46:17+00:00",
