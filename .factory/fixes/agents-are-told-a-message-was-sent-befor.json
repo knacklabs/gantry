@@ -5,27 +5,27 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "90f0435bb63fb3536a0cc5c81e7f5134eb2b873026648f55a617fa16f4f7dc71",
-    "commit": "dbea90b894893b99ce2d2d8eb8418b58d254f99a",
+    "changed": "d19a7279a636c8d781c782d218f83df02304c6370fc320e332893343769bb778",
+    "commit": "9fb442b4ab47f79a8edc39456a57b3c76b12149d",
     "dismissals": [],
     "findings": [
       {
-        "body": "The deferral fix omits the browser IPC lane. In apps/core/src/runtime/ipc-browser-requests.ts:129\u2013131, an authorized request over quota still throws after being claimed, and line 228 archives it. The watcher still invokes that processor at apps/core/src/runtime/ipc.ts:460. Consequently, a rate-limited browser IPC request is discarded rather than waiting for another pass, leaving the Done-when requirement unmet. Apply the deferral before claiming or consuming the request and prove subsequent processing.",
-        "file": "apps/core/src/runtime/ipc.ts",
-        "line": 486,
-        "priority": "P1",
-        "title": "Not done: rate-limited IPC requests still get archived"
-      },
-      {
-        "body": "The new runner test manually supplies a signed failure response, while the host tests manufacture requests and inspect responses independently. No test exercises send_message through the real runtime to the host and back, and no runner test covers successful confirmation or the not-confirmed timeout note. Changing the timeout branch back to 'Message sent.' would leave these tests green. apps/core/AGENTS.md:110 and docs/review-instructions.md:30\u201335 require owner end-to-end coverage through the real runtime and Postgres with a fake channel and runner. Add that coverage for delivery reporting and quota deferral; the successful close run does not supply the missing assertions.",
+        "body": "The remaining test gap from previous finding 2 is still open. This runner test supplies only a signed failure response; it never checks successful confirmation or the no-response timeout. The existing stdio cases at apps/core/test/unit/runner/ipc-mcp-stdio.test.ts:867 and :888 check exit status and request contents, not the returned delivery note. Restoring 'Message sent.' in the timeout branch would therefore leave these tests green. Add runner-boundary assertions for confirmed success and unconfirmed timeout. The small-fix exception removes the end-to-end requirement, but these Done-when behaviours still need proof.",
         "file": "apps/core/test/unit/runner/mcp/messaging.test.ts",
         "line": 424,
         "priority": "P1",
-        "title": "Not done: end-to-end proof of delivery reporting and quota deferral"
+        "title": "Not done: runner tests prove confirmed delivery and the not-confirmed timeout note"
+      },
+      {
+        "body": "Every host error is prefixed with 'Message not sent', although some errors explicitly mean delivery occurred. Telegram throws after delivering earlier chunks at apps/core/src/channels/telegram/extracted-helpers.ts:113, and channel wiring also throws after a successful provider send when durable settlement fails at apps/core/src/app/bootstrap/channel-wiring.ts:587. These reach this branch as failure responses, producing contradictory delivery reports and potentially encouraging a full resend. Use a neutral failure prefix or preserve the host's partial/uncertain delivery wording.",
+        "file": "apps/core/src/runner/mcp/tools/messaging.ts",
+        "line": 479,
+        "priority": "P2",
+        "title": "Preserve uncertainty when delivery was partial or already visible"
       }
     ],
     "status": "blocked",
-    "tree": "a92bb51653eb50e6ff81ee67163f6b3c1a3dabd9145b6ab7339473e836f20778"
+    "tree": "a82f508a220ff8f946ef675c141000d67b0223012394ab84c04e4818b83b226f"
   },
   "status": "fixing",
   "steps": [
@@ -35,6 +35,10 @@
     },
     {
       "at": "2026-10-01T21:49:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T03:47:52+00:00",
       "step": "review"
     }
   ],
