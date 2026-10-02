@@ -2,8 +2,8 @@
 
 One document per area of the app. Each has a plain-English overview, an architecture diagram, the key flows as sequence diagrams with step-by-step walkthroughs, the data it owns, how it scales and fails, a short video script outline, and duplication and simplification notes. They were written on 2026-10-02 by tracing the code, alongside the [area audit](../audits/2026-10-02-area-audit/README.md).
 
-| Area                                                | Document                                            |
-| --------------------------------------------------- | --------------------------------------------------- |
+| Area                                                | Document                                              |
+| --------------------------------------------------- | ----------------------------------------------------- |
 | Channel and provider adapters                       | [01-channels](./01-channels.md)                       |
 | Runtime turn engine and sessions                    | [02-runtime](./02-runtime.md)                         |
 | Scheduled jobs and the scheduler                    | [03-jobs](./03-jobs.md)                               |
