@@ -4,11 +4,24 @@
   "branch": "fix/two-threads-in-one-chat-cut-off-each-oth",
   "done_when": "Two concurrent thread turns in one chat both deliver complete replies on Slack, Telegram, Discord and Teams, with one shared stream guard keyed by chat and thread, proven by a shared guard test, a channel test and an end-to-end test",
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "5da587c3bed7d47f16ee2406958ff37ef74ffa3dcb9d1dbf478e5105a6fa0f58",
+    "commit": "024d6f30308c282c181575b63a07062c96c97253",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "41c2a9b55824a52e5f4df24a92965d9b5b25275fbc5a71e337608ef05ca4af14"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:19:28+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T11:31:43+00:00",
+      "step": "review"
     }
   ],
   "why": "Two threads in one chat cut off each other's replies because the stream guard and the turn-start reset cover the whole chat"
