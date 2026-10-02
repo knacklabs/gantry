@@ -1,8 +1,10 @@
 ---
 slug: one-messaging-pipeline
 title: One messaging pipeline for every provider
-status: draft
+status: confirmed
 saved: 2026-10-02T03:57:39+00:00
+confirmed_by: "Ravi"
+confirmed_hash: 08278846e578151304f9ba6d48cf1027d8464db730c99f6dc0c078d29381e939
 ---
 
 # One messaging pipeline for every provider
