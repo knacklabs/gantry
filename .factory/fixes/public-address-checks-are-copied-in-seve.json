@@ -3,11 +3,32 @@
   "branch": "fix/public-address-checks-are-copied-in-seve",
   "done_when": "Network destination checks use one shared address classifier, mapped IPv6 and invalid addresses included",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "1f56dc8bd7bf2a6cc0f6a565ccde8a94386a34e64a10c5ad1ea79eb36e260db9",
+    "commit": "f159b4c85357b71b2492434cf5fb9995d3f8263f",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "A network destination check still uses an independent classifier: `apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.ts:286` calls `webReadTargetBlocker`, which calls `isBlockedIpLiteral` at line 625. Lines 646\u2013661 retain copied IPv4 range checks and reject every IPv6 literal, independently of this shared classifier. Thus the branch consolidates two implementations but does not satisfy the requirement that network destination checks use one shared classifier. This remaining active WebRead implementation is additional evidence beyond the unchanged-move and deletion-only rulings. Route its address classification through the shared implementation, keeping any intentional stricter WebRead policy separate.",
+        "file": "apps/core/src/shared/public-address-policy.ts",
+        "line": 80,
+        "priority": "P1",
+        "title": "Not done: Network destination checks use one shared address classifier, mapped IPv6 and invalid addresses included"
+      }
+    ],
+    "status": "blocked",
+    "tree": "4f4ec2f6b95f42d099d514e3ee17f190f9a6ef66c6693870dc0377d7865692ef"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T12:37:28+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:33:02+00:00",
+      "step": "review"
     }
   ],
   "why": "Public-address checks are copied in several places"
