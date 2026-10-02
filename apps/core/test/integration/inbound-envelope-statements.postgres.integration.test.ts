@@ -8,6 +8,43 @@ import {
   vi,
 } from 'vitest';
 
+// Telegram's Bot API is the only fake: each bot records its update handlers
+// so a test can deliver an update the way polling would.
+const telegramBots = vi.hoisted(
+  () =>
+    [] as Array<{
+      handlers: Map<string, Array<(ctx: unknown) => Promise<void>>>;
+    }>,
+);
+vi.mock('grammy', () => ({
+  InputFile: class {},
+  Bot: class {
+    handlers = new Map<string, Array<(ctx: unknown) => Promise<void>>>();
+    api = {
+      config: { use: () => undefined },
+      setMyCommands: async () => true,
+      getFile: async () => ({ file_path: 'photos/file_0.jpg' }),
+    };
+    constructor() {
+      telegramBots.push(this);
+    }
+    on(filter: string, handler: (ctx: unknown) => Promise<void>) {
+      this.handlers.set(filter, [
+        ...(this.handlers.get(filter) ?? []),
+        handler,
+      ]);
+    }
+    command() {}
+    catch() {}
+    start() {}
+    stop() {}
+    isRunning() {
+      return false;
+    }
+  },
+}));
+
+import { EnvRuntimeSecretProvider } from '@core/adapters/credentials/env-runtime-secret-provider.js';
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import {
   DEFAULT_AGENT_ID,
@@ -18,6 +55,9 @@ import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-pe
 import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
 import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
+import { connectProviderAccountChannels } from '@core/channels/provider-account-channel-connect.js';
+import { getProvider } from '@core/channels/provider-registry.js';
+import '@core/channels/register-builtins.js';
 import { ingestSlackMessage } from '@core/channels/slack/channel-message-ingest.js';
 import { TeamsChannel } from '@core/channels/teams/index.js';
 import type { TeamsSdkClient } from '@core/channels/teams/types.js';
@@ -803,6 +843,139 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       expect(conversation.rows).toHaveLength(1);
       expect(conversation.rows[0].title).not.toBeNull();
       expect(conversation.rows[0].kind).toBe('direct');
+    });
+
+    it('stores a Telegram photo once for a group bound only to the second account sharing the bot', async () => {
+      const conversationJid = 'tg:-100400565';
+      const route: ConversationRoute = {
+        name: 'Second Account Group',
+        folder: 'telegram_second_account_group',
+        trigger: '@Main',
+        added_at: MESSAGE_TIMESTAMP,
+        agentId: DEFAULT_AGENT_ID,
+        providerAccountId: 'telegram_second',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      };
+      const { persistenceQueue, channelOpts } = createPersistenceHarness({
+        providerAccountId: 'telegram_first',
+        conversationRoutes: { [conversationJid]: route },
+      });
+      const sharedBot = { bot_token: 'env:TELEGRAM_BOT_TOKEN' };
+      const runtimeSettings = {
+        providerAccounts: {
+          telegram_first: {
+            provider: 'telegram',
+            agentId: DEFAULT_AGENT_ID,
+            runtimeSecretRefs: sharedBot,
+          },
+          telegram_second: {
+            provider: 'telegram',
+            agentId: DEFAULT_AGENT_ID,
+            runtimeSecretRefs: sharedBot,
+          },
+        },
+        runtime: {},
+      };
+      for (const providerAccountId of Object.keys(
+        runtimeSettings.providerAccounts,
+      )) {
+        await runtime.repositories.providerAccounts.saveProviderAccount({
+          id: providerAccountId as never,
+          appId: DEFAULT_APP_ID as never,
+          agentId: DEFAULT_AGENT_ID as never,
+          providerId: 'telegram' as never,
+          externalIdentityRef: {
+            kind: 'provider_account',
+            value: providerAccountId,
+          },
+          label: providerAccountId,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: sharedBot,
+          createdAt: MESSAGE_TIMESTAMP,
+          updatedAt: MESSAGE_TIMESTAMP,
+        });
+      }
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        expect(String(url)).toBe(
+          'https://api.telegram.org/file/bottest-token/photos/file_0.jpg',
+        );
+        return new Response('photo-bytes');
+      });
+      const connectedChannels: Parameters<
+        typeof connectProviderAccountChannels
+      >[0]['connectedChannels'] = [];
+      await connectProviderAccountChannels({
+        provider: getProvider('telegram')!,
+        appId: DEFAULT_APP_ID,
+        runtimeSettings,
+        channelOpts: {
+          ...channelOpts,
+          runtimeSettings: () => runtimeSettings as never,
+          runtimeSecrets: new EnvRuntimeSecretProvider({
+            TELEGRAM_BOT_TOKEN: 'test-token',
+          }),
+        },
+        inboundEnabled: true,
+        connectedChannels,
+        connectedChannelLeases: [],
+        inboundLeasePrefix: 'runtime:provider-inbound',
+        logger: { info: () => undefined, warn: () => undefined },
+      });
+
+      try {
+        const photoHandlers = telegramBots.flatMap(
+          (bot) => bot.handlers.get('message:photo') ?? [],
+        );
+        expect(photoHandlers).toHaveLength(1);
+        await photoHandlers[0]!({
+          chat: { id: -100400565, type: 'supergroup', title: route.name },
+          from: { id: 400565, first_name: 'Photo User' },
+          message: {
+            date: Date.parse(MESSAGE_TIMESTAMP) / 1000,
+            message_id: 565,
+            caption: 'Look at this',
+            photo: [{ file_id: 'photo_565', width: 800 }],
+          },
+          me: { username: 'gantry_shared_bot' },
+        });
+
+        await vi.waitFor(
+          async () => {
+            expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+            expect(
+              await runtime.ops.getMessagesSince(conversationJid, '', 10),
+            ).toHaveLength(1);
+          },
+          { timeout: 5_000 },
+        );
+        const [stored] = await runtime.ops.getMessagesSince(
+          conversationJid,
+          '',
+          10,
+          { providerAccountId: 'telegram_second' },
+        );
+        expect(stored).toMatchObject({
+          id: '565',
+          content: expect.stringMatching(
+            /^\[Photo\] \(attachments\/[a-f0-9]{16}-photo_565\.jpg\) Look at this$/,
+          ),
+          attachments: [
+            expect.objectContaining({
+              kind: 'image',
+              externalId: 'photo_565',
+              storageRef: expect.stringMatching(
+                /^attachments\/[a-f0-9]{16}-photo_565\.jpg$/,
+              ),
+            }),
+          ],
+        });
+      } finally {
+        await Promise.all(
+          connectedChannels.map(({ channel }) => channel.disconnect()),
+        );
+      }
     });
   },
 );
