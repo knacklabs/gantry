@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner chose 2026-10-02 to delete the legacy Stop button on every provider; a pure deletion across shared types, runtime token wiring and each provider's renderer and callback",
   "base": "4c90482d52203ae77cdc8884074c97ad0c91c68d",
   "branch": "fix/progress-cards-show-a-stop-button-on-eve",
   "done_when": "No provider shows a Stop button on progress cards; the live_turn_stop affordance, its action tokens and its Telegram, Discord and Slack callbacks are deleted, and /stop still stops a running turn on every provider",
