@@ -5,34 +5,20 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "5d1cecb0b5ca827a1fe24561c867309ddb0a0e9fc6593f1bf75dca4c48de0dac",
-    "commit": "b0994c0631c3965951fc6f271a5f087e5335bc20",
+    "changed": "d0f2509be896fe6143eff333db9a7d50dbbae3b0fb5944ff20dbdf8e790b306b",
+    "commit": "06034a8472215eda82c1a7565c03579fe8425fc2",
     "dismissals": [],
     "findings": [
       {
-        "body": "Repeated one-time requests that expire still grow the card indefinitely. This predicate leaves expired once-needs pending, and the migration excludes them too (20261001115012_shrink_job_permission_card_history.sql:112). Production creates a distinct need per once-request (job-permission-durability-wiring.ts:236\u2013239); expiry sets `cancelled` with `expiredAt` (job-permission-reconciler.ts:303\u2013304). When another run asks, `livingCardNeeds` includes every expired need (job-permission-card-projection.ts:326\u2013333), and the new revision stores all their IDs in `representedNeeds` (lines 238\u2013241), despite limiting visible rows. Pruning the number of revisions therefore does not bound their payloads, and heartbeats continue loading and rewriting the accumulated pending needs. Bound terminal once-need history on writes and in the migration while preserving the required expired receipt.",
+        "body": "Denied one-time requests still grow the card indefinitely. Production gives each once-request a distinct identity (`job-permission-durability-wiring.ts:236\u2013239`), and reconciliation finishes a denial in state `denied` (`job-permission-reconciler.ts:552`). This settlement predicate excludes that state, so every denied request remains pending. `livingCardNeeds` retains all denials (`job-permission-card-projection.ts:327`), and each new revision stores every retained need in `representedNeeds` (lines 232\u2013235), despite limiting visible rows. Heartbeats consequently keep loading and rewriting the accumulated needs and growing revision payloads. The migration excludes denials too (lines 121\u2013127). Bound older terminal once-denials on writes and in the migration, preserving the required current receipt and replay behavior, and cover repeated denials in the Postgres regression test.",
         "file": "apps/core/src/domain/job-permission-card-history.ts",
-        "line": 82,
+        "line": 105,
         "priority": "P1",
-        "title": "Not done: A job permission card stays bounded across many runs"
-      },
-      {
-        "body": "The previous test gap remains. This test supplies 1,001 run IDs but directly invokes the heartbeat reader and `wired.reconcile()` without executing scheduler runs or acquiring real leases. `settleOpenCardSends` updates delivery status and inserts receipts through SQL (lines 189\u2013204), bypassing the outbound worker. The idle-card test also calls reconciliation directly. Neither exercises the scheduled loop in runtime-services-permission-card.ts:21\u201343, registered by runtime-services.ts:952. Disconnecting scheduler heartbeat wiring or scheduled reconciliation would leave these tests passing. Add the required runtime-entry-point proof for repeated runs and idle-card reconciliation using real Postgres, scheduler leases, delivery persistence, and channel/runner edge fakes.",
-        "file": "apps/core/test/integration/job-permission-card-history.postgres.integration.test.ts",
-        "line": 244,
-        "priority": "P1",
-        "title": "Not done: Grow a permission card past 1,000 runs through the runtime entry point"
-      },
-      {
-        "body": "The previous runtime proof gap remains. This test starts the monitor helper directly and observes a mocked logger; it never starts the runtime. Removing the registration in apps/core/src/app/index.ts:104 would leave it passing while eliminating runtime warnings. Add an automated test that starts the real runtime, blocks its main thread beyond the configured threshold, and verifies the emitted warning.",
-        "file": "apps/core/test/unit/infrastructure/logging/event-loop-delay-monitor.test.ts",
-        "line": 12,
-        "priority": "P1",
-        "title": "Not done: The runtime warns when its main thread is blocked"
+        "title": "Not done: A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their 's pay"
       }
     ],
     "status": "blocked",
-    "tree": "2de1a789920db0f693d5b84a4d3703152f7c8b7520887e866b7b28c0c1eebe3b"
+    "tree": "65d82b34ed6c481ef882925310d206b72b53d73d9caa665e41787bdb003d4245"
   },
   "status": "fixing",
   "steps": [
@@ -50,6 +36,10 @@
     },
     {
       "at": "2026-10-01T18:12:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T05:04:21+00:00",
       "step": "review"
     }
   ],
