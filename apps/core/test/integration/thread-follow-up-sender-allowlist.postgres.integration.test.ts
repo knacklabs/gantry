@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import type { ChildProcess } from 'node:child_process';
 
+import { like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EnvRuntimeSecretProvider } from '@core/adapters/credentials/env-runtime-secret-provider.js';
+import { liveAdmissionWorkItemsPostgres } from '@core/adapters/storage/postgres/schema/index.js';
 import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import {
@@ -212,9 +214,6 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
           appId,
           inputRepository: runtime.repositories.liveTurns,
           getConversationRoutes: app.getConversationRoutes,
-          getOrRecoverCursor: app.getOrRecoverCursor,
-          setAgentCursor: app.setAgentCursor,
-          saveState: app.saveState,
           hasChannel: channel.runtime.hasChannel,
           setTyping: channel.runtime.setTyping,
           sendProgressUpdate: channel.runtime.sendProgressUpdate,
@@ -279,14 +278,13 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
       channel.outbound.filter((message) =>
         message.text.includes('Thread reply.'),
       ).length;
-    // A message the runtime has finished with moves its cursor past it.
-    const settled = async (id: string) => {
-      const state = JSON.parse(
-        (await runtime.ops.getRouterState('last_agent_timestamp')) ?? '{}',
-      ) as Record<string, string>;
-      return Object.values(state).some(
-        (cursor) => (JSON.parse(cursor) as { id?: string }).id === id,
-      );
+    // How the runtime finished with a saved message: what consumed its input.
+    const consumedBy = async (id: string) => {
+      const [item] = await runtime.service.db
+        .select({ consumedBy: liveAdmissionWorkItemsPostgres.consumedBy })
+        .from(liveAdmissionWorkItemsPostgres)
+        .where(like(liveAdmissionWorkItemsPostgres.messageId, `%:${id}`));
+      return item?.consumedBy ?? null;
     };
 
     try {
@@ -306,7 +304,7 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
         ),
       ).toBe('stored');
       await waitFor(
-        () => settled('thread-other-sender'),
+        async () => (await consumedBy('thread-other-sender')) !== null,
         'the follow-up from the other sender handled',
       );
       expect(presented).toHaveLength(1);
@@ -339,7 +337,8 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
         ),
       ).toBe('stored');
       await waitFor(
-        () => settled('thread-other-sender-while-alive'),
+        async () =>
+          (await consumedBy('thread-other-sender-while-alive')) === 'history',
         'the follow-up from the other sender handled while the runner is alive',
       );
       expect(
