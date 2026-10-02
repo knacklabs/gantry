@@ -121,7 +121,7 @@ describe('IPC message delivery result', () => {
   });
 
   it('keeps an over-quota message waiting and delivers it after the window', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     while (canProcessIpcFile(sourceAgentFolder, 'messages')) {
       // use up this minute's quota
     }
@@ -129,7 +129,8 @@ describe('IPC message delivery result', () => {
     const sendMessage = vi.fn(async () => undefined);
     startWatcher(sendMessage);
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Several watcher polls (5 ms each) run on the fake clock.
+    await vi.advanceTimersByTimeAsync(50);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(
       fs.readdirSync(controlPort.requestDir(sourceAgentFolder, 'messages')),
