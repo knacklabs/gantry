@@ -1,4 +1,5 @@
 {
+  "allow_large": "Owner OK 2026-10-02: the one-way migration that trims job permission card history is the freeze fix itself",
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/the-runtime-freezes-because-one-job-s-pe",
   "done_when": "A job permission card stays bounded across many runs, the reconciler skips cards with nothing pending without loading their payload, a migration shrinks existing oversized cards, and the runtime warns when its main thread is blocked, proven by tests including one that grows a card past 1,000 runs",
