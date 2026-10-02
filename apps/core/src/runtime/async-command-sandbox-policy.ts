@@ -17,6 +17,13 @@ export interface AsyncCommandSandboxPolicy {
 
 const policies = new Map<string, AsyncCommandSandboxPolicy>();
 
+export function releaseAsyncCommandSandboxPolicy(
+  sourceAgentFolder: string,
+  runHandle: string,
+): void {
+  policies.delete(policyKey(sourceAgentFolder, runHandle));
+}
+
 export function registerAsyncCommandSandboxPolicy(input: {
   sourceAgentFolder: string;
   runHandle: string;
