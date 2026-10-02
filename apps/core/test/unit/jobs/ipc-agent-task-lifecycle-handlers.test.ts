@@ -323,16 +323,12 @@ function readResponse(runtimeHome: string, taskId: string) {
 function contextFor(input: {
   data: Record<string, unknown>;
   renderAgentTodo?: ReturnType<typeof vi.fn>;
-  liveStopActionToken?: string;
   deps?: Record<string, unknown>;
   conversationBindings?: Record<string, unknown>;
 }) {
   return {
     data: {
       ...input.data,
-      ...(input.liveStopActionToken
-        ? { liveStopActionToken: input.liveStopActionToken }
-        : {}),
     },
     sourceAgentFolder: 'main_agent',
     deps: {
@@ -377,11 +373,8 @@ describe('agent task lifecycle IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const {
-      agentTaskLifecycleHandlers,
-      taskData,
-      registerAsyncCommandSandboxPolicy,
-    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
     const renderAgentTodo = vi.fn(async () => undefined);
 
     await agentTaskLifecycleHandlers.todo_update(
@@ -398,7 +391,6 @@ describe('agent task lifecycle IPC handlers', () => {
           ],
         }),
         renderAgentTodo,
-        liveStopActionToken: 'stop-token-1',
       }),
     );
 
@@ -414,7 +406,6 @@ describe('agent task lifecycle IPC handlers', () => {
             note: 'Checking surface',
           },
         ],
-        stop: { label: 'Stop', actionToken: 'stop-token-1' },
         threadId: 'thread-1',
         updatedAt: expect.any(String),
       }),
@@ -465,11 +456,8 @@ describe('agent task lifecycle IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const {
-      agentTaskLifecycleHandlers,
-      taskData,
-      registerAsyncCommandSandboxPolicy,
-    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
     const renderAgentTodo = vi.fn();
 
     await agentTaskLifecycleHandlers.todo_update(
