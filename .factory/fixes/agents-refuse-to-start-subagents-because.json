@@ -3,7 +3,7 @@
   "branch": "fix/agents-refuse-to-start-subagents-because",
   "done_when": "The agent's instructions no longer claim delegation is unavailable; when delegation isn't enabled the agent names the real reason and how the owner enables it; the SDK subagent denial points to Gantry delegation; a delegated child's full answer is kept; and a chat delegate_task wakes the parent with the result",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T14:01:46+00:00",
