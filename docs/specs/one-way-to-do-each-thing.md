@@ -22,41 +22,51 @@ The owner's rule is a clean UX. Each thing a person does has one way to do it, a
 
 ## Behaviour
 
-- **Questions are the one way to ask for input.** The form tool is removed, along with its submit handling on every provider. When the agent needs answers, it asks questions, and the answers reach the agent. Other rich views (lists, tables, facts, media) stay.
-- **One card per piece of work.** The plan and progress card is a single message per turn. It shows the plan and the current step, and it is updated in place. There is no separate progress line.
+- **Two ways to ask for input, and no forms.**
+  - **Choices:** the agent asks a question with options, and the answers reach the agent.
+  - **Free text** (a name, an address): the agent asks in its message, and the person's next message is the answer, as in any conversation.
+  - The form tool is removed, along with its submit handling on every provider. Other rich views (lists, tables, facts, media) stay.
+- **One card per turn.** The plan and progress card is a single message per turn. It shows the plan, once there is one, and the current step, and it is updated in place. There is no separate progress line.
+  - **Lifecycle.** The card follows today's ambient progress card. It is keyed by the turn, updates from an older turn are ignored, it ends showing its final state, and an edit that may have failed is retried as an edit, never as a new message.
 - **No "I'm on it" message.** The agent's default instructions no longer ask for a first message before working. Ambient progress shows that it is working. The agent still sends real updates when they carry news, and its answer.
 - **"Other" is answered by replying to the question.** Tapping "Other" on Telegram doesn't post anything new; at most it shows Telegram's brief built-in toast. Replying to the original question with text answers it. No helper messages are left behind.
-- **Options are listed once.** The question text lists the numbered options with their descriptions. The buttons show only the numbers. On a provider without buttons, the person replies with the number, as today.
-- **One spelling for each session command.**
-  - **On Telegram, Discord and the web:** `/stop`, `/new`, `/compact`, `/model` and `/settings`, typed as a message.
-  - **On Slack:** `/gantry stop` and the other `/gantry` forms. Slack refuses unknown slash commands, so its registered command is the one that works there.
-  - **`!stop` and the other `!` forms are removed.** Help lists only the spelling for the provider it is shown on.
-  - Owner choice, 2026-10-02: "/stop, plus Slack's /gantry stop".
-- **A command is answered once.** On Discord, Gantry gives Discord's required acknowledgement silently and then shows the command's result. No "Gantry received …" message is sent.
+- **Options are listed once.** The question text lists the numbered options with their descriptions, and the option buttons show only the numbers. The "Other" and "Done" buttons keep their words, and a selected option keeps its mark. On a provider without buttons, the person replies with the number, as today.
+- **One spelling for each session command:** the commands help lists today (`/stop`, `/new`, `/compact`, `/status`, `/model` and the rest). No commands are added.
+  - **On Telegram, Discord and the web:** `/stop` and the others, typed as a message.
+    - Discord's registered `/gantry` command is removed. Typing `/stop` in Discord sends it as a message, which works in threads too.
+  - **On Slack, at channel level:** `/gantry stop` and the other `/gantry` forms. Slack refuses unknown slash commands, so its registered command is the one that works there.
+  - **On Slack, inside a thread:** mention the bot with the command word, for example "@Gantry stop" or "@Gantry new". A Slack slash command doesn't say which thread it was typed in, but a mention does.
+  - **`!stop` and the other `!` forms are removed.** Help lists only the spellings for the provider it is shown on.
+  - Owner choices, 2026-10-02: "/stop, plus Slack's /gantry stop", and "@Gantry stop" in Slack threads.
+- **A command is answered once.** Removing Discord's registered command also removes its "Gantry received …" receipt. Every command produces only its result.
 - **Fallback text is just the content.** When a rich view can't be shown, the text version is sent without any preface about rendering.
 
 **Decisions this changes:** the progress-card behaviour of 0110 (ambient liveness) is kept, and the separate progress surface is removed.
 
 ## Risks
 
-- **A removed tool and removed command spellings.** Agents that call the form tool get a clear "not available, ask questions instead" error. People who type `!stop` get help showing `/stop`, once per conversation. No data is deleted.
+- **A removed tool and removed command spellings.** Agents that call the form tool get a clear "not available, ask questions instead" error. People who type `!stop` get help, once per conversation, showing that provider's spelling: `/stop` on Telegram, Discord and the web, and on Slack `/gantry stop` at channel level or "@Gantry stop" in a thread. No data is deleted.
 
 ## Acceptance criteria
 
-- **AC1. No form tool.** The form tool is gone. Asking for several inputs uses questions, and every answer reaches the agent on Telegram, Slack and Discord.
-- **AC2. One plan and progress card.** A turn that updates its plan and its progress shows one card, updated in place.
+- **AC1. No form tool.** The form tool is gone. On Telegram, Slack and Discord, a choice answered by button and a free-text answer given as the next message both reach the agent.
+- **AC2. One plan and progress card.** A turn that updates its plan and its progress shows one card, updated in place. A later turn gets its own card, and a late update from an earlier turn changes nothing.
 - **AC3. No "I'm on it" instruction.** The default agent instructions contain no first-message instruction.
 - **AC4. Telegram "Other".** Tapping "Other" sends no message. A text reply to the question answers it, and nothing extra stays in the chat.
-- **AC5. Options once.** On Telegram, Slack and Discord, each option label appears once in a question, in the text. The buttons show numbers.
-- **AC6. Command spellings.** `/stop` stops a turn on Telegram, Discord and the web, and `/gantry stop` does on Slack. `!stop` is not a command, and gets help, once. Help shows one spelling per provider.
-- **AC7. Discord commands.** A Discord `/gantry` command produces only its result message.
+- **AC5. Options once.** On Telegram, Slack and Discord, each option label appears once in a question, in the text. Option buttons show numbers, and "Other", "Done" and selected marks still work.
+- **AC6. Command spellings.**
+  - `/stop` stops a turn on Telegram, Discord (in a thread too) and the web.
+  - On Slack, `/gantry stop` stops one at channel level, and "@Gantry stop" stops the run in that thread.
+  - `!stop` is not a command; it gets help, once.
+  - Help shows only the spellings for its provider.
+- **AC7. Discord commands.** Discord has no registered Gantry command, and a typed command produces only its result message.
 - **AC8. Fallback text.** A rich view that falls back to text carries no rendering preface.
 
 ## Success measure
 
-- Metric: messages Gantry sends per answered request, excluding the answer itself, from the live database (median per week).
-- Baseline: the median over the week before UX-1 starts.
-- Target: half the baseline or less in the first full month after UX-1 merges.
+- Metric: extra messages per request in the end-to-end scenario suite. The fake channel records every new message (not edits). Count every message except the answer, the turn's one card and any questions. The measured scenarios are requests whose fake agent sends no news updates, so any other message is extra.
+- Baseline: the count on main for the suite's scenarios, recorded when UX-1 starts.
+- Target: zero extra messages in every scenario once UX-1 merges.
 - Check date: 2027-03-01
 
 ## Roadmap
