@@ -1,6 +1,5 @@
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import {
-  agentTodoStopActions,
   countCompletedAgentTodos,
   formatAgentProgressLine,
   formatAgentTodoHeader,
@@ -8,7 +7,6 @@ import {
   hasAgentTodoCardHeader,
 } from '../agent-todo-render.js';
 import { truncateSlackText } from './channel-user-question-utils.js';
-import { slackMessageActionBlocks } from './message-action-affordances.js';
 
 type SlackBlock = Record<string, unknown>;
 
@@ -30,10 +28,7 @@ function escapeSlackMrkdwn(text: string): string {
  * stays within Slack's text limit. Used for both the initial post and every
  * in-place `chat.update`.
  */
-export function buildAgentTodoBlocks(
-  render: AgentTodoRender,
-  options: { providerAccountId?: string } = {},
-): SlackBlock[] {
+export function buildAgentTodoBlocks(render: AgentTodoRender): SlackBlock[] {
   if (render.cardKind === 'progress') {
     return [
       {
@@ -85,10 +80,5 @@ export function buildAgentTodoBlocks(
       ],
     },
   ];
-  const actionBlocks = slackMessageActionBlocks(
-    '',
-    agentTodoStopActions(render),
-    { providerAccountId: options.providerAccountId },
-  )?.filter((block) => block.type === 'actions');
-  return actionBlocks ? [...blocks, ...actionBlocks] : blocks;
+  return blocks;
 }

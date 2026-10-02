@@ -15,8 +15,6 @@ import type { IpcDeps } from '../../runtime/ipc-domain-types.js';
 import { requestSchedulerSync } from '../../jobs/scheduler.js';
 import {
   findConversationRoutesForChat,
-  makeAgentThreadQueueKey,
-  makeThreadQueueKey,
   parseAgentThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
@@ -25,7 +23,6 @@ import type {
   MessageActionCallbackInput,
   MessageSendOptions,
 } from '../../domain/types.js';
-import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 
 function getSourceAgentFolder(
   routes: Record<string, ConversationRoute>,
@@ -44,12 +41,9 @@ function getSourceAgentFolder(
   return folders.size === 1 ? folders.values().next().value : undefined;
 }
 
-export function registerRuntimeLiveStopMessageAction(
+export function registerRuntimeMessageActions(
   channelWiring: ChannelWiring,
   app: { getConversationRoutes(): Record<string, ConversationRoute> },
-  liveMessageQueue: {
-    stopGroup: (queueJid: string) => boolean | Promise<boolean>;
-  },
   scheduler?: {
     runNow?: (input: {
       jobId: string;
@@ -67,7 +61,7 @@ export function registerRuntimeLiveStopMessageAction(
     ) => Promise<unknown>;
   },
 ): void {
-  registerLiveStopMessageAction({
+  registerMessageActions({
     channelWiring,
     sourceAgentFolderFor: (jid, threadId, providerAccountId) => {
       return getSourceAgentFolder(
@@ -78,7 +72,6 @@ export function registerRuntimeLiveStopMessageAction(
       );
     },
     conversationBindings: () => app.getConversationRoutes(),
-    stopGroup: liveMessageQueue.stopGroup,
     runSchedulerNow:
       scheduler?.runNow ??
       ((input) => runSchedulerNowThroughIpc(input, channelWiring)),
@@ -212,7 +205,7 @@ async function readSchedulerRunNowIpcResult(
   }
 }
 
-export function registerLiveStopMessageAction(input: {
+export function registerMessageActions(input: {
   channelWiring: ChannelWiring;
   sourceAgentFolderFor: (
     conversationJid: string,
@@ -220,7 +213,6 @@ export function registerLiveStopMessageAction(input: {
     providerAccountId?: string,
   ) => string | undefined;
   conversationBindings?: () => Record<string, ConversationRoute>;
-  stopGroup: (queueJid: string) => boolean | Promise<boolean>;
   runSchedulerNow?: (schedulerInput: {
     jobId: string;
     sourceAgentFolder: string;
@@ -299,31 +291,6 @@ export function registerLiveStopMessageAction(input: {
       });
       return;
     }
-    if (action.kind !== 'live_turn_stop') return;
-    const queueJid = makeThreadQueueKey(
-      action.conversationJid,
-      action.threadId,
-    );
-    const scopedQueueJid = makeAgentThreadQueueKey(
-      action.conversationJid,
-      agentIdForFolder(sourceAgentFolder),
-      action.threadId,
-      action.providerAccountId,
-    );
-    const stopped = action.actionToken
-      ? await input.stopGroup(action.actionToken)
-      : await input.stopGroup(
-          action.providerAccountId ? scopedQueueJid : queueJid,
-        );
-    if (!stopped) return;
-    await input.channelWiring.sendMessage(
-      action.conversationJid,
-      'Stopping current run.',
-      {
-        durability: 'required',
-        ...messageActionSendOptions(action.threadId, action.providerAccountId),
-      },
-    );
   });
 }
 
