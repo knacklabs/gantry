@@ -5,29 +5,22 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "414bc3e58081ef58a243e4a273424528ace31eafa184810a07d3a6a5cdb3876c",
-    "commit": "7aa018cf03cdda365d146638f8c2247e0bc811da",
+    "changed": "44bdc31d01bfeb7e12db2227cea5612e1c43a5748e58c5885e1c535f3260c471",
+    "commit": "d118b371f14997b8ef71a42dea7057a078299fc5",
     "dismissals": [],
     "findings": [
       {
-        "body": "The new test cannot finish with a real database: `settled()` waits for `last_agent_timestamp`, but production no longer writes that cursor. The migration at apps/core/src/adapters/storage/postgres/schema/migrations/20261001084406_delete_last_agent_timestamp.sql:1 deletes it, while message consumption now updates `consumedAt` and `consumedBy` (apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts:198). Consequently, the first Bob follow-up wait times out before the remaining authorization assertions execute. Observe the real input-consumption state instead. This is new evidence of a broken test, rather than a renewed request for end-to-end coverage for a small fix.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 1551,
-        "priority": "P1",
-        "title": "Not done: answers a thread follow-up only when its sender may trigger the agent (real runner)"
-      },
-      {
-        "body": "The added line brings this file to 701 lines against the enforced 700-line budget in scripts/architecture-map.json:17. The supplied close run confirms that `check:architecture` fails here and stops the command before typechecking and tests. This violates \u201ceach commit leaves the build working\u201d; docs/review-instructions.md:6\u20138 also explicitly makes new architecture violations blocking and forbids waiving file-size violations. Make a substantive code reduction so the required check passes.",
-        "file": "apps/core/src/app/bootstrap/live-execution.ts",
-        "line": 176,
-        "priority": "P1",
-        "title": "Standard: each commit leaves the build working"
+        "body": "When only Alice is allowlisted and another worker handles a delegated-agent completion while her runner remains active, this guard rejects the completion's synthetic sender and permanently consumes its input as history. `apps/core/src/jobs/async-delegated-agent-follow-up.ts:102\u2013119` emits that completion as `gantry:callable-agent`, with `is_from_me: false` and a trusted `callable_agent_follow_up` admission decision setting `requiresTrigger: false`. New-turn processing honors that decision at `apps/core/src/runtime/group-processing-flow.ts:109\u2013130`, but this active-turn path discards it. Consequently, delegated results no longer reach the waiting runner in allowlisted groups. Preserve the trusted admission decision for internal completions while retaining the sender check for channel follow-ups.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 456,
+        "priority": "P2",
+        "title": "Preserve trusted delegated completions when routing to an active turn"
       }
     ],
-    "status": "blocked",
-    "tree": "22367ecda5abf05dad87e897b0b85a379ece4a4e5432a1804713025fa4e1253d"
+    "status": "clean",
+    "tree": "6cc270b8a17e37b146dc93b78e7ec3487ba1e1e23951fc2fb9c3114acc4b2a2c"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:04:20+00:00",
@@ -51,6 +44,10 @@
     },
     {
       "at": "2026-10-02T06:02:29+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:47:59+00:00",
       "step": "review"
     }
   ],
