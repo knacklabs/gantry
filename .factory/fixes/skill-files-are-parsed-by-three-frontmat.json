@@ -3,11 +3,24 @@
   "branch": "fix/skill-files-are-parsed-by-three-frontmat",
   "done_when": "Skill install and review use the existing shared frontmatter parser and the private copies are deleted",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "c89910113efe2e25fe2bfbab44bb4422553e3322739c06eb77e8ae2ec874b132",
+    "commit": "f3b32735ce2c56e077db7e551039a6f988a5211c",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "501751a85787d0dc34bd53a4589e2877a2a71cfb66ea689101085f3394d4555c"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T13:03:53+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:48:20+00:00",
+      "step": "review"
     }
   ],
   "why": "Skill files are parsed by three frontmatter parsers"
