@@ -6,18 +6,76 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+// Telegram's Bot API is the only fake: each bot records what it sends and the
+// update handlers the channel registers, so a test can tap a button the way
+// Telegram delivers it.
+type InlineButton = { text: string; callback_data: string };
+type SentMessage = {
+  chatId: string;
+  messageId: number;
+  text: string;
+  buttons: InlineButton[];
+};
+const telegram = vi.hoisted(() => ({
+  sent: [] as SentMessage[],
+  handlers: new Map<string, Array<(ctx: unknown) => Promise<void>>>(),
+}));
+vi.mock('grammy', () => ({
+  InputFile: class {},
+  Bot: class {
+    api = new Proxy(
+      {
+        config: { use: () => undefined },
+        sendMessage: async (
+          chatId: string | number,
+          text: string,
+          options?: {
+            reply_markup?: { inline_keyboard?: InlineButton[][] };
+          },
+        ) => {
+          const messageId = 500 + telegram.sent.length;
+          telegram.sent.push({
+            chatId: String(chatId),
+            messageId,
+            text,
+            buttons: options?.reply_markup?.inline_keyboard?.flat() ?? [],
+          });
+          return { message_id: messageId };
+        },
+      } as Record<string, unknown>,
+      {
+        get: (target, name: string) =>
+          name in target ? target[name] : async () => true,
+      },
+    );
+    on(filter: string, handler: (ctx: unknown) => Promise<void>) {
+      telegram.handlers.set(filter, [
+        ...(telegram.handlers.get(filter) ?? []),
+        handler,
+      ]);
+    }
+    command() {}
+    catch() {}
+    use() {}
+    start(opts?: { onStart?: (info: unknown) => void }) {
+      opts?.onStart?.({ username: 'gantry_bot', id: 1 });
+    }
+    stop() {}
+    isRunning() {
+      return true;
+    }
+  },
+}));
+
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import {
-  bindPendingPermissionInteractionMessage,
-  claimPermissionInteractionCallback,
   configurePendingInteractionDurability,
   configurePendingInteractionPermissionPersistence,
 } from '@core/application/interactions/pending-interaction-durability.js';
+import { asPermissionApprovalSurface } from '@core/app/bootstrap/channel-capability-ports.js';
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
-import { permissionDecisionOptions } from '@core/channels/permission-card-affordances.js';
-import { decisionForMode } from '@core/channels/permission-interaction.js';
-import { parseTelegramPermissionCallbackData } from '@core/channels/telegram/channel-shared.js';
-import { prepareTelegramPermissionCardSend } from '@core/channels/telegram/prepared-permission-card.js';
+import { TelegramChannel } from '@core/channels/telegram/channel-adapter.js';
+import { findChannel } from '@core/messaging/router.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
 import type { NewMessage } from '@core/domain/types.js';
 import { processTaskIpc } from '@core/jobs/ipc-handler.js';
@@ -30,11 +88,6 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
-import type {
-  PermissionApprovalDecisionMode,
-  PermissionApprovalRequest,
-  PermissionApprovalResult,
-} from '@core/domain/types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
@@ -54,14 +107,12 @@ const APP_ID = 'default';
 const AGENT_ID = 'agent:main_agent';
 const AGENT_FOLDER = 'main_agent';
 const TARGET_JID = 'tg:100200300';
-const APPROVER = 'user:prompt-shape';
+const PROVIDER_ACCOUNT = 'telegram_prompt_shape';
+const APPROVER_USER_ID = 222;
 
-type InlineButton = { text: string; callback_data: string };
-
-// One real ask end to end: the runner's signed permission IPC request, the
-// host IPC processor over Postgres, the channel approval requester, the
-// Telegram permission card renderer, and a tap on the rendered Deny button
-// settled through the durable callback claim.
+// Real asks end to end: the runner's signed IPC request, the host processor
+// over Postgres, the channel approval requester, the Telegram channel's card
+// and its own callback handler for the tap. Only Telegram's Bot API is faked.
 maybeDescribe('permission-prompt-shape', () => {
   let runtime: PostgresIntegrationRuntime;
   let ipcBaseDir: string;
@@ -143,75 +194,116 @@ maybeDescribe('permission-prompt-shape', () => {
     throw new Error('Timed out waiting for the signed permission request');
   }
 
-  /** The Telegram card for the ask, and a tap on the button with `label`. */
-  function telegramChannel(tapLabel: string) {
-    const rendered: { text?: string; buttons?: InlineButton[] } = {};
-    const surface = {
-      requestPermissionApproval: async (
-        _jid: string,
-        request: PermissionApprovalRequest,
-      ): Promise<PermissionApprovalResult> => {
-        await prepareTelegramPermissionCardSend({
-          interactionCallbacksEnabled: true,
-          bot: {
-            api: {
-              sendMessage: async (
-                _chatId: string,
-                text: string,
-                options: {
-                  reply_markup: { inline_keyboard: InlineButton[][] };
-                },
-              ) => {
-                rendered.text = text;
-                rendered.buttons = options.reply_markup.inline_keyboard.flat();
-                return { message_id: 101 };
-              },
+  /** A connected Telegram channel for the chat, approved by one person. */
+  async function connectTelegram() {
+    // Telegram delivers a tap only to the bot that sent the card.
+    telegram.handlers.clear();
+    const channel = new TelegramChannel('test-token', {
+      appId: APP_ID,
+      providerAccountId: PROVIDER_ACCOUNT,
+      onMessage: vi.fn(),
+      onChatMetadata: vi.fn(),
+      conversationRoutes: () => ({
+        [TARGET_JID]: {
+          name: 'Ops',
+          folder: AGENT_FOLDER,
+          trigger: '@Main',
+          added_at: '2026-10-02T00:00:00.000Z',
+          providerAccountId: PROVIDER_ACCOUNT,
+        },
+      }),
+      runtimeSettings: () =>
+        ({
+          providers: { telegram: { enabled: true } },
+          providerAccounts: {
+            [PROVIDER_ACCOUNT]: {
+              provider: 'telegram',
+              agentId: AGENT_FOLDER,
+              label: 'Telegram',
+              runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
             },
-          } as never,
-          jid: TARGET_JID,
-          options: {
-            permissionCardView: { request, providerAlias: request.requestId },
           },
-        }).send();
-        await bindPendingPermissionInteractionMessage({
-          request,
-          decisionOptions: permissionDecisionOptions(request),
-        });
-        const tapped = rendered.buttons?.find(
-          (button) => button.text === tapLabel,
-        );
-        const mode = parseTelegramPermissionCallbackData(tapped!.callback_data)!
-          .mode as PermissionApprovalDecisionMode;
-        const claimed = await claimPermissionInteractionCallback({
-          scope: {
-            appId: request.appId ?? APP_ID,
-            sourceAgentFolder: request.sourceAgentFolder,
-            interactionId: request.requestId,
+          conversations: {
+            ops: {
+              providerAccount: PROVIDER_ACCOUNT,
+              externalId: TARGET_JID.replace(/^tg:/, ''),
+              kind: 'group',
+              displayName: 'Ops',
+              controlApprovers: [String(APPROVER_USER_ID)],
+            },
           },
-          mode,
-          approverRef: APPROVER,
-          matchKind: 'individual',
-        });
-        if (claimed.status !== 'claimed') throw new Error(claimed.status);
-        return {
-          kind: 'decision',
-          decision: {
-            ...decisionForMode(request, mode, APPROVER),
-            permissionCallbackClaim: claimed.claim,
+          bindings: {
+            ops: { agent: AGENT_FOLDER, conversation: 'ops', trigger: '@Main' },
           },
-        };
+        }) as never,
+    } as never);
+    await channel.connect();
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: (jid) => findChannel([channel], jid),
+      asPermissionApprovalSurface: (bound) =>
+        asPermissionApprovalSurface(bound as never),
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    return { channel, requester };
+  }
+
+  /** The permission card Telegram received, once its prompt is bound. */
+  async function nextPermissionCard(after: number): Promise<SentMessage> {
+    let card: SentMessage | undefined;
+    await vi.waitFor(
+      async () => {
+        card = telegram.sent
+          .slice(after)
+          .find((message) => message.buttons.length > 0);
+        expect(card).toBeDefined();
+        const [prompt] = await runtime.service.db
+          .select()
+          .from(pgSchema.permissionPromptsPostgres)
+          .where(
+            eq(
+              pgSchema.permissionPromptsPostgres.externalPromptMessageId,
+              String(card!.messageId),
+            ),
+          );
+        expect(prompt).toBeDefined();
       },
+      { timeout: 10_000 },
+    );
+    return card!;
+  }
+
+  /** The approver taps `label`, delivered the way Telegram delivers it. */
+  async function tap(card: SentMessage, label: string): Promise<string[]> {
+    const button = card.buttons.find((candidate) => candidate.text === label);
+    expect(button).toBeDefined();
+    const answers: string[] = [];
+    const update = {
+      callbackQuery: {
+        id: `callback-${card.messageId}`,
+        data: button!.callback_data,
+        message: {
+          chat: { id: Number(card.chatId) },
+          message_id: card.messageId,
+        },
+      },
+      chat: { id: Number(card.chatId) },
+      from: { id: APPROVER_USER_ID, first_name: 'Ravi' },
+      answerCallbackQuery: async (answer?: { text?: string }) => {
+        answers.push(answer?.text ?? '');
+        return true;
+      },
+      editMessageText: async () => true,
+      editMessageReplyMarkup: async () => true,
     };
-    return { rendered, surface };
+    for (const handler of telegram.handlers.get('callback_query:data') ?? []) {
+      await handler(update);
+    }
+    return answers;
   }
 
   it('asks with what, which and why and the Allow once, Allow for future and Deny buttons, and a Deny tap denies the call', async () => {
-    const channel = telegramChannel('Deny');
-    const requester = createPermissionApprovalRequester({
-      findBoundChannel: () => ({}),
-      asPermissionApprovalSurface: () => channel.surface,
-      interactionLifecycle: { logger: { error: vi.fn() } },
-    });
+    const { requester } = await connectTelegram();
+    const sentBefore = telegram.sent.length;
     const decision = requestPermissionApprovalViaIpc(
       {
         appId: APP_ID,
@@ -267,7 +359,7 @@ maybeDescribe('permission-prompt-shape', () => {
           .publish(event)
           .then(() => undefined),
     };
-    await processPermissionInteractionIpc({
+    const processing = processPermissionInteractionIpc({
       request,
       sourceAgentFolder: AGENT_FOLDER,
       deps,
@@ -277,18 +369,21 @@ maybeDescribe('permission-prompt-shape', () => {
       logger,
     });
 
-    expect(channel.rendered.text).toContain(
+    const card = await nextPermissionCard(sentBefore);
+    expect(card.text).toContain(
       'Allow Main Agent to use exact command access?',
     );
-    expect(channel.rendered.text).toContain('Runs: gh');
-    expect(channel.rendered.text).toContain(
+    expect(card.text).toContain('Runs: gh');
+    expect(card.text).toContain(
       'Why: List my five newest repos for the weekly note',
     );
-    expect(channel.rendered.buttons?.map((button) => button.text)).toEqual([
+    expect(card.buttons.map((button) => button.text)).toEqual([
       'Allow once',
       'Allow for future',
       'Deny',
     ]);
+    await tap(card, 'Deny');
+    await processing;
     await expect(decision).resolves.toMatchObject({
       approved: false,
       mode: 'cancel',
@@ -399,12 +494,8 @@ maybeDescribe('permission-prompt-shape', () => {
     });
     vi.unstubAllEnvs();
 
-    const channel = telegramChannel('Deny');
-    const requester = createPermissionApprovalRequester({
-      findBoundChannel: () => ({}),
-      asPermissionApprovalSurface: () => channel.surface,
-      interactionLifecycle: { logger: { error: vi.fn() } },
-    });
+    const { requester } = await connectTelegram();
+    const sentBefore = telegram.sent.length;
     const runApprovedCommand = vi.fn(async () => undefined);
     const sendMessage = vi.fn(async () => undefined);
     const claimed = runnerControl.claimRequest(AGENT_FOLDER, 'tasks', file);
@@ -427,18 +518,15 @@ maybeDescribe('permission-prompt-shape', () => {
       ipcBaseDir,
     );
 
-    await vi.waitFor(() => expect(channel.rendered.text).toBeDefined(), {
-      timeout: 10_000,
-    });
-    expect(channel.rendered.text).toContain('Install: npx skills add https://');
-    expect(channel.rendered.text).toContain(
-      'Why: Install the weather skill from https://',
-    );
-    expect(channel.rendered.text).not.toContain(password);
-    expect(channel.rendered.buttons?.map((button) => button.text)).toEqual([
+    const card = await nextPermissionCard(sentBefore);
+    expect(card.text).toContain('Install: npx skills add https://');
+    expect(card.text).toContain('Why: Install the weather skill from https://');
+    expect(card.text).not.toContain(password);
+    expect(card.buttons.map((button) => button.text)).toEqual([
       'Allow once',
       'Deny',
     ]);
+    await tap(card, 'Deny');
     // The agent's tool call gets the denial back.
     const responsePath = taskIpcResponsePath(
       AGENT_FOLDER,
@@ -455,7 +543,7 @@ maybeDescribe('permission-prompt-shape', () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0]?.[0]).toBe(TARGET_JID);
     expect(sendMessage.mock.calls[0]?.[1]).toMatch(
-      /^Did not install skill .+ was not granted\. To try again, ask me again and an approver can allow it\.$/,
+      /^Did not install skill .+: canceled via Telegram\. To try again, ask me again and an approver can allow it\.$/,
     );
     expect(JSON.stringify(sendMessage.mock.calls)).not.toContain(password);
     const rows = await runtime.service.db

@@ -10,7 +10,7 @@ import {
   publicGantryToolNameForSdkTool,
 } from '../../shared/agent-tool-references.js';
 import { USER_FACING_TOOL_LABELS } from '../../shared/permission-tool-labels.js';
-import { sanitizeCredentialText } from '../../shared/sensitive-material.js';
+import { permissionPromptSafe } from '../../shared/permission-display-input.js';
 import {
   GantryToolRiskVerdict,
   gantryNativeCanonicalToolName,
@@ -179,11 +179,7 @@ function sanitizePermissionCardText(
   head: number,
   tail: number,
 ): string {
-  const result = sanitizeCredentialText(input);
-  if (result.blocked) return 'Sensitive detail hidden.';
-  return result.text.length <= head + tail + 1
-    ? result.text
-    : `${result.text.slice(0, head)}…${result.text.slice(-tail)}`;
+  return permissionPromptSafe(input, { head, tail });
 }
 
 function isPermissionRememberCodeValue(

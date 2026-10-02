@@ -211,7 +211,7 @@ describe('buildPermissionPromptParts', () => {
 
     expect(body).toContain('# LinkedIn Posting');
     expect(body).toContain('Use this skill to publish approved drafts.');
-    expect(body).toContain('access_token=[REDACTED_SECRET]');
+    expect(body).toContain('access_token: [REDACTED_SECRET]');
     expect(body).toContain('Network: api.linkedin.com:443');
     expect(body).not.toContain('Sensitive detail hidden.');
     expect(body).not.toContain('abcdefghijklmnop123456');

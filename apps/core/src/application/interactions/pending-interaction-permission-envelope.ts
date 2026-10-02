@@ -3,10 +3,10 @@ import type {
   PermissionApprovalRequest,
 } from '../../domain/types.js';
 import {
-  permissionDisplayText,
   permissionDisplayToolInput,
+  permissionPromptSafe,
+  SENSITIVE_DETAIL_HIDDEN,
 } from '../../shared/permission-display-input.js';
-import { sanitizeCredentialText } from '../../shared/sensitive-material.js';
 import { parsePermissionCardAffordances } from '../permissions/permission-card-affordances.js';
 
 const WHY_MAX_CHARS = 200;
@@ -61,7 +61,7 @@ export function durablePermissionRequestSnapshot(
 }
 
 const displayText = (value: string | undefined) =>
-  value === undefined ? undefined : permissionDisplayText(value);
+  value === undefined ? undefined : permissionPromptSafe(value);
 const asIs = <T>(value: T) => value;
 
 /** Every request field a prompt shows (what, which and why), with the
@@ -69,6 +69,7 @@ const asIs = <T>(value: T) => value;
 const PERMISSION_PROMPT_DISPLAY_FIELDS: {
   [K in keyof PermissionApprovalRequest]?: (
     value: PermissionApprovalRequest[K],
+    request: PermissionApprovalRequest,
   ) => PermissionApprovalRequest[K];
 } = {
   displayName: displayText,
@@ -80,7 +81,8 @@ const PERMISSION_PROMPT_DISPLAY_FIELDS: {
   promotionHintCount: asIs,
   firstAskedAt: asIs,
   turnIntentSummary: permissionRequestWhyText,
-  toolInput: permissionDisplayToolInput,
+  toolInput: (toolInput, request) =>
+    permissionDisplayToolInput(toolInput, request.toolName),
   interaction: displayInteraction,
 };
 
@@ -93,7 +95,12 @@ function permissionPromptDisplayFields(
   )) {
     const value = request[key as keyof PermissionApprovalRequest];
     if (value === undefined) continue;
-    const shown = (sanitize as (input: unknown) => unknown)(value);
+    const shown = (
+      sanitize as (
+        input: unknown,
+        request: PermissionApprovalRequest,
+      ) => unknown
+    )(value, request);
     if (shown !== undefined) fields[key] = shown;
   }
   return fields as Partial<PermissionApprovalRequest>;
@@ -106,9 +113,9 @@ function displayInteraction(
   const context = interaction.requestContext;
   return {
     id: interaction.id,
-    title: permissionDisplayText(interaction.title),
+    title: permissionPromptSafe(interaction.title),
     ...(interaction.body !== undefined
-      ? { body: permissionDisplayText(interaction.body) }
+      ? { body: permissionPromptSafe(interaction.body) }
       : {}),
     ...(context?.capabilityId || context?.capabilityDisplayName
       ? {
@@ -122,8 +129,8 @@ function displayInteraction(
       ? {
           details: interaction.details.map((detail) => ({
             ...detail,
-            label: permissionDisplayText(detail.label),
-            value: permissionDisplayText(detail.value),
+            label: permissionPromptSafe(detail.label),
+            value: permissionPromptSafe(detail.value),
           })),
         }
       : {}),
@@ -131,9 +138,9 @@ function displayInteraction(
       ? {
           files: interaction.files.map((file) => ({
             ...file,
-            path: permissionDisplayText(file.path),
+            path: permissionPromptSafe(file.path),
             ...(file.preview !== undefined
-              ? { preview: permissionDisplayText(file.preview) }
+              ? { preview: permissionPromptSafe(file.preview) }
               : {}),
           })),
         }
@@ -159,11 +166,11 @@ export function permissionRequestWhyText(
 ): string | undefined {
   const plain = currentTurnRequest(turnIntentSummary);
   if (!plain) return undefined;
-  const result = sanitizeCredentialText(plain);
-  if (result.blocked) return undefined;
-  return result.text.length <= WHY_MAX_CHARS
-    ? result.text
-    : `${result.text.slice(0, WHY_MAX_CHARS - 1).trimEnd()}…`;
+  const why = permissionPromptSafe(plain, {
+    head: WHY_MAX_CHARS - 1,
+    tail: 0,
+  });
+  return why === SENSITIVE_DETAIL_HIDDEN ? undefined : why;
 }
 
 /** The person's own request in a turn prompt, as plain text: a chat turn's

@@ -1,7 +1,7 @@
 import { isPlainObject } from './object.js';
 import {
+  detectPotentialUnredactedSecret,
   redactCredentials,
-  sanitizeCredentialText,
   SENSITIVE_KEY_PATTERN,
 } from './sensitive-material.js';
 
@@ -107,77 +107,161 @@ export function isInternalPlumbingKey(key: string): boolean {
 const STRING_HEAD = 3000;
 const STRING_TAIL = 1000;
 const MAX_ITEMS = 20;
-const MAX_DEPTH = 2;
+// The tool input object, its fields, and two levels inside them.
+const MAX_DEPTH = 3;
+const COMMAND_KEYS = new Set(['command', 'cmd']);
+export const SENSITIVE_DETAIL_HIDDEN = 'Sensitive detail hidden.';
 
-/** The tool input a permission prompt shows, with secrets hidden. */
-export function permissionDisplayToolInput(
-  input: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (!isPlainObject(input)) return undefined;
-  const display: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (isInternalPlumbingKey(key)) continue;
-    const shown = PERMISSION_DISPLAY_INPUT_KEYS.has(key)
-      ? displayValue(value, 0, key === 'command' || key === 'cmd')
-      : SENSITIVE_KEY_PATTERN.test(key)
-        ? HIDDEN
-        : genericValue(value);
-    if (shown !== undefined) display[key] = shown;
-  }
-  return Object.keys(display).length ? display : undefined;
+export interface PermissionPromptSafeOptions {
+  /** Characters kept from the start and end when text is shortened. */
+  head?: number;
+  tail?: number;
+  /** A command keeps its shape (its programs must still show) and is cut at
+   *  line ends; other text is hidden whole when a secret-like token remains. */
+  command?: boolean;
+  /** A field whose credential-like name is not a credential (a browser
+   *  keyboard key). */
+  keepKey?: (key: string) => boolean;
 }
 
-function displayValue(value: unknown, depth: number, command = false): unknown {
-  if (typeof value === 'string') return displayString(value, command);
+/**
+ * The one way permission-prompt content is made safe, whether it is shown or
+ * stored, in this order:
+ * 1. fields named like a credential are hidden at any depth, and in text the
+ *    credential fields (`KEY=value`, `key: value`, JSON `"key": "value"`) and
+ *    URL user:password are masked;
+ * 2. then remaining secret-looking values are masked by pattern;
+ * 3. only then is the result shortened.
+ */
+export function permissionPromptSafe(
+  value: string,
+  options?: PermissionPromptSafeOptions,
+): string;
+export function permissionPromptSafe(
+  value: unknown,
+  options?: PermissionPromptSafeOptions,
+): unknown;
+export function permissionPromptSafe(
+  value: unknown,
+  options: PermissionPromptSafeOptions = {},
+): unknown {
+  return promptSafeValue(value, options, 0);
+}
+
+function promptSafeValue(
+  value: unknown,
+  options: PermissionPromptSafeOptions,
+  depth: number,
+): unknown {
+  if (typeof value === 'string') return promptSafeText(value, options);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
   if (depth >= MAX_DEPTH) return undefined;
+  const child = { ...options, command: false };
   if (Array.isArray(value)) {
     return value
-      .slice(0, MAX_ITEMS)
-      .map((item) => displayValue(item, depth + 1))
-      .filter((item) => item !== undefined);
+      .map((item) => promptSafeValue(item, child, depth + 1))
+      .filter((item) => item !== undefined)
+      .slice(0, MAX_ITEMS);
   }
   if (!isPlainObject(value)) return undefined;
   return Object.fromEntries(
     Object.entries(value)
-      .slice(0, MAX_ITEMS)
       .map(
         ([key, item]) =>
           [
             key,
-            SENSITIVE_KEY_PATTERN.test(key)
+            SENSITIVE_KEY_PATTERN.test(key) && !options.keepKey?.(key)
               ? HIDDEN
-              : displayValue(item, depth + 1),
+              : promptSafeValue(
+                  item,
+                  { ...child, command: COMMAND_KEYS.has(key) },
+                  depth + 1,
+                ),
           ] as const,
       )
-      .filter(([, item]) => item !== undefined),
+      .filter(([, item]) => item !== undefined)
+      .slice(0, MAX_ITEMS),
   );
 }
 
-// Unknown tools render top-level scalars and scalar lists only.
+function promptSafeText(
+  text: string,
+  options: PermissionPromptSafeOptions,
+): string {
+  const head = options.head ?? STRING_HEAD;
+  const tail = options.tail ?? STRING_TAIL;
+  // Steps 1 and 2 over the whole text, so shortening can't split a secret
+  // from the name that identifies it.
+  const redacted = redactCredentials(text);
+  if (options.command) return clampCommandForDisplay(redacted, head, tail);
+  if (detectPotentialUnredactedSecret(redacted)) return SENSITIVE_DETAIL_HIDDEN;
+  return headTailTruncate(redacted, head, tail);
+}
+
+/** The tool input a permission prompt shows, with secrets hidden. */
+export function permissionDisplayToolInput(
+  input: Record<string, unknown> | undefined,
+  toolName?: string,
+): Record<string, unknown> | undefined {
+  if (!isPlainObject(input)) return undefined;
+  const selected: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (isInternalPlumbingKey(key)) continue;
+    // Unknown fields show only scalars and scalar lists.
+    selected[key] = PERMISSION_DISPLAY_INPUT_KEYS.has(key)
+      ? value
+      : genericValue(value);
+  }
+  const keyboardKey = toolName?.startsWith('mcp__gantry__browser_') === true;
+  const display = permissionPromptSafe(selected, {
+    // Named like credentials but never one: a browser keyboard key, and the
+    // names of credentials an MCP server needs.
+    keepKey: (key) =>
+      (keyboardKey && key === 'key') || key === 'credentialNeeds',
+  }) as Record<string, unknown>;
+  return Object.keys(display).length ? display : undefined;
+}
+
 function genericValue(value: unknown): unknown {
   if (Array.isArray(value)) {
     const scalars = value.filter(
       (item) => typeof item === 'string' || typeof item === 'number',
     );
-    return scalars.length ? displayValue(scalars, 0) : undefined;
+    return scalars.length ? scalars : undefined;
   }
-  return typeof value === 'object' ? undefined : displayValue(value, 0);
+  return typeof value === 'object' ? undefined : value;
 }
 
-/** Prompt text with secrets hidden, capped above every display window. */
-export function permissionDisplayText(value: string): string {
-  return displayString(value, false);
+export function headTailTruncate(
+  input: string,
+  head: number,
+  tail: number,
+): string {
+  if (input.length <= head + tail + 1) return input;
+  return `${input.slice(0, head)}…${tail > 0 ? input.slice(-tail) : ''}`;
 }
 
-function displayString(value: string, command: boolean): string {
-  const capped =
-    value.length <= STRING_HEAD + STRING_TAIL + 1
-      ? value
-      : `${value.slice(0, STRING_HEAD)}…${value.slice(-STRING_TAIL)}`;
-  // A command keeps its shape so its programs still show; other text is
-  // hidden whole when an unrecognised secret-like token remains.
-  if (command) return redactCredentials(capped);
-  const result = sanitizeCredentialText(capped);
-  return result.blocked ? 'Sensitive detail hidden.' : result.text;
+function clampCommandForDisplay(
+  input: string,
+  head: number,
+  tail: number,
+): string {
+  const budget = head + tail;
+  if (input.length <= budget + 1) return input;
+  const lines = input.split(/\r?\n/);
+  if (lines.length <= 1 || lines[0].length > budget) {
+    return headTailTruncate(input, head, tail);
+  }
+  const shown: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const nextUsed = used + (shown.length > 0 ? 1 : 0) + line.length;
+    if (shown.length > 0 && nextUsed > budget) break;
+    shown.push(line);
+    used = nextUsed;
+    if (used >= budget) break;
+  }
+  const hidden = lines.length - shown.length;
+  if (hidden <= 0) return input;
+  return `${shown.join('\n')}\n… (+${hidden} more lines)`;
 }

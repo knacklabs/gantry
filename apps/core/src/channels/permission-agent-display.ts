@@ -1,4 +1,4 @@
-import { sanitizeCredentialText } from '../shared/sensitive-material.js';
+import { permissionPromptSafe } from '../shared/permission-display-input.js';
 
 export function permissionPromptTitle(
   sourceAgentFolder: string,
@@ -29,12 +29,5 @@ export function formatPermissionAgentDisplayName(
 }
 
 function sanitizeAgentName(input: string): string {
-  const result = sanitizeCredentialText(input);
-  const text = result.blocked ? 'Sensitive detail hidden.' : result.text;
-  return headTailTruncate(text, 120, 40).trim();
-}
-
-function headTailTruncate(input: string, head: number, tail: number): string {
-  if (input.length <= head + tail + 1) return input;
-  return `${input.slice(0, head)}…${input.slice(-tail)}`;
+  return permissionPromptSafe(input, { head: 120, tail: 40 }).trim();
 }

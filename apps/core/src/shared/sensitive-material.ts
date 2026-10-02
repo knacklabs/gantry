@@ -168,8 +168,13 @@ export function redactCredentials(
         return `${quote}${key}${quote}${separator}${valueQuote}${marker}${valueQuote}`;
       },
     )
-    .replace(KEY_VALUE_PATTERN, (match, key: string, separator: string) =>
-      SENSITIVE_KEY_PATTERN.test(key) ? `${key}${separator}${marker}` : match,
+    .replace(
+      KEY_VALUE_PATTERN,
+      (match, key: string, separator: string, value: string) =>
+        // An already-masked value keeps its surrounding quotes.
+        SENSITIVE_KEY_PATTERN.test(key) && !value.startsWith(marker)
+          ? `${key}${separator}${marker}`
+          : match,
     )
     .replace(SHORT_TOKEN_PATTERN, marker);
   for (const [pattern, replacement] of REDACTION_RULES)
@@ -179,24 +184,13 @@ export function redactCredentials(
     );
   return redacted;
 }
-/** {@link sanitizeOutboundLlmText} over {@link redactCredentials}. */
-export function sanitizeCredentialText(
-  raw: string,
-): ReturnType<typeof sanitizeOutboundLlmText> {
-  return withUnredactedSecretCheck(raw, redactCredentials(raw));
-}
 export function sanitizeOutboundLlmText(raw: string): {
   text: string;
   redacted: boolean;
   blocked: boolean;
   reason?: string;
 } {
-  return withUnredactedSecretCheck(raw, redactSensitiveText(raw));
-}
-function withUnredactedSecretCheck(
-  raw: string,
-  redactedText: string,
-): ReturnType<typeof sanitizeOutboundLlmText> {
+  const redactedText = redactSensitiveText(raw);
   const blockedReason = detectPotentialUnredactedSecret(redactedText);
   return {
     text: blockedReason ? '[REDACTED_POTENTIALLY_SENSITIVE]' : redactedText,
