@@ -3,7 +3,7 @@
   "branch": "fix/streaming-output-has-two-sanitizers",
   "done_when": "One streaming sanitizer handles accumulation, and the second state machine is deleted",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T13:19:53+00:00",
