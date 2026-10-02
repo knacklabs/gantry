@@ -306,12 +306,13 @@ export async function processLiveAdmissionWorkItem(
       ) {
         return 'completed';
       }
-      // /stop also cancels a batch still waiting to start: its messages
-      // become history and start no turn.
-      if (command.kind === 'stop') {
+      // /stop also cancels the batch waiting before it: those messages
+      // become history and start no turn. Later messages keep theirs.
+      if (command.kind === 'stop' && item.receiveOrder !== null) {
         await deps.inputRepository?.consumeAll({
           scope,
           consumedBy: 'stopped',
+          waitingBefore: item.receiveOrder,
         });
       }
       // Only a clean refusal goes back; a throw may follow a partial effect.

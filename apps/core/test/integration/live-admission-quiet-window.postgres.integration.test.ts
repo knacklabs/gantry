@@ -1,8 +1,23 @@
+import { createHash, randomUUID } from 'node:crypto';
+
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '@core/channels/register-builtins.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
-import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_APP_ID,
+} from '@core/adapters/storage/postgres/seeds.js';
+import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
+import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
+import {
+  createRuntimeApp,
+  type RuntimeApp,
+} from '@core/app/bootstrap/runtime-app.js';
+import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import type { LiveAdmissionWorkItem } from '@core/domain/ports/live-turns.js';
 import {
@@ -56,6 +71,8 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       content: string;
       sender?: string;
       providerAccountId?: string;
+      // The inbound handler's decision for this route.
+      sessionCommand?: boolean;
     },
     agentId?: string,
   ): Promise<LiveAdmissionWorkItem> => {
@@ -74,7 +91,11 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
         is_from_me: false,
         is_bot_message: false,
       },
-      { appId, ...(agentId ? { agentId } : {}) },
+      {
+        appId,
+        ...(agentId ? { agentId } : {}),
+        sessionCommand: message.sessionCommand,
+      },
     );
     if (result?.outcome !== 'enqueued') throw new Error('Admission failed');
     return result.item;
@@ -230,9 +251,6 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       appId,
       inputRepository: runtime.repositories.liveTurns,
       getConversationRoutes: app.getConversationRoutes,
-      getOrRecoverCursor: app.getOrRecoverCursor,
-      setAgentCursor: app.setAgentCursor,
-      saveState: app.saveState,
       hasChannel: () => true,
       setTyping: async () => undefined,
       sendProgressUpdate: async () => undefined,
@@ -248,10 +266,19 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
       app,
       chatJid,
       prompts,
+      replies: () => channel.outbound.map((message) => message.text),
       send: (id: string, content: string, sender = 'user') =>
         save(
           appId,
-          { id, chatJid, provider: 'app', providerAccountId, content, sender },
+          {
+            id,
+            chatJid,
+            provider: 'app',
+            providerAccountId,
+            content,
+            sender,
+            sessionCommand: content === '/stop',
+          },
           agentId,
         ),
       claimLater: () =>
@@ -291,8 +318,23 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     expect(prompt.indexOf('beta')).toBeLessThan(prompt.indexOf('gamma'));
   });
 
-  it('applies /stop at once and keeps the waiting batch as history', async () => {
-    const conversation = await appConversation('quiet-stop');
+  const consumers = async (items: LiveAdmissionWorkItem[]) =>
+    (
+      await runtime.service.pool.query<{ consumed_by: string | null }>(
+        `SELECT consumed_by FROM ${table}
+         WHERE id = ANY($1) ORDER BY receive_order`,
+        [items.map((item) => item.id)],
+      )
+    ).rows.map((row) => row.consumed_by);
+
+  const endWindow = (item: LiveAdmissionWorkItem) =>
+    runtime.service.pool.query(
+      `UPDATE ${table} SET defer_until = clock_timestamp() WHERE id = $1`,
+      [item.id],
+    );
+
+  it('answers /stop at once with no turn running, keeps the batch before it as history, and gives a later message its own turn', async () => {
+    const conversation = await appConversation('quiet-stop-idle');
     commandAdmins.add('admin');
     const waiting = [
       await conversation.send('m1', 'do the thing', 'admin'),
@@ -300,12 +342,51 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     ];
     const stop = await conversation.send('m3', '/stop', 'admin');
     expect(stop).toMatchObject({ state: 'queued', deferUntil: null });
+    const later = await conversation.send('m4', 'a new request', 'admin');
 
-    expect(waiting.map((item) => item.state)).toEqual(['deferred', 'deferred']);
+    // A recovery wake reaches turn start, which takes only the /stop.
+    let runs = 0;
+    await recoverPendingMessages(
+      conversation.loopDeps(async (queueJid) => {
+        runs += 1;
+        await conversation.app.processGroupMessages(queueJid, {
+          existingRunId: `run:stop-${runs}`,
+        });
+      }),
+    );
+    expect(conversation.replies()).toEqual(['No active run to stop.']);
+    expect(await consumers([...waiting, stop, later])).toEqual([
+      'stopped',
+      'stopped',
+      'turn:run:stop-1',
+      null,
+    ]);
+
+    await endWindow(later);
+    await conversation.app.processGroupMessages(later.queueJid, {
+      existingRunId: 'run:later',
+    });
+    expect(conversation.prompts).toHaveLength(1);
+    // The cancelled batch is history: context, never the turn's input.
+    const current = conversation.prompts[0]!.split('<current_message')[1];
+    expect(current).toContain('a new request');
+    expect(current).not.toContain('do the thing');
+  });
+
+  it('cancels only the batch received before /stop when the admission worker stops a running turn', async () => {
+    const conversation = await appConversation('quiet-stop-active');
+    commandAdmins.add('admin');
+    const waiting = [
+      await conversation.send('m1', 'do the thing', 'admin'),
+      await conversation.send('m2', 'and this too', 'admin'),
+    ];
+    const stop = await conversation.send('m3', '/stop', 'admin');
+    const later = await conversation.send('m4', 'a new request', 'admin');
 
     const stopped: string[] = [];
     const deps: MessageLoopDeps = {
       ...conversation.loopDeps(),
+      // The running turn's owner stops it.
       handleActiveControlCommand: async ({ command }) => {
         stopped.push(command.kind);
         return true;
@@ -313,20 +394,109 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     };
     expect(await processLiveAdmissionWorkItem(deps, stop)).toBe('completed');
     expect(stopped).toEqual(['stop']);
+    expect(await consumers([...waiting, stop, later])).toEqual([
+      'stopped',
+      'stopped',
+      `control:${stop.id}`,
+      null,
+    ]);
 
-    const { rows } = await runtime.service.pool.query<{
-      id: string;
-      consumed_by: string;
-    }>(
-      `SELECT id, consumed_by FROM ${table}
-       WHERE id = ANY($1) ORDER BY receive_order`,
-      [waiting.map((item) => item.id)],
-    );
-    expect(rows.map((row) => row.consumed_by)).toEqual(['stopped', 'stopped']);
-    await conversation.app.processGroupMessages(stop.queueJid, {
-      existingRunId: 'run:after-stop',
+    await endWindow(later);
+    await conversation.app.processGroupMessages(later.queueJid, {
+      existingRunId: 'run:later',
     });
-    expect(conversation.prompts).toEqual([]);
+    expect(conversation.prompts).toHaveLength(1);
+    // The cancelled batch is history: context, never the turn's input.
+    const current = conversation.prompts[0]!.split('<current_message')[1];
+    expect(current).toContain('a new request');
+    expect(current).not.toContain('do the thing');
+  });
+
+  it('never makes a session command wait, in any form the route accepts', async () => {
+    const chatJid = 'tg:quiet-command-forms';
+    const route: ConversationRoute = {
+      name: 'Command forms',
+      folder: 'main_agent',
+      agentId: DEFAULT_AGENT_ID,
+      trigger: '@Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+    };
+    const handlers = createChannelPersistenceHandlers({
+      app: {
+        getConversationRoutes: () => ({ [chatJid]: route }),
+      } as unknown as RuntimeApp,
+      resolved: {
+        appId: DEFAULT_APP_ID,
+        logger: { info: () => undefined, warn: () => undefined },
+      } as unknown as ChannelWiringDeps,
+      ops: () => runtime.ops,
+      persistenceQueue: new AsyncTaskQueue(1, 4),
+      runtimeSettings: () => ({}) as never,
+    });
+    const forms: Array<[string, string | undefined, string]> = [
+      ['/stop', undefined, 'queued'],
+      ['@Andy /stop', undefined, 'queued'],
+      ['@Andy ! stop', undefined, 'queued'],
+      ['@Andy !new', undefined, 'queued'],
+      ['/gantry status', undefined, 'queued'],
+      ['/stop', 'topic-7', 'queued'],
+      ['/home/user is full', undefined, 'deferred'],
+      ['hello there', 'topic-7', 'deferred'],
+    ];
+    for (const [index, [content, threadId]] of forms.entries()) {
+      await handlers.onMessage(chatJid, {
+        id: `form-${index}`,
+        chat_jid: chatJid,
+        provider: 'telegram',
+        sender: 'user',
+        sender_name: 'User',
+        content,
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+        ...(threadId ? { thread_id: threadId } : {}),
+      });
+    }
+    const { rows } = await runtime.service.pool.query<{ state: string }>(
+      `SELECT state FROM ${table} WHERE conversation_id = $1 ORDER BY receive_order`,
+      [chatJid],
+    );
+    expect(rows.map((row) => row.state)).toEqual(
+      forms.map(([, , state]) => state),
+    );
+  });
+
+  it('never makes a session command from an SDK session wait', async () => {
+    const sessions = new SessionInteractionModule({
+      control: adaptSessionControlPort(runtime.control),
+      ops: runtime.ops,
+      repositories: {} as never,
+      runtimeEvents: runtime.storageRuntime.runtimeEvents,
+      now: () => toIso(nowMs()) as never,
+      createId: randomUUID,
+      stableHash: (input) => createHash('sha256').update(input).digest('hex'),
+    });
+    const { session } = await sessions.ensureSession({
+      appId: 'quiet-sdk',
+      conversationId: 'conversation',
+    });
+    for (const message of ['/stop', 'please hold on', '/gantry new']) {
+      await sessions.acceptMessage(
+        { appId: 'quiet-sdk', sessionId: session.sessionId, message },
+        DEFAULT_APP_ID,
+      );
+    }
+    const { rows } = await runtime.service.pool.query<{ state: string }>(
+      `SELECT state FROM ${table} WHERE conversation_id = $1 ORDER BY receive_order`,
+      [session.conversationJid],
+    );
+    expect(rows.map((row) => row.state)).toEqual([
+      'queued',
+      'deferred',
+      'queued',
+    ]);
   });
 
   it('starts no turn when a recovery wake lands inside the window', async () => {

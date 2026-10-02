@@ -28,6 +28,7 @@ import type { AppUserAssertion } from '@gantry/contracts';
 import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { isSessionCommandText } from './session-command-parse.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 
@@ -439,6 +440,7 @@ export class SessionInteractionModule {
             source: 'sdk_session',
             responseMode,
           },
+          sessionCommand: isSessionCommandText(text),
           now,
         },
       });

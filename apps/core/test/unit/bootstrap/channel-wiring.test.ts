@@ -1623,6 +1623,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     );
   });
@@ -1763,6 +1764,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
       {
         appId: 'app-one',
@@ -1773,6 +1775,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: true,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     ]);
   });

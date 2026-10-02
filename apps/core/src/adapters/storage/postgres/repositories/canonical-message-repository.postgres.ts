@@ -88,6 +88,8 @@ export interface MessageLiveAdmissionInput {
   agentSessionId?: string | null;
   providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
+  /** Decided by the caller that knows the route trigger; it never waits. */
+  sessionCommand?: boolean;
   now?: string;
 }
 
@@ -395,7 +397,9 @@ export class PostgresCanonicalMessageRepository {
           agentId,
         ),
         triggerDecision: admission.triggerDecision,
-        quietWindowMs: quietWindowMs(msg.content, providerId),
+        quietWindowMs: admission.sessionCommand
+          ? 0
+          : quietWindowMs(msg.content, providerId),
         now: admission.now ?? msg.timestamp,
       },
       this.maxLiveAdmissionBacklog,

@@ -1,5 +1,6 @@
-import type { ThinkingEffort, ThinkingOverride } from '../domain/types.js';
-import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ThinkingEffort, ThinkingOverride } from '../../domain/types.js';
+import type { PermissionMode } from '../../shared/permission-mode.js';
+import { buildTriggerPattern } from '../../shared/trigger-pattern.js';
 
 // Host-managed slash-command parsing and authorization. Split out of
 // session-commands.ts (which owns command EXECUTION) so the pure text->command
@@ -267,4 +268,12 @@ export function isSessionCommandAllowed(
 export interface AgentResult {
   status: 'success' | 'error';
   result?: string | object | null;
+}
+
+/**
+ * Whether text sent with no route trigger (an SDK session or external ingress)
+ * is a session command, so it can skip the quiet window.
+ */
+export function isSessionCommandText(text: string): boolean {
+  return extractSessionCommand(text, buildTriggerPattern('')) !== null;
 }

@@ -51,6 +51,8 @@ export async function takeGroupTurnInput(input: {
   missedMessages: NewMessage[];
   permitsUnmentionedCompletion: boolean;
   hasMore: boolean;
+  /** Receive order of the last taken item; a command ends the take. */
+  lastReceiveOrder: number | null;
   activeThreadId?: string;
   latestMessageReactionTarget?: { messageRef: string; threadId?: string };
 }> {
@@ -113,6 +115,7 @@ export async function takeGroupTurnInput(input: {
         triggerDecision.requiresTrigger === false,
     ),
     hasMore,
+    lastReceiveOrder: takenMessages.at(-1)?.receiveOrder ?? null,
     activeThreadId,
     latestMessageReactionTarget: reactionTarget,
   };

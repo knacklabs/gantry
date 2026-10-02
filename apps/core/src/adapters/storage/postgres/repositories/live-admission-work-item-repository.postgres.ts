@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   min,
   ne,
   or,
@@ -15,7 +16,6 @@ import {
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionWorkItemEnqueueResult,
-  LiveAdmissionInputScope,
   LiveAdmissionWorkItemRepository,
 } from '../../../../domain/ports/live-turns.js';
 import { getProvider } from '../../../../channels/provider-registry.js';
@@ -36,18 +36,13 @@ const QUIET_WINDOW_MS = 1_500;
 const NEAR_LIMIT_QUIET_WINDOW_MS = 4_000;
 const QUIET_WINDOW_CAP_SECONDS = 6;
 const QUIET_WINDOW_REASON = 'quiet_window';
-// ponytail: a session command is a slash or bang word, optionally after a
-// leading mention. Any such text skips the window; a non-command that looks
-// like one only loses the wait, never a turn.
-const SESSION_COMMAND_LIKE = /^\s*(?:(?:<@[A-Z0-9]+>|@\S+)\s+)?[/!][a-z]/i;
 
 /**
- * How long a new message waits for the rest of its batch: none for a session
- * command, 4 s when the text is at least 90% of the platform's length limit
- * (probably split), otherwise 1.5 s.
+ * How long a new message waits for the rest of its batch: 4 s when the text is
+ * at least 90% of the platform's length limit (probably split), otherwise
+ * 1.5 s. Session commands skip it; the caller decides that.
  */
 export function quietWindowMs(text: string, providerId: string): number {
-  if (SESSION_COMMAND_LIKE.test(text)) return 0;
   const limit = getProvider(providerId)?.maxInboundTextLength;
   return limit !== undefined && text.length >= limit * 0.9
     ? NEAR_LIMIT_QUIET_WINDOW_MS
@@ -334,7 +329,7 @@ export async function consumeInputItem(
 
 export async function consumeAll(
   db: CanonicalDb,
-  input: { scope: LiveAdmissionInputScope; consumedBy: string },
+  input: Parameters<LiveAdmissionWorkItemRepository['consumeAll']>[0],
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   const rows = await db
@@ -352,6 +347,13 @@ export async function consumeAll(
           : eq(items.agentId, input.scope.agentId),
         sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
         isNull(items.consumedAt),
+        input.waitingBefore === undefined
+          ? undefined
+          : and(
+              eq(items.state, 'deferred'),
+              eq(items.deferredReason, QUIET_WINDOW_REASON),
+              lt(items.receiveOrder, input.waitingBefore),
+            ),
       ),
     )
     .returning({ id: items.id });

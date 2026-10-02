@@ -27,12 +27,33 @@ import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import type { MessageLoopDeps } from '@core/runtime/message-loop.js';
 import type { ChildProcess } from 'node:child_process';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
+import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
+import {
+  PostgresLiveAdmissionNotifier,
+  PostgresLiveAdmissionWakeupSource,
+} from '@core/adapters/storage/postgres/live-admission-notify.postgres.js';
+import { PostgresRuntimeRepositoryBundle } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
+import { _setRuntimeStorageForTest as setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
   hasPostgresIntegrationDatabase,
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
+
+// The quiet-window test's sender may use session commands.
+vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
+  return {
+    ...actual,
+    isSenderControlAllowed: (
+      ...args: Parameters<typeof actual.isSenderControlAllowed>
+    ) => args[1] === 'quiet-admin' || actual.isSenderControlAllowed(...args),
+  };
+});
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
@@ -1651,4 +1672,228 @@ maybeDescribe('agent capability boundary slices (Postgres)', () => {
       }),
     ).resolves.toBe(true);
   });
+});
+
+maybeDescribe('quiet window before a turn starts (Postgres)', () => {
+  let runtime: PostgresIntegrationRuntime;
+
+  beforeAll(async () => {
+    runtime = await createPostgresIntegrationRuntime({
+      schemaPrefix: 'quiet_window_e2e',
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await runtime?.cleanup();
+  });
+
+  it('answers three quick messages with one turn after the window, and answers /stop at once', async () => {
+    // The statically imported runtime reads this module, which an earlier
+    // test's module reset would otherwise leave pointing at a closed pool.
+    setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'quiet-window-e2e';
+    const jid = `app:${appId}:conversation`;
+    const folder = 'quiet_window_e2e';
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid: jid,
+      workspaceFolder: folder,
+    });
+    const route: ConversationRoute = {
+      name: 'Quiet window',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: nowIso(),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    };
+    const turns: Array<{ prompt: string; at: number }> = [];
+    const replies: Array<{ text: string; at: number }> = [];
+    const channel = createFakeChannelRuntime((candidate) => candidate === jid, {
+      sendMessage: (_jid, text) => {
+        replies.push({ text, at: Date.now() });
+      },
+    });
+    const workerInstanceId = 'quiet-window-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerInstanceId,
+      bootNonce: workerInstanceId,
+    });
+    const queue = new GroupQueue({
+      maxMessageRuns: 1,
+      maxJobRuns: 1,
+      maxRetries: 1,
+      baseRetryMs: 25,
+    });
+    const app = createRuntimeApp({
+      queue,
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, onProcess, onOutput) => {
+        turns.push({ prompt: input.prompt, at: Date.now() });
+        onProcess(
+          {
+            pid: 0,
+            kill: () => true,
+            stdin: { end: () => undefined },
+          } as unknown as ChildProcess,
+          'run',
+        );
+        const result = {
+          status: 'success' as const,
+          result: `Answered turn ${turns.length}.`,
+        };
+        await onOutput?.(result);
+        return result;
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    const leaseDeps = {
+      liveTurns: runtime.repositories.liveTurns,
+      coordination: runtime.repositories.workerCoordination,
+      workerInstanceId,
+    };
+    const authority = new LiveTurnAuthority({
+      leaseDeps,
+      slotCapacity: () => 1,
+      ownerPollMs: 25,
+    });
+    queue.setLiveTurnRunnerRegistrar((queueJid, hooks, routing) =>
+      authority.registerLocalRunner(queueJid, hooks, routing),
+    );
+    const processor = buildLiveAdmissionProcessor({
+      inputRepository: runtime.repositories.liveTurns,
+      liveTurnAuthority: authority,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: (queueJid) => {
+        queue.enqueueMessageCheck(queueJid);
+      },
+      warn: () => undefined,
+    });
+    queue.setProcessMessagesFn((queueJid, context) =>
+      processor(queueJid, context),
+    );
+    const wakeups = new PostgresLiveAdmissionWakeupSource(runtime.service.pool);
+    const handle = startLiveExecutionServices({
+      appId,
+      app,
+      liveTurnAuthority: authority,
+      liveTurnLeaseDeps: leaseDeps,
+      liveAdmissionWakeupSource: wakeups,
+      messageLoopDeps: {
+        appId,
+        inputRepository: runtime.repositories.liveTurns,
+        getConversationRoutes: app.getConversationRoutes,
+        hasChannel: channel.runtime.hasChannel,
+        setTyping: channel.runtime.setTyping,
+        sendProgressUpdate: channel.runtime.sendProgressUpdate,
+        queue,
+        opsRepository: runtime.ops,
+      },
+      recoveryCoordinator: undefined,
+      isEligibleToRecoverLiveTurn: () => true,
+      alertNoEligibleLiveTurnRecoverer: undefined,
+      registerActiveAdmissionLoop: () => undefined,
+      registerActiveRecoveryLoop: () => undefined,
+      onPollingCrash: (error) => {
+        throw error;
+      },
+      info: () => undefined,
+      warn: () => undefined,
+    });
+    // The real inbound handler decides session commands from the route, and
+    // saving wakes the admission worker as in production.
+    const inboundOps = new PostgresRuntimeRepositoryBundle(
+      runtime.service.pool,
+      runtime.service.db,
+      {
+        runtimeEvents: runtime.storageRuntime.runtimeEvents,
+        liveAdmissionNotifier: new PostgresLiveAdmissionNotifier(
+          runtime.service.pool,
+        ),
+      },
+    );
+    const inbound = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        appId,
+        logger: { info: () => undefined, warn: () => undefined },
+      } as unknown as ChannelWiringDeps,
+      ops: () => inboundOps,
+      persistenceQueue: new AsyncTaskQueue(1, 4),
+      runtimeSettings: () => ({}) as never,
+    });
+    let sent = 0;
+    const send = async (content: string): Promise<number> => {
+      sent += 1;
+      await inbound.onMessage(jid, {
+        id: `quiet-e2e-${sent}`,
+        chat_jid: jid,
+        provider: 'app',
+        providerAccountId,
+        sender: 'quiet-admin',
+        sender_name: 'Admin',
+        content,
+        timestamp: nowIso(),
+        is_from_me: false,
+        is_bot_message: false,
+      });
+      return Date.now();
+    };
+    try {
+      await app.registerGroup(jid, route);
+
+      await send('book the room');
+      await send('for Tuesday');
+      const lastQuickMessageAt = await send('at 3pm');
+      await waitForLiveE2e(
+        () => replies.some(({ text }) => text === 'Answered turn 1.'),
+        'one reply to the quick messages',
+      );
+      expect(turns).toHaveLength(1);
+      for (const part of ['book the room', 'for Tuesday', 'at 3pm']) {
+        expect(turns[0]!.prompt).toContain(part);
+      }
+      // The turn waited out the quiet window after the newest message.
+      expect(turns[0]!.at - lastQuickMessageAt).toBeGreaterThanOrEqual(1_000);
+
+      await send('cancel my 4pm');
+      await send('and email Sam');
+      const stopAt = await send('/stop');
+      await send('what is on today?');
+      await waitForLiveE2e(
+        () => replies.some(({ text }) => text === 'No active run to stop.'),
+        '/stop reply',
+      );
+      const stopReply = replies.find(
+        ({ text }) => text === 'No active run to stop.',
+      )!;
+      // /stop skips the window that the messages around it wait out.
+      expect(stopReply.at - stopAt).toBeLessThan(1_000);
+      await waitForLiveE2e(() => turns.length === 2, 'turn after /stop');
+      // The cancelled batch is history: context, never the turn's input.
+      const current = turns[1]!.prompt.split('<current_message')[1];
+      expect(current).toContain('what is on today?');
+      expect(current).not.toContain('cancel my 4pm');
+      expect(current).not.toContain('and email Sam');
+      // The batch /stop cancelled never starts a turn of its own.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      expect(turns).toHaveLength(2);
+    } finally {
+      handle.stopAdmission();
+      handle.stopRecovery();
+      await handle.admissionLoop?.done;
+      await queue.shutdown(500);
+      await authority.shutdown();
+      await wakeups.close();
+    }
+  }, 60_000);
 });

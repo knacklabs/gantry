@@ -230,6 +230,8 @@ export interface LiveAdmissionWorkItemRepository {
   consumeAll(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
+    /** Only items still in their quiet window received before this order. */
+    waitingBefore?: number;
   }): Promise<number>;
   /**
    * Durable message-backed admission. The idempotency key is provider delivery

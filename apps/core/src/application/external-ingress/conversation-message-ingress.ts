@@ -19,6 +19,7 @@ import type { AppId } from '../../domain/app/app.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live-turns.js';
 import { sha256Base64Url } from '../../shared/stable-hash.js';
 import { ApplicationError } from '../common/application-error.js';
+import { isSessionCommandText } from '../sessions/session-command-parse.js';
 
 export type ConversationMessageQueueIntent = {
   conversationJid: string;
@@ -55,6 +56,7 @@ export class ConversationMessageIngressModule {
               agentSessionId?: string | null;
               providerAccountId?: string | null;
               triggerDecision?: Record<string, unknown>;
+              sessionCommand?: boolean;
               now?: string;
             };
           },
@@ -243,6 +245,7 @@ export class ConversationMessageIngressModule {
                 source: 'external_ingress',
                 conversationKind: conversation.kind,
               },
+              sessionCommand: isSessionCommandText(text),
             },
           },
         );
