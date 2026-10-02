@@ -3,11 +3,24 @@
   "branch": "fix/brain-pages-are-written-by-two-frontmatt",
   "done_when": "Brain pages use one shared frontmatter writer",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "cfa5bac8ab02a732671fcb1f48b7a5b78632a9f57f0a4c68632c11dfd1c2683f",
+    "commit": "528d17dbee305cf1faa274bb02b1173ba7c927cd",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "2e10b7ef46719acab53cfc5c1a3cd2cb088b1e4bed44281430eba06bcf9c6b8d"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T13:29:09+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:57:30+00:00",
+      "step": "review"
     }
   ],
   "why": "Brain pages are written by two frontmatter serializers"
