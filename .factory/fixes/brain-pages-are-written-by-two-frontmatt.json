@@ -3,7 +3,7 @@
   "branch": "fix/brain-pages-are-written-by-two-frontmatt",
   "done_when": "Brain pages use one shared frontmatter writer",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T13:29:09+00:00",
