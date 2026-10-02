@@ -1,0 +1,14 @@
+{
+  "base": "c05c2442f4da29738de8c84d82fd7f01c36f4182",
+  "branch": "fix/account-owners-disappear-from-capped-acc",
+  "done_when": "Owner identity shows for every account whatever its page, using ownership ids and detail queries rather than joins over one page",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-02T12:13:07+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Account owners disappear from capped account lists"
+}
