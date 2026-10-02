@@ -3,7 +3,7 @@
   "branch": "fix/starting-the-service-can-kill-an-unrelat",
   "done_when": "The service starts only through the ownership-checked launcher, and the generated shell launcher is deleted",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:17:23+00:00",
