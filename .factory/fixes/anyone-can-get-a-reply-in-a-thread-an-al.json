@@ -6,22 +6,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "44bdc31d01bfeb7e12db2227cea5612e1c43a5748e58c5885e1c535f3260c471",
-    "commit": "d118b371f14997b8ef71a42dea7057a078299fc5",
+    "changed": "fb113e0c3cb48e08da4a7ef0d9d9a25ed17a7df3486bd0439a74953f142f5207",
+    "commit": "f681a976dd575f1b925a277b5d11d21994bc2822",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "When only Alice is allowlisted and another worker handles a delegated-agent completion while her runner remains active, this guard rejects the completion's synthetic sender and permanently consumes its input as history. `apps/core/src/jobs/async-delegated-agent-follow-up.ts:102\u2013119` emits that completion as `gantry:callable-agent`, with `is_from_me: false` and a trusted `callable_agent_follow_up` admission decision setting `requiresTrigger: false`. New-turn processing honors that decision at `apps/core/src/runtime/group-processing-flow.ts:109\u2013130`, but this active-turn path discards it. Consequently, delegated results no longer reach the waiting runner in allowlisted groups. Preserve the trusted admission decision for internal completions while retaining the sender check for channel follow-ups.",
-        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
-        "line": 456,
-        "priority": "P2",
-        "title": "Preserve trusted delegated completions when routing to an active turn"
-      }
-    ],
+    "findings": [],
     "status": "clean",
-    "tree": "d08ddcfc0ae9ab2fdcc1654af3755273d84d4e77f21a54b77b0685cd23af2a49"
+    "tree": "d7f01a5a9f1ca694f1a567e4d18d3523dfc3b8fcdd9ec69067dc804fcb01d957"
   },
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:04:20+00:00",
@@ -49,6 +41,10 @@
     },
     {
       "at": "2026-10-02T09:47:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T13:31:10+00:00",
       "step": "review"
     }
   ],
