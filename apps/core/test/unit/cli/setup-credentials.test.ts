@@ -91,11 +91,9 @@ async function loadCredentialsStep(
       },
     }),
   }));
-  const { runCredentialsStep, verifyModelAccess } =
-    await import('@core/cli/setup-credentials.js');
+  const { runCredentialsStep } = await import('@core/cli/setup-credentials.js');
   return {
     runCredentialsStep,
-    verifyModelAccess,
     note,
     password,
     select,
@@ -401,29 +399,5 @@ describe('setup credentials step', () => {
     expect(action).toEqual(expected);
     expect(password).not.toHaveBeenCalled();
     expect(upsertModelCredential).not.toHaveBeenCalled();
-  });
-
-  it('reports missing model credentials during setup verification', async () => {
-    vi.doMock('@core/cli/model-credential-readiness.js', () => ({
-      inspectModelCredentialReadiness: vi.fn(async () => ({
-        id: 'model-access-credentials',
-        title: 'Model Access Credentials',
-        status: 'fail',
-        message:
-          'Missing active model credentials for selected defaults: anthropic.',
-        nextAction: 'Run `gantry credentials model set anthropic`.',
-      })),
-    }));
-    const { verifyModelAccess } =
-      await import('@core/cli/setup-credentials.js');
-
-    await expect(
-      verifyModelAccess('/tmp/gantry-credentials-test', {} as never),
-    ).resolves.toEqual({
-      ok: false,
-      message:
-        'Missing active model credentials for selected defaults: anthropic.',
-      nextAction: 'Run `gantry credentials model set anthropic`.',
-    });
   });
 });
