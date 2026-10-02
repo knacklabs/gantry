@@ -11,6 +11,8 @@ export interface TaskIpcData {
   sourceJobId?: string;
   sourceRunId?: string;
   sourceRunKind?: 'interactive' | 'scheduled';
+  /** The person's request this turn, for a permission prompt's "why". */
+  turnIntentSummary?: string;
   taskId?: string;
   runHandle?: string;
   prompt?: string;

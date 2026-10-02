@@ -19,6 +19,8 @@ import { decisionForMode } from '@core/channels/permission-interaction.js';
 import { parseTelegramPermissionCallbackData } from '@core/channels/telegram/channel-shared.js';
 import { prepareTelegramPermissionCardSend } from '@core/channels/telegram/prepared-permission-card.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
+import { processTaskIpc } from '@core/jobs/ipc-handler.js';
+import { taskIpcResponsePath } from '@core/jobs/ipc-shared.js';
 import { createAgentToolRuleSettingsMirror } from '@core/config/settings/agent-tool-rule-settings-mirror.js';
 import {
   ensureConfiguredAgent,
@@ -34,6 +36,7 @@ import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 import { parsePermissionIpcRequest } from '@core/runtime/ipc-parsing.js';
+import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import { requestPermissionApprovalViaIpc } from '@core/runner/permission-ipc-client.js';
 
@@ -294,5 +297,111 @@ maybeDescribe('permission-prompt-shape', () => {
         eq(pgSchema.pendingInteractionsPostgres.requestId, request.requestId),
       );
     expect(row?.status).toBe('cancelled');
+  }, 60_000);
+
+  it('asks for a skill install with why from the turn, secrets hidden, and only Allow once and Deny, and a Deny tap installs nothing', async () => {
+    const password = 'hunter2-secret-pass';
+    const source = `https://ravi:${password}@git.example.com/acme/weather`;
+    // The agent's Gantry tool server, started for this turn.
+    vi.stubEnv('GANTRY_IPC_DIR', path.join(ipcBaseDir, AGENT_FOLDER));
+    vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', ipcAuth.authToken);
+    vi.stubEnv('GANTRY_IPC_RESPONSE_KEY_ID', ipcAuth.responseKeyId);
+    vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', ipcAuth.responseVerifyKey);
+    vi.stubEnv('GANTRY_APP_ID', APP_ID);
+    vi.stubEnv('GANTRY_AGENT_ID', AGENT_ID);
+    vi.stubEnv('GANTRY_CHAT_JID', TARGET_JID);
+    vi.stubEnv('GANTRY_WORKSPACE_KEY', AGENT_FOLDER);
+    vi.stubEnv('GANTRY_PERMISSION_LANE', 'interactive');
+    vi.stubEnv(
+      'GANTRY_TURN_INTENT_SUMMARY',
+      `<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Install the weather skill from ${source} for the weekly note</message>\n</messages>`,
+    );
+    const { writeIpcFile } = await import('@core/runner/mcp/ipc.js');
+    const { TASKS_DIR } = await import('@core/runner/mcp/context.js');
+    const file = writeIpcFile(TASKS_DIR, {
+      type: 'request_skill_install',
+      taskId: 'skill-install-prompt-shape',
+      targetJid: TARGET_JID,
+      chatJid: TARGET_JID,
+      payload: {
+        expectedFiles: [],
+        dependencies: [],
+        requiredEnvVars: [],
+        files: [],
+        installCommandArgv: ['npx', 'skills', 'add', source],
+        reason: 'Weather lookups for the weekly note',
+      },
+      timestamp: new Date().toISOString(),
+    });
+    vi.unstubAllEnvs();
+
+    const channel = telegramChannel('Deny');
+    const requester = createPermissionApprovalRequester({
+      findBoundChannel: () => ({}),
+      asPermissionApprovalSurface: () => channel.surface,
+      interactionLifecycle: { logger: { error: vi.fn() } },
+    });
+    const runApprovedCommand = vi.fn(async () => undefined);
+    const claimed = runnerControl.claimRequest(AGENT_FOLDER, 'tasks', file);
+    await processTaskIpc(
+      parseTaskIpcData(claimed.raw, AGENT_FOLDER),
+      AGENT_FOLDER,
+      {
+        sendMessage: vi.fn(async () => undefined),
+        conversationRoutes: () => ({ [TARGET_JID]: { folder: AGENT_FOLDER } }),
+        registerGroup: async () => undefined,
+        syncGroups: async () => undefined,
+        getAvailableGroups: () => [],
+        writeGroupsSnapshot: async () => undefined,
+        onSchedulerChanged: () => undefined,
+        requestPermissionApproval: requester,
+        requestUserAnswer: async () => ({ answers: {} }),
+        runApprovedCommand,
+        opsRepository: runtime.ops,
+      } as IpcDeps,
+      ipcBaseDir,
+    );
+
+    await vi.waitFor(() => expect(channel.rendered.text).toBeDefined(), {
+      timeout: 10_000,
+    });
+    expect(channel.rendered.text).toContain('Install: npx skills add https://');
+    expect(channel.rendered.text).toContain(
+      'Why: Install the weather skill from https://',
+    );
+    expect(channel.rendered.text).not.toContain(password);
+    expect(channel.rendered.buttons?.map((button) => button.text)).toEqual([
+      'Allow once',
+      'Deny',
+    ]);
+    // The agent's tool call gets the denial back.
+    const responsePath = taskIpcResponsePath(
+      AGENT_FOLDER,
+      'skill-install-prompt-shape',
+    );
+    await vi.waitFor(() => expect(fs.existsSync(responsePath)).toBe(true), {
+      timeout: 10_000,
+    });
+    expect(JSON.parse(fs.readFileSync(responsePath, 'utf-8'))).toMatchObject({
+      ok: false,
+      code: 'permission_denied',
+    });
+    const rows = await runtime.service.db
+      .select()
+      .from(pgSchema.pendingInteractionsPostgres)
+      .where(
+        eq(
+          pgSchema.pendingInteractionsPostgres.sourceAgentFolder,
+          AGENT_FOLDER,
+        ),
+      );
+    const stored = rows.find(
+      (row) =>
+        (row.payloadJson as { toolName?: string }).toolName ===
+        'request_skill_install',
+    );
+    expect(stored).toBeDefined();
+    expect(JSON.stringify(stored?.payloadJson)).not.toContain(password);
+    expect(runApprovedCommand).not.toHaveBeenCalled();
   }, 60_000);
 });

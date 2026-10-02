@@ -1,4 +1,4 @@
-import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
+import { sanitizeCredentialText } from '../shared/sensitive-material.js';
 
 export function permissionPromptTitle(
   sourceAgentFolder: string,
@@ -29,7 +29,7 @@ export function formatPermissionAgentDisplayName(
 }
 
 function sanitizeAgentName(input: string): string {
-  const result = sanitizeOutboundLlmText(input);
+  const result = sanitizeCredentialText(input);
   const text = result.blocked ? 'Sensitive detail hidden.' : result.text;
   return headTailTruncate(text, 120, 40).trim();
 }

@@ -8,7 +8,10 @@ import {
   amendmentPromptParts,
   amendmentReceiptText,
 } from './capability-amendment-card.js';
-import { permissionRequestWhyText } from '../application/interactions/pending-interaction-permission-envelope.js';
+import {
+  durablePermissionRequestSnapshot,
+  permissionRequestWhyText,
+} from '../application/interactions/pending-interaction-permission-envelope.js';
 import { USER_FACING_TOOL_LABELS } from '../shared/permission-tool-labels.js';
 import type {
   PermissionApprovalDecision,
@@ -45,6 +48,7 @@ import {
 } from './permission-agent-display.js';
 import {
   familyScopeCoverageLines,
+  formatPermissionCommandLines,
   formatPermissionToolInputLines,
   permissionRiskLines,
   runtimeDisplayCommand,
@@ -83,10 +87,23 @@ export function permissionButtonLabel(
   throw new Error(`Permission option ${mode} is not offered`);
 }
 
+/** Prompts render the durable snapshot, so a live and a recovered prompt
+ *  read the same. */
+const displayRequest = durablePermissionRequestSnapshot;
+
+function commandLines(request: PermissionApprovalRequest): string[] {
+  return request.toolInput
+    ? formatPermissionCommandLines(request.toolInput, sanitizePermissionText, {
+        sanitizeCommandText: sanitizePermissionCommandText,
+      })
+    : [];
+}
+
 export function formatPermissionPromptText(
-  request: PermissionApprovalRequest,
+  rawRequest: PermissionApprovalRequest,
   options: { budget?: number } = {},
 ): string {
+  const request = displayRequest(rawRequest);
   if (request.interaction) {
     return formatInteractionPermissionPrompt(request, options.budget);
   }
@@ -175,10 +192,11 @@ export interface PermissionPromptParts {
 }
 
 export function buildPermissionPromptParts(
-  request: PermissionApprovalRequest,
+  rawRequest: PermissionApprovalRequest,
 ): PermissionPromptParts {
+  const request = displayRequest(rawRequest);
   const contextLines = formatPermissionContextLines(request);
-  const fullView = buildPermissionPromptFullView(request);
+  const fullView = buildPermissionPromptFullView(rawRequest);
   const amendmentParts = amendmentPromptParts(request, {
     contextLines,
     fullView,
@@ -200,6 +218,7 @@ export function buildPermissionPromptParts(
         `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
+    bodyLines.push(...commandLines(request));
     if (interaction.body) {
       bodyLines.push(sanitizePermissionText(interaction.body, 500, 160));
     }
@@ -249,9 +268,10 @@ export function buildPermissionPromptParts(
     }
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
+    bodyLines.push(...commandLines(request));
     return {
       title: permissionPromptTitle(request.sourceAgentFolder, capabilityName),
-      bodyLines,
+      bodyLines: fullView ? stripFullPayloadBodyLines(bodyLines) : bodyLines,
       contextLines,
       fullView,
     };
@@ -371,6 +391,8 @@ function formatInteractionPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
+  const commands = commandLines(request);
+  if (commands.length > 0) lines.push('', ...commands);
   if (interaction.body)
     lines.push('', sanitizePermissionText(interaction.body, 500, 160));
   if (interaction.details?.length) {
@@ -429,6 +451,8 @@ function formatSemanticPermissionPrompt(
   }
   const networkLine = semanticCapabilityNetworkLine(definition);
   if (networkLine) lines.push(networkLine);
+  const commands = commandLines(request);
+  if (commands.length > 0) lines.push('', ...commands);
   lines.push('', ...formatPermissionContextLines(request));
   return limitPermissionMessage(lines.join('\n'));
 }
@@ -570,9 +594,10 @@ function permissionCommand(request: PermissionApprovalRequest): string | null {
 }
 
 export function formatPermissionReceiptActionSummary(
-  request: PermissionApprovalRequest | undefined,
+  rawRequest: PermissionApprovalRequest | undefined,
 ): string {
-  if (!request) return 'permission request';
+  if (!rawRequest) return 'permission request';
+  const request = displayRequest(rawRequest);
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
   if (capabilityName) return capabilityName;

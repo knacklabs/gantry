@@ -1088,7 +1088,7 @@ describe('pending interaction durability', () => {
     ).resolves.toMatchObject({ status: 'claimed' });
   });
 
-  it('persists only the displayed request details and a redacted full-view payload with the prompt binding', async () => {
+  it('persists exactly what the prompt shows, with secrets hidden, and a redacted full-view payload with the prompt binding', async () => {
     const request = {
       requestId: 'perm-full-view',
       sourceAgentFolder: 'main_agent',
@@ -1099,7 +1099,8 @@ describe('pending interaction durability', () => {
       interaction: {
         id: 'permission-detail',
         title: 'Permission detail',
-        files: [{ path: '/private/input', preview: 'raw-file-secret' }],
+        files: [{ path: '/private/input', preview: 'shown file preview' }],
+        options: [{ id: 'internal-option', label: 'raw-option-secret' }],
       },
       toolInput: {
         command: 'raw-command-secret',
@@ -1184,12 +1185,17 @@ describe('pending interaction durability', () => {
     expect(envelope.renderedRequest.toolInput).toEqual({
       command: 'raw-command-secret',
       file_path: '/raw/private/file',
+      credential: '[hidden]',
+    });
+    expect(envelope.renderedRequest.interaction).toEqual({
+      id: 'permission-detail',
+      title: 'Permission detail',
+      files: [{ path: '/private/input', preview: 'shown file preview' }],
     });
     expect(envelope.renderedRequest).not.toHaveProperty('description');
-    expect(envelope.renderedRequest).not.toHaveProperty('interaction');
     expect(JSON.stringify(envelope)).not.toContain('raw-credential-secret');
     expect(JSON.stringify(envelope)).not.toContain('raw-description-secret');
-    expect(JSON.stringify(envelope)).not.toContain('raw-file-secret');
+    expect(JSON.stringify(envelope)).not.toContain('raw-option-secret');
   });
 
   it('finds a permission prompt only by exact provider message binding', async () => {

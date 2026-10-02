@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import type { PermissionCardMessageView } from '@core/domain/permission-card.js';
@@ -26,6 +30,14 @@ import {
   telegramPermissionCallbackData,
 } from '@core/channels/telegram/channel-shared.js';
 import { prepareTelegramPermissionCardSend } from '@core/channels/telegram/prepared-permission-card.js';
+import { processTaskIpc } from '@core/jobs/ipc-handler.js';
+import {
+  requestPermissionApprovalViaIpc,
+  type PermissionApprovalRequestOptions,
+} from '@core/runner/permission-ipc-client.js';
+import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { buildLocalCliSemanticCapability } from '@core/shared/semantic-capabilities.js';
+import { parsePermissionIpcRequest } from '@core/runtime/ipc-parsing.js';
 
 const schedulerActions = [
   { kind: 'scheduler_run_now' as const, label: 'Retry now', jobId: 'job-1' },
@@ -68,6 +80,84 @@ function ineligibleRequest(
     decisionOptions: [...scalarDecisionOptions],
     ...overrides,
   };
+}
+
+/** A tool ask as the runner sends it for this turn, read back by the host. */
+async function askedThroughRunner(
+  turnIntentSummary: string,
+  options: Omit<PermissionApprovalRequestOptions, 'agentFolder' | 'signal'>,
+): Promise<PermissionApprovalRequest> {
+  const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-parity-'));
+  const auth = createIpcAuthEnvelope('main_agent', undefined, {
+    appId: 'default',
+    agentId: 'agent:main_agent',
+  });
+  const stop = new AbortController();
+  const asked = requestPermissionApprovalViaIpc(
+    {
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      chatJid: 'provider:conversation-1',
+      jobId: '',
+      jobName: '',
+      jobRunId: '',
+      jobRunLeaseToken: '',
+      jobRunLeaseFencingVersion: '',
+      ipcAuthToken: auth.authToken,
+      ipcResponseVerifyKey: auth.responseVerifyKey,
+      ipcResponseKeyId: auth.responseKeyId,
+      permissionRequestTimeoutMs: 0,
+      permissionLane: 'interactive',
+      turnIntentSummary,
+      resolveWorkspaceIpcDir: () => ipcDir,
+    },
+    { ...options, agentFolder: 'main_agent', signal: stop.signal },
+  );
+  const requestsDir = path.join(ipcDir, 'permission-requests');
+  const [file] = fs.readdirSync(requestsDir);
+  const raw = JSON.parse(
+    fs.readFileSync(path.join(requestsDir, file!), 'utf-8'),
+  ) as unknown;
+  stop.abort();
+  await asked;
+  fs.rmSync(ipcDir, { recursive: true, force: true });
+  return parsePermissionIpcRequest(raw, 'main_agent');
+}
+
+/** A skill install asked through the host's task path for this turn. */
+async function skillInstallAskedThroughHost(
+  turnIntentSummary: string,
+): Promise<PermissionApprovalRequest> {
+  const asked: PermissionApprovalRequest[] = [];
+  await processTaskIpc(
+    {
+      type: 'request_skill_install',
+      taskId: 'skill-install-parity',
+      appId: 'default',
+      chatJid: 'provider:conversation-1',
+      targetJid: 'provider:conversation-1',
+      turnIntentSummary,
+      payload: {
+        reason: 'Weather lookups',
+        installCommandArgv: ['npx', 'skills', 'add', 'acme/weather'],
+      },
+    },
+    'main_agent',
+    {
+      conversationRoutes: () => ({
+        'provider:conversation-1': { folder: 'main_agent' },
+      }),
+      sendMessage: async () => undefined,
+      opsRepository: {},
+      runApprovedCommand: async () => undefined,
+      requestPermissionApproval: async (request: PermissionApprovalRequest) => {
+        asked.push(request);
+        return { kind: 'delivery_failure', userMessage: 'not delivered' };
+      },
+    } as never,
+  );
+  await vi.waitFor(() => expect(asked).toHaveLength(1));
+  return asked[0]!;
 }
 
 async function renderPermissionCards(
@@ -1430,9 +1520,22 @@ describe('provider affordance parity', () => {
 
   it('renders a shell command, a capability and an admin action with the same what, which and why and the same buttons on all four providers', async () => {
     const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
-    const turnIntentSummary =
-      '<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Count the files in proj for the size report</message>\n</messages>';
-    const why = 'Why: Count the files in proj for the size report';
+    const password = 'hunter2-secret-pass';
+    const turnIntentSummary = `<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Count the files in https://ravi:${password}@git.example.com/proj for the size report</message>\n</messages>`;
+    const why = 'Why: Count the files in https://';
+    const shellAsk = (command: string) => ({
+      toolName: 'Bash',
+      displayName: 'Terminal',
+      toolInput: { command },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Bash', ruleContent: command }],
+        },
+      ],
+      decisionOptions: [...scalarDecisionOptions],
+    });
     const cardAffordances = {
       eligible: true,
       offered: ['remember_allow_exact' as const],
@@ -1445,22 +1548,25 @@ describe('provider affordance parity', () => {
       request: PermissionApprovalRequest;
       labels: string[];
       lines: string[];
+      inlineCommand?: string;
     }> = [
       {
-        request: ineligibleRequest('shell', {
+        request: await askedThroughRunner(
           turnIntentSummary,
-          toolInput: { command: 'cd proj && ls -la | wc -l' },
-        }),
+          shellAsk('cd proj && ls -la | wc -l'),
+        ),
         labels: ['Allow once', 'Allow for future', 'Deny'],
         lines: ['Runs: cd, ls, wc', why],
       },
       {
-        request: ineligibleRequest('shell-secret', {
+        request: await askedThroughRunner(
           turnIntentSummary,
-          toolInput: { command: `GITHUB_TOKEN=${secret} gh repo list` },
-        }),
+          shellAsk(
+            `GITHUB_TOKEN=${secret} git clone https://ravi:${password}@git.example.com/proj.git`,
+          ),
+        ),
         labels: ['Allow once', 'Allow for future', 'Deny'],
-        lines: ['Runs: gh', why],
+        lines: ['Runs: git', why],
       },
       {
         request: ineligibleRequest('auto-card', {
@@ -1484,8 +1590,8 @@ describe('provider affordance parity', () => {
         lines: ['/workspace/.env is protected, so I always ask.', why],
       },
       {
-        request: ineligibleRequest('capability', {
-          turnIntentSummary,
+        request: await askedThroughRunner(turnIntentSummary, {
+          ...shellAsk('gog sheets get sheet-1'),
           toolInput: {
             command: 'gog sheets get sheet-1',
             accountLabel: 'ops@example.com',
@@ -1498,36 +1604,34 @@ describe('provider affordance parity', () => {
             },
           ],
           semanticCapabilityDefinitions: {
-            'google.sheets.values.get': {
+            'google.sheets.values.get': buildLocalCliSemanticCapability({
               capabilityId: 'google.sheets.values.get',
               displayName: 'Read Google Sheets values',
               category: 'google',
               risk: 'read',
               can: 'Read sheet values.',
               cannot: 'Change sheets.',
-              credentialSource: 'configured_access',
-              implementationBindings: [],
-            },
+              executablePath: '/opt/homebrew/bin/gog',
+              executableVersion: '0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplates: ['/opt/homebrew/bin/gog sheets get *'],
+            }),
           },
         }),
         labels: ['Allow once', 'Allow for future', 'Deny'],
         lines: [
           'Allow Main Agent to use Read Google Sheets values?',
           'Account: ops@example.com',
+          'Runs: gog',
           why,
         ],
+        // Slack and Discord carry the full command behind "View full command".
+        inlineCommand: 'gog sheets get sheet-1',
       },
       {
-        request: ineligibleRequest('admin', {
-          turnIntentSummary,
-          toolName: 'request_skill_install',
-          displayName: 'Install skill',
-          toolInput: { description: 'Weather lookups' },
-          suggestions: undefined,
-          decisionOptions: ['allow_once', 'cancel'],
-        }),
+        request: await skillInstallAskedThroughHost(turnIntentSummary),
         labels: ['Allow once', 'Deny'],
-        lines: ['Description: Weather lookups', why],
+        lines: ['npx skills add acme/weather', why],
       },
     ];
 
@@ -1542,7 +1646,13 @@ describe('provider affordance parity', () => {
       for (const text of renderedPermissionTexts(cards)) {
         for (const line of fixture.lines) expect(text).toContain(line);
         expect(text).not.toContain(secret);
+        expect(text).not.toContain(password);
         expect(text).not.toContain('Run the requested command.');
+      }
+      if (fixture.inlineCommand) {
+        const [telegram, , , teams] = renderedPermissionTexts(cards);
+        expect(telegram).toContain(fixture.inlineCommand);
+        expect(teams).toContain(fixture.inlineCommand);
       }
     }
 

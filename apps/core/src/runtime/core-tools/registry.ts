@@ -51,6 +51,7 @@ import {
   CoreToolPermissionDeliveryError,
 } from './core-tool-permission-coordinator.js';
 import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
+import { permissionTurnIntent } from '../../application/interactions/pending-interaction-permission-envelope.js';
 
 export type {
   CoreToolDefinition,
@@ -118,6 +119,8 @@ export interface CoreToolRunContext {
   memoryDefaultScope?: 'user' | 'group';
   memoryUserId?: string;
   memoryBlock?: string;
+  /** The run's prompt, for a permission prompt's "why". */
+  turnPrompt?: string;
   allowedToolRules?: readonly string[];
   autonomousAllowedToolRules?: readonly string[];
   toolRules?: readonly CoreToolRule[];
@@ -504,6 +507,7 @@ async function gateCoreTool(
     toolName: gateName,
     displayName: gateName,
     description: 'Start or steer a delegated Gantry task.',
+    ...permissionTurnIntent(deps.context.turnPrompt),
     decisionReason: precheck?.reason ?? decision.reason,
     closestRule: decision.closestRule,
     toolInput: args as Record<string, unknown>,

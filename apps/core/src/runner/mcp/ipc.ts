@@ -35,6 +35,7 @@ import {
   memoryReviewerIsControlApprover,
   memoryUserId,
   threadId,
+  turnIntentSummary,
   browserTurnToken,
 } from './context.js';
 import {
@@ -82,6 +83,7 @@ export function writeIpcFile(dir: string, data: object): string {
     ...(runId ? { sourceRunId: runId } : {}),
     sourceRunKind:
       permissionLane === 'autonomous' ? 'scheduled' : 'interactive',
+    ...(turnIntentSummary ? { turnIntentSummary } : {}),
   };
   const payload = {
     ...data,

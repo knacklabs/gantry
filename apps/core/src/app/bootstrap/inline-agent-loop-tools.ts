@@ -5,6 +5,7 @@ import {
   type CallableAgentToolManifestEntry,
 } from '../../application/core-tools/callable-agent-tools.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
+import { permissionTurnIntent } from '../../application/interactions/pending-interaction-permission-envelope.js';
 import { decisionForMode } from '../../domain/permission-decision.js';
 import { executionAdmissionForAgent } from '../../application/agents/agent-execution-admission.js';
 import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
@@ -175,6 +176,7 @@ export function createInlineCoreTools(
       memoryDefaultScope: run.memoryDefaultScope,
       memoryUserId: run.memoryUserId,
       memoryBlock: run.memoryContextBlock,
+      turnPrompt: run.prompt,
       allowedToolRules: run.toolPolicyRules,
       ...(toolSuccessLedger
         ? { toolRules: run.toolRules, toolSuccessLedger }
@@ -343,6 +345,7 @@ export function createInlineCoreTools(
         toolName: name,
         displayName: name,
         description: 'Call a selected remote MCP tool.',
+        ...permissionTurnIntent(run.prompt),
         decisionReason: decision.reason,
         closestRule: decision.closestRule,
         toolInput: toolInput as Record<string, unknown>,

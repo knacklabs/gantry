@@ -2,10 +2,7 @@ import type {
   PermissionApprovalRequest,
   InteractionFile,
 } from '../domain/types.js';
-import {
-  redactSensitiveText,
-  sanitizeOutboundLlmText,
-} from '../shared/sensitive-material.js';
+import { sanitizeCredentialText } from '../shared/sensitive-material.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import { runtimeDisplayCommand } from './permission-tool-input-format.js';
 
@@ -182,7 +179,7 @@ function fullFileDiff(
 }
 
 function sanitizeFullPermissionText(input: string): string {
-  const result = sanitizeOutboundLlmText(redactSensitiveText(input));
+  const result = sanitizeCredentialText(input);
   return result.blocked ? 'Sensitive detail hidden.' : result.text;
 }
 

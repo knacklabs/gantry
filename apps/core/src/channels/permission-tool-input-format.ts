@@ -14,33 +14,13 @@ import {
 } from '../shared/runtime-env-command.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import { sanitizePermissionText } from './permission-text-sanitizer.js';
+import {
+  isInternalPlumbingKey,
+  SENSITIVE_DISPLAY_KEY_PATTERN,
+} from '../shared/permission-display-input.js';
 
 const PERMISSION_JSON_MAX_KEYS = 12;
 const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
-const SENSITIVE_INPUT_KEY_PATTERN =
-  /(secret|token|password|credential|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;
-// Internal runtime plumbing identifiers (chat jids, ipc dirs, run handles,
-// sandbox/agent/skill ids). Carry no decision value for the user and can leak
-// internal topology, so the generic fallback drops them entirely rather than
-// rendering them as visible key/value lines.
-function isInternalPlumbingKey(key: string): boolean {
-  const k = key.toLowerCase();
-  return (
-    k.endsWith('jid') ||
-    k.includes('ipcdir') ||
-    k.includes('runhandle') ||
-    k.includes('sandboxprofile') ||
-    k.includes('workspacekey') ||
-    k.includes('workspacefolder') ||
-    k.endsWith('agentid') ||
-    k.endsWith('appid') ||
-    k.endsWith('sessionid') ||
-    k.endsWith('threadid') ||
-    k.endsWith('correlationid') ||
-    k.endsWith('skillid') ||
-    k.endsWith('profileid')
-  );
-}
 const REDACTION_MARKER_PATTERN =
   /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/;
 type PermissionTextSanitizer = (
@@ -85,68 +65,12 @@ export function formatPermissionToolInputLines(
 ): string[] {
   if (!request.toolInput || typeof request.toolInput !== 'object') return [];
   const input = request.toolInput;
-  if (typeof input.command === 'string' && input.command.trim()) {
-    const displayCommand = runtimeDisplayCommand(input.command.trim());
-    const leadLine = commandLeadLine(
-      input,
-      displayCommand.command,
-      sanitizePermissionText,
-    );
-    const riskLines = commandRiskLines(displayCommand.command);
-    const generatedSkillPath = generatedRuntimeSkillPathDisplay(
-      displayCommand.command,
-    );
-    if (generatedSkillPath) {
-      const runtimeEnvLine =
-        displayCommand.runtimeEnvAssignments.length > 0
-          ? `Runtime environment: ${sanitizePermissionText(
-              displayCommand.runtimeEnvAssignments.join(' '),
-              600,
-              200,
-            )}`
-          : null;
-      return [
-        leadLine,
-        'Command: generated skill action command; runtime path hidden.',
-        `Action: ${sanitizePermissionText(generatedSkillPath, 180, 80)}`,
-        ...(runtimeEnvLine ? [runtimeEnvLine] : []),
-        ...riskLines,
-      ];
-    }
-    const command = (options.sanitizeCommandText ?? sanitizePermissionText)(
-      displayCommand.command,
-      900,
-      300,
-    );
-    if (hasRedactionMarker(command)) {
-      const program = shellProgramLabel(displayCommand.command);
-      return [
-        leadLine,
-        'Command: hidden because it may contain sensitive values.',
-        ...(program
-          ? [`Program: ${sanitizePermissionText(program, 120, 40)}`]
-          : []),
-        ...riskLines,
-      ];
-    }
-    return [
-      leadLine,
-      'Command:',
-      '```',
-      command,
-      '```',
-      ...(displayCommand.runtimeEnvAssignments.length > 0
-        ? [
-            `Runtime environment: ${sanitizePermissionText(
-              displayCommand.runtimeEnvAssignments.join(' '),
-              600,
-              200,
-            )}`,
-          ]
-        : []),
-      ...riskLines,
-    ];
-  }
+  const commandLines = formatPermissionCommandLines(
+    input,
+    sanitizePermissionText,
+    options,
+  );
+  if (commandLines.length > 0) return commandLines;
   if (request.toolName === 'Edit' || request.toolName === 'Write') {
     const lines = formatFileToolInputLines(
       request.toolName,
@@ -170,6 +94,76 @@ export function formatPermissionToolInputLines(
   return generic.length > 0 ? ['Input:', ...generic] : [];
 }
 
+/** What a command runs: its programs (or the agent's description) and the
+ *  command with secrets hidden. Empty when the input has no command. */
+export function formatPermissionCommandLines(
+  input: Record<string, unknown>,
+  sanitizePermissionText: PermissionTextSanitizer,
+  options: { sanitizeCommandText?: PermissionTextSanitizer } = {},
+): string[] {
+  if (typeof input.command !== 'string' || !input.command.trim()) return [];
+  const displayCommand = runtimeDisplayCommand(input.command.trim());
+  const leadLine = commandLeadLine(
+    input,
+    displayCommand.command,
+    sanitizePermissionText,
+  );
+  const riskLines = commandRiskLines(displayCommand.command);
+  const generatedSkillPath = generatedRuntimeSkillPathDisplay(
+    displayCommand.command,
+  );
+  if (generatedSkillPath) {
+    const runtimeEnvLine =
+      displayCommand.runtimeEnvAssignments.length > 0
+        ? `Runtime environment: ${sanitizePermissionText(
+            displayCommand.runtimeEnvAssignments.join(' '),
+            600,
+            200,
+          )}`
+        : null;
+    return [
+      leadLine,
+      'Command: generated skill action command; runtime path hidden.',
+      `Action: ${sanitizePermissionText(generatedSkillPath, 180, 80)}`,
+      ...(runtimeEnvLine ? [runtimeEnvLine] : []),
+      ...riskLines,
+    ];
+  }
+  const command = (options.sanitizeCommandText ?? sanitizePermissionText)(
+    displayCommand.command,
+    900,
+    300,
+  );
+  if (hasRedactionMarker(command)) {
+    const program = shellProgramLabel(displayCommand.command);
+    return [
+      leadLine,
+      'Command: hidden because it may contain sensitive values.',
+      ...(program
+        ? [`Program: ${sanitizePermissionText(program, 120, 40)}`]
+        : []),
+      ...riskLines,
+    ];
+  }
+  return [
+    leadLine,
+    'Command:',
+    '```',
+    command,
+    '```',
+    ...(displayCommand.runtimeEnvAssignments.length > 0
+      ? [
+          `Runtime environment: ${sanitizePermissionText(
+            displayCommand.runtimeEnvAssignments.join(' '),
+            600,
+            200,
+          )}`,
+        ]
+      : []),
+    ...riskLines,
+  ];
+}
+
 function labelizeKey(key: string): string {
   return key
     .replace(/[_-]+/g, ' ')
@@ -191,7 +185,7 @@ function formatGenericInputFields(
       break;
     }
     if (isInternalPlumbingKey(key)) continue;
-    if (SENSITIVE_INPUT_KEY_PATTERN.test(key)) {
+    if (SENSITIVE_DISPLAY_KEY_PATTERN.test(key)) {
       lines.push(`  ${labelizeKey(key)}: [hidden]`);
       shown += 1;
       continue;
