@@ -3,11 +3,24 @@
   "branch": "fix/reaction-add-and-remove-repeat-the-same",
   "done_when": "One small helper handles the reaction cache and abort lifecycle for Slack, Discord and Telegram, keeping each provider's invalidation rule",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "0f97a2bfd0941e7e4eb64b8e855f6a074cae1d76e5065437f8d330754a0b5ff3",
+    "commit": "06c93cb92ce1b0828a9395a8385ea3e321631954",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "097a91337a16e524c1863f78a96cb3abc8d5bfaeab0736072f69f18545addce5"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T12:49:46+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:44:10+00:00",
+      "step": "review"
     }
   ],
   "why": "Reaction add and remove repeat the same cache bookkeeping six times"
