@@ -3,7 +3,7 @@
   "branch": "fix/the-two-agent-engines-use-different-diag",
   "done_when": "Both engines expose diagnostics through one switch: sanitized stderr with host-side filtering; the extra engine switch is deleted",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:31:12+00:00",
