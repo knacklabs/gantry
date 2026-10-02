@@ -135,10 +135,14 @@ function toolingSection(mode: GantryAgentPromptMode): string {
           'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
           'Use matching ready actions first. If policy blocks an action, say so plainly.',
           STRUCTURED_LOCAL_CLI_GUIDANCE,
-          'Never use raw harness subagents. Gantry delegation tools are unavailable until Gantry mounts a real delegated-task executor.',
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];
-  return ['## Tooling', ...compactCatalog].join('\n');
+  return [
+    '## Tooling',
+    ...compactCatalog,
+    'Never use raw harness subagents. Delegation is available through Gantry delegate_task when mounted in this run.',
+    'If delegate_task is not mounted, name the actual gate using the run’s access information: AgentDelegation has not been granted, the agent has a locked access preset, or delegation tools are hidden. Tell the owner to grant AgentDelegation to this agent, use the full access preset, or enable the hidden tools, respectively, then start a fresh run. Do not guess which gate applies when the run does not expose it; ask the owner to check those settings.',
+  ].join('\n');
 }
 
 function executionBiasSection(): string {
