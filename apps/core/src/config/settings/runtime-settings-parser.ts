@@ -956,6 +956,29 @@ function jidForConversation(
   return jidForConfiguredConversation(conversation, providerAccounts);
 }
 
+// Sender and approver allow-lists are keyed by provider, chat and agent, not
+// account, so a second account for the same agent and chat would overwrite the
+// first one's policy.
+function assertOneAccountPerAgentChat(
+  agents: ReturnType<typeof parseConfiguredAgents>,
+): void {
+  for (const [agentId, agent] of Object.entries(agents)) {
+    const accountByChat = new Map<string, string>();
+    for (const binding of Object.values(agent.bindings)) {
+      if (!binding.provider || !binding.providerAccountId) continue;
+      const chatKey = `${binding.provider}\0${binding.jid}`;
+      const existing = accountByChat.get(chatKey);
+      if (existing === undefined) {
+        accountByChat.set(chatKey, binding.providerAccountId);
+      } else if (existing !== binding.providerAccountId) {
+        throw new Error(
+          `Agent "${agentId}" is connected to ${binding.provider} chat "${binding.jid}" through two accounts ("${existing}" and "${binding.providerAccountId}"). Use one account per agent per chat.`,
+        );
+      }
+    }
+  }
+}
+
 export function parseRuntimeSettings(raw: string): RuntimeSettings {
   const parsed = parseSimpleYamlObject(raw) as unknown;
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -1043,6 +1066,7 @@ export function parseRuntimeSettingsObject(
       jidForConversation: (conversation) =>
         jidForConversation(conversation, providerAccounts),
     });
+    assertOneAccountPerAgentChat(agents);
     const credentialBroker = parseModelAccessSettings(root.model_access);
     const memory = parseMemorySettings(root.memory);
     const runtime = parseRuntimeProcessSettings(root.runtime);
