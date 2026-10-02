@@ -3,7 +3,7 @@
   "branch": "fix/conversation-history-is-loaded-through-c",
   "done_when": "Message lists use one hydration path for earliest and latest selection, with the same ordering and ties",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-02T12:58:44+00:00",
