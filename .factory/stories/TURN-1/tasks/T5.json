@@ -2,22 +2,22 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "80b2e8fde436504a0c50161426d7af1bfda6bd1483f5da28b470a0cc5751a576",
-    "commit": "ca557190f580817374a4bbc9ec354040b8ca0344",
+    "changed": "ef4b2dc55a105738a79a759694efe9e3e46ca471636056cd4f16b425fe274c8f",
+    "commit": "cd258c6d175ef203638be45c18b7750bf60cd89e",
     "dismissals": [],
     "findings": [
       {
-        "body": "The standard requires: \u201cRemove what your own change left unused.\u201d `hasProviderResumeHandle` is imported here but never referenced. `eslint.config.js:75` configures `@typescript-eslint/no-unused-vars` as an error, so this added import prevents `npm run lint:changed` and the close command from passing. Remove the import and the newly added `session-resume-handle.ts`, which has no remaining callers and is outside the task\u2019s scope without serving the quiet-window behavior.",
-        "file": "apps/core/src/application/sessions/session-interaction-module.ts",
-        "line": 33,
-        "priority": "P1",
-        "title": "Standard: Remove what your own change left unused"
+        "body": "This uses Discord's 2,000-character bot send limit as the inbound limit, but [Discord allows Nitro users to send 4,000 characters](https://support.discord.com/hc/en-us/articles/360034632292-Sending-Messages). A 2,000-character Nitro message therefore waits 4 seconds although it is only halfway to its limit and should receive the ordinary 1.5-second window. Incoming content reaches admission through apps/core/src/channels/discord/index.ts:619. Keep the outbound limit separate and use the applicable inbound limit for this threshold.",
+        "file": "apps/core/src/channels/register-builtins.ts",
+        "line": 240,
+        "priority": "P2",
+        "title": "Use Discord's inbound limit for the near-limit threshold"
       }
     ],
-    "status": "blocked",
-    "tree": "be277f93f561fa825744fc1882f120cd697906122c6e266c01eeb99bc1fbbbe6"
+    "status": "clean",
+    "tree": "5fdde6cb13724620bace1bc20cd5e4510ad40e5a69faa765f4738bf22e59668b"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T07:53:51+00:00",
@@ -41,6 +41,10 @@
     },
     {
       "at": "2026-10-03T01:14:26+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:39:01+00:00",
       "step": "review"
     }
   ]
