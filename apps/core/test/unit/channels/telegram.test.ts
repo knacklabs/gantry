@@ -4066,6 +4066,23 @@ describe('TelegramChannel', () => {
       });
     });
 
+    it('reports every message a long finished group answer spans', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      const jid = 'tg:-1001234567890';
+      currentBot()
+        .api.sendMessage.mockResolvedValueOnce({ message_id: 701 })
+        .mockResolvedValueOnce({ message_id: 702 })
+        .mockResolvedValueOnce({ message_id: 703 });
+
+      await channel.sendStreamingChunk(jid, 'x'.repeat(8000), {
+        generation: 1,
+      });
+      await expect(
+        channel.sendStreamingChunk(jid, '', { generation: 1, done: true }),
+      ).resolves.toEqual({ externalMessageIds: ['701', '702', '703'] });
+    });
+
     it('stops Telegram overflow parts when the stream guard changes mid-send', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4146,7 +4163,7 @@ describe('TelegramChannel', () => {
           threadId: '11',
           done: true,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['501'] });
 
       expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
         '-1001234567890',
@@ -4190,7 +4207,7 @@ describe('TelegramChannel', () => {
           ...stream,
           done: true,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
       expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(2);
       expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(

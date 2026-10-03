@@ -5233,7 +5233,7 @@ describe('Slack channel', () => {
       channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(20_000), {
         done: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ externalMessageIds: ['1710000000.100200'] });
 
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(5);
     expect(logger.warn).toHaveBeenCalledWith(
@@ -9072,7 +9072,9 @@ describe('Slack channel', () => {
       expect(appendCallsBeforeClamp).toHaveLength(1);
 
       await vi.advanceTimersByTimeAsync(1);
-      await expect(flushPromise).resolves.toBe(true);
+      await expect(flushPromise).resolves.toEqual({
+        externalMessageIds: ['1710000000.222333'],
+      });
 
       const appendCalls = vi
         .mocked(appRef.current.client.apiCall)
@@ -9126,7 +9128,9 @@ describe('Slack channel', () => {
       },
     );
 
-    expect(delivered).toBe(true);
+    expect(delivered).toEqual({
+      externalMessageIds: ['1710000000.222333', '1710000000.100200'],
+    });
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: 'C1234567890',
@@ -9268,7 +9272,9 @@ describe('Slack channel', () => {
       },
     );
 
-    expect(delivered).toBe(true);
+    expect(delivered).toEqual({
+      externalMessageIds: ['1710000000.222333', '1710000000.100200'],
+    });
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({

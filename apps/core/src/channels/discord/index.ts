@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
@@ -302,7 +303,7 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     const channelId =
       options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
@@ -354,17 +355,25 @@ export class DiscordChannel implements ChannelAdapter {
       state.lastFlushAt = now;
       if (options.done) {
         const overflowParts = parts.slice(1).filter((part) => part.length > 0);
-        if (overflowParts.length > 0)
-          await postDiscordMessageParts({
-            channelId: state.channelId,
-            parts: overflowParts,
-            post: (target, body) => this.postMessage(target, body),
-            shouldContinue: () =>
-              this.streamResetEpochs.isCurrent(key, streamEpoch),
-          });
-        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
-        this.streamResetEpochs.deleteState(key, this.activeStreams);
-        this.streamGenerations.markDone(key, options.generation);
+        const overflow =
+          overflowParts.length > 0
+            ? await postDiscordMessageParts({
+                channelId: state.channelId,
+                parts: overflowParts,
+                post: (target, body) => this.postMessage(target, body),
+                shouldContinue: () =>
+                  this.streamResetEpochs.isCurrent(key, streamEpoch),
+              })
+            : {};
+        const externalMessageIds = [
+          ...(state.messageId ? [state.messageId] : []),
+          ...(overflow.externalMessageIds ?? []),
+        ];
+        if (this.streamResetEpochs.isCurrent(key, streamEpoch)) {
+          this.streamResetEpochs.deleteState(key, this.activeStreams);
+          this.streamGenerations.markDone(key, options.generation);
+        }
+        return externalMessageIds.length > 0 ? { externalMessageIds } : true;
       } else {
         if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
         this.activeStreams.set(key, state);

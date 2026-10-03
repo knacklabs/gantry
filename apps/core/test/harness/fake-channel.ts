@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '@core/domain/messages/streaming-chunk-result.js';
 import type {
   MessageSendOptions,
   PermissionApprovalDecision,
@@ -31,11 +32,13 @@ export interface FakeChannelRuntimeOptions {
     text: string,
     options?: MessageSendOptions,
   ) => Promise<void> | void;
+  /** Stream replies; the callback may return the provider's message ids. */
+  supportsStreaming?: boolean;
   sendStreamingChunk?: (
     chatJid: string,
     text: string,
     options?: StreamingChunkOptions,
-  ) => Promise<void> | void;
+  ) => Promise<StreamingChunkResult | void> | StreamingChunkResult | void;
   permissionDecision?:
     | PermissionApprovalDecision
     | ((
@@ -78,7 +81,7 @@ export function createFakeChannelRuntime(
     userQuestions,
     runtime: {
       hasChannel: (chatJid: string) => ownsJid(chatJid),
-      supportsStreaming: () => false,
+      supportsStreaming: () => config.supportsStreaming ?? false,
       supportsProgress: () => true,
       sendMessage: async (
         chatJid: string,
@@ -93,8 +96,9 @@ export function createFakeChannelRuntime(
         text: string,
         options?: StreamingChunkOptions,
       ) => {
-        await config.sendStreamingChunk?.(chatJid, text, options);
+        const sent = await config.sendStreamingChunk?.(chatJid, text, options);
         streaming.push({ chatJid, text, options });
+        return sent;
       },
       resetStreaming: () => {},
       setTyping: async (chatJid: string, isTyping: boolean) => {

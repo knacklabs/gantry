@@ -494,7 +494,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           onGenerationUndelivered: (text) => {
             undeliveredGenerations.push(text);
           },
-          persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+          persistCompletedStreamedGeneration: async (
+            text,
+            deliveryStatus,
+            externalMessageIds,
+          ) => {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
             const message: NewMessage = {
@@ -507,6 +511,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               is_from_me: true,
               is_bot_message: true,
               thread_id: activeThreadId,
+              providerAccountId: group.providerAccountId,
+              // Every provider message the answer spans, so a reply to any
+              // part of it is a reply to the bot.
+              external_message_id: externalMessageIds[0],
+              external_message_ids: externalMessageIds,
               delivery_status: deliveryStatus,
               // Only claim a delivery time when something was actually delivered.
               delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,

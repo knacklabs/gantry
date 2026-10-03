@@ -105,6 +105,7 @@ export function externalRefForMessage(msg: NewMessage) {
     provider_account_id: msg.providerAccountId,
     thread_id: msg.thread_id,
     external_message_id: msg.external_message_id,
+    external_message_ids: msg.external_message_ids,
     reply_to_message_id: msg.reply_to_message_id,
     reply_to_sender_name: msg.reply_to_sender_name,
     mentions_bot: msg.mentionsBot,

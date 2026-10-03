@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
@@ -256,7 +257,7 @@ export interface ChannelWiring {
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ) => Promise<boolean>;
+  ) => Promise<StreamingChunkResult>;
   resetStreaming: (jid: string, options?: ChannelStreamResetOptions) => void;
   setTyping: (
     jid: string,

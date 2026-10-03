@@ -226,27 +226,18 @@ maybeDescribe(
         releaseHeldTurn = resolve;
       });
       let replies = 0;
-      // The channel stores what it sent, as the real outbound projection does.
+      // Telegram streams group answers and, when one finishes, reports the id
+      // of every message it spans; here each answer spans two messages.
       const channel = createFakeChannelRuntime((jid) => jid === chatJid, {
-        sendMessage: async (jid, text, options) => {
+        supportsStreaming: true,
+        sendStreamingChunk: (_jid, _text, options) => {
+          if (!options?.done) return true;
           replies += 1;
-          await runtime.ops.storeMessage({
-            id: `outbound:mention-follow-${replies}`,
-            chat_jid: jid,
-            provider: 'telegram',
-            providerAccountId,
-            sender: 'gantry',
-            sender_name: 'Gantry',
-            content: text,
-            timestamp: toIso(nowMs()),
-            is_from_me: true,
-            is_bot_message: true,
-            thread_id: options?.threadId,
-            external_message_id: `${9000 + replies}`,
-            delivery_status: 'sent',
-          });
+          return { externalMessageIds: [`${replies}01`, `${replies}02`] };
         },
       });
+      const answers = () =>
+        channel.streaming.filter(({ options }) => options?.done);
       // Only the model is faked: its runner takes mid-turn input like the real one.
       const queue = new GroupQueue({
         maxMessageRuns: 2,
@@ -434,15 +425,13 @@ maybeDescribe(
       const asked = (prompt: string) => prompt.split('<current_message').at(-1);
       expect(presented.map(asked).join('\n')).not.toContain('buy my course');
       expect(midTurn.join('\n')).not.toContain('buy my course');
-      expect(channel.outbound.map(({ text }) => text)).toEqual([
-        'Answer 1.',
-        'Answer 2.',
-      ]);
+      expect(replies).toBe(2);
 
-      // A photo replying to the bot's message, through Telegram's media path.
+      // A photo replying to the second part of the bot's first answer,
+      // through Telegram's media path.
       await telegramIngress(runtime, app, appId).photo(-100777, {
         caption: 'can you shorten it?',
-        replyTo: 9001,
+        replyTo: 102,
       });
       queue.enqueueMessageCheck(mainQueue);
       await settled();
@@ -455,7 +444,7 @@ maybeDescribe(
       );
       await settled();
       expect(presented).toHaveLength(4);
-      expect(channel.outbound[3]?.options?.threadId).toBe('42');
+      expect(answers()[3]?.options?.threadId).toBe('42');
       queue.enqueueMessageCheck(
         await save({
           id: '508',
@@ -479,12 +468,12 @@ maybeDescribe(
           sender: stranger,
           sender_name: 'Stranger',
           mentionsBot: true,
-          reply_to_message_id: '9001',
+          reply_to_message_id: '101',
         }),
       );
       await settled();
       expect(presented).toHaveLength(5);
-      expect(channel.outbound).toHaveLength(5);
+      expect(replies).toBe(5);
 
       await owner.authority.shutdown();
       await other.authority.shutdown();

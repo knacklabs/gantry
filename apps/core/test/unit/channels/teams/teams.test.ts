@@ -2268,11 +2268,13 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1800);
-    await channel.sendStreamingChunk('teams:19:abc@thread.v2', '!', {
-      threadId: 'root-message',
-      generation: 1,
-      done: true,
-    });
+    await expect(
+      channel.sendStreamingChunk('teams:19:abc@thread.v2', '!', {
+        threadId: 'root-message',
+        generation: 1,
+        done: true,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['stream-card-1'] });
 
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(

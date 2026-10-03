@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import {
   TEAMS_HARD_MESSAGE_BYTES,
@@ -14,7 +15,7 @@ export interface TeamsStreamingState {
   messageId?: string;
   rawBuffer: string;
   lastFlushAt: number;
-  pendingDelivery: Promise<boolean>;
+  pendingDelivery: Promise<StreamingChunkResult>;
 }
 
 export async function applyTeamsStreamingChunk(input: {
@@ -27,7 +28,7 @@ export async function applyTeamsStreamingChunk(input: {
   sdkClient: TeamsSdkClient;
   markDone: (jid: string, generation?: number) => void;
   shouldContinue: () => boolean;
-}): Promise<boolean> {
+}): Promise<StreamingChunkResult> {
   const current = input.activeStreams.get(input.key);
   if (current !== input.state) return false;
   if (input.text) input.state.rawBuffer += input.text;
@@ -59,8 +60,12 @@ async function flushTeamsStreamingState(input: {
   options: StreamingChunkOptions;
   sdkClient: TeamsSdkClient;
   shouldContinue: () => boolean;
-}): Promise<boolean> {
+}): Promise<StreamingChunkResult> {
   const options = input.options;
+  const finished = (ids: (string | undefined)[]): StreamingChunkResult => {
+    const externalMessageIds = ids.filter((id): id is string => Boolean(id));
+    return externalMessageIds.length > 0 ? { externalMessageIds } : true;
+  };
   const parts = splitTeamsTextByByteBudget(
     input.state.rawBuffer,
     TEAMS_HARD_MESSAGE_BYTES,
@@ -71,14 +76,14 @@ async function flushTeamsStreamingState(input: {
   if (!hasNativeStreaming) {
     if (!options.done) return false;
     if (!input.shouldContinue()) return false;
-    await sendTeamsTextMessage(
+    const sent = await sendTeamsTextMessage(
       input.sdkClient,
       input.state.conversationId,
       input.state.rawBuffer,
       options,
       input.shouldContinue,
     );
-    return true;
+    return finished(sent?.externalMessageIds ?? []);
   }
 
   const card = buildTeamsMessageCard({
@@ -104,17 +109,21 @@ async function flushTeamsStreamingState(input: {
     input.state.messageId = sent?.externalMessageId;
   }
 
-  if (options.done && parts.length > 1) {
-    if (!input.shouldContinue()) return true;
+  if (!options.done) return true;
+  if (parts.length > 1 && input.shouldContinue()) {
     // ponytail: cap overflow at Teams' provider limit; do not add rolling
     // chunk messages during normal streaming cadence.
-    await sendTeamsTextMessage(
+    const overflow = await sendTeamsTextMessage(
       input.sdkClient,
       input.state.conversationId,
       parts.slice(1).join(''),
       options,
       input.shouldContinue,
     );
+    return finished([
+      input.state.messageId,
+      ...(overflow?.externalMessageIds ?? []),
+    ]);
   }
-  return true;
+  return finished([input.state.messageId]);
 }

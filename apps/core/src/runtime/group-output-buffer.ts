@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 import type {
   MessageSendOptions,
   StreamingChunkOptions,
@@ -46,9 +47,13 @@ export function createGroupOutputBuffer(input: {
   persistCompletedStreamedGeneration?: (
     text: string,
     deliveryStatus: 'sent' | 'partially_sent' | 'failed',
+    externalMessageIds: string[],
   ) => Promise<void>;
   log: RuntimeLogger;
 }) {
+  // Settlement only needs to know whether anything was sent.
+  const wasSent = (sent: StreamingChunkResult) =>
+    typeof sent === 'object' ? true : sent;
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
   // Scoped to ONE generation, unlike userVisibleTranscript which spans the run.
   // `text` below is only the delta since the previous flush (the visible
@@ -113,15 +118,22 @@ export function createGroupOutputBuffer(input: {
     );
     if (!text) return false;
     if (input.supportsStreamingChunks) {
-      const settlement = await runVisibleDelivery(
+      let finalExternalMessageIds: string[] = [];
+      await runVisibleDelivery(
         () =>
           settleDeliveryAttempt(
             () =>
-              input.channelRuntime.sendStreamingChunk(
-                input.chatJid,
-                finalStreamDelta,
-                input.buildStreamingOptions({ done }),
-              ),
+              input.channelRuntime
+                .sendStreamingChunk(
+                  input.chatJid,
+                  finalStreamDelta,
+                  input.buildStreamingOptions({ done }),
+                )
+                .then((sent) => {
+                  if (typeof sent === 'object')
+                    finalExternalMessageIds = sent.externalMessageIds;
+                  return wasSent(sent);
+                }),
             { scope: 'runtime-streaming-output-final', target: input.chatJid },
           ).catch((err) => {
             input.log.warn(
@@ -162,6 +174,7 @@ export function createGroupOutputBuffer(input: {
           await input.persistCompletedStreamedGeneration?.(
             completed,
             deliveryStatus === 'none' ? 'failed' : deliveryStatus,
+            finalExternalMessageIds,
           );
           if (deliveryStatus === 'none') {
             // Also offer it to finalization's fallback: the run-wide sent flag
@@ -203,11 +216,13 @@ export function createGroupOutputBuffer(input: {
         () =>
           settleDeliveryAttempt(
             () =>
-              input.channelRuntime.sendStreamingChunk(
-                input.chatJid,
-                safeDelta,
-                input.buildStreamingOptions({ done: false }),
-              ),
+              input.channelRuntime
+                .sendStreamingChunk(
+                  input.chatJid,
+                  safeDelta,
+                  input.buildStreamingOptions({ done: false }),
+                )
+                .then(wasSent),
             { scope: 'runtime-streaming-output-live', target: input.chatJid },
           ),
         { streamed: true, terminal: false },

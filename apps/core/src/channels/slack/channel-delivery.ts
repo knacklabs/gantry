@@ -1,3 +1,5 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
+import { slackStreamChunkResult } from './channel-state.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -224,7 +226,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     if (!this.app) return false;
     const parsed = this.parseJid(jid);
     if (!parsed) return false;
@@ -424,9 +426,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             const ok = this.streamResetEpochs.isCurrent(key, streamEpoch);
             if (ok) this.streamResetEpochs.deleteState(key, this.activeStreams);
             if (ok) this.streamGenerations.markDone(key, options.generation);
-            return (
-              delivered || Boolean(state.messageTs || state.nativeStreamTs)
-            );
+            return slackStreamChunkResult(state, delivered, options.done);
           } catch (fallbackErr) {
             if (isPartialMessageDeliveryError(fallbackErr)) {
               const fallbackMetadata =
@@ -513,7 +513,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       }
     } else if (this.streamResetEpochs.isCurrent(key, streamEpoch))
       this.activeStreams.set(key, state);
-    return delivered || Boolean(state.messageTs || state.nativeStreamTs);
+    return slackStreamChunkResult(state, delivered, options.done);
   }
   resetStreaming(jid: string, options?: { threadId?: string }): void {
     const key = this.streamKey(jid, options?.threadId);

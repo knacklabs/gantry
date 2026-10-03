@@ -1489,7 +1489,7 @@ describe('DiscordChannel', () => {
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
         done: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ externalMessageIds: ['stream-1', 'stream-2'] });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([

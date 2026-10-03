@@ -141,7 +141,7 @@ export interface NewMessage {
   reply_to_message_content?: string;
   reply_to_sender_name?: string;
   external_message_id?: string;
-  /** Set by the channel adapter when the platform says the bot is mentioned. */
+  external_message_ids?: string[];
   mentionsBot?: boolean;
   delivery_status?: MessageDeliveryStatus;
   delivered_at?: string;
@@ -664,7 +664,7 @@ export interface StreamingSink {
     jid: string,
     text: string,
     options?: StreamingChunkOptions,
-  ): Promise<boolean>;
+  ): Promise<boolean | { externalMessageIds: string[] }>;
 }
 export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;

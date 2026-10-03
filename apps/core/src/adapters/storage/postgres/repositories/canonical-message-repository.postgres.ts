@@ -597,6 +597,11 @@ export class PostgresCanonicalMessageRepository {
     },
   ): Promise<boolean> {
     const m = pgSchema.messagesPostgres;
+    const isMessage = (id: string) =>
+      or(
+        eq(m.externalMessageId, id),
+        sql`${m.externalRefJson}::jsonb->'external_message_ids' @> ${JSON.stringify([id])}::jsonb`,
+      );
     const [row] = await this.db
       .select({ id: m.id })
       .from(m)
@@ -613,11 +618,11 @@ export class PostgresCanonicalMessageRepository {
                   input.threadId,
                   input.providerAccountId,
                 ),
-                eq(m.externalMessageId, input.threadId),
+                isMessage(input.threadId),
               )
             : undefined,
           input.externalMessageId
-            ? eq(m.externalMessageId, input.externalMessageId)
+            ? isMessage(input.externalMessageId)
             : undefined,
         ),
       )

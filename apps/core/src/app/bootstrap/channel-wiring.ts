@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -660,7 +661,7 @@ export function createChannelWiring(
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     if (!channel) {
       resolved.logger.warn(

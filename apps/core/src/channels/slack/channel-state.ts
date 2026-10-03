@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -65,6 +66,23 @@ export interface ActiveStreamState {
   nativeStreamTs?: string;
   nativeEnabled: boolean;
   lastFlushAt: number;
+}
+
+/** A finished stream reports every Slack message it posted. */
+export function slackStreamChunkResult(
+  state: ActiveStreamState,
+  delivered: boolean,
+  done?: boolean,
+): StreamingChunkResult {
+  const ok = delivered || Boolean(state.messageTs || state.nativeStreamTs);
+  const ids = [
+    ...new Set([
+      state.nativeStreamTs,
+      state.messageTs,
+      ...state.fallbackMessageTs,
+    ]),
+  ].filter((ts): ts is string => Boolean(ts));
+  return done && ok && ids.length > 0 ? { externalMessageIds: ids } : ok;
 }
 
 export interface ActiveProgressState {
