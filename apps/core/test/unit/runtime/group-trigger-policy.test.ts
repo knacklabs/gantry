@@ -34,28 +34,22 @@ const botReply = message({
   external_message_id: 'bot-77',
 });
 
-type ReadOptions = {
-  threadId?: string | null;
-  externalMessageId?: string;
-  providerAccountId?: string | null;
-};
-
-/** Stored rows in both directions, filtered the way the context read does. */
+/** Stored rows, answering the bot lookup the way the repository does. */
 function storedRows(rows: NewMessage[]) {
   return {
-    getContextMessagesSince: vi.fn(
+    hasSentBotMessage: vi.fn(
       async (
         _chatJid: string,
-        _since: string,
-        _limit?: number,
-        options: ReadOptions = {},
+        where: { threadId?: string; externalMessageId?: string },
       ) =>
-        rows.filter(
+        rows.some(
           (row) =>
-            (!options.externalMessageId ||
-              row.external_message_id === options.externalMessageId) &&
-            (!('threadId' in options) ||
-              (row.thread_id ?? null) === options.threadId),
+            row.is_from_me &&
+            (!where.threadId ||
+              row.thread_id === where.threadId ||
+              row.external_message_id === where.threadId) &&
+            (!where.externalMessageId ||
+              row.external_message_id === where.externalMessageId),
         ),
     ),
   };
@@ -75,7 +69,6 @@ function decide(
     messages,
     receivedDuringTurn: new Set(receivedDuringTurn),
     messageRepository: storedRows(stored),
-    pageSize: 50,
   });
 }
 

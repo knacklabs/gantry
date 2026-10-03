@@ -52,7 +52,9 @@ import {
   externalRefForMessage,
   liveAdmissionIdempotencyKey,
   liveAdmissionWorkItemId,
+  messageConversationFilter,
   messageIdFor,
+  messageThreadFilter,
   publicThreadIdForRow,
 } from './canonical-message-repository-identifiers.js';
 
@@ -96,7 +98,6 @@ export interface MessageSaveWithExecutorResult {
 interface MessageListInput {
   jids: string[];
   ids?: readonly string[];
-  externalMessageId?: string;
   appId?: string;
   exactProviderAccountId?: boolean;
   providerAccountId?: string | null;
@@ -108,51 +109,6 @@ interface MessageListInput {
   includeSelfThreadRoots?: boolean;
   limit?: number;
   order?: 'asc' | 'desc';
-}
-
-function messageConversationFilter(
-  m: typeof pgSchema.messagesPostgres,
-  jids: string[],
-  providerAccountId?: string | null,
-) {
-  if (providerAccountId) {
-    return and(
-      inArray(
-        m.conversationId,
-        jids.map((jid) => conversationIdForJid(jid, providerAccountId)),
-      ),
-      eq(m.providerAccountId, providerAccountId),
-    );
-  }
-  return or(
-    inArray(
-      m.conversationId,
-      jids.map((jid) => conversationIdForJid(jid)),
-    ),
-    inArray(sql<string>`${m.externalRefJson}::jsonb->>'chat_jid'`, jids),
-  );
-}
-
-function messageThreadFilter(
-  m: typeof pgSchema.messagesPostgres,
-  jids: string[],
-  threadId: string,
-  providerAccountId?: string | null,
-) {
-  return or(
-    eq(sql<string>`${m.externalRefJson}::jsonb->>'thread_id'`, threadId),
-    inArray(
-      m.threadId,
-      jids
-        .flatMap((jid) => [
-          ...(providerAccountId
-            ? [threadIdFor(jid, threadId, providerAccountId)]
-            : []),
-          threadIdFor(jid, threadId),
-        ])
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
 }
 
 export class PostgresCanonicalMessageRepository {
@@ -613,9 +569,6 @@ export class PostgresCanonicalMessageRepository {
             ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
             : undefined,
           input.ids ? inArray(m.id, [...input.ids]) : undefined,
-          input.externalMessageId
-            ? eq(m.externalMessageId, input.externalMessageId)
-            : undefined,
           directionFilter,
           afterFilter,
           beforeFilter,
@@ -629,6 +582,47 @@ export class PostgresCanonicalMessageRepository {
         input.order === 'desc' ? desc(m.id) : asc(m.id),
       )
       .limit(input.limit ?? 200);
+  }
+
+  /**
+   * Whether the bot has a sent message in this conversation: in a thread
+   * (including a thread rooted at the bot's own message), or with an id.
+   */
+  async hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    const m = pgSchema.messagesPostgres;
+    const [row] = await this.db
+      .select({ id: m.id })
+      .from(m)
+      .where(
+        and(
+          messageConversationFilter(m, [chatJid], input.providerAccountId),
+          eq(m.direction, 'outbound'),
+          eq(m.deliveryStatus, 'sent'),
+          input.threadId
+            ? or(
+                messageThreadFilter(
+                  m,
+                  [chatJid],
+                  input.threadId,
+                  input.providerAccountId,
+                ),
+                eq(m.externalMessageId, input.threadId),
+              )
+            : undefined,
+          input.externalMessageId
+            ? eq(m.externalMessageId, input.externalMessageId)
+            : undefined,
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   async listThreadIds(

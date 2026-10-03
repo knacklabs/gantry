@@ -191,12 +191,17 @@ export interface RuntimeMessageRepository {
     conversationJid: string,
     sinceCursor: string,
     limit?: number,
-    options?: {
-      threadId?: string | null;
+    options?: { threadId?: string | null; providerAccountId?: string | null },
+  ): Promise<NewMessage[]>;
+  /** One-row check that the bot sent a message in a thread or with an id. */
+  hasSentBotMessage?(
+    conversationJid: string,
+    input: {
       providerAccountId?: string | null;
+      threadId?: string;
       externalMessageId?: string;
     },
-  ): Promise<NewMessage[]>;
+  ): Promise<boolean>;
   getRecentTopLevelMessagesBefore(
     conversationJid: string,
     before: Pick<NewMessage, 'timestamp' | 'id'>,

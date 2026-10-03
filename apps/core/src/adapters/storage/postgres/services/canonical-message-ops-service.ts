@@ -245,7 +245,6 @@ export class CanonicalMessageOpsService {
     options: {
       threadId?: string | null;
       providerAccountId?: string | null;
-      externalMessageId?: string;
     } = {},
   ): Promise<NewMessage[]> {
     const cursor = decodeGroupMessageCursor(sinceCursor);
@@ -254,7 +253,6 @@ export class CanonicalMessageOpsService {
       'threadId',
     );
     const rows = await this.repository.listContextMessages({
-      externalMessageId: options.externalMessageId,
       jids: [chatJid],
       after: hasCursorBoundary(cursor)
         ? { timestamp: cursor.timestamp, chatJid, id: cursor.id }
@@ -265,6 +263,17 @@ export class CanonicalMessageOpsService {
       limit,
     });
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
+  }
+
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.repository.hasSentBotMessage(chatJid, input);
   }
 
   async getRecentTopLevelMessagesBefore(

@@ -4,7 +4,7 @@ import {
   triggerForRoute,
 } from '../../shared/trigger-pattern.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
-import { telegramMentionsBot } from './text-message-handler.js';
+import { telegramInboundEnvelope } from './text-message-handler.js';
 
 type TelegramMediaQueue = {
   enqueue(task: () => Promise<void>): boolean;
@@ -76,32 +76,17 @@ export function registerTelegramMediaHandlers(input: {
       );
     if (!isGroup && routesForChat().length < 1) {
       await input.opts.ensureMessageRoute?.(chatJid, {
-        id: ctx.message.message_id.toString(),
+        ...telegramInboundEnvelope(ctx),
         chat_jid: chatJid,
         provider: 'telegram',
         providerAccountId: input.opts.providerAccountId,
-        sender: ctx.from?.id?.toString() || '',
-        sender_name:
-          ctx.from?.first_name ||
-          ctx.from?.username ||
-          ctx.from?.id?.toString() ||
-          'Unknown',
         content: placeholder,
-        timestamp,
-        is_from_me: false,
-        external_message_id: ctx.message.message_id.toString(),
-        thread_id: threadId,
       });
     }
 
     const matchingGroups = routesForChat();
     if (matchingGroups.length < 1 && isGroup) return;
 
-    const senderName =
-      ctx.from?.first_name ||
-      ctx.from?.username ||
-      ctx.from?.id?.toString() ||
-      'Unknown';
     const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
     const triggeredGroups =
       matchingGroups.length > 1 && ctx.message.caption
@@ -123,28 +108,12 @@ export function registerTelegramMediaHandlers(input: {
     ) => {
       const msgId = ctx.message.message_id.toString();
       await input.opts.onMessage(chatJid, {
-        id: msgId,
+        ...telegramInboundEnvelope(ctx),
         chat_jid: chatJid,
         provider: 'telegram',
         // No providerAccountId: the account wrapper fans out to every
         // account sharing this bot, as it does for text.
-        sender: ctx.from?.id?.toString() || '',
-        sender_name: senderName,
         content,
-        timestamp,
-        is_from_me: false,
-        external_message_id: msgId,
-        thread_id: threadId,
-        // The caption is matched alone, so the placeholder can't hide it.
-        ...(ctx.message.caption &&
-        telegramMentionsBot({
-          text: ctx.message.caption,
-          entities: ctx.message.caption_entities,
-          me: ctx.me,
-          routes: matchingGroups,
-        })
-          ? { mentionsBot: true }
-          : {}),
         attachments: attachment
           ? [
               {

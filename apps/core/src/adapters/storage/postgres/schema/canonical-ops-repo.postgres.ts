@@ -210,7 +210,6 @@ export class PostgresRuntimeRepositoryBundle
     options: {
       threadId?: string | null;
       providerAccountId?: string | null;
-      externalMessageId?: string;
     } = {},
   ): Promise<NewMessage[]> {
     return this.messages.getContextMessagesSince(
@@ -219,6 +218,17 @@ export class PostgresRuntimeRepositoryBundle
       limit,
       options,
     );
+  }
+
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.messages.hasSentBotMessage(chatJid, input);
   }
 
   async getRecentTopLevelMessagesBefore(

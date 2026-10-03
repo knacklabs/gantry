@@ -1777,21 +1777,6 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it("flags text that starts with the route's own trigger", async () => {
-      const opts = customTriggerOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerTextMessage(
-        createTextCtx({ text: '@Helper what time is it?' }),
-      );
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({ mentionsBot: true }),
-      );
-    });
-
     it('does not flag mentions of other bots', async () => {
       const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -1806,32 +1791,6 @@ describe('TelegramChannel', () => {
 
       expect(opts.onMessage.mock.calls[0]![1]).not.toHaveProperty(
         'mentionsBot',
-      );
-    });
-
-    it("flags a captioned photo that starts with the route's trigger", async () => {
-      const opts = customTriggerOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await triggerMediaMessage(
-        'message:photo',
-        createMediaCtx({
-          caption: '@Helper what is this?',
-          extra: { photo: [{ file_id: 'photo_id', width: 800 }] },
-        }),
-      );
-      await flushPromises();
-      await vi.waitFor(() => expect(opts.onMessage).toHaveBeenCalled());
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({
-          content: expect.stringMatching(
-            /^\[Photo\].* @Helper what is this\?$/,
-          ),
-          mentionsBot: true,
-        }),
       );
     });
 

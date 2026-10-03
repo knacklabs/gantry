@@ -3,13 +3,23 @@ import type { ChildProcess } from 'node:child_process';
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
+import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
 import { buildLiveAdmissionProcessor } from '@core/app/bootstrap/live-execution.js';
-import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
+import {
+  createRuntimeApp,
+  type RuntimeApp,
+} from '@core/app/bootstrap/runtime-app.js';
+import type { ChannelOpts } from '@core/channels/channel-provider.js';
+import { registerTelegramMediaHandlers } from '@core/channels/telegram/media-ingestion.js';
+import { handleTelegramTextMessage } from '@core/channels/telegram/text-message-handler.js';
 import { RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import type { NewMessage } from '@core/domain/types.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
@@ -24,6 +34,107 @@ const chatJid = 'tg:-100777';
 const folder = 'mention_follow';
 const member = '1001';
 const stranger = '2002';
+const providerAccountId = 'channel-providerAccount:default:telegram';
+
+/**
+ * Telegram updates through the real text and media handlers and the real
+ * persistence fan-out. Only Telegram's Bot API and file download are faked.
+ */
+function telegramIngress(
+  runtime: PostgresIntegrationRuntime,
+  app: RuntimeApp,
+  appId: string,
+) {
+  const persistenceQueue = new AsyncTaskQueue(1, 16);
+  const handlers = createChannelPersistenceHandlers({
+    app,
+    resolved: {
+      appId,
+      logger: { info() {}, warn() {}, debug() {}, error() {} },
+    } as unknown as ChannelWiringDeps,
+    ops: () => runtime.ops,
+    persistenceQueue,
+    runtimeSettings: () => ({}) as never,
+  });
+  const opts: ChannelOpts = {
+    providerAccountId,
+    onChatMetadata: handlers.onChatMetadata,
+    onMessage: handlers.onMessage,
+    conversationRoutes: () => app.getConversationRoutes(),
+  };
+  const mediaHandlers = new Map<string, (ctx: unknown) => Promise<void>>();
+  const mediaTasks: Array<Promise<void>> = [];
+  registerTelegramMediaHandlers({
+    bot: {
+      on: (filter: string, handler: (ctx: unknown) => Promise<void>) =>
+        mediaHandlers.set(filter, handler),
+    },
+    opts,
+    mediaIngestionQueue: {
+      enqueue: (task) => (mediaTasks.push(task()), true),
+      enqueueWhenAvailable: async () => false,
+      size: () => 0,
+    },
+    downloadFile: async (fileId) => ({ storageRef: `telegram/${fileId}` }),
+    sanitizeErrorMessage: (err) => err,
+  });
+  let messageId = 700;
+  const update = (
+    chatId: number,
+    fields: {
+      text?: string;
+      caption?: string;
+      from?: string;
+      replyTo?: number;
+    },
+  ) => {
+    messageId += 1;
+    return {
+      chat: { id: chatId, type: 'supergroup', title: 'Team' },
+      from: { id: Number(fields.from ?? member), first_name: 'Member' },
+      me: { id: 4242, username: 'team_bot' },
+      message: {
+        message_id: messageId,
+        date: Math.floor(nowMs() / 1000),
+        ...(fields.text !== undefined
+          ? { text: fields.text, entities: [] }
+          : {
+              caption: fields.caption,
+              photo: [{ file_id: `photo-${messageId}` }],
+            }),
+        ...(fields.replyTo
+          ? {
+              reply_to_message: {
+                message_id: fields.replyTo,
+                text: 'Earlier answer.',
+                from: { id: 4242, first_name: 'Team bot' },
+              },
+            }
+          : {}),
+      },
+    };
+  };
+  const settledPersistence = async () => {
+    await Promise.all(mediaTasks);
+    expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+  };
+  return {
+    text: async (chatId: number, fields: Parameters<typeof update>[1]) => {
+      await handleTelegramTextMessage({
+        ctx: update(chatId, fields) as unknown as Parameters<
+          typeof handleTelegramTextMessage
+        >[0]['ctx'],
+        opts,
+        tryResolveOther: async () => false,
+      });
+      await settledPersistence();
+    },
+    photo: async (chatId: number, fields: Parameters<typeof update>[1]) => {
+      await mediaHandlers.get('message:photo')!(update(chatId, fields));
+      await settledPersistence();
+    },
+  };
+}
 
 // The owner's sender policy: only the member may bring the agent in.
 const senderPolicySettings = `defaults:
@@ -101,7 +212,6 @@ maybeDescribe(
 
     it('answers the conversation without new mentions and ignores unrelated or disallowed messages', async () => {
       const appId = 'mention-follow';
-      const providerAccountId = 'channel-providerAccount:default:telegram';
       const liveTurns = runtime.repositories.liveTurns;
       await runtime.control.ensureAppSession({
         appId,
@@ -329,14 +439,12 @@ maybeDescribe(
         'Answer 2.',
       ]);
 
-      // A plain reply to the bot's message.
-      queue.enqueueMessageCheck(
-        await save({
-          id: '506',
-          content: 'can you shorten it?',
-          reply_to_message_id: '9001',
-        }),
-      );
+      // A photo replying to the bot's message, through Telegram's media path.
+      await telegramIngress(runtime, app, appId).photo(-100777, {
+        caption: 'can you shorten it?',
+        replyTo: 9001,
+      });
+      queue.enqueueMessageCheck(mainQueue);
       await settled();
       expect(presented).toHaveLength(3);
       expect(presented[2]).toContain('can you shorten it?');
@@ -380,6 +488,186 @@ maybeDescribe(
 
       await owner.authority.shutdown();
       await other.authority.shutdown();
+      await queue.shutdown(500);
+    }, 90_000);
+
+    it('starts only the agent a message names, and keeps its follow-ups from the other agent', async () => {
+      const appId = 'two-agents';
+      const chatId = -100888;
+      const twoAgentJid = `tg:${chatId}`;
+      const liveTurns = runtime.repositories.liveTurns;
+      const agents = [
+        { folder: 'helper_agent', trigger: '@Helper' },
+        { folder: 'planner_agent', trigger: '@Planner' },
+      ];
+      for (const agent of agents)
+        await runtime.control.ensureAppSession({
+          appId,
+          conversationId: 'two-agents',
+          chatJid: twoAgentJid,
+          workspaceFolder: agent.folder,
+        });
+      const ran: Array<{ folder: string; prompt: string }> = [];
+      let releaseHelper!: () => void;
+      const helperReleased = new Promise<void>((resolve) => {
+        releaseHelper = resolve;
+      });
+      const queue = new GroupQueue({ maxMessageRuns: 2, maxRetries: 0 });
+      const app = createRuntimeApp({
+        queue,
+        opsRepository: runtime.ops,
+        ensureCredentialBinding: async () => ({ created: false }),
+        runAgent: async (group, input, onProcess, onOutput) => {
+          ran.push({ folder: group.folder, prompt: input.prompt });
+          onProcess(
+            {
+              pid: 0,
+              kill: () => true,
+              stdin: { end: () => undefined },
+            } as unknown as ChildProcess,
+            `run-${ran.length}`,
+          );
+          if (ran.length === 1) await helperReleased;
+          const result = {
+            status: 'success' as const,
+            result: `${group.folder} answer.`,
+          };
+          await onOutput?.(result);
+          return result;
+        },
+      });
+      app.setChannelRuntime(
+        createFakeChannelRuntime((jid) => jid === twoAgentJid).runtime,
+      );
+      const queueFor = (folder: string) =>
+        makeAgentThreadQueueKey(
+          twoAgentJid,
+          agentIdForFolder(folder),
+          undefined,
+          providerAccountId,
+        );
+      for (const agent of agents)
+        await app.registerGroup(queueFor(agent.folder), {
+          name: agent.folder,
+          folder: agent.folder,
+          providerAccountId,
+          trigger: agent.trigger,
+          added_at: toIso(nowMs()),
+          requiresTrigger: true,
+          conversationKind: 'group',
+          agentConfig: { model: 'opus' },
+        });
+      const workerId = 'two-agents-worker';
+      await runtime.repositories.workerCoordination.registerWorker({
+        id: workerId,
+        bootNonce: workerId,
+      });
+      const authority = new LiveTurnAuthority({
+        leaseDeps: {
+          liveTurns,
+          coordination: runtime.repositories.workerCoordination,
+          workerInstanceId: workerId,
+        },
+        slotCapacity: () => 2,
+      });
+      const processor = buildLiveAdmissionProcessor({
+        appId,
+        inputRepository: liveTurns,
+        liveTurnAuthority: authority,
+        app,
+        opsRepository: runtime.ops,
+        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        enqueueMessageCheck: (jid) => {
+          queue.enqueueMessageCheck(jid);
+        },
+        warn: () => undefined,
+      });
+      queue.setLiveTurnRunnerRegistrar((jid, hooks, routing) =>
+        authority.registerLocalRunner(jid, hooks, routing),
+      );
+      queue.setProcessMessagesFn((jid, context) => processor(jid, context));
+      const ingress = telegramIngress(runtime, app, appId);
+      const helperQueue = queueFor('helper_agent');
+      const plannerQueue = queueFor('planner_agent');
+      // What the admission loop does: wake every queue with waiting input.
+      const wake = async () => {
+        for (const jid of await liveTurns.listUnconsumedLiveAdmissionQueueJids({
+          appId,
+        }))
+          queue.enqueueMessageCheck(jid);
+      };
+      const waitUntil = (check: () => Promise<void> | void) =>
+        vi.waitFor(check, { timeout: 15_000, interval: 50 });
+      const unconsumed = () =>
+        liveTurns.listUnconsumedLiveAdmissionQueueJids({ appId });
+      const helperContext = await runtime.ops.getAgentTurnContext({
+        appId,
+        agentFolder: 'helper_agent',
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        conversationJid: twoAgentJid,
+        providerAccountId,
+        threadId: null,
+        hydrateMemory: false,
+      });
+      if (!helperContext) throw new Error('Missing Helper session');
+
+      // Naming Helper starts Helper alone; its turn stays running.
+      await ingress.text(chatId, { text: '@Helper draft the agenda' });
+      await wake();
+      await waitUntil(async () => {
+        expect(
+          (
+            await liveTurns.getActiveLiveTurn({
+              scope: {
+                appId,
+                agentSessionId: helperContext.agentSessionId,
+                conversationId: twoAgentJid,
+                threadId: null,
+              },
+            })
+          )?.state,
+        ).toBe('running');
+        expect(await unconsumed()).toEqual([]);
+        expect(queue.isGroupActive(plannerQueue)).toBe(false);
+      });
+
+      // A plain follow-up while Helper works waits for Helper and never
+      // starts Planner.
+      await ingress.text(chatId, { text: 'and add a lunch break' });
+      await wake();
+      await waitUntil(async () => {
+        expect(await unconsumed()).toEqual([helperQueue]);
+        expect(queue.isGroupActive(plannerQueue)).toBe(false);
+      });
+      expect(ran.map(({ folder }) => folder)).toEqual(['helper_agent']);
+      releaseHelper();
+      await waitUntil(async () => {
+        expect(ran).toHaveLength(2);
+        expect(await unconsumed()).toEqual([]);
+        expect(queue.isGroupActive(helperQueue)).toBe(false);
+      });
+      expect(ran[1]?.folder).toBe('helper_agent');
+      expect(ran[1]?.prompt).toContain('and add a lunch break');
+
+      // A photo whose caption names Planner starts Planner alone.
+      await ingress.photo(chatId, { caption: '@Planner check this chart' });
+      await wake();
+      await waitUntil(async () => {
+        expect(ran).toHaveLength(3);
+        expect(await unconsumed()).toEqual([]);
+        expect(queue.isGroupActive(plannerQueue)).toBe(false);
+        expect(queue.isGroupActive(helperQueue)).toBe(false);
+      });
+      expect(ran.map(({ folder }) => folder)).toEqual([
+        'helper_agent',
+        'helper_agent',
+        'planner_agent',
+      ]);
+      expect(ran[2]?.prompt).toContain('@Planner check this chart');
+
+      await authority.shutdown();
       await queue.shutdown(500);
     }, 90_000);
   },

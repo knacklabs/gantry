@@ -144,7 +144,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).toEqual([]);
   });
 
-  it('keeps the bot-mention flag through storage and finds the bot message a reply points at', async () => {
+  it('keeps the bot-mention flag through storage and finds the bot by reply, thread or bot-rooted thread', async () => {
     const appId = 'app-mention-round-trip';
     const chatJid = 'tg:mention-round-trip';
     const save = async (id: string, mentionsBot?: boolean) => {
@@ -185,32 +185,49 @@ maybeDescribe('live admission work items (Postgres)', () => {
       { id: 'msg-plain', mentionsBot: undefined },
     ]);
 
-    await runtime.ops.storeMessage({
-      id: 'outbound:mention-round-trip',
-      chat_jid: chatJid,
-      provider: 'telegram',
-      providerAccountId: mentioned.providerAccountId ?? undefined,
-      sender: 'gantry',
-      sender_name: 'Gantry',
-      content: 'Here is the plan.',
-      timestamp: toIso(nowMs()),
-      is_from_me: true,
-      is_bot_message: true,
-      external_message_id: 'bot-77',
-      delivery_status: 'sent',
-    });
-    const repliedTo = await runtime.ops.getContextMessagesSince!(
-      chatJid,
-      '',
-      1,
-      {
-        externalMessageId: 'bot-77',
+    const store = (
+      id: string,
+      fromBot: boolean,
+      threadId?: string,
+    ): Promise<void> =>
+      runtime.ops.storeMessage({
+        id,
+        chat_jid: chatJid,
+        provider: 'telegram',
+        providerAccountId: mentioned.providerAccountId ?? undefined,
+        sender: fromBot ? 'gantry' : 'user-mention-round-trip',
+        sender_name: fromBot ? 'Gantry' : 'Mentioner',
+        content: fromBot ? 'Here is the plan.' : 'chatter',
+        timestamp: toIso(nowMs()),
+        is_from_me: fromBot,
+        is_bot_message: fromBot,
+        external_message_id: id,
+        thread_id: threadId,
+        ...(fromBot ? { delivery_status: 'sent' as const } : {}),
+      });
+    // A busy topic: a full history page of people before the bot first replies.
+    for (let index = 0; index < 200; index += 1)
+      await store(`human-topic-${index}`, false, '42');
+    await store('bot-in-topic', true, '42');
+    await store('human-other-topic', false, '43');
+    await store('bot-77', true);
+    await store('bot-thread-root', true);
+    const botSpoke = (where: {
+      threadId?: string;
+      externalMessageId?: string;
+    }) =>
+      runtime.ops.hasSentBotMessage(chatJid, {
+        ...where,
         providerAccountId: mentioned.providerAccountId,
-      },
-    );
-    expect(repliedTo.map(({ id, is_from_me }) => ({ id, is_from_me }))).toEqual(
-      [{ id: 'outbound:mention-round-trip', is_from_me: true }],
-    );
+      });
+    await expect(botSpoke({ externalMessageId: 'bot-77' })).resolves.toBe(true);
+    await expect(
+      botSpoke({ externalMessageId: 'human-other-topic' }),
+    ).resolves.toBe(false);
+    await expect(botSpoke({ threadId: '42' })).resolves.toBe(true);
+    await expect(botSpoke({ threadId: '43' })).resolves.toBe(false);
+    // A thread opened on the bot's own message, as Discord does.
+    await expect(botSpoke({ threadId: 'bot-thread-root' })).resolves.toBe(true);
     for (const item of [mentioned, plain])
       await liveTurns.consumeInputItem({ id: item.id, consumedBy: 'history' });
   });
@@ -808,6 +825,148 @@ maybeDescribe('live admission work items (Postgres)', () => {
         message.text.includes('Completion received.'),
       ),
     ).toBe(true);
+    await app.queue.shutdown(500);
+  });
+
+  it('keeps a message saved while a turn is rejecting its batch as history', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'rejected-admission';
+    const chatJid = 'tg:-rejected-admission';
+    const folder = 'rejected_admission';
+    const providerAccountId = 'channel-providerAccount:default:telegram';
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'rejected-admission',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    const context = await runtime.ops.getAgentTurnContext({
+      appId,
+      agentFolder: folder,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      conversationJid: chatJid,
+      providerAccountId,
+      threadId: null,
+      hydrateMemory: false,
+    });
+    if (!context) throw new Error('Missing agent session');
+    const save = async (id: string, content: string, replyTo?: string) => {
+      const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+        {
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          providerAccountId,
+          sender: 'member',
+          sender_name: 'Member',
+          content,
+          timestamp: toIso(nowMs()),
+          is_from_me: false,
+          is_bot_message: false,
+          external_message_id: id,
+          reply_to_message_id: replyTo,
+        },
+        { appId, agentId: agentIdForFolder(folder), providerAccountId },
+      );
+      if (!admitted || admitted.outcome === 'overloaded')
+        throw new Error('Admission failed');
+      return admitted.item.queueJid;
+    };
+    const turnStates: Array<string | undefined> = [];
+    let lookups = 0;
+    // The policy looks for the bot only after the batch is taken, while the
+    // turn is still claimed; a member's next message lands right then.
+    const ops = new Proxy(runtime.ops, {
+      get(target, property) {
+        if (property === 'hasSentBotMessage')
+          return async (
+            ...args: Parameters<typeof target.hasSentBotMessage>
+          ) => {
+            lookups += 1;
+            if (lookups === 1) {
+              turnStates.push(
+                (
+                  await liveTurns.getActiveLiveTurn({
+                    scope: {
+                      appId,
+                      agentSessionId: context.agentSessionId,
+                      conversationId: chatJid,
+                      threadId: null,
+                    },
+                  })
+                )?.state,
+              );
+              await save('msg-during-rejection', 'lunch anyone?');
+            }
+            return target.hasSentBotMessage(...args);
+          };
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const presented: string[] = [];
+    const app = createRuntimeApp({
+      opsRepository: ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input) => {
+        presented.push(input.prompt);
+        return { status: 'success', result: 'Answered.' };
+      },
+    });
+    app.setChannelRuntime(
+      createFakeChannelRuntime((jid) => jid === chatJid).runtime,
+    );
+    await app.registerGroup(chatJid, {
+      name: 'Rejected admission',
+      folder,
+      providerAccountId,
+      trigger: '@Andy',
+      added_at: toIso(nowMs()),
+      requiresTrigger: true,
+      conversationKind: 'group',
+      agentConfig: { model: 'opus' },
+    });
+    const workerId = 'rejected-admission-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerId,
+      bootNonce: workerId,
+    });
+    const authority = new LiveTurnAuthority({
+      leaseDeps: {
+        liveTurns,
+        coordination: runtime.repositories.workerCoordination,
+        workerInstanceId: workerId,
+      },
+      slotCapacity: () => 1,
+    });
+    const processor = buildLiveAdmissionProcessor({
+      appId,
+      inputRepository: liveTurns,
+      liveTurnAuthority: authority,
+      app,
+      opsRepository: ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: () => undefined,
+      warn: () => undefined,
+    });
+
+    const queueJid = await save(
+      'msg-reply-to-person',
+      'agreed with you',
+      'msg-from-a-person',
+    );
+    expect(await processor(queueJid)).toBe(true);
+    expect(turnStates).toEqual(['claimed']);
+    expect(await processor(queueJid)).toBe(true);
+    expect(presented).toEqual([]);
+    expect(
+      await liveTurns.listUnconsumedLiveAdmissionQueueJids({ appId }),
+    ).toEqual([]);
+    await authority.shutdown();
     await app.queue.shutdown(500);
   });
 

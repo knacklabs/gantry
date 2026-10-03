@@ -237,7 +237,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           messages: missedMessages,
           receivedDuringTurn,
           messageRepository: opsRepository,
-          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))
       ) {
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);

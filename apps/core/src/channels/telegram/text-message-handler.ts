@@ -2,10 +2,6 @@ import type { Filter } from 'grammy';
 
 import { logger } from '../../infrastructure/logging/logger.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
-import {
-  buildTriggerPattern,
-  triggerForRoute,
-} from '../../shared/trigger-pattern.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { resolveInboundConversationIdentityForChat } from '../inbound-conversation-identity.js';
 import type { TelegramContext } from './channel-shared.js';
@@ -20,20 +16,16 @@ type TelegramEntity = {
   user?: { id: number };
 };
 
-/**
- * True when Telegram marks the bot as mentioned in the text or caption, or the
- * text starts with one of the chat's own route triggers.
- */
-export function telegramMentionsBot(input: {
+type TelegramUser = { id: number; first_name?: string; username?: string };
+
+/** True when Telegram marks this bot as mentioned in the text or caption. */
+function telegramMentionsBot(input: {
   text: string;
   entities?: readonly TelegramEntity[];
   me?: { id?: number; username?: string };
-  routes: ReadonlyArray<
-    readonly [string, { trigger?: string | null; name?: string | null }]
-  >;
 }): boolean {
   const botUsername = input.me?.username?.toLowerCase();
-  const nativeMention = (input.entities ?? []).some((entity) =>
+  return (input.entities ?? []).some((entity) =>
     entity.type === 'text_mention'
       ? entity.user?.id !== undefined && entity.user.id === input.me?.id
       : entity.type === 'mention' &&
@@ -42,12 +34,65 @@ export function telegramMentionsBot(input: {
           .substring(entity.offset, entity.offset + entity.length)
           .toLowerCase() === `@${botUsername}`,
   );
-  return (
-    nativeMention ||
-    input.routes.some(([, route]) =>
-      buildTriggerPattern(triggerForRoute(route)).test(input.text.trim()),
-    )
-  );
+}
+
+/**
+ * The fields every Telegram inbound message carries, text and media alike.
+ * A route's own name trigger is the policy's job; this flags only a native
+ * mention of this bot.
+ */
+export function telegramInboundEnvelope(ctx: {
+  from?: TelegramUser;
+  me?: { id?: number; username?: string };
+  message: {
+    message_id: number;
+    date: number;
+    message_thread_id?: number;
+    text?: string;
+    caption?: string;
+    entities?: readonly TelegramEntity[];
+    caption_entities?: readonly TelegramEntity[];
+    reply_to_message?: {
+      message_id: number;
+      text?: string;
+      caption?: string;
+      from?: TelegramUser;
+    };
+  };
+}) {
+  const { message } = ctx;
+  const id = message.message_id.toString();
+  const replyTo = message.reply_to_message;
+  const text = message.text ?? message.caption;
+  return {
+    id,
+    sender: ctx.from?.id.toString() || '',
+    sender_name:
+      ctx.from?.first_name ||
+      ctx.from?.username ||
+      ctx.from?.id.toString() ||
+      'Unknown',
+    timestamp: new Date(message.date * 1000).toISOString(),
+    is_from_me: false,
+    external_message_id: id,
+    thread_id: message.message_thread_id?.toString(),
+    reply_to_message_id: replyTo?.message_id.toString(),
+    reply_to_message_content: replyTo?.text || replyTo?.caption,
+    reply_to_sender_name: replyTo
+      ? replyTo.from?.first_name ||
+        replyTo.from?.username ||
+        replyTo.from?.id.toString() ||
+        'Unknown'
+      : undefined,
+    ...(text &&
+    telegramMentionsBot({
+      text,
+      entities: message.text ? message.entities : message.caption_entities,
+      me: ctx.me,
+    })
+      ? { mentionsBot: true }
+      : {}),
+  };
 }
 
 export async function handleTelegramTextMessage(input: {
@@ -68,26 +113,10 @@ export async function handleTelegramTextMessage(input: {
   }
 
   const chatJid = `tg:${ctx.chat.id}`;
-  const content = ctx.message.text;
-  const timestamp = new Date(ctx.message.date * 1000).toISOString();
-  const senderName =
-    ctx.from?.first_name ||
-    ctx.from?.username ||
-    ctx.from?.id.toString() ||
-    'Unknown';
-  const sender = ctx.from?.id.toString() || '';
-  const msgId = ctx.message.message_id.toString();
+  const envelope = telegramInboundEnvelope(ctx);
+  const { sender, sender_name: senderName, timestamp } = envelope;
   const threadId = ctx.message.message_thread_id;
-
   const replyTo = ctx.message.reply_to_message;
-  const replyToMessageId = replyTo?.message_id?.toString();
-  const replyToContent = replyTo?.text || replyTo?.caption;
-  const replyToSenderName = replyTo
-    ? replyTo.from?.first_name ||
-      replyTo.from?.username ||
-      replyTo.from?.id?.toString() ||
-      'Unknown'
-    : undefined;
 
   if (typeof replyTo?.message_id === 'number') {
     const handledOther = await input.tryResolveOther({
@@ -111,12 +140,12 @@ export async function handleTelegramTextMessage(input: {
   // DELIVERY (below): unscoped, exactly as before. A route configured without a
   // providerAccountId still routes messages, and narrowing this would start
   // dropping group messages that used to be delivered.
-  const chatRoutes = findConversationRoutesForChat(
-    input.opts.conversationRoutes(),
-    chatJid,
-    threadId?.toString(),
-  );
-  const hasRegisteredRoute = chatRoutes.length > 0;
+  const hasRegisteredRoute =
+    findConversationRoutesForChat(
+      input.opts.conversationRoutes(),
+      chatJid,
+      threadId?.toString(),
+    ).length > 0;
   // METADATA: account-scoped. Two accounts can share a chat JID; an unscoped
   // match would see ANOTHER account's route, skip this account's metadata
   // write, and then have its message rejected by account-scoped persistence —
@@ -157,28 +186,11 @@ export async function handleTelegramTextMessage(input: {
   }
 
   await input.opts.onMessage(chatJid, {
-    id: msgId,
+    ...envelope,
     chat_jid: chatJid,
     ...identity.messageIdentity,
     provider: 'telegram',
-    sender,
-    sender_name: senderName,
-    content,
-    timestamp,
-    is_from_me: false,
-    external_message_id: msgId,
-    thread_id: threadId ? threadId.toString() : undefined,
-    reply_to_message_id: replyToMessageId,
-    reply_to_message_content: replyToContent,
-    reply_to_sender_name: replyToSenderName,
-    ...(telegramMentionsBot({
-      text: content,
-      entities: ctx.message.entities,
-      me: ctx.me,
-      routes: chatRoutes,
-    })
-      ? { mentionsBot: true }
-      : {}),
+    content: ctx.message.text,
   });
 
   logger.info(

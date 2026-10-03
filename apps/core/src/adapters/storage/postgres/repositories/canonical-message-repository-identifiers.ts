@@ -1,5 +1,12 @@
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
+
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
+import type * as pgSchema from '../schema/schema.js';
+import {
+  conversationIdForJid,
+  threadIdFor,
+} from './canonical-graph-repository.postgres.js';
 
 export function messageIdFor(
   chatJid: string,
@@ -107,4 +114,49 @@ export function externalRefForMessage(msg: NewMessage) {
     max_output_tokens: msg.agentControls?.maxOutputTokens,
     delivery_retry_tail: retryTail,
   };
+}
+
+export function messageConversationFilter(
+  m: typeof pgSchema.messagesPostgres,
+  jids: string[],
+  providerAccountId?: string | null,
+) {
+  if (providerAccountId) {
+    return and(
+      inArray(
+        m.conversationId,
+        jids.map((jid) => conversationIdForJid(jid, providerAccountId)),
+      ),
+      eq(m.providerAccountId, providerAccountId),
+    );
+  }
+  return or(
+    inArray(
+      m.conversationId,
+      jids.map((jid) => conversationIdForJid(jid)),
+    ),
+    inArray(sql<string>`${m.externalRefJson}::jsonb->>'chat_jid'`, jids),
+  );
+}
+
+export function messageThreadFilter(
+  m: typeof pgSchema.messagesPostgres,
+  jids: string[],
+  threadId: string,
+  providerAccountId?: string | null,
+) {
+  return or(
+    eq(sql<string>`${m.externalRefJson}::jsonb->>'thread_id'`, threadId),
+    inArray(
+      m.threadId,
+      jids
+        .flatMap((jid) => [
+          ...(providerAccountId
+            ? [threadIdFor(jid, threadId, providerAccountId)]
+            : []),
+          threadIdFor(jid, threadId),
+        ])
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
 }

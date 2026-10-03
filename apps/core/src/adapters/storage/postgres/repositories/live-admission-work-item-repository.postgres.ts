@@ -148,13 +148,11 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
   };
   const turns = pgSchema.liveTurnsPostgres;
   // The agent is working only once a turn's runner registered; a claimed turn
-  // may still keep its batch as history without running it.
+  // may still keep its batch as history without running it. A turn runs one
+  // queue, so its key pins the same chat, thread, agent and account.
   const receivedDuringTurn = sql`case when exists (select 1 from ${turns}
     where ${turns.appId} = ${input.appId}
-    and ${turns.conversationId} = ${input.conversationId}
-    and ${turns.threadId} is not distinct from ${input.threadId ?? null}
-    and (${input.agentSessionId ?? null}::text is null
-      or ${turns.agentSessionId} = ${input.agentSessionId ?? null})
+    and ${turns.pendingMessageJson}->>'queueJid' = ${input.queueJid}
     and ${turns.state} in ('running', 'awaiting_interaction', 'setup_required'))
     then '{"receivedDuringTurn": true}'::jsonb else '{}'::jsonb end`;
   const inserted = await db
