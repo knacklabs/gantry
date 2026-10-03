@@ -1,0 +1,35 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/subagents-refuse-hang-lose-results-and-i",
+  "done_when": "A confirmed spec for subagents that work end to end, with its stories on the roadmap after current work",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "ce9fa316601df0304cff26f055b1bc09444e9664ae2e5a026d256f29e16b1210",
+    "commit": "098f5429167fdd93e4f376640cebb037159b31ea",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The result-accumulation link, like most source links in this note, points into the author's absolute `/Users/.../Workdir/myclaw/` checkout. Readers on GitHub or another checkout cannot follow these references to verify the research or implement the planned stories. The cited implementation exists at `apps/core/src/jobs/ipc-delegated-agent-execution.ts:109`, which I read and which contains the described assignment. Replace checkout-specific source links with repository-relative links.",
+        "file": "docs/context/subagent-research-2026-10-02.md",
+        "line": 29,
+        "priority": "P2",
+        "title": "Use repository-relative links for the research evidence"
+      }
+    ],
+    "status": "clean",
+    "tree": "394652c8a3c2b10bf9304689c5157f72d38fb0c35e7d0666a194d293f50b85e5"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T14:18:29+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T21:55:57+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Subagents refuse, hang, lose results and ignore job and permission rules"
+}
