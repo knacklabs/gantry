@@ -34,6 +34,7 @@ import {
   getDeploymentMode,
   getRuntimeQueueConfig,
   getRuntimeSettingsForConfig,
+  getTriggerPattern,
   loadRuntimeSettings,
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
@@ -111,6 +112,7 @@ export async function startGantryRuntime(
     },
   });
   const channelWiring = createChannelWiring(app, {
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
     groupJoinOnboarding: createGroupJoinOnboardingCoordinator({
       runtimeHome: GANTRY_HOME,

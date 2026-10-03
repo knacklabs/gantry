@@ -10,7 +10,6 @@ import type {
   LiveAdmissionInputScope,
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
-import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -409,7 +408,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   const batch: Array<{
     message: NewMessage;
     itemId: string;
-    receiveOrder: number | null;
   }> = [];
   let queued = false;
   try {
@@ -422,7 +420,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
+      batch.push({ message, itemId: item.id });
       if (input.isActiveControlMessage?.(message)) break;
     }
     const controlIndex = batch.findIndex(
@@ -439,9 +437,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
         return true;
       }
     }
-    const replayBatch = orderBatchForPresentation(
-      controlIndex < 0 ? batch : batch.slice(0, controlIndex),
-    );
+    const replayBatch = controlIndex < 0 ? batch : batch.slice(0, controlIndex);
     const replayMessages = replayBatch.map(({ message }) => message);
     const replayItemIds = replayBatch.map(({ itemId }) => itemId);
     const routed = await routeScopeActiveLiveTurnAdmission({

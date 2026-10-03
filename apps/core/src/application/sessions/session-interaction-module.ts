@@ -29,6 +29,7 @@ import { ApplicationError } from '../common/application-error.js';
 import { isValidControlId } from '../../shared/control-id.js';
 import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { isSessionCommandText } from './session-command-parse.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 
@@ -96,6 +97,7 @@ export type SessionInteractionDeps = {
   };
   runtimeEvents: RuntimeEventExchange;
   getConfiguredAgentRuntime?: (agentFolder: string) => AgentRuntime | undefined;
+  getTriggerPattern: (trigger?: string) => RegExp;
   now: () => IsoTimestamp;
   createId: () => string;
   stableHash: (input: string) => string;
@@ -441,6 +443,11 @@ export class SessionInteractionModule {
             source: 'sdk_session',
             responseMode,
           },
+          // SDK groups have no trigger of their own (makeAppGroup).
+          sessionCommand: isSessionCommandText(
+            text,
+            this.deps.getTriggerPattern(),
+          ),
           now,
         },
       });
