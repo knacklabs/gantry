@@ -588,6 +588,7 @@ export class DiscordChannel implements ChannelAdapter {
     if (author?.bot || author?.id === this.botUserId) return;
     const context = await this.resolveInteractionConversationContext(
       message.channel_id,
+      true,
     );
     const attachments = discordMessageAttachments(
       message,
@@ -638,9 +639,13 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
-  private resolveInteractionConversationContext(channelId: string) {
+  private resolveInteractionConversationContext(
+    channelId: string,
+    failClosed = false,
+  ) {
     return resolveDiscordConversationContext({
       channelId,
+      failClosed,
       botToken: this.botToken,
       cache: this.channelContextCache,
       headers: discordHeaders,
