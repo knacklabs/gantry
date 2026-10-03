@@ -2,14 +2,22 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "7ca85bf84d2c21caca6665ec323583cfb3b460ed1a2c129044180532d1af3122",
-    "commit": "995bb73a8ab22a60bcd6277207d54bbde2a80a3d",
+    "changed": "80b2e8fde436504a0c50161426d7af1bfda6bd1483f5da28b470a0cc5751a576",
+    "commit": "ca557190f580817374a4bbc9ec354040b8ca0344",
     "dismissals": [],
-    "findings": [],
-    "status": "clean",
-    "tree": "6a828ea660eafbdfa66792e5df1ce1d7fd16a3779d504f5b45a58cac006702b1"
+    "findings": [
+      {
+        "body": "The standard requires: \u201cRemove what your own change left unused.\u201d `hasProviderResumeHandle` is imported here but never referenced. `eslint.config.js:75` configures `@typescript-eslint/no-unused-vars` as an error, so this added import prevents `npm run lint:changed` and the close command from passing. Remove the import and the newly added `session-resume-handle.ts`, which has no remaining callers and is outside the task\u2019s scope without serving the quiet-window behavior.",
+        "file": "apps/core/src/application/sessions/session-interaction-module.ts",
+        "line": 33,
+        "priority": "P1",
+        "title": "Standard: Remove what your own change left unused"
+      }
+    ],
+    "status": "blocked",
+    "tree": "be277f93f561fa825744fc1882f120cd697906122c6e266c01eeb99bc1fbbbe6"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T07:53:51+00:00",
@@ -29,6 +37,10 @@
     },
     {
       "at": "2026-10-02T22:21:08+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:14:26+00:00",
       "step": "review"
     }
   ]
