@@ -3,43 +3,50 @@
   "review": {
     "blocking_level": "P1",
     "changed": "a066f857f655d7713d01d2a16f132df49af302b5237ee1b961230fe866fe73c1",
-    "commit": "ae759caa0bb64dc4e7495c5d551737d84f6daece",
+    "commit": "4147e128684a6035e31805d0037e46049496f16d",
     "dismissals": [],
     "findings": [
       {
-        "body": "Telegram media messages never copy ctx.message.reply_to_message.message_id into reply_to_message_id in the emitted envelope (media-ingestion.ts:125\u2013163). After the bot finishes answering in a non-topic group, an allowed member replying with a photo, document, or voice message without a mention therefore fails every continuation check: group-trigger-policy.ts:85 requires the missing reply target. Preserve reply metadata for media messages so these replies reach the agent.",
+        "body": "Telegram media envelopes omit `ctx.message.reply_to_message.message_id` from the emitted message (media-ingestion.ts:125\u2013163). After the bot finishes answering in a non-topic group, an allowed member's unmentioned photo, document, or voice reply therefore fails every continuation check: group-trigger-policy.ts:85 requires the missing reply target. Preserve reply metadata for media messages so these replies reach the agent.",
         "file": "apps/core/src/channels/telegram/media-ingestion.ts",
         "line": 138,
         "priority": "P1",
         "title": "Not done: Mention-required groups follow the conversation"
       },
       {
-        "body": "The unrelated-message check saves its message after all earlier turns have settled. It never saves a message while an unmentioned admission is still claimed but has not run an agent\u2014the condition behind previous finding 2. The tests would still pass if 'claimed' were added to the state filter in live-admission-work-item-repository.postgres.ts:158. Add a Postgres regression proving that a message saved during such a rejected admission stays history and cannot enable a later turn.",
+        "body": "The unrelated-message scenario saves its message after earlier turns have settled. It never saves a message during a claimed admission that rejects its batch without running an agent\u2014the condition behind previous finding 2. The new tests would still pass if `claimed` were added to the state filter in live-admission-work-item-repository.postgres.ts:158. Add a Postgres regression proving that a message saved during that rejected admission remains history and cannot enable a later turn.",
         "file": "apps/core/test/e2e/mention-group-follows-conversation.postgres.e2e.test.ts",
         "line": 364,
         "priority": "P1",
         "title": "Not done: rejected-admission continuation regression test"
       },
       {
-        "body": "Normal channel persistence supplies agentId and providerAccountId but no agentSessionId (channel-persistence-handlers.ts:223\u2013233). Consequently this null-session condition matches any running agent in the same chat and thread, without checking the admitted agent or account. While @Helper is running, a plain follow-up also gets receivedDuringTurn on @Planner's admission and can start Planner without a mention. Resolve the current admission's session scope before recording this flag.",
+        "body": "Normal channel persistence supplies `agentId` and `providerAccountId` but no `agentSessionId` (channel-persistence-handlers.ts:223\u2013233). Consequently, this null-session condition matches any running agent in the same chat and thread, without checking the admitted agent or account. While Helper is running, a plain follow-up also receives `receivedDuringTurn` on Planner's admission and can start Planner without a mention. Resolve the current admission's agent/account session scope before recording this flag.",
         "file": "apps/core/src/adapters/storage/postgres/repositories/live-admission-work-item-repository.postgres.ts",
         "line": 156,
         "priority": "P2",
         "title": "Scope the running-turn marker to the admitted agent and account"
       },
       {
-        "body": "Matching any route's textual trigger sets the shared mentionsBot flag. channel-persistence-handlers.ts:223\u2013233 persists the same envelope for every matching route, and group-trigger-policy.ts:59 accepts that flag independently of the current route's trigger. In a group with @Helper and @Planner, '@Helper do this' therefore starts both agents. The same issue affects captions through media-ingestion.ts:140\u2013146. Preserve route-specific trigger attribution instead of promoting a textual route match to a shared native-mention flag.",
+        "body": "Matching any route's textual trigger sets the shared `mentionsBot` flag. channel-persistence-handlers.ts:223\u2013233 persists that envelope for every matching route, and group-trigger-policy.ts:59 accepts the flag independently of the current route's trigger. In a group with Helper and Planner routes, `@Helper do this` therefore starts both agents. Captions have the same issue through media-ingestion.ts:140\u2013146. Preserve route-specific trigger attribution instead of promoting a textual route match to a shared native-mention flag.",
         "file": "apps/core/src/channels/telegram/text-message-handler.ts",
         "line": 47,
         "priority": "P2",
         "title": "Keep textual route triggers specific to their agent"
       },
       {
-        "body": "The thread lookup still reads only pageSize rows from the beginning. canonical-message-repository.postgres.ts:626\u2013631 orders them ascending and applies the limit. If a topic has 200 human messages before the bot first replies, later unmentioned follow-ups never find that reply and remain history. Use a scoped outbound existence query or continue paging until a bot reply is found.",
+        "body": "The thread lookup reads only `pageSize` rows from the beginning. canonical-message-repository.postgres.ts:626\u2013631 orders rows ascending and applies the limit. If a topic has a full page of human messages before the bot first replies, subsequent unmentioned follow-ups never find that reply and remain history. Use a scoped outbound existence query or continue paging until a bot reply is found.",
         "file": "apps/core/src/runtime/group-trigger-policy.ts",
         "line": 82,
         "priority": "P2",
         "title": "Find bot replies beyond the first history page"
+      },
+      {
+        "body": "A Discord thread created from the bot's channel reply shares that reply's ID ([Discord message contract](https://github.com/discord/discord-api-docs/blob/main/developers/resources/message.mdx#message-flags)). The stored root has no thread ID, while subsequent messages use the parent conversation and thread ID (discord/conversation-context.ts:324\u2013327). The repository's thread filter matches only explicit thread metadata (canonical-message-repository.postgres.ts:136\u2013154), so this lookup excludes the bot root. An ordinary unmentioned follow-up without an explicit reply target is refused until the bot posts inside the thread. Include provider thread roots when checking whether the bot already spoke there.",
+        "file": "apps/core/src/runtime/group-trigger-policy.ts",
+        "line": 82,
+        "priority": "P2",
+        "title": "Include bot-authored roots in thread continuation lookups"
       }
     ],
     "status": "blocked",
@@ -56,7 +63,7 @@
       "step": "review"
     },
     {
-      "at": "2026-10-02T22:16:36+00:00",
+      "at": "2026-10-03T00:47:28+00:00",
       "step": "review"
     }
   ]
