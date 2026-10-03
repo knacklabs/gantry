@@ -30,7 +30,6 @@ import { isValidControlId } from '../../shared/control-id.js';
 import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { isSessionCommandText } from './session-command-parse.js';
-import { hasProviderResumeHandle } from './session-resume-handle.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';
 
