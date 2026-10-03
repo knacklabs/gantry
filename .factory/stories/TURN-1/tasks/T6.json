@@ -1,0 +1,39 @@
+{
+  "branch": "task/TURN-1-T6",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "bc4e91fc6bc4fbfc6da10d4f0a02b5317da3b2eb678ac600a9569671d8692612",
+    "commit": "94b49f3d4711ba77bed90148651d6159334991d2",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "An allowed member's unmentioned reply to a completed Telegram group answer still stays history. Telegram groups use streaming (`apps/core/src/channels/register-builtins.ts:147`), and the streaming send returns only a boolean without recording the provider message ID (`apps/core/src/app/bootstrap/channel-wiring.ts:678`). The completed transcript is persisted without `external_message_id` (`apps/core/src/runtime/group-processing.ts:500\u2013513`), so this equality cannot find the message being replied to. With no topic or running turn, no other continuation check succeeds. Preserve the streamed answer's provider ID in storage and exercise this production path in the regression test. The current E2E scenario misses it because its fake runtime disables streaming (`apps/core/test/harness/fake-channel.ts:82`) and manually stores an external ID (`apps/core/test/e2e/mention-group-follows-conversation.postgres.e2e.test.ts:245`).",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
+        "line": 620,
+        "priority": "P1",
+        "title": "Not done: Mention-required groups follow the conversation"
+      }
+    ],
+    "status": "blocked",
+    "tree": "a70ee8cf23ce1c2cee253bf1c3edf7ea83a2d38342a4d6c7665e5c5ed6c9abce"
+  },
+  "status": "fixing",
+  "steps": [
+    {
+      "at": "2026-10-01T18:08:13+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:56:40+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T00:47:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:55:19+00:00",
+      "step": "review"
+    }
+  ]
+}

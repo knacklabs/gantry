@@ -51,6 +51,7 @@ type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
 export type ActiveControlRoute = {
   folder: string;
   trigger?: string;
+  requiresTrigger?: boolean;
   conversationKind?: 'dm' | 'channel';
   providerAccountId?: string;
   agentConfig?: { model?: string };

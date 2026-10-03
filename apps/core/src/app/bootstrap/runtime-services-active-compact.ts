@@ -11,6 +11,7 @@ import {
 import { buildTriggerPattern } from '../../shared/trigger-pattern.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
+import { senderMayTrigger } from '../../runtime/group-trigger-policy.js';
 import {
   liveTurnScopeForQueue,
   type LiveTurnScopeRepository,
@@ -100,6 +101,7 @@ export function createActiveCompactRouteHandlers(input: {
   route: {
     folder: string;
     trigger?: string;
+    requiresTrigger?: boolean;
     conversationKind?: 'dm' | 'channel';
     providerAccountId?: string;
   };
@@ -112,6 +114,8 @@ export function createActiveCompactRouteHandlers(input: {
       isActiveCompactRouteMessage({ ...input, message }),
     handleActiveControlMessage: (message: NewMessage) =>
       handleActiveCompactRouteMessage({ ...input, message }),
+    senderMayTrigger: (message: NewMessage) =>
+      senderMayTrigger(input.route, input.chatJid, message),
   };
 }
 
