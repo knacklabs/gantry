@@ -818,11 +818,11 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
         ),
       ).toBe(true);
       // The OpenAI SDK appends /chat/completions to the projected gateway
-      // baseUrl (.../openai); the real Gantry gateway maps that to
+      // baseUrl (.../openai/v1); the real Gantry gateway maps that to
       // api.openai.com/v1/chat/completions (proven in the gateway unit test).
       for (const request of gateway.requests) {
         expect(request.authorization).toBe('Bearer gtw_integrationtoken');
-        expect(request.path).toContain('/openai/chat/completions');
+        expect(request.path).toContain('/openai/v1/chat/completions');
         expect(request.body).not.toContain('gtw_');
       }
 

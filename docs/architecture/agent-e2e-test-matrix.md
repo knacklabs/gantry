@@ -117,16 +117,16 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 
 ## 7. Capabilities
 
-| Scenario                                                                                          | Layer       | Status                                               |
-| ------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------- |
-| Declare via settings surface → `capability:<id>` + scoped RunCommand rule projection              | integration | ✅ configured-agent-tools.test.ts                    |
-| local_cli pinning (path/version/hash/templates); unrelated command denied                         | integration | ✅ semantic-capabilities.test.ts                     |
+| Scenario                                                                                          | Layer       | Status                                                   |
+| ------------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------- |
+| Declare via settings surface → `capability:<id>` + scoped RunCommand rule projection              | integration | ✅ configured-agent-tools.test.ts                        |
+| local_cli pinning (path/version/hash/templates); unrelated command denied                         | integration | ✅ semantic-capabilities.test.ts                         |
 | Persisted selected binding → projection → real admission                                          | integration | ✅ mcp-capability-authoring.postgres.integration.test.ts |
-| Real-image preflight pass AND fail-closed                                                         | e2e         | 🔨                                                   |
-| Secret lifecycle store→retrieve→rotate→audit (all four in one test)                               | integration | 🔨                                                   |
-| Tampered ciphertext → integrity error → capability unavailable, no plaintext leak                 | integration | ✅ capability-secret units; 🔨 through-sandbox chain |
-| Egress: denylist blocks + `egress.connect` attribution (networkHosts = attribution NOT allowlist) | integration | ✅ egress-gateway.test.ts; 🔨 e2e with fixture pair  |
-| Real gog/Sheets tier (throwaway sheet)                                                            | e2e-live    | 🏷                                                   |
+| Real-image preflight pass AND fail-closed                                                         | e2e         | 🔨                                                       |
+| Secret lifecycle store→retrieve→rotate→audit (all four in one test)                               | integration | 🔨                                                       |
+| Tampered ciphertext → integrity error → capability unavailable, no plaintext leak                 | integration | ✅ capability-secret units; 🔨 through-sandbox chain     |
+| Egress: denylist blocks + `egress.connect` attribution (networkHosts = attribution NOT allowlist) | integration | ✅ egress-gateway.test.ts; 🔨 e2e with fixture pair      |
+| Real gog/Sheets tier (throwaway sheet)                                                            | e2e-live    | 🏷                                                       |
 
 ## 8. Memories
 
@@ -165,7 +165,7 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 | Corrupt-state seed via direct test-DB rows (documented API exception)                                                                                                                              | integration      | 🔨                                                                                                                     |
 | Providerless admission qualifies conversation/message/queue with ONE provider account (no silent turn drop, no parallel conversation)                                                              | unit/integration | ✅ canonical-message-ops-service.test.ts, message-loop.test.ts, live-admission-work-items.postgres.integration.test.ts |
 | API-session (`app:` JID) admission stamps the internal channel account `control:<appId>` so channel ownership matches and the turn spawns (was: "No channel owns JID" silent skip)                 | unit             | ✅ canonical-message-ops-service.test.ts (app-session admission)                                                       |
-| App-session streamed replies project into durable message ROWS promptly (before the long-lived run closes)                                                                          | integration      | ✅ fixed by Agent E2E reliability gate                                                                                  |
+| App-session streamed replies project into durable message ROWS promptly (before the long-lived run closes)                                                                                         | integration      | ✅ fixed by Agent E2E reliability gate                                                                                 |
 | GET /v1/sessions/{id}/runs returns the session's canonical-conversation runs with the safe public run fields (provider/execution internals excluded); session events feed exposes run.\* lifecycle | integration      | ✅ fixed by Agent E2E reliability gate                                                                                 |
 
 ## 12. Channel loop (Slack, dedicated test app)
@@ -178,13 +178,13 @@ Legend: ✅ covered (cite) · 🔨 to build · 🏷 label-gated (live lane) · �
 
 ## 13. Model matrix & policy gate
 
-| Scenario                                                                                 | Layer         | Status |
-| ---------------------------------------------------------------------------------------- | ------------- | ------ |
-| `haiku` + anthropic_sdk turn (required gate)                                             | e2e           | 🔨     |
-| `gpt-mini` + deepagents turn                                                             | e2e-live      | 🏷     |
-| Catalog base/head diff adds changed aliases to live matrix                               | CI policy job | 🔨     |
-| Path-map classifies changed paths; UNKNOWN stays risky; `e2e-reviewed` acknowledges only | CI policy job | 🔨     |
-| `agent-e2e-gate` aggregates + branch protection verified                                 | CI            | 🔨     |
+| Scenario                                                                                 | Layer         | Status                                                      |
+| ---------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------- |
+| `haiku` + anthropic_sdk turn (required gate)                                             | e2e           | 🔨                                                          |
+| `gpt-luna` + deepagents Responses API turn                                               | e2e-live      | 🏷 `gpt56-openai-turn.agent-e2e.test.ts` (credential-gated) |
+| Catalog base/head diff adds changed aliases to live matrix                               | CI policy job | 🔨                                                          |
+| Path-map classifies changed paths; UNKNOWN stays risky; `e2e-reviewed` acknowledges only | CI policy job | 🔨                                                          |
+| `agent-e2e-gate` aggregates + branch protection verified                                 | CI            | 🔨                                                          |
 
 ## 14. All-tools sweep
 
