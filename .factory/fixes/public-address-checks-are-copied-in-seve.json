@@ -1,0 +1,31 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/public-address-checks-are-copied-in-seve",
+  "done_when": "Network destination checks use one shared address classifier, mapped IPv6 and invalid addresses included",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "f071842d5a48c8102ce1823861e3d60decb505cfe23ec906a4b786d06101fd3a",
+    "commit": "988a334aff3f5a599aabc848a6b1c659564c15af",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "8a6258b09868b9384cbf44a6fc9f027b8ca104cecdab11ac3d37997d4b9ce62a"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T12:37:28+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:33:02+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T22:14:40+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Public-address checks are copied in several places"
+}
