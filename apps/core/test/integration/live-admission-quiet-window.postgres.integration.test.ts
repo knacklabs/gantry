@@ -189,29 +189,38 @@ maybeDescribe('quiet window before a turn starts (Postgres)', () => {
     expect((await waits(appId)).map((row) => row.sinceFirst)).toEqual([6, 6]);
   });
 
-  it('waits 4 seconds after a text near the platform limit', async () => {
-    const appId = 'quiet-near-limit';
-    await save(appId, {
-      id: 'm1',
-      chatJid: 'tg:quiet-near-limit',
-      provider: 'telegram',
-      content: 'x'.repeat(Math.ceil(4096 * 0.9)),
-    });
-    const [row] = await waits(appId);
-    expect(row!.wait).toBeCloseTo(4, 1);
-  });
-
-  it('waits 1.5 seconds on a platform with no known limit', async () => {
-    const appId = 'quiet-no-limit';
-    await save(appId, {
-      id: 'm1',
-      chatJid: 'teams:quiet-no-limit',
-      provider: 'teams',
-      content: 'x'.repeat(50_000),
-    });
-    const [row] = await waits(appId);
-    expect(row!.wait).toBeCloseTo(1.5, 1);
-  });
+  // The wait follows what a user can send in one message on each platform.
+  it.each([
+    [
+      'a Telegram text near its limit',
+      'telegram',
+      'tg',
+      Math.ceil(4096 * 0.9),
+      4,
+    ],
+    ['a Discord text near its Nitro limit', 'discord', 'dc', 3600, 4],
+    ['a 2,000-character Discord text', 'discord', 'dc', 2000, 1.5],
+    [
+      'any text on a platform with no known limit',
+      'teams',
+      'teams',
+      50_000,
+      1.5,
+    ],
+  ])(
+    'waits the right time after %s',
+    async (_name, provider, prefix, length, wait) => {
+      const appId = `quiet-length-${provider}-${length}`;
+      await save(appId, {
+        id: 'm1',
+        chatJid: `${prefix}:${appId}`,
+        provider,
+        content: 'x'.repeat(length),
+      });
+      const [row] = await waits(appId);
+      expect(row!.wait).toBeCloseTo(wait, 1);
+    },
+  );
 
   async function appConversation(appId: string, trigger = 'Andy') {
     const { _setRuntimeStorageForTest } =

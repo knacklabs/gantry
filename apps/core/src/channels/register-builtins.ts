@@ -7,6 +7,7 @@ import {
 import { MAX_MESSAGE_FILE_ATTACHMENT_BYTES } from '../application/core-tools/message-limits.js';
 import {
   DISCORD_FILE_MAX_BYTES,
+  DISCORD_INBOUND_TEXT_MAX_LENGTH,
   DISCORD_MESSAGE_MAX_LENGTH,
 } from './discord/limits.js';
 import { SLACK_FALLBACK_CHUNK_MAX_LENGTH } from './slack/text-limits.js';
@@ -15,7 +16,10 @@ import {
   TEAMS_HARD_MESSAGE_BYTES,
   TEAMS_SOFT_MESSAGE_BYTES,
 } from './teams/limits.js';
-import { TELEGRAM_MESSAGE_MAX_LENGTH } from './telegram/text-limits.js';
+import {
+  TELEGRAM_INBOUND_TEXT_MAX_LENGTH,
+  TELEGRAM_MESSAGE_MAX_LENGTH,
+} from './telegram/text-limits.js';
 
 const questionGuidance =
   'ask_user_question renders 1-4 questions with 2-4 options each; use a normal message for open-ended input.';
@@ -146,8 +150,7 @@ const telegramProvider: Provider = {
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
   canStreamToJid: (jid: string) => jid.startsWith('tg:-'),
   formatting: 'telegram-markdown-v2',
-  // Bot API sendMessage text: 1-4096 characters (https://core.telegram.org/bots/api#sendmessage).
-  maxInboundTextLength: TELEGRAM_MESSAGE_MAX_LENGTH,
+  maxInboundTextLength: TELEGRAM_INBOUND_TEXT_MAX_LENGTH,
   promptPresentation: {
     label: 'Telegram',
     formattingDescription: 'Telegram renders a limited HTML subset',
@@ -235,9 +238,7 @@ const discordProvider: Provider = {
   folderPrefix: 'discord_',
   isGroupJid: (jid: string) => jid.startsWith('dc:'),
   formatting: 'markdown-native',
-  // Discord message content: up to 2000 characters
-  // (https://discord.com/developers/docs/resources/message#create-message).
-  maxInboundTextLength: DISCORD_MESSAGE_MAX_LENGTH,
+  maxInboundTextLength: DISCORD_INBOUND_TEXT_MAX_LENGTH,
   promptPresentation: {
     label: 'Discord',
     formattingDescription: 'Discord renders markdown',
