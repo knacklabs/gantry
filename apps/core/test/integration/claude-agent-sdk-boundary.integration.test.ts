@@ -1413,7 +1413,7 @@ describe('Claude Agent SDK boundary integration', () => {
     ).toContain('configured subagent definition');
   });
 
-  it('rejects legacy Task subagent tool aliases before native subagent validation', async () => {
+  it('rejects Task subagent tool aliases with Gantry delegation guidance before native subagent validation', async () => {
     const env = prepareRuntimeEnv();
     const previousToolName = process.env.TEST_SUBAGENT_TOOL_NAME;
     process.env.TEST_SUBAGENT_TOOL_NAME = 'Task';
@@ -1446,7 +1446,14 @@ describe('Claude Agent SDK boundary integration', () => {
     );
     expect(
       String((sdkState.calls[0]?.permissionDecision as any).message),
-    ).toContain('Use the Agent tool');
+    ).toContain('Use Gantry delegate_task when mounted');
+    // SDK subagent aliases now point to the host-owned delegation path and
+    // explain how the owner can make that path available for a fresh run.
+    expect(sdkState.calls[0]?.permissionDecision).toMatchObject({
+      message: expect.stringContaining(
+        'ask the owner to grant AgentDelegation',
+      ),
+    });
   });
 
   it('preserves subagent-attributed assistant messages as runner resume anchors', async () => {

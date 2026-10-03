@@ -22,7 +22,8 @@ export type CallableAgentFollowUpMessageRepository = Pick<
 export function isCallableAgentDelegatedTask(task: AsyncTaskRecord): boolean {
   return (
     task.kind === 'delegated_agent' &&
-    task.authoritySnapshotJson.toolName === 'AgentDelegation'
+    (task.authoritySnapshotJson.toolName === 'AgentDelegation' ||
+      task.authoritySnapshotJson.toolName === 'delegate_task')
   );
 }
 
