@@ -2,22 +2,14 @@
   "branch": "task/TURN-1-T5",
   "review": {
     "blocking_level": "P1",
-    "changed": "ef4b2dc55a105738a79a759694efe9e3e46ca471636056cd4f16b425fe274c8f",
-    "commit": "cd258c6d175ef203638be45c18b7750bf60cd89e",
+    "changed": "e448f6b2c536151b1d1ca351edce725d63eb575136691b453752d01e09ba11dc",
+    "commit": "39c1602d045e109bba0938d6252d0ad2c441702c",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "This uses Discord's 2,000-character bot send limit as the inbound limit, but [Discord allows Nitro users to send 4,000 characters](https://support.discord.com/hc/en-us/articles/360034632292-Sending-Messages). A 2,000-character Nitro message therefore waits 4 seconds although it is only halfway to its limit and should receive the ordinary 1.5-second window. Incoming content reaches admission through apps/core/src/channels/discord/index.ts:619. Keep the outbound limit separate and use the applicable inbound limit for this threshold.",
-        "file": "apps/core/src/channels/register-builtins.ts",
-        "line": 240,
-        "priority": "P2",
-        "title": "Use Discord's inbound limit for the near-limit threshold"
-      }
-    ],
+    "findings": [],
     "status": "clean",
-    "tree": "5fdde6cb13724620bace1bc20cd5e4510ad40e5a69faa765f4738bf22e59668b"
+    "tree": "1217ef918f07c44a2bb90e42ce9e5d382168eed2e12caa3c4de3aeaa5352d5c7"
   },
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T07:53:51+00:00",
@@ -45,6 +37,10 @@
     },
     {
       "at": "2026-10-03T01:39:01+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T02:16:45+00:00",
       "step": "review"
     }
   ]
