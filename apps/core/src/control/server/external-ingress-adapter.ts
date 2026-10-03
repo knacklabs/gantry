@@ -58,7 +58,7 @@ export function resolveConversationMessageRoute(
   threadId: string | null,
   providerAccountId?: string | null,
   agentId?: string | null,
-): { agentId?: string | null; queueKey: string } | null {
+): { agentId?: string | null; queueKey: string; trigger?: string } | null {
   const normalizedAgentId = agentId?.trim() || null;
   const matches = findConversationRoutesForChat(
     routes,
@@ -70,6 +70,7 @@ export function resolveConversationMessageRoute(
     return {
       parsed,
       agentId: parsed.agentId ?? routeAgentId(route),
+      trigger: routeTrigger(route),
     };
   });
   if (matches.length === 0) return null;
@@ -88,6 +89,8 @@ export function resolveConversationMessageRoute(
         threadId,
         providerAccountId,
       ),
+      trigger: matches.find((match) => match.agentId === normalizedAgentId)
+        ?.trigger,
     };
   }
 
@@ -103,6 +106,9 @@ export function resolveConversationMessageRoute(
     );
   }
   const [resolvedAgentId] = [...agentIds];
+  const trigger = (
+    matches.find((match) => match.agentId === resolvedAgentId) ?? matches[0]
+  ).trigger;
   return resolvedAgentId
     ? {
         agentId: resolvedAgentId,
@@ -112,11 +118,21 @@ export function resolveConversationMessageRoute(
           threadId,
           providerAccountId,
         ),
+        trigger,
       }
     : {
         agentId: null,
         queueKey: makeThreadQueueKey(conversationJid, threadId),
+        trigger,
       };
+}
+
+function routeTrigger(route: unknown): string | undefined {
+  if (!route || typeof route !== 'object' || Array.isArray(route)) {
+    return undefined;
+  }
+  const trigger = (route as { trigger?: unknown }).trigger;
+  return typeof trigger === 'string' ? trigger : undefined;
 }
 
 function routeAgentId(route: unknown): string | null {
@@ -155,6 +171,7 @@ export function createExternalIngressModule(
     providerForConversationJid: (conversationJid) =>
       providerIdForJid(conversationJid, 'app'),
     makeQueueKey: makeThreadQueueKey,
+    getTriggerPattern: ctx.getTriggerPattern,
     resolveRoute: ({ conversationJid, threadId, agentId, providerAccountId }) =>
       resolveConversationMessageRoute(
         ctx.app.getConversationRoutes(),

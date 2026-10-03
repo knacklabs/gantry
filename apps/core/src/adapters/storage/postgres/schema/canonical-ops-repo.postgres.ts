@@ -172,6 +172,7 @@ export class PostgresRuntimeRepositoryBundle
       agentId?: string | null;
       agentSessionId?: string | null;
       triggerDecision?: Record<string, unknown>;
+      sessionCommand?: boolean;
       now?: string;
     },
   ) {

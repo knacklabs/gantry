@@ -5,7 +5,9 @@ import {
   takeGroupTurnInput,
 } from '@core/runtime/group-processing-flow.js';
 
-it('presents a taken batch by provider second and receive order', async () => {
+// Order comes from Gantry's receive counter, not the provider's clock: these
+// messages were received first, second, third with falling provider times.
+it('presents a taken batch in receive order whatever the provider timestamps', async () => {
   const messages = [
     {
       id: 'first',
@@ -65,9 +67,9 @@ it('presents a taken batch by provider second and receive order', async () => {
   });
 
   expect(result.missedMessages.map((message) => message.id)).toEqual([
+    'first',
     'second',
     'third',
-    'first',
   ]);
   expect(takeInput).toHaveBeenCalledTimes(4);
 });

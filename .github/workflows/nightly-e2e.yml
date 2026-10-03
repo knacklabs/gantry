@@ -65,6 +65,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Prepare browser
+        run: npx playwright-core install --with-deps chromium
+
       - name: E2E
         id: tests
         run: |

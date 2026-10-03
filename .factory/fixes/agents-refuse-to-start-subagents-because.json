@@ -1,0 +1,32 @@
+{
+  "allow_large": "Owner OK 2026-10-02: the subagent fix spans the agent instructions, the denial wording, and the host's result accumulation and parent wake-up paths",
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/agents-refuse-to-start-subagents-because",
+  "done_when": "The agent's instructions no longer claim delegation is unavailable; when delegation isn't enabled the agent names the real reason and how the owner enables it; the SDK subagent denial points to Gantry delegation; a delegated child's full answer is kept; and a chat delegate_task wakes the parent with the result",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "8048f36a30ab06aad5dbc4626dac94d5d87e33d8b5c810bb99833fa1580bba3e",
+    "commit": "d1818fb0e8509b37c36489a1b304c9fed01ca9f7",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "298e81727d07bf484cbdd2aa7fd2364166d20c352cc397931c183af74dfb2708"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T14:01:46+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T17:43:02+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T23:05:20+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Agents refuse to start subagents because their instructions say delegation is unavailable"
+}

@@ -63,6 +63,7 @@ function createSessionInteractionModule(): SessionInteractionModule {
     ops: {} as never,
     repositories: {} as never,
     runtimeEvents: getRuntimeEventExchange(),
+    getTriggerPattern: {} as never,
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),

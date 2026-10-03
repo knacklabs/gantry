@@ -377,4 +377,32 @@ describe('startLiveAdmissionWorkLoop', () => {
       }),
     );
   });
+  it('claims when the earliest deferred item is due, not a poll later', async () => {
+    vi.useFakeTimers();
+    try {
+      const dueAt = new Date(Date.now() + 1_500).toISOString();
+      const claimLiveAdmissionWorkItems = vi.fn(async () => []);
+      const loop = startLiveAdmissionWorkLoop({
+        liveAdmissions: {
+          claimLiveAdmissionWorkItems,
+          nextLiveAdmissionDueAt: vi.fn(async () => dueAt),
+        } as never,
+        appId: 'default',
+        workerInstanceId: 'worker-1',
+        messageLoopDeps: makeDeps(() => true),
+        intervalMs: 2_000,
+        warn: vi.fn(),
+      });
+
+      await vi.advanceTimersByTimeAsync(1_499);
+      expect(claimLiveAdmissionWorkItems).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(claimLiveAdmissionWorkItems).toHaveBeenCalledTimes(2);
+      loop.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      await loop.done;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

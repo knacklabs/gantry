@@ -81,7 +81,8 @@ const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
   app: RuntimeApp,
-  deps: Partial<ChannelWiringDeps> = {},
+  deps: Partial<ChannelWiringDeps> &
+    Pick<ChannelWiringDeps, 'getTriggerPattern'>,
 ): ChannelWiring {
   app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
