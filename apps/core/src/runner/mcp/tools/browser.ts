@@ -66,7 +66,14 @@ const DEFAULT_BROWSER_TOOL_TIMEOUT_MS = MAX_BROWSER_TOOL_TIMEOUT_MS;
 const MAX_CAPTCHA_TTL_MS = 30 * 60_000;
 const CAPTCHA_IMAGE_FALLBACK_SELECTOR =
   'img[src*="captcha" i],img[src^="data:image" i],img[id*="captcha" i],img[class*="captcha" i],img[alt*="captcha" i],img[title*="captcha" i],canvas[id*="captcha" i],canvas[class*="captcha" i],svg[id*="captcha" i],svg[class*="captcha" i],input[type="image"][src*="captcha" i],[style*="background-image" i][id*="captcha" i],[style*="background-image" i][class*="captcha" i]';
-const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 3;
+const DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 3;
+// Deployments may lower the automatic attempts before the human fallback (e.g. to match a production policy).
+const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = (() => {
+  const configured = Number.parseInt(process.env.GANTRY_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ?? '', 10);
+  return Number.isInteger(configured) && configured >= 1 && configured <= DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS
+    ? configured
+    : DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS;
+})();
 const CAPTCHA_BROWSER_ACTION_TIMEOUT_MS = 30_000;
 const CAPTCHA_SUCCESS_PROOF_TIMEOUT_MS = 15_000;
 const CAPTCHA_SUCCESS_PROOF_POLL_MS = 1_500;

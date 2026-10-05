@@ -480,6 +480,10 @@ async function launchBrowserInner(
         port: debuggingPort,
       }),
       ...(headless ? ['--headless=new'] : []),
+      // Many site firewalls reject the default "HeadlessChrome" user agent.
+      ...(process.env.GANTRY_BROWSER_USER_AGENT?.trim()
+        ? [`--user-agent=${process.env.GANTRY_BROWSER_USER_AGENT.trim()}`]
+        : []),
     ];
 
     chromeProcess = spawn(findChrome(), chromeFlags, {
