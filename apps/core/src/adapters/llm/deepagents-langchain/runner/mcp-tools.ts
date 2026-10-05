@@ -313,7 +313,8 @@ function gantryHostedCapabilityToolTimeoutMs(
   let maximumDeadlineMs: number | undefined;
   for (const capability of capabilities ?? []) {
     for (const operation of capability.operations ?? []) {
-      if (operation.executionMode !== 'gantry_hosted') continue;
+      // Synchronous operations also declare a deadline the agent's MCP call must outlive (default is 60 s).
+      if (operation.executionMode !== 'gantry_hosted' && operation.executionMode !== 'sync') continue;
       const deadlineMs =
         operation.deadlineMs === undefined
           ? DEFAULT_GANTRY_HOSTED_CAPABILITY_DEADLINE_MS
