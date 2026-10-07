@@ -1,0 +1,14 @@
+{
+  "base": "ca1a63abce51dc864aca7debad53d3794aba95fa",
+  "branch": "fix/delegated-follow-up-test-readiness",
+  "done_when": "The existing delegated parent wake-up test waits for actual queue readiness within a bounded timeout, keeps all answer, routing, and receipt assertions, passes against real Postgres, and leaves production batching unchanged",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-07T08:02:53+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The delegated completion test checks before its follow-up is ready"
+}
