@@ -3,7 +3,7 @@
   "branch": "fix/runner-input-pipe-crash",
   "done_when": "Early input closure returns a bounded request-delivery error, and stopping a stuck runner with pending input records a timeout without crashing the worker; both scenarios have real-process regression coverage",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-07T06:11:58+00:00",
