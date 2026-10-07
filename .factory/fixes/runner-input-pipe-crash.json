@@ -3,11 +3,24 @@
   "branch": "fix/runner-input-pipe-crash",
   "done_when": "Early input closure returns a bounded request-delivery error, and stopping a stuck runner with pending input records a timeout without crashing the worker; both scenarios have real-process regression coverage",
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "6dd5a6abad33b865b28f52ce2814a4ecfe545f3ea1312771692266cbaf5ed3a3",
+    "commit": "62cf7070f5528fa42e93e766993f492a2a3b1c1c",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "85294a38af6c54457be39b2a91a4bcbc9746d9c5c60016abc60181d13c0dfe1c"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-07T06:11:58+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-07T06:49:05+00:00",
+      "step": "review"
     }
   ],
   "why": "A closed agent input pipe can crash its hosting worker"
