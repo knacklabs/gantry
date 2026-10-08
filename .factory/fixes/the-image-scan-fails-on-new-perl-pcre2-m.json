@@ -5,22 +5,14 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "9b9e5e18bd1c2c37eca89203c98c760fa9802add10a25537dd8d203392407df2",
-    "commit": "000da32029fdff95a4285d5596d43891d14ab347",
+    "changed": "626b0f48dddd3a47fb80cf50e22d4ad6088267d478da0ab8d0e315e6e80b4503",
+    "commit": "072bf510e4363fd9b208994779f85933ae29aac3",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The handoff explicitly says the Trivy scan could not download its vulnerability database and its result remains unverified. The successful close command does not run the image scan. The required check at `.github/workflows/image.yml:95\u2013103` scans the built image for fixable HIGH/CRITICAL vulnerabilities; a successful build and package-version inspection do not establish that this check passes. Complete that scan or obtain a green Image check for this branch to satisfy the named acceptance check.",
-        "file": "ops/docker/Dockerfile",
-        "line": 71,
-        "priority": "P1",
-        "title": "Not done: The image check passes: the Debian security refresh picks up the fixed perl and pcre2 packages, @modelcontextprotocol/sdk is at 1."
-      }
-    ],
-    "status": "blocked",
-    "tree": "8e67d9651276beef546b4b82f7cb9ba721bf0fd8ab56599294ad4dbad30e798c"
+    "findings": [],
+    "status": "clean",
+    "tree": "826e8efd1fb31ea2caa92bb0a223ea3ef1535cfb369e5ef0bfb332e0bf66e808"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-08T10:01:02+00:00",
@@ -28,6 +20,10 @@
     },
     {
       "at": "2026-10-08T10:23:05+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T11:20:17+00:00",
       "step": "review"
     }
   ],
