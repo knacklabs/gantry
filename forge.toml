@@ -1,5 +1,5 @@
 # Forge's settings. Your coding agent keeps this file: ask it to change a setting or upgrade Forge.
-version = "v1.2.2"
+version = "v1.2.7"
 repo = "client"
 signoff = "docs/decisions/0034-client-signoff.md"
 workers = "codex"
