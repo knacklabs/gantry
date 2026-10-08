@@ -113,6 +113,7 @@ vi.mock('@slack/bolt', () => ({
           .mockResolvedValue({ ok: true, message_ts: '1710000000.100201' }),
       },
       files: {
+        info: vi.fn().mockResolvedValue({ ok: true, file: {} }),
         getUploadURLExternal: vi.fn().mockResolvedValue({
           ok: true,
           upload_url: 'https://files.slack.com/upload/v1/test',
@@ -5161,6 +5162,41 @@ describe('Slack channel', () => {
     );
   });
 
+  it.each(['outbound', 'stream'])('resolves all Slack upload reply ids when completion omits shares for %s delivery', async (delivery) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+    await channel.connect();
+    vi.mocked(appRef.current.client.files.info).mockResolvedValue({
+      ok: true,
+      file: { shares: {
+        public: { C1234567890: [{ ts: 'upload-one' }, { ts: 'upload-two' }], OTHER: [{ ts: 'other-channel' }] },
+        private: { C1234567890: [{ ts: 'upload-three' }] },
+      } },
+    });
+    if (delivery === 'outbound') {
+      const result = await channel.sendMessage('sl:C1234567890', 'Rendered.', {
+        files: [{ filename: 'report.txt', contentType: 'text/plain', sizeBytes: 1, content: new Uint8Array([120]) }],
+      });
+      expect(result).toEqual(expect.objectContaining({ externalMessageIds: ['1710000000.100200', 'upload-one', 'upload-two', 'upload-three'] }));
+    } else {
+      vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+      await expect(channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), { done: true })).resolves.toEqual({ externalMessageIds: ['upload-one', 'upload-two', 'upload-three'] });
+    }
+    expect(appRef.current.client.files.info).toHaveBeenCalledWith({ file: 'F123' });
+  });
+
+  it('does not resend a visible Slack upload when receipt lookup fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+    await channel.connect();
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    vi.mocked(appRef.current.client.files.info).mockRejectedValue({ data: { error: 'missing_scope' } });
+    await expect(channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), { done: true })).resolves.toBe(true);
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.files.completeUploadExternal).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ fileId: 'F123' }), 'Slack uploaded message references unavailable');
+  });
+
   it('uploads large Slack stream text as a UTF-8 snippet before split delivery', async () => {
     vi.stubGlobal(
       'fetch',
@@ -9462,6 +9498,7 @@ describe('Slack channel', () => {
       deliveredChunks: 1,
       totalChunks: 2,
       sentPrefix: 'x'.repeat(12000),
+      externalMessageIds: ['1710000000.222333'],
     });
 
     await channel.sendStreamingChunk('sl:C1234567890', 'y', {
