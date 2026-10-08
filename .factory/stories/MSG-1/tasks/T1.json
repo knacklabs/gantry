@@ -5,24 +5,16 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "05aee69e6eb7930ea52d3208691fa16fcbb8128e1000c85c2376619e3933ac2d",
-    "changed": "97f18c89e057111a523b20733159a0908b708a55d3ea6ad7bb81897a56169cfc",
-    "commit": "ae501fb563a60689502d7545e12eb938c6badc6a",
+    "branch_diff": "90a1ca8740ad2324ef5d49a8a3650563df4e125b0d94424d5522ab3cbb136164",
+    "changed": "625863e8fe5bcc1089ad21d756a6c26cea4f58a639fbd96a619a473f84eb6f51",
+    "commit": "eca91bf3adb7217cc12b142531673371df39dd4d",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The approved T1 shared seam explicitly pins the lifecycle operation signatures before their implementations land (plans/MSG-1.md:80 and :113). This interface exposes only save/get; claimHeads, claimControls, renew, release, cacheUnpacked, settle, retryLater, setAside, countSetAside, sweepCompleted and recordRouteReceipt have no shared input/result contracts. The separate held-delete guard also returns void rather than the specified matched count. Consequently, the typed repository bundle cannot expose the agreed operations to subsequent storage and worker owners without those owners inventing the missing boundary. Pin staged operation types, including token/deadline arguments for guarded writes, here. This requests the T1 contracts, while leaving execution with the later owners as ruled.",
-        "file": "apps/core/src/domain/ports/inbound-events.ts",
-        "line": 153,
-        "priority": "P1",
-        "title": "Not done: shared inbox lifecycle signatures"
-      }
-    ],
-    "id": "8a3367ea-7f64-4e57-b7f6-05660e02c401",
-    "status": "blocked"
+    "findings": [],
+    "id": "806eef4f-879c-48c5-9743-9872fd028b0c",
+    "status": "clean"
   },
   "round": 4,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T11:37:28+00:00",
@@ -34,6 +26,10 @@
     },
     {
       "at": "2026-10-08T18:51:12+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T19:38:27+00:00",
       "step": "review"
     }
   ],
