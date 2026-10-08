@@ -95,9 +95,9 @@ describe('decideBatch', () => {
               content: `[${label}: ${fileName}]${reference} ${caption}`,
               attachments: [{ id: 'media', kind, file_name: fileName }],
             });
-          await expect(
-            decide([media('@Andy review [this]')]),
-          ).resolves.toBe(true);
+          await expect(decide([media('@Andy review [this]')])).resolves.toBe(
+            true,
+          );
           await expect(
             decide([media('Please review @Andy [this]')]),
           ).resolves.toBe(false);

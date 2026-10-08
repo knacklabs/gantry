@@ -55,10 +55,21 @@ export async function decideBatch(input: {
   if (allowed.length === 0) return false;
   const addressesThisRoute = (message: NewMessage) => {
     const text = message.content.trim();
+    // Remove the exact filename inside the prefix, preserving caption brackets.
+    const fileName = message.attachments?.find(({ file_name }) => {
+      if (!file_name) return false;
+      const start = text.indexOf(file_name);
+      return (
+        start > 0 &&
+        start <= text.indexOf(']') &&
+        text[start + file_name.length] === ']'
+      );
+    })?.file_name;
+    const captionText = fileName ? text.replace(fileName, '') : text;
     return (
       input.triggerPattern.test(text) ||
       (!!message.attachments?.length &&
-        input.triggerPattern.test(text.replace(MEDIA_PLACEHOLDER, '')))
+        input.triggerPattern.test(captionText.replace(MEDIA_PLACEHOLDER, '')))
     );
   };
   if (
