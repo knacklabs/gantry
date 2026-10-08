@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type {
   InboundEventInput,
-  InboundEventRepository,
+  StagedInboundEventRepository,
   InboundClassification,
   InboundUnpackResult,
 } from '@core/domain/ports/inbound-events.js';
@@ -21,7 +21,7 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
   'durable inbound event crossing',
   () => {
     let runtime: PostgresIntegrationRuntime;
-    let inbox: InboundEventRepository;
+    let inbox: StagedInboundEventRepository;
     const event = (
       overrides: Partial<InboundEventInput> = {},
     ): InboundEventInput => ({

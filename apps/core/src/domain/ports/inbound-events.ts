@@ -1,4 +1,5 @@
 import type { NewMessage } from '../types.js';
+import type { LiveAdmissionInputScope } from './live-turns.js';
 
 export const INBOUND_EVENT_BUDGET_MS = 120_000;
 export const INBOUND_EVENT_ATTEMPT_MS = 20_000;
@@ -69,13 +70,19 @@ export interface InboundDestination {
   threadId: string | null;
 }
 export interface InboundRouteReceipt extends InboundDestination {
-  outcome: 'admitted' | 'dropped' | 'stopped' | 'answered' | 'refused';
+  outcome:
+    | 'admitted'
+    | 'dropped'
+    | 'stopped'
+    | 'answered'
+    | 'control'
+    | 'refused';
   targetTurnId: string | null;
   commandId: string | null;
 }
 // Raw controls are cleared at settlement; receipts cannot carry actor/text/arguments.
 export interface InboundStopReceipt extends InboundRouteReceipt {
-  outcome: 'stopped' | 'refused';
+  outcome: 'control' | 'refused';
 }
 export interface InboundOrigin extends InboundRawThreadScope {
   eventId: string;
@@ -150,17 +157,82 @@ export interface InboundEvent extends Omit<InboundEventInput, 'kind'> {
 export type InboundSaveResult =
   | { outcome: 'saved' | 'duplicate'; event: InboundEvent }
   | { outcome: 'unsupported' | 'invalid' };
+
+export interface InboundClaimedEvent extends InboundEvent {
+  state: 'claimed';
+  claimToken: string;
+  claimExpiresAt: string;
+  deadlineAt: string;
+}
+export interface InboundClaimInput {
+  scope: InboundConnectionScope;
+  limit: number;
+}
+// Writes check state/token/deadline transactionally; release/set-aside may clear expired work.
+export type InboundClaimGuard = Pick<
+  InboundOrigin,
+  'appId' | 'eventId' | 'claimToken' | 'deadlineAt'
+>;
+export type InboundWriteResult =
+  | { outcome: 'applied' }
+  | { outcome: 'stale_claim' };
+export type InboundReceiptResult<T extends InboundRouteReceipt> =
+  | { outcome: 'recorded' | 'duplicate'; receipt: T }
+  | { outcome: 'stale_claim' };
+export type InboundStopScope = InboundRawThreadScope & LiveAdmissionInputScope;
+export interface InboundStopInput {
+  origin: InboundOrigin;
+  scope: InboundStopScope;
+}
+export interface InboundSweepInput {
+  appId: string;
+  settledBefore: string;
+  limit: number;
+}
+
 export interface InboundEventRepository {
   save(input: unknown): Promise<InboundSaveResult>;
   get(id: string, appId: string): Promise<InboundEvent | null>;
+  // Ordinary claims select at most four distinct raw thread heads; controls use a separate lane.
+  claimHeads(input: InboundClaimInput): Promise<InboundClaimedEvent[]>;
+  claimControls(input: InboundClaimInput): Promise<InboundClaimedEvent[]>;
+  renew(input: InboundClaimGuard): Promise<InboundClaimedEvent | null>;
+  release(input: InboundClaimGuard): Promise<InboundWriteResult>;
+  cacheUnpacked(
+    input: InboundClaimGuard & { unpacked: InboundUnpackResult },
+  ): Promise<InboundWriteResult | { outcome: 'deleted' }>;
+  settle(
+    input: InboundClaimGuard,
+  ): Promise<InboundWriteResult | { outcome: 'incomplete_routes' }>;
+  retryLater(
+    input: InboundClaimGuard & {
+      nextAttemptAt: string;
+      failedOperation: string;
+    },
+  ): Promise<InboundWriteResult>;
+  setAside(
+    input: InboundClaimGuard & { failedOperation: string },
+  ): Promise<InboundWriteResult>;
+  countSetAside(input: {
+    appId: string;
+  }): Promise<Record<InboundProviderId, number>>;
+  sweepCompleted(input: InboundSweepInput): Promise<number>;
+  markHeldDeleted(scope: InboundHeldDeleteScope): Promise<number>;
+  recordStop(
+    input: InboundStopInput,
+  ): Promise<InboundReceiptResult<InboundStopReceipt>>;
+  recordRouteReceipt(
+    input: InboundClaimGuard & { receipt: InboundRouteReceipt },
+  ): Promise<InboundReceiptResult<InboundRouteReceipt>>;
 }
+// T1 implements save/get; later owners activate the pinned lifecycle methods without stubs.
+export type StagedInboundEventRepository = Pick<
+  InboundEventRepository,
+  'save' | 'get'
+> &
+  Partial<Omit<InboundEventRepository, 'save' | 'get'>>;
 export type InboundEventSaver = (
   input: InboundSaveableEvent,
 ) => Promise<InboundSaveResult>;
-export type InboundHeldDeleteGuard = (
-  scope: InboundHeldDeleteScope,
-) => Promise<void>;
-export type InboundStopRecorder = (input: {
-  origin: InboundOrigin;
-  destination: InboundDestination;
-}) => Promise<InboundStopReceipt>;
+export type InboundHeldDeleteGuard = InboundEventRepository['markHeldDeleted'];
+export type InboundStopRecorder = InboundEventRepository['recordStop'];

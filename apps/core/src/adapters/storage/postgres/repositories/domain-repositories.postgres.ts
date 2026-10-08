@@ -155,7 +155,7 @@ import { PostgresPermissionDecisionMemoryRepository } from './permission-decisio
 import { PostgresGroupJoinOnboardingRepository } from './group-join-onboarding-repository.postgres.js';
 import { PostgresMessageAttachmentRepository } from './message-attachment-repository.postgres.js';
 import { PostgresInboundEventRepository } from './inbound-event-repository.postgres.js';
-import type { InboundEventRepository } from '../../../../domain/ports/inbound-events.js';
+import type { StagedInboundEventRepository } from '../../../../domain/ports/inbound-events.js';
 import { PostgresConversationHistoryCoverageRepository } from './conversation-history-coverage-repository.postgres.js';
 import { PostgresCapabilityTemplateAmendmentRepository } from './capability-template-amendment-repository.postgres.js';
 import { deletionMarkerTimestampForMessage } from './message-attachment-deletion-markers.postgres.js';
@@ -164,7 +164,7 @@ import {
   resolveConversationApproverPrincipal,
 } from './conversation-approver-identities.postgres.js';
 export interface PostgresDomainRepositoryBundle {
-  inboundEvents: InboundEventRepository;
+  inboundEvents: StagedInboundEventRepository;
   apps: AppRepository;
   agents: AgentRepository;
   agentConfigs: AgentConfigRepository;

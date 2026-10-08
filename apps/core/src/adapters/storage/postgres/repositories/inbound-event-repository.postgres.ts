@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { normalizeProviderId } from '../../../../channels/provider-registry.js';
 import {
   type InboundEvent,
-  type InboundEventRepository,
+  type StagedInboundEventRepository,
   type InboundSaveResult,
 } from '../../../../domain/ports/inbound-events.js';
 import { toIso } from '../../../../shared/time/datetime.js';
@@ -59,7 +59,7 @@ function fromRow(row: typeof events.$inferSelect): InboundEvent {
   };
 }
 
-export class PostgresInboundEventRepository implements InboundEventRepository {
+export class PostgresInboundEventRepository implements StagedInboundEventRepository {
   constructor(private readonly db: CanonicalDb) {}
 
   async save(input: unknown): Promise<InboundSaveResult> {
