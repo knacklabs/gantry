@@ -190,10 +190,11 @@ export function renderGantryMcpToolAvailability(
   configuredTools: readonly string[],
   options: GantryMcpToolSelectionOptions,
   callableToolNames: readonly string[] = [],
+  mountedNames?: ReadonlySet<string>,
 ): string {
-  const selected = new Set(
-    selectedGantryMcpToolNames(configuredTools, options),
-  );
+  const selected =
+    mountedNames ??
+    new Set(selectedGantryMcpToolNames(configuredTools, options));
   const unavailable = new Map<string, string[]>();
   for (const name of ALL_GANTRY_MCP_TOOL_NAMES) {
     if (selected.has(name)) continue;
@@ -274,17 +275,43 @@ export function completeGantryToolNames(
 export function withMountedGantryToolNames(
   prompt: string | undefined,
   mountedNames: ReadonlySet<string>,
+  configuredTools: readonly string[] = [],
+  mountEnv?: Readonly<Record<string, string | undefined>>,
 ): string {
   const compiled = prompt ?? '';
-  const available = `Available: ${[...mountedNames].sort().join(', ')}.`;
-  const heading = '## Gantry tools in this run\n';
-  const section = compiled.lastIndexOf(heading);
-  if (section < 0)
-    return [prompt, heading + available].filter(Boolean).join('\n\n');
-  const start = section + heading.length;
-  const end = compiled.indexOf('\n', start);
+  // Inline callers supply their own gate guidance; worker callers use MCP mount evidence.
+  const availability = mountEnv
+    ? renderGantryMcpToolAvailability(
+        configuredTools,
+        {
+          accessPreset:
+            mountEnv.GANTRY_AGENT_ACCESS_PRESET === 'locked'
+              ? 'locked'
+              : 'full',
+          excludeAuthorityTools: mountEnv.GANTRY_NO_PERMISSION_TOOLS === '1',
+          browserIpcEnabled: Boolean(
+            mountEnv.GANTRY_BROWSER_IPC_AUTH_TOKEN?.trim(),
+          ),
+          asyncTaskToolsEnabled:
+            mountEnv.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1',
+          chatJid: mountEnv.GANTRY_CHAT_JID,
+          permissionLane:
+            mountEnv.GANTRY_PERMISSION_LANE === 'interactive'
+              ? 'interactive'
+              : 'autonomous',
+        },
+        [],
+        mountedNames,
+      )
+    : `## Gantry tools in this run\nAvailable: ${[...mountedNames].sort().join(', ')}.`;
+  const heading = compiled.lastIndexOf('## Gantry tools in this run\n');
+  if (heading < 0) return [prompt, availability].filter(Boolean).join('\n\n');
+  const section = mountEnv
+    ? /^## Gantry tools in this run\nAvailable:[^\n]*(?:\nUnavailable:[^\n]*)*/
+    : /^## Gantry tools in this run\nAvailable:[^\n]*/;
   return (
-    compiled.slice(0, start) + available + (end < 0 ? '' : compiled.slice(end))
+    compiled.slice(0, heading) +
+    compiled.slice(heading).replace(section, () => availability)
   );
 }
 

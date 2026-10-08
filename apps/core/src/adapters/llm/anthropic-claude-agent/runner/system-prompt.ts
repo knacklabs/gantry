@@ -44,6 +44,7 @@ export function buildRunnerSystemPrompt(
   agentInput: AgentRunnerInput,
   memoryBlock: string,
   mountedGantryToolNames?: ReadonlySet<string>,
+  gantryMcpEnv: Readonly<Record<string, string | undefined>> = {},
 ): ReturnType<typeof buildSystemPrompt> {
   return promptParts(
     buildGantryAgentSystemPrompt({
@@ -55,6 +56,8 @@ export function buildRunnerSystemPrompt(
         ? withMountedGantryToolNames(
             agentInput.compiledSystemPrompt,
             mountedGantryToolNames,
+            agentInput.allowedTools ?? [],
+            gantryMcpEnv,
           )
         : agentInput.compiledSystemPrompt,
       hasMemoryContext: Boolean(memoryBlock),
