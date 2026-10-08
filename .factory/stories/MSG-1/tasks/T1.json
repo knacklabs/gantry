@@ -21,6 +21,7 @@
     "id": "8a3367ea-7f64-4e57-b7f6-05660e02c401",
     "status": "blocked"
   },
+  "round": 4,
   "status": "fixing",
   "steps": [
     {
@@ -35,5 +36,6 @@
       "at": "2026-10-08T18:51:12+00:00",
       "step": "review"
     }
-  ]
+  ],
+  "worker": "codex"
 }
