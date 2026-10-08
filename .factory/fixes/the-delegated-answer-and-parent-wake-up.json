@@ -3,7 +3,7 @@
   "branch": "fix/the-delegated-answer-and-parent-wake-up",
   "done_when": "delegated-answer-and-parent-wakeup.postgres.integration.test.ts passes on main because the parent wake-up record is created again, with the root cause fixed in code rather than the test loosened",
   "kind": "fix",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-08T09:43:14+00:00",
