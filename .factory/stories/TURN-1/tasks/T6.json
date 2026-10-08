@@ -3,24 +3,24 @@
   "flagged": [],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "ee7b09f68e94dbce072d1bc40c07bdfd6b9283b1e07606f745d0c1f80fcd7a67",
-    "changed": "80560593deb10c38d30652da072e4848d1b620818b5ec63b131cc602177f0cda",
-    "commit": "35549c2fe0d6c7450f7b14cdd935c3cffe2aa097",
+    "branch_diff": "3a6ad6c82605b95e2337b302ea2640838543367f6a55378f659fa23366f3a6bf",
+    "changed": "44e865da595408a061ffd25384b13d9982dedabb46c47034afe3266413fc67c5",
+    "commit": "149e62d2a3271cd3ca8c99e01740eb5e69897b59",
     "dismissals": [],
     "findings": [
       {
-        "body": "When a finished Slack stream uses the snippet fallback, both successful-upload branches in channel-delivery.ts (lines 361\u2013370 and 407\u2013417) discard fallback.externalMessageId. That identifier is already returned by file-delivery.ts:130\u2013138. This helper therefore returns either true or only earlier message IDs, and hasSentBotMessage cannot identify the uploaded answer by its message ID. Preserve the snippet receipt in both branches before constructing the completed stream result. The existing successful-upload test supplies no share timestamp, so it misses this case.",
-        "file": "apps/core/src/channels/slack/channel-state.ts",
-        "line": 85,
+        "body": "Replies to visible bot output can still be kept as history because several delivery paths lose the references this lookup requires:\n\n- Regular outbound sends persist only `result.externalMessageId` in `channel-wiring.ts:600\u2013605`, discarding `externalMessageIds`. Telegram, Slack, Discord and Teams return multipart receipts, so a plain reply to a later top-level part sent through `send_message` cannot match. The newly retained Discord warning ID is also discarded here.\n- Partial streamed delivery skips the success-only receipt capture in `group-output-buffer.ts:132\u2013136`. `jobs/delivery.ts:123` converts the provider exception to `delivery_incomplete`, leaving the saved ID list empty. Additionally, this lookup excludes `partially_sent` rows at line 619, even though their delivered messages remain reply targets.\n- New dependency-contract evidence shows another Slack upload gap: [Slack's documented successful completion response](https://docs.slack.dev/reference/methods/files.completeUploadExternal/) contains file IDs and titles without `shares`. The unchanged `slack/file-delivery.ts:130\u2013138` returns no message timestamp for that response, so both changed upload branches still return no upload receipt. The new tests always inject `shares`, masking this supported response shape.\n\nPersist regular multipart receipts, retain visible IDs from partial deliveries and permit those delivered messages in the lookup, and resolve the Slack share timestamp when completion omits it. These repairs concern receipt handling, without changing provider reply splitting.",
+        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
+        "line": 610,
         "priority": "P2",
-        "title": "Include successful Slack snippet receipts in completed stream results"
+        "title": "Preserve bot reply references across the remaining delivery paths"
       }
     ],
-    "id": "2c831480-3539-43bd-bd6c-1071c5d9c9cf",
+    "id": "8fc18768-b2fd-4840-9932-3d607d1bbb81",
     "status": "clean"
   },
   "round": 1,
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -40,6 +40,10 @@
     },
     {
       "at": "2026-10-08T13:59:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T14:58:51+00:00",
       "step": "review"
     }
   ],
