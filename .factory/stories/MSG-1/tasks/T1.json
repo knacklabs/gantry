@@ -1,35 +1,25 @@
 {
   "branch": "task/MSG-1-T1",
+  "flagged": [
+    "apps/core/src/domain/ports/inbound-events.ts"
+  ],
   "review": {
     "blocking_level": "P1",
-    "changed": "71a4ed9bf5209ba75bbe527f7855b85e8616c3d7e7b90655700cc3589cad9908",
-    "commit": "f4487fbe9eaa580caeb8b92891a0875e873d5940",
+    "branch_diff": "05aee69e6eb7930ea52d3208691fa16fcbb8128e1000c85c2376619e3933ac2d",
+    "changed": "97f18c89e057111a523b20733159a0908b708a55d3ea6ad7bb81897a56169cfc",
+    "commit": "ae501fb563a60689502d7545e12eb938c6badc6a",
     "dismissals": [],
     "findings": [
       {
-        "body": "The approved T1 seam requires malformed supported inputs to retain a stable envelope identity, raw payload and safe reason so they can be saved and eventually set aside (plans/MSG-1.md:91). This branch instead gives malformed classifications no event or reason. Storage also accepts only message/slash kinds and nonempty raw channels, so a malformed envelope with unknown scope cannot be represented or saved. Pin a distinct saveable malformed-event contract and prove its persistence separately from rejection of invalid repository inputs. This concerns T1's classifier/storage contract, not later runtime execution.",
+        "body": "The approved T1 shared seam explicitly pins the lifecycle operation signatures before their implementations land (plans/MSG-1.md:80 and :113). This interface exposes only save/get; claimHeads, claimControls, renew, release, cacheUnpacked, settle, retryLater, setAside, countSetAside, sweepCompleted and recordRouteReceipt have no shared input/result contracts. The separate held-delete guard also returns void rather than the specified matched count. Consequently, the typed repository bundle cannot expose the agreed operations to subsequent storage and worker owners without those owners inventing the missing boundary. Pin staged operation types, including token/deadline arguments for guarded writes, here. This requests the T1 contracts, while leaving execution with the later owners as ruled.",
         "file": "apps/core/src/domain/ports/inbound-events.ts",
-        "line": 43,
+        "line": 153,
         "priority": "P1",
-        "title": "Not done: durable malformed supported-input contract"
-      },
-      {
-        "body": "The shared seam explicitly requires a question_reply result containing the qualified reply candidate and ordinary-message fallback (plans/MSG-1.md:112). This union permits only ordinary messages or drops, and no InboundQuestionReply or durable-handler result is declared. NewMessage (apps/core/src/domain/types.ts:125) does not carry the bot-author identity and qualified question locator needed by that contract. Later codecs therefore cannot return the promised side-effect-free question candidate through the pinned boundary. Add these shared signatures here; durable answer execution and its owner test remain T11's responsibility.",
-        "file": "apps/core/src/domain/ports/inbound-events.ts",
-        "line": 76,
-        "priority": "P1",
-        "title": "Not done: shared question-reply unpack contract"
-      },
-      {
-        "body": "The approved record contract requires an app foreign key (plans/MSG-1.md:99), but app_id is unconstrained text in both the schema and migration. The integration fixture creates no app rows before successfully saving inbox-app and other-app events, demonstrating that raw incoming content can be persisted without a valid owning app. Add the apps.id reference in the schema and migration, create real app fixtures, and verify that nonexistent app ownership is rejected.",
-        "file": "apps/core/src/adapters/storage/postgres/schema/inbound-events.ts",
-        "line": 28,
-        "priority": "P1",
-        "title": "Not done: app foreign key in the inbox schema"
+        "title": "Not done: shared inbox lifecycle signatures"
       }
     ],
-    "status": "blocked",
-    "tree": "f86545b5cf3fa48438bda85c5f5f32b6a10bc77ff2d26969747046b16fc9a5eb"
+    "id": "8a3367ea-7f64-4e57-b7f6-05660e02c401",
+    "status": "blocked"
   },
   "status": "fixing",
   "steps": [
@@ -39,6 +29,10 @@
     },
     {
       "at": "2026-10-02T14:12:49+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T18:51:12+00:00",
       "step": "review"
     }
   ]
