@@ -8,23 +8,15 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "7997d3765dbadaa2f2d0dbd768e3038f9014a6cb2ad15a3af5351156d4af9d2c",
-    "changed": "ec5650c8dbdfc689c622d123c24aaedfbdcaefc6bc2d0efab870958c90de77fe",
-    "commit": "4504ec45df75020aebd9233923620006ced30fae",
+    "branch_diff": "20f5b28fffc5e057941cea2dd3e71ffbd90c628a5a12e71dd9be87cf5502dc7a",
+    "changed": "59aa812f1a1071b5151ec4a21d0c6602382afed89dad10df398c177253ed8961",
+    "commit": "2d206ffed22af6392a124438c51ee0ac569fafaa",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The supplied proof list is `missing`, and the latest commit contains only its title. Add the required `Proof list:` paragraph covering both parts of the Done-when item: the v1.2.7 repository pin and a named check with its result demonstrating that Forge v1.2.7 runs. The successful npm checks do not establish the running Forge version.",
-        "file": "forge.toml",
-        "line": 2,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      }
-    ],
-    "id": "6fd05ed9-b13c-4bae-80f1-5df16fb5c980",
-    "status": "blocked"
+    "findings": [],
+    "id": "cf720cff-9e98-4a04-bc05-73539d5a356e",
+    "status": "clean"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-08T08:06:26+00:00",
@@ -32,6 +24,10 @@
     },
     {
       "at": "2026-10-08T08:09:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T08:13:47+00:00",
       "step": "review"
     }
   ],
