@@ -9,20 +9,20 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "6f4ced6dbb2c6bc5ebc3455a609753828ab88eb4a907cef86b976cc9a6ccd52d",
-    "changed": "8660eda94d2cae8392f8a2db76fb2a323bcb6fd5a85167dbe241b26c701fb0e3",
-    "commit": "2173a81d029b656fb52d718c7c0e2687fadfac06",
+    "branch_diff": "547619792fc8b99fa86e4a03e9bcb586fddfe0133715f40e696b430a85044529",
+    "changed": "4fa2a900a91406df900e0c65142b5433a2ec68424068914b005b6dfcae3d5481",
+    "commit": "e62881ce7de8dacb478d22a6c275d49636e757fa",
     "dismissals": [],
     "findings": [
       {
-        "body": "The unavailable-reason renderer still iterates only `ALL_GANTRY_MCP_TOOL_NAMES`, excluding Gantry facade capabilities. DeepAgents omits RunCommand when its host flag or grant is absent (`apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts:375`), while scheduled Claude runs omit RunCommand, FileEdit and FileWrite through their native selection (`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:234`; native definitions in `native-sdk-tools.ts:10`). None receives an unavailable reason. The boundary test explicitly observes RunCommand's absence at lines 528 and 629, but its expected reason map excludes facade tools, so the final assertion at line 642 passes despite this omission. Extend both the renderer's inventory and the independent boundary expectations to cover these runner decisions. The browser credential repair works, but the promised coverage of every unavailable capability remains incomplete.",
+        "body": "In a full-preset run with authority hiding enabled, unselected admin tools receive `tools are hidden for this run`, although hiding does not prevent their mounting: selected admin tools are restored at lines 180\u2013182 and in `apps/core/src/runner/mcp/server.ts:196\u2013199`. Their actual missing condition is selection. This affects settings_desired_state, request_settings_update, guided_action_preview, admin_permission_list, admin_permission_revoke, service_restart and register_agent whenever unselected, in both engines. New evidence beyond the ruling preserving selected admin tools is that the reason renderer does not respect that exception. The boundary oracle at `apps/core/test/unit/runtime/gantry-tools-in-run.test.ts:285` requires the same incorrect hidden reason, so its existing hidden-run scenario passes despite the defect. Preserve locked-preset reasons, but report missing selection for these admin capabilities in nonlocked runs and correct the boundary expectations.",
         "file": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
-        "line": 199,
+        "line": 228,
         "priority": "P1",
-        "title": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the\u30d6\u30e9"
+        "title": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision"
       }
     ],
-    "id": "0adce097-27c5-409e-8e11-096044a83e06",
+    "id": "6a1600be-ef42-4c54-b35b-39c9bad96c9d",
     "status": "blocked"
   },
   "round": 4,
@@ -34,6 +34,10 @@
     },
     {
       "at": "2026-10-08T19:43:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T22:50:54+00:00",
       "step": "review"
     }
   ],

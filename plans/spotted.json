@@ -34,6 +34,17 @@
       "closed_by": "dismissed"
     },
     {
+      "key": "bug\tapps/core/src/shared/gantry-mcp-tool-surface.ts\tNot done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision\tthe-agent-s-unavailable-reasons-come-fro",
+      "kind": "bug",
+      "path": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
+      "line": 228,
+      "text": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision",
+      "from": "blocking",
+      "item": "the-agent-s-unavailable-reasons-come-fro",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/shared/gantry-mcp-tool-surface.ts\tNot done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the\u30d6\u30e9\tthe-agent-s-unavailable-reasons-come-fro",
       "kind": "bug",
       "path": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
