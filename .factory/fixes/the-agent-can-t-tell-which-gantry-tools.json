@@ -4,7 +4,7 @@
   "branch": "fix/the-agent-can-t-tell-which-gantry-tools",
   "done_when": "Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual reason, all derived from the same selection that mounts the tools; delegate_task is always loaded when available; a test through the real prompt compile and runner tool surface proves it",
   "kind": "fix",
-  "round": 1,
+  "round": 2,
   "status": "working",
   "steps": [
     {
