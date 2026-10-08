@@ -248,7 +248,9 @@ process.stdin.on('end', () => {
       ).toBe(ANSWER);
     }, 30_000);
 
-    it('wakes the chat parent with a durable delegated completion result', async () => {
+    it('immediately wakes the chat parent with a durable delegated completion result', async () => {
+      // A fixed claim clock keeps a slow machine from letting a quiet window expire.
+      const claimNow = new Date().toISOString();
       const taskId = await delegate();
       const { AsyncCommandTaskService } =
         await import('@core/jobs/async-command-task-service.js');
@@ -265,6 +267,7 @@ process.stdin.on('end', () => {
           claimToken: randomUUID(),
           claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
           limit: 100,
+          now: claimNow,
         });
       const followUp = items.find(
         (item) => item.triggerDecision?.taskId === taskId,
