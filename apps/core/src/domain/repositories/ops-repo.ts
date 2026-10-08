@@ -194,7 +194,7 @@ export interface RuntimeMessageRepository {
     limit?: number,
     options?: { threadId?: string | null; providerAccountId?: string | null },
   ): Promise<NewMessage[]>;
-  /** One-row check that the bot sent a message in a thread or with an id. */
+  /** One-row check that the bot sent a message in a thread, as its root, or with an id. */
   hasSentBotMessage?(
     conversationJid: string,
     input: {

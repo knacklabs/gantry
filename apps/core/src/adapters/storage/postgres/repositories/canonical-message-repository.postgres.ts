@@ -595,10 +595,6 @@ export class PostgresCanonicalMessageRepository {
       .limit(input.limit ?? 200);
   }
 
-  /**
-   * Whether the bot has a sent message in this conversation: in a thread
-   * (including a thread rooted at the bot's own message), or with an id.
-   */
   async hasSentBotMessage(
     chatJid: string,
     input: {
