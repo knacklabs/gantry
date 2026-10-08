@@ -367,12 +367,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           });
           if (fallback) {
             delivered = true;
-            state.fallbackMessageTs.push(
-              ...(fallback.externalMessageIds ??
-                (fallback.externalMessageId
-                  ? [fallback.externalMessageId]
-                  : [])),
-            );
+            state.fallbackMessageTs.push(...fallback.externalMessageIds);
           }
           if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
             return slackStreamChunkResult(state, delivered);
@@ -387,8 +382,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       state.lastFlushAt = now;
     } catch (err) {
       if (isPartialMessageDeliveryError(err)) {
-        const receipt = slackStreamChunkResult(state, true);
-        if (typeof receipt !== 'boolean') Object.assign(err, receipt);
+        Object.assign(err, slackStreamChunkResult(state, true));
         const partialMetadata = getPartialMessageDeliveryMetadata(err);
         const sentPrefix = partialMetadata.sentPrefix ?? '';
         if (sentPrefix.length > 0) {
@@ -421,12 +415,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
               });
               if (fallback) {
                 delivered = true;
-                state.fallbackMessageTs.push(
-                  ...(fallback.externalMessageIds ??
-                    (fallback.externalMessageId
-                      ? [fallback.externalMessageId]
-                      : [])),
-                );
+                state.fallbackMessageTs.push(...fallback.externalMessageIds);
               }
               if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
                 return slackStreamChunkResult(state, delivered);

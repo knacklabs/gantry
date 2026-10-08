@@ -33,20 +33,19 @@ export type SlackSnippetFallbackInput = {
 
 export type SlackSnippetFallbackResult = {
   fallbackArtifactId: string;
-  externalMessageId?: string;
-  externalMessageIds?: string[];
+  externalMessageIds: string[];
 };
 
 async function uploadedMessageIds(
   app: App,
   channelId: string,
   fileId: string,
-  file: FilesInfoResponse['file'],
+  file: Pick<NonNullable<FilesInfoResponse['file']>, 'shares'> | undefined,
 ): Promise<string[]> {
-  const shareIds = (value: FilesInfoResponse['file']) => [
+  const shareIds = (value: typeof file) => [
     ...new Set(
-      Object.values(value?.shares ?? {}).flatMap((channels) =>
-        (channels[channelId] ?? []).flatMap((share) =>
+      [value?.shares?.public, value?.shares?.private].flatMap((channels) =>
+        (channels?.[channelId] ?? []).flatMap((share) =>
           share.ts ? [share.ts] : [],
         ),
       ),

@@ -192,15 +192,11 @@ export async function sendSlackMessage(input: {
         });
         if (fallback) {
           warnings.push('slack.snippet_fallback');
-          externalMessageIds.push(
-            ...(fallback.externalMessageIds ??
-              (fallback.externalMessageId ? [fallback.externalMessageId] : [])),
-          );
+          externalMessageIds.push(...fallback.externalMessageIds);
           await postActionsFollowUpNonFatal(oversizedCtx, warnings);
-          const ids = [...externalMessageIds];
           return {
-            ...(ids[0] ? { externalMessageId: ids[0] } : {}),
-            ...(ids.length > 0 ? { externalMessageIds: ids } : {}),
+            externalMessageId: externalMessageIds[0],
+            externalMessageIds,
             deliveredParts: parts.length,
             totalParts: parts.length,
             warnings,
@@ -258,14 +254,8 @@ export async function sendSlackMessage(input: {
 
   try {
     await uploadSlackAttachments({
-      app: input.app,
-      jid: input.jid,
-      channelId: input.channelId,
-      threadTs,
+      ...oversizedCtx,
       files: input.options.files,
-      warnings,
-      externalMessageIds,
-      log: input.log,
       postSlackMessageWithRetry,
     });
   } catch (cause) {
@@ -282,10 +272,8 @@ export async function sendSlackMessage(input: {
   }
 
   return {
-    ...(externalMessageIds[0]
-      ? { externalMessageId: externalMessageIds[0] }
-      : {}),
-    ...(externalMessageIds.length > 0 ? { externalMessageIds } : {}),
+    externalMessageId: externalMessageIds[0],
+    externalMessageIds,
     deliveredParts,
     totalParts: parts.length,
     ...(warnings.length > 0 ? { warnings } : {}),

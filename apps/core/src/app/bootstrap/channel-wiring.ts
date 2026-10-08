@@ -549,71 +549,6 @@ export function createChannelWiring(
       });
       throw thrownError;
     }
-    if (options.durability === 'required' && durableAttempt) {
-      const ambiguousSentSettlementError =
-        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
-      try {
-        await durableAttempt.settleSent({
-          sentAt: nowIso(),
-          providerMessageId: result?.externalMessageId,
-          providerPayload: result,
-        });
-      } catch (err) {
-        const partialAt = nowIso();
-        await persistBotMessage(
-          outboundOps,
-          {
-            ...baseMessage,
-            delivery_status: 'partially_sent',
-            delivered_at: partialAt,
-            delivery_error: ambiguousSentSettlementError,
-          },
-          [result],
-        ).catch((persistErr: unknown) =>
-          resolved.logger.error(
-            { err: persistErr, jid },
-            'Failed to persist visible outbound reply references',
-          ),
-        );
-        try {
-          await durableAttempt.settlePartiallyDelivered({
-            partialAt,
-            error: ambiguousSentSettlementError,
-          });
-        } catch (partialPersistErr) {
-          resolved.logger.error(
-            {
-              err: partialPersistErr,
-              settleSentError: err,
-              jid,
-              provider,
-              sourceMessageId: messageId,
-            },
-            'Failed to persist ambiguous durable outbound state after sent settlement failure',
-          );
-          throw new AmbiguousDurableDeliveryError({
-            provider,
-            conversationJid: jid,
-            cause: {
-              settleSentError: err,
-              settlePartiallyDeliveredError: partialPersistErr,
-            },
-            message:
-              'Provider send succeeded but both sent and ambiguous partial durable settlements failed. Delivery may already be visible and cannot be blindly retried.',
-            externalMessageId: result?.externalMessageId,
-            externalMessageIds: result?.externalMessageIds,
-          });
-        }
-        throw new AmbiguousDurableDeliveryError({
-          provider,
-          conversationJid: jid,
-          cause: err,
-          message: ambiguousSentSettlementError,
-          externalMessageId: result?.externalMessageId,
-          externalMessageIds: result?.externalMessageIds,
-        });
-      }
-    }
     try {
       await persistBotMessage(
         outboundOps,
@@ -664,6 +599,56 @@ export function createChannelWiring(
             'Failed to persist ambiguous durable outbound status after sent-status write failure',
           );
         }
+      }
+    }
+    if (options.durability === 'required' && durableAttempt) {
+      const ambiguousSentSettlementError =
+        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
+      try {
+        await durableAttempt.settleSent({
+          sentAt: nowIso(),
+          providerMessageId: result?.externalMessageId,
+          providerPayload: result,
+        });
+      } catch (err) {
+        const partialAt = nowIso();
+        try {
+          await durableAttempt.settlePartiallyDelivered({
+            partialAt,
+            error: ambiguousSentSettlementError,
+          });
+        } catch (partialPersistErr) {
+          resolved.logger.error(
+            {
+              err: partialPersistErr,
+              settleSentError: err,
+              jid,
+              provider,
+              sourceMessageId: messageId,
+            },
+            'Failed to persist ambiguous durable outbound state after sent settlement failure',
+          );
+          throw new AmbiguousDurableDeliveryError({
+            provider,
+            conversationJid: jid,
+            cause: {
+              settleSentError: err,
+              settlePartiallyDeliveredError: partialPersistErr,
+            },
+            message:
+              'Provider send succeeded but both sent and ambiguous partial durable settlements failed. Delivery may already be visible and cannot be blindly retried.',
+            externalMessageId: result?.externalMessageId,
+            externalMessageIds: result?.externalMessageIds,
+          });
+        }
+        throw new AmbiguousDurableDeliveryError({
+          provider,
+          conversationJid: jid,
+          cause: err,
+          message: ambiguousSentSettlementError,
+          externalMessageId: result?.externalMessageId,
+          externalMessageIds: result?.externalMessageIds,
+        });
       }
     }
     await publishConversationOutboundEvent({

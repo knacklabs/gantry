@@ -5137,7 +5137,7 @@ describe('Slack channel', () => {
       protected override async sendSnippetFallback() {
         return {
           fallbackArtifactId: 'slack-artifact-1',
-          externalMessageId: '1710000000.400500',
+          externalMessageIds: ['1710000000.400500'],
         };
       }
     }
@@ -9747,7 +9747,7 @@ describe('Slack channel', () => {
         this.fallbackCalls.push(input);
         return {
           fallbackArtifactId: 'slack-stream-artifact-1',
-          externalMessageId: '1710000000.888999',
+          externalMessageIds: ['1710000000.888999'],
         };
       }
     }
@@ -9792,7 +9792,7 @@ describe('Slack channel', () => {
         this.fallbackCalls.push(input);
         return {
           fallbackArtifactId: 'slack-stream-artifact-reset',
-          externalMessageId: '1710000000.889000',
+          externalMessageIds: ['1710000000.889000'],
         };
       }
     }
@@ -9847,7 +9847,7 @@ describe('Slack channel', () => {
         this.fallbackCalls.push(input);
         return {
           fallbackArtifactId: 'slack-stream-artifact-partial-reset',
-          externalMessageId: '1710000000.889001',
+          externalMessageIds: ['1710000000.889001'],
         };
       }
     }
@@ -9895,34 +9895,34 @@ describe('Slack channel', () => {
   it.each([0, 1])(
     'reports a visible Slack snippet after a targeted reset with %i successful native append parts',
     async (successfulParts) => {
-      class SlackChannelWithDeferredSnippetFallback extends SlackChannel {
-        fallbackCalls: Array<Record<string, unknown>> = [];
-        resolveFallback!: (value: {
-          fallbackArtifactId: string;
-          externalMessageId: string;
-        }) => void;
-
-        protected override async sendSnippetFallback(input: {
-          channelId: string;
-          text: string;
-          threadId?: string;
-          reason: string;
-        }) {
-          this.fallbackCalls.push(input);
-          return new Promise<{
-            fallbackArtifactId: string;
-            externalMessageId: string;
-          }>((resolve) => {
-            this.resolveFallback = resolve;
-          });
-        }
-      }
-      const channel = new SlackChannelWithDeferredSnippetFallback(
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      );
+      const channel = new SlackChannel(
         'xoxb-token',
         'xapp-token',
-        createOpts() as any,
+        createOpts(),
       );
       await channel.connect();
+      let resolveUpload!: (value: {
+        ok: boolean;
+        files: Array<{ id: string; title: string }>;
+      }) => void;
+      vi.mocked(
+        appRef.current.client.files.completeUploadExternal,
+      ).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      vi.mocked(appRef.current.client.files.info).mockResolvedValue({
+        ok: true,
+        file: {
+          shares: { public: { C1234567890: [{ ts: '1710000000.889002' }] } },
+        },
+      });
       let appendCount = 0;
       vi.mocked(appRef.current.client.apiCall).mockImplementation(
         async (method: string) => {
@@ -9951,18 +9951,20 @@ describe('Slack channel', () => {
         done: true,
         threadId,
       });
-      await vi.waitFor(() => expect(channel.fallbackCalls).toHaveLength(1));
+      await vi.waitFor(() => expect(resolveUpload).toBeTypeOf('function'));
       channel.resetStreaming(jid, { threadId });
-      channel.resolveFallback({
-        fallbackArtifactId: 'slack-stream-artifact-after-reset',
-        externalMessageId: '1710000000.889002',
+      resolveUpload({
+        ok: true,
+        files: [{ id: 'F123', title: 'Gantry response' }],
       });
-
       await expect(delivery).resolves.toEqual({
         externalMessageIds: [
           'deferred-snippet-native-stream',
           '1710000000.889002',
         ],
+      });
+      expect(appRef.current.client.files.info).toHaveBeenCalledWith({
+        file: 'F123',
       });
       expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
     },

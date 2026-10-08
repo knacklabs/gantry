@@ -3451,11 +3451,11 @@ describe('createChannelWiring', () => {
         error: expect.stringContaining('cannot be blindly retried'),
       }),
     );
-    // A failed durable settlement must retain the visible provider receipt.
+    // The acknowledged provider receipt is saved before durable settlement.
     expect(storeMessage).toHaveBeenCalledTimes(2);
     expect(storeMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        delivery_status: 'partially_sent',
+        delivery_status: 'sent',
         external_message_ids: ['171.123'],
       }),
     );
