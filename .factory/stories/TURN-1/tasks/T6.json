@@ -5,24 +5,16 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "f6ba55c82142a7302c6f5179b025d12c18657e076f7f9f329d599228f9151008",
-    "changed": "7e6dc79574e0e1b5c798f6cb6541359b647e1d875183413676f14ba4e4dbb4a1",
-    "commit": "64bb0db0c4e8a2251bd2dc43b34b0846b540d58f",
+    "branch_diff": "ddd95feb9e85f56175a0d73ca2ebd00cf3089555b00bb8fae14f4013c57d1bd8",
+    "changed": "37ea4f83aaba9fbc7e56c1d8b048b8bd5ba433283dd84f7fb56ac4c41204488e",
+    "commit": "d088b795e46b7f4b1f47d150afd0b0e8768f5244",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "A Telegram document named `report[1].pdf` with caption `@Helper review this` produces `[Document: report[1].pdf] (ref) @Helper review this`. This regex stops at the filename's first `]`, leaving `.pdf] (ref) @Helper review this`, so the anchored route trigger fails and the request stays history unless another continuation rule applies. The unchanged document handler interpolates the original filename into the placeholder (`media-ingestion.ts:248\u2013252`). New evidence beyond the caption ruling: filename brackets prevent the chosen placeholder-removal rule from reaching the caption. Extract the caption independently of filename punctuation or remove the complete known placeholder.",
-        "file": "apps/core/src/runtime/group-trigger-policy.ts",
-        "line": 23,
-        "priority": "P2",
-        "title": "Handle brackets in document names when matching caption triggers"
-      }
-    ],
-    "id": "86923ad7-a096-4118-839a-659df805db40",
+    "findings": [],
+    "id": "59156398-0527-4e7b-9b67-c91972c7ef5d",
     "status": "clean"
   },
   "round": 4,
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -54,6 +46,10 @@
     },
     {
       "at": "2026-10-08T17:47:36+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T19:02:01+00:00",
       "step": "review"
     }
   ],
