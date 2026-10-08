@@ -53,6 +53,7 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import {
   createAgentTodoRenderer,
@@ -1579,6 +1580,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -1623,6 +1625,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     );
   });
@@ -1722,6 +1725,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -1763,6 +1767,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
       {
         appId: 'app-one',
@@ -1773,6 +1778,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: true,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     ]);
   });
@@ -1818,6 +1824,7 @@ describe('createChannelWiring', () => {
       },
     };
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('slack', (opts: any) => {
@@ -2003,6 +2010,7 @@ describe('createChannelWiring', () => {
     const handlers = createChannelPersistenceHandlers({
       app,
       resolved: {
+        getTriggerPattern,
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
@@ -2617,6 +2625,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -2679,6 +2688,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {

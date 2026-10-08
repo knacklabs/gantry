@@ -12,6 +12,7 @@ import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
 import { createRuntimeProviderAttachmentMaterializer } from './runtime-services.js';
+import { isSessionCommandText } from '../../application/sessions/session-command-parse.js';
 
 type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -230,6 +231,10 @@ export function createChannelPersistenceHandlers({
                   requiresTrigger: route.requiresTrigger !== false,
                   conversationKind: route.conversationKind ?? null,
                 },
+                sessionCommand: isSessionCommandText(
+                  msg.content,
+                  resolved.getTriggerPattern(route.trigger),
+                ),
               });
             }
             stored = true;

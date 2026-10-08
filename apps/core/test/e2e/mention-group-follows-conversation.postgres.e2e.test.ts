@@ -14,13 +14,17 @@ import {
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 import { registerTelegramMediaHandlers } from '@core/channels/telegram/media-ingestion.js';
 import { handleTelegramTextMessage } from '@core/channels/telegram/text-message-handler.js';
-import { RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
+import {
+  getTriggerPattern,
+  RUNTIME_SETTINGS_PATH,
+} from '@core/config/index.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
 import type { NewMessage } from '@core/domain/types.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
@@ -36,6 +40,16 @@ const member = '1001';
 const stranger = '2002';
 const providerAccountId = 'channel-providerAccount:default:telegram';
 
+// The quiet window before a turn has its own tests; this scenario ends each
+// saved message's window through the database clock instead of waiting it out.
+async function endQuietWindows(runtime: PostgresIntegrationRuntime) {
+  await runtime.service.pool.query(
+    `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+     SET defer_until = clock_timestamp()
+     WHERE state = 'deferred' AND deferred_reason = 'quiet_window'`,
+  );
+}
+
 /**
  * Telegram updates through the real text and media handlers and the real
  * persistence fan-out. Only Telegram's Bot API and file download are faked.
@@ -50,6 +64,7 @@ function telegramIngress(
     app,
     resolved: {
       appId,
+      getTriggerPattern,
       logger: { info() {}, warn() {}, debug() {}, error() {} },
     } as unknown as ChannelWiringDeps,
     ops: () => runtime.ops,
@@ -117,6 +132,7 @@ function telegramIngress(
   const settledPersistence = async () => {
     await Promise.all(mediaTasks);
     expect(await persistenceQueue.waitForIdle(5_000)).toBe(true);
+    await endQuietWindows(runtime);
   };
   return {
     text: async (chatId: number, fields: Parameters<typeof update>[1]) => {
@@ -306,6 +322,7 @@ maybeDescribe(
           executionAdapter: { id: 'anthropic:claude-agent-sdk' },
           messageFetchPageSize: 50,
           timezone: 'UTC',
+          getTriggerPattern,
           enqueueMessageCheck: (jid) => {
             queue.enqueueMessageCheck(jid);
           },
@@ -342,6 +359,7 @@ maybeDescribe(
         );
         if (!admitted || admitted.outcome === 'overloaded')
           throw new Error('Admission failed');
+        await endQuietWindows(runtime);
         queueJids.add(admitted.item.queueJid);
         return admitted.item.queueJid;
       };
@@ -568,6 +586,7 @@ maybeDescribe(
         executionAdapter: { id: 'anthropic:claude-agent-sdk' },
         messageFetchPageSize: 50,
         timezone: 'UTC',
+        getTriggerPattern,
         enqueueMessageCheck: (jid) => {
           queue.enqueueMessageCheck(jid);
         },

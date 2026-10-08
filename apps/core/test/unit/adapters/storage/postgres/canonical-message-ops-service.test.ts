@@ -1498,6 +1498,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       })),
       delete: vi.fn(),
+      update: vi.fn(() => ({ set: () => ({ where: async () => [] }) })),
     };
     const graph = {
       findConversationIdForJid: vi.fn(async () => undefined),
@@ -1579,6 +1580,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       })),
       delete: vi.fn(),
+      update: vi.fn(() => ({ set: () => ({ where: async () => [] }) })),
     };
     const graph = {
       findConversationIdForJid: vi.fn(async () => undefined),
@@ -1693,6 +1695,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       })),
       delete: vi.fn(),
+      update: vi.fn(() => ({ set: () => ({ where: async () => [] }) })),
     };
     const graph = {
       findConversationIdForJid: vi.fn(async () => undefined),
@@ -1774,6 +1777,7 @@ describe('CanonicalMessageOpsService', () => {
         }),
       })),
       delete: vi.fn(),
+      update: vi.fn(() => ({ set: () => ({ where: async () => [] }) })),
     };
     const existingConversationId = 'conversation:slack_install:sl:C-existing';
     const graph = {

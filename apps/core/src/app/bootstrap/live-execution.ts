@@ -44,25 +44,13 @@ import {
 import { routeScopeActiveLiveTurnAdmissionFromInput } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
-import { type SessionCommand } from '../../session/session-commands.js';
-import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
+import {
+  createActiveCompactRouteHandlers,
+  type ActiveControlCommandHandler,
+  type ActiveControlRoute,
+} from './runtime-services-active-compact.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
-export type ActiveControlRoute = {
-  folder: string;
-  trigger?: string;
-  requiresTrigger?: boolean;
-  conversationKind?: 'dm' | 'channel';
-  providerAccountId?: string;
-  agentConfig?: { model?: string };
-};
-export type ActiveControlCommandHandler = (args: {
-  chatJid: string;
-  queueJid: string;
-  group: ActiveControlRoute;
-  message: NewMessage;
-  command: SessionCommand;
-}) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
@@ -150,6 +138,8 @@ export function buildLiveAdmissionProcessor(input: {
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
   handleActiveControlCommand?: ActiveControlCommandHandler;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
@@ -184,6 +174,7 @@ export function buildLiveAdmissionProcessor(input: {
           chatJid,
           queueJid,
           handleActiveControlCommand: input.handleActiveControlCommand,
+          getTriggerPattern: input.getTriggerPattern,
         }),
         routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
         completeSessionAgentRun:

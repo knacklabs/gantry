@@ -52,6 +52,7 @@ import {
 } from '@core/adapters/storage/postgres/seeds.js';
 import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
 import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
@@ -111,10 +112,11 @@ import { measurePostgresOperations } from '../harness/response-latency-postgres.
 const EXPECTED_ENVELOPE_STATEMENTS_BY_PROVIDER: Record<string, number> = {
   // LAT-4B's graph-write reduction (19 -> 15) plus ID-1's 3 first-contact
   // sender-identity statements (advisory lock, active-alias lookup,
-  // retired-tombstone check).
-  'Telegram text': 18,
-  Slack: 18,
-  Teams: 18,
+  // retired-tombstone check), plus the quiet window moving the conversation's
+  // waiting messages to the new due time.
+  'Telegram text': 19,
+  Slack: 19,
+  Teams: 19,
 };
 // Referenced by docs/architecture/lat-4a-measurement.md; kept here so the number
 // and the assertions live together.
@@ -122,7 +124,7 @@ export const STATEMENTS_SAVED_PER_PROVIDER = 9;
 export const LAT_4B_TOP_LEVEL_STATEMENTS_SAVED = 4;
 export const LAT_4B_THREAD_STATEMENTS_SAVED = 13;
 // LAT-4B's 16 plus ID-1's 3 first-contact sender-identity statements.
-const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 19;
+const EXPECTED_THREAD_ENVELOPE_STATEMENTS = 20;
 const EXPECTED_ENSURE_CONVERSATION_CALLS = 1;
 
 const PRIVATE_CONVERSATION_JID = 'tg:400200';
@@ -165,6 +167,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       const resolved = {
         appId: DEFAULT_APP_ID,
         providerIds: [],
+        getTriggerPattern,
         opsRepository: runtime.ops,
         loadSenderAllowlist: () =>
           input.senderAllowlist ?? PERMISSIVE_SENDER_ALLOWLIST,
@@ -378,7 +381,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       },
     );
 
-    it('persists a first-contact Slack thread envelope in 19 statements', async () => {
+    it('persists a first-contact Slack thread envelope in 20 statements', async () => {
       const conversationJid = 'sl:C400116';
       const providerAccountId = 'slack_lat_4b_first_thread';
       const threadId = '1785283200.000116';

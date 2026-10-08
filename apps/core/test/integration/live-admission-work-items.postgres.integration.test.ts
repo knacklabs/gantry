@@ -33,6 +33,7 @@ import { routeScopeActiveLiveTurnAdmissionFromInput } from '@core/app/bootstrap/
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { getTriggerPattern } from '@core/config/index.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -79,6 +80,22 @@ maybeDescribe('live admission work items (Postgres)', () => {
   afterAll(async () => {
     await runtime?.cleanup();
   });
+
+  // Tests that run turns directly end each saved message's quiet window
+  // through the database clock instead of waiting it out.
+  const admitDue = async (
+    ...args: Parameters<
+      PostgresIntegrationRuntime['ops']['storeMessageWithLiveAdmission']
+    >
+  ) => {
+    const result = await runtime.ops.storeMessageWithLiveAdmission(...args);
+    await runtime.service.pool.query(
+      `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+       SET defer_until = clock_timestamp()
+       WHERE state = 'deferred' AND deferred_reason = 'quiet_window'`,
+    );
+    return result;
+  };
 
   it('reads a taken message using the scope saved by real admission', async () => {
     const appId = 'app-real-admission-read';
@@ -400,7 +417,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       agentConfig: { model: 'opus' },
     });
     const save = async (id: string, content: string) => {
-      const result = await runtime.ops.storeMessageWithLiveAdmission(
+      const result = await admitDue(
         {
           id,
           chat_jid: chatJid,
@@ -541,7 +558,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     commandAdmins.add('command-admin');
     const save = async (id: string, content: string, sender: string) => {
-      const result = await runtime.ops.storeMessageWithLiveAdmission(
+      const result = await admitDue(
         {
           id,
           chat_jid: chatJid,
@@ -702,7 +719,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationKind: 'dm',
       agentConfig: { model: 'opus' },
     });
-    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+    const admitted = await admitDue(
       {
         id: 'message:channel-app-scope',
         chat_jid: chatJid,
@@ -786,7 +803,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       conversationKind: 'group',
       agentConfig: { model: 'opus' },
     });
-    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+    const admitted = await admitDue(
       {
         id: 'callable-agent-follow-up:mention-required',
         chat_jid: chatJid,
@@ -853,7 +870,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     if (!context) throw new Error('Missing agent session');
     const save = async (id: string, content: string, replyTo?: string) => {
-      const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+      const admitted = await admitDue(
         {
           id,
           chat_jid: chatJid,
@@ -950,6 +967,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       executionAdapter: { id: 'anthropic:claude-agent-sdk' },
       messageFetchPageSize: 50,
       timezone: 'UTC',
+      getTriggerPattern,
       enqueueMessageCheck: () => undefined,
       warn: () => undefined,
     });
@@ -1018,7 +1036,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       cause: 'message',
     });
     if (!runId) throw new Error('Missing agent run');
-    const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+    const admitted = await admitDue(
       {
         id: 'msg:runner-gone-follow-up',
         chat_jid: chatJid,
@@ -1255,7 +1273,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         cause: 'message',
       });
       expect(runId).toBeTruthy();
-      const saved = await runtime.ops.storeMessageWithLiveAdmission(
+      const saved = await admitDue(
         {
           id: `message:${scenario.jid}`,
           chat_jid: scenario.jid,
@@ -1296,7 +1314,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         ).toBe(true);
         expect(await liveTurns.hasDeliveredOutputForRun({ runId })).toBe(true);
         if ('followUp' in scenario && scenario.followUp) {
-          const followUp = await runtime.ops.storeMessageWithLiveAdmission(
+          const followUp = await admitDue(
             {
               id: `message:follow-up:${scenario.jid}`,
               chat_jid: scenario.jid,
@@ -2409,7 +2427,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         'message:channel-providerAccount:default:telegram:tg:live-admission-atomic:msg-atomic-1',
       senderUserId: 'user-atomic',
       senderDisplayName: 'Atomic User',
-      state: 'queued',
+      state: 'deferred',
       triggerDecision: {
         source: 'channel_persistence',
         requiresTrigger: false,
@@ -2485,6 +2503,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       claimToken: 'claim-token-no-notify',
       claimExpiresAt: toIso(nowMs() + 60_000),
       limit: 10,
+      now: toIso(nowMs() + 10_000),
     });
     expect(claimed.map((item) => item.id)).toContain(result?.item.id);
   });
@@ -2699,7 +2718,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       },
     });
     expect(result.liveAdmissionResult?.item).toMatchObject({
-      state: 'queued',
+      state: 'deferred',
       messageId:
         'message:channel-providerAccount:default:telegram:tg:live-admission-event-atomic:msg-event-admission-1',
     });
@@ -2720,6 +2739,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       claimToken: 'claim-token-event-admission',
       claimExpiresAt: toIso(nowMs() + 60_000),
       limit: 10,
+      now: toIso(nowMs() + 10_000),
     });
     expect(claimed.map((item) => item.id)).toContain(
       result.liveAdmissionResult?.item.id,

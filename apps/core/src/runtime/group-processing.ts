@@ -110,6 +110,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         receivedDuringTurn,
         permitsUnmentionedCompletion,
         hasMore,
+        lastReceiveOrder,
         activeThreadId,
         latestMessageReactionTarget,
       } = await takeGroupTurnInput({
@@ -190,6 +191,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           deps,
           queueJid,
           missedMessages,
+          cancelWaitingInput: async () => {
+            if (lastReceiveOrder === null) return;
+            await inputRepository.consumeAll({
+              scope: inputScope,
+              consumedBy: 'stopped',
+              waitingBefore: lastReceiveOrder,
+            });
+          },
           runAgent,
           processOptions: options,
           commandOverrideRouteKey: routeContext.commandOverrideRouteKey,

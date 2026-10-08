@@ -8,7 +8,6 @@ import {
   isSessionCommandAllowed,
   type SessionCommand,
 } from '../../session/session-commands.js';
-import { buildTriggerPattern } from '../../shared/trigger-pattern.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import { senderMayTrigger } from '../../runtime/group-trigger-policy.js';
@@ -20,18 +19,23 @@ import { controlAckMessageOptions } from './runtime-services-active-new.js';
 
 const activeCompactReceipts = new Set<string>();
 
-type ActiveCompactHandler = (args: {
+export type ActiveControlRoute = {
+  folder: string;
+  trigger?: string;
+  requiresTrigger?: boolean;
+  conversationKind?: 'dm' | 'channel';
+  providerAccountId?: string;
+  agentConfig?: { model?: string };
+};
+export type ActiveControlCommandHandler = (args: {
   chatJid: string;
   queueJid: string;
-  group: {
-    folder: string;
-    trigger?: string;
-    conversationKind?: 'dm' | 'channel';
-    providerAccountId?: string;
-  };
+  group: ActiveControlRoute;
   message: NewMessage;
   command: SessionCommand;
 }) => Promise<boolean> | boolean;
+/** The route-trigger pattern turn start parses session commands with. */
+type TriggerPatternFor = (trigger?: string) => RegExp;
 
 export async function handleActiveCompactRouteMessage(input: {
   message: NewMessage;
@@ -43,7 +47,8 @@ export async function handleActiveCompactRouteMessage(input: {
   };
   chatJid: string;
   queueJid: string;
-  handleActiveControlCommand?: ActiveCompactHandler;
+  handleActiveControlCommand?: ActiveControlCommandHandler;
+  getTriggerPattern: TriggerPatternFor;
 }): Promise<boolean> {
   if (!isActiveCompactRouteMessage(input)) return false;
   return input.handleActiveControlCommand!({
@@ -53,7 +58,7 @@ export async function handleActiveCompactRouteMessage(input: {
     message: input.message,
     command: extractSessionCommand(
       input.message.content,
-      buildTriggerPattern(input.route.trigger ?? ''),
+      input.getTriggerPattern(input.route.trigger),
     )!,
   });
 }
@@ -65,12 +70,13 @@ export function isActiveCompactRouteMessage(input: {
     trigger?: string;
   };
   chatJid: string;
-  handleActiveControlCommand?: ActiveCompactHandler;
+  handleActiveControlCommand?: ActiveControlCommandHandler;
+  getTriggerPattern: TriggerPatternFor;
 }): boolean {
   const { message, route } = input;
   const command = extractSessionCommand(
     message.content,
-    buildTriggerPattern(route.trigger ?? ''),
+    input.getTriggerPattern(route.trigger),
   );
   if (
     (command?.kind !== 'compact' &&
@@ -107,7 +113,8 @@ export function createActiveCompactRouteHandlers(input: {
   };
   chatJid: string;
   queueJid: string;
-  handleActiveControlCommand?: ActiveCompactHandler;
+  handleActiveControlCommand?: ActiveControlCommandHandler;
+  getTriggerPattern: TriggerPatternFor;
 }) {
   return {
     isActiveControlMessage: (message: NewMessage) =>
