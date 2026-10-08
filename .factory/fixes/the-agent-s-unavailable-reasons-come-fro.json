@@ -3,12 +3,14 @@
   "branch": "fix/the-agent-s-unavailable-reasons-come-fro",
   "done_when": "Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the browser IPC credential, not the Browser grant), and the boundary test checks every unavailable reason, not only delegation's",
   "kind": "fix",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-08T18:19:01+00:00",
       "step": "start"
     }
   ],
-  "why": "The agent's 'unavailable' reasons come from grants instead of what the runner really mounts"
+  "why": "The agent's 'unavailable' reasons come from grants instead of what the runner really mounts",
+  "worker": "codex"
 }
