@@ -30,8 +30,8 @@
       "text": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual",
       "from": "blocking",
       "item": "the-agent-can-t-tell-which-gantry-tools",
-      "status": "open",
-      "closed_by": null
+      "status": "done",
+      "closed_by": "dismissed"
     },
     {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
@@ -63,8 +63,8 @@
       "text": "Not done: Test unavailable capabilities against the real mounting selection",
       "from": "blocking",
       "item": "the-agent-can-t-tell-which-gantry-tools",
-      "status": "open",
-      "closed_by": null
+      "status": "done",
+      "closed_by": "dismissed"
     },
     {
       "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
