@@ -258,16 +258,24 @@ process.stdin.on('end', () => {
         { completionMessageRepository: runtime.ops },
       );
       await recovery.recoverPendingDelegatedAgentFollowUps({ appId: APP_ID });
-      const items =
-        await runtime.repositories.liveTurns.claimLiveAdmissionWorkItems({
-          appId: APP_ID,
-          workerInstanceId: 'parent-worker',
-          claimToken: randomUUID(),
-          claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
-          limit: 100,
-        });
-      const followUp = items.find(
-        (item) => item.triggerDecision?.taskId === taskId,
+      // Completion persistence precedes admission readiness under the quiet window.
+      const followUp = await vi.waitFor(
+        async () => {
+          const items =
+            await runtime.repositories.liveTurns.claimLiveAdmissionWorkItems({
+              appId: APP_ID,
+              workerInstanceId: 'parent-worker',
+              claimToken: randomUUID(),
+              claimExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+              limit: 100,
+            });
+          const claimed = items.find(
+            (item) => item.triggerDecision?.taskId === taskId,
+          );
+          expect(claimed).toBeDefined();
+          return claimed;
+        },
+        { timeout: 10_000 },
       );
       expect(followUp).toMatchObject({
         agentId: AGENT_ID,
