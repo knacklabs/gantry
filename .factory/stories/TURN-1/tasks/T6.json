@@ -1,26 +1,28 @@
 {
   "branch": "task/TURN-1-T6",
-  "flagged": [],
+  "flagged": [
+    "apps/core/src/runtime/group-output-buffer.ts"
+  ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "3a6ad6c82605b95e2337b302ea2640838543367f6a55378f659fa23366f3a6bf",
-    "changed": "44e865da595408a061ffd25384b13d9982dedabb46c47034afe3266413fc67c5",
-    "commit": "149e62d2a3271cd3ca8c99e01740eb5e69897b59",
+    "branch_diff": "f0fa397079029206da6e04e684514b700229f550e8d6c3016fde860e84334e36",
+    "changed": "eb652df650696967678efdf47a6f45c87bfe076c6e57782b084c5a0e4a069685",
+    "commit": "f7e71019eee16e165200d217b2f968d619c446a6",
     "dismissals": [],
     "findings": [
       {
-        "body": "Replies to visible bot output can still be kept as history because several delivery paths lose the references this lookup requires:\n\n- Regular outbound sends persist only `result.externalMessageId` in `channel-wiring.ts:600\u2013605`, discarding `externalMessageIds`. Telegram, Slack, Discord and Teams return multipart receipts, so a plain reply to a later top-level part sent through `send_message` cannot match. The newly retained Discord warning ID is also discarded here.\n- Partial streamed delivery skips the success-only receipt capture in `group-output-buffer.ts:132\u2013136`. `jobs/delivery.ts:123` converts the provider exception to `delivery_incomplete`, leaving the saved ID list empty. Additionally, this lookup excludes `partially_sent` rows at line 619, even though their delivered messages remain reply targets.\n- New dependency-contract evidence shows another Slack upload gap: [Slack's documented successful completion response](https://docs.slack.dev/reference/methods/files.completeUploadExternal/) contains file IDs and titles without `shares`. The unchanged `slack/file-delivery.ts:130\u2013138` returns no message timestamp for that response, so both changed upload branches still return no upload receipt. The new tests always inject `shares`, masking this supported response shape.\n\nPersist regular multipart receipts, retain visible IDs from partial deliveries and permit those delivered messages in the lookup, and resolve the Slack share timestamp when completion omits it. These repairs concern receipt handling, without changing provider reply splitting.",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
-        "line": 610,
-        "priority": "P2",
-        "title": "Preserve bot reply references across the remaining delivery paths"
+        "body": "Live stream receipts remain only in memory until the generation's `done` flush persists them. An allowed member can open a Discord thread on the bot's visible streaming message and send an unmentioned follow-up while the original stream continues. Discord maps that message to a separate thread queue (`channels/discord/conversation-context.ts:324\u2013327`), so the exact-queue check in `live-admission-work-item-repository.postgres.ts:192` does not mark it as received during the running turn. The bot-reference lookup also finds nothing because the visible root has not been persisted, and `group-processing.ts:240\u2013254` consumes the follow-up without running the agent. Slack replies opening a thread on a top-level streaming answer have the same gap. New evidence beyond the receipt/reset rulings: the reply-reference tests finish the stream at `bot-delivery-reply-references.postgres.integration.test.ts:316` before checking replies, so they cannot detect admission while the original stream is still running. Persist acknowledged live references through the existing message projection before another queue evaluates them, and cover a bot-rooted follow-up with the original stream held open.",
+        "file": "apps/core/src/runtime/group-output-buffer.ts",
+        "line": 84,
+        "priority": "P1",
+        "title": "Not done: Mention-required groups follow the conversation"
       }
     ],
-    "id": "8fc18768-b2fd-4840-9932-3d607d1bbb81",
-    "status": "clean"
+    "id": "f29ff76c-c3cb-490a-8852-d9f7f082b370",
+    "status": "blocked"
   },
   "round": 2,
-  "status": "working",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -44,6 +46,10 @@
     },
     {
       "at": "2026-10-08T14:58:51+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T16:52:18+00:00",
       "step": "review"
     }
   ],

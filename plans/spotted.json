@@ -1,6 +1,28 @@
 {
   "items": [
     {
+      "key": "bug\t.claude/agents/worker.md\tNot done: proof list\tforge-files-20261008-1318",
+      "kind": "bug",
+      "path": ".claude/agents/worker.md",
+      "line": 2,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "forge-files-20261008-1318",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/group-output-buffer.ts",
+      "line": 84,
+      "text": "Not done: Mention-required groups follow the conversation",
+      "from": "blocking",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
       "kind": "bug",
       "path": "forge.toml",
@@ -41,17 +63,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\t.claude/agents/worker.md\tNot done: proof list\tforge-files-20261008-1318",
-      "kind": "bug",
-      "path": ".claude/agents/worker.md",
-      "line": 2,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "forge-files-20261008-1318",
       "status": "open",
       "closed_by": null
     }
