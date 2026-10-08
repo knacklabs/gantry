@@ -56,7 +56,11 @@ vi.mock('@slack/bolt', () => ({
           file: {
             id: 'F_REPLY_PROOF',
             shares: {
-              public: { C_REPLY: [{ ts: providerEdge.visibleIds.at(-1) }] },
+              public: {
+                [providerEdge.parentChannelId]: [
+                  { ts: providerEdge.visibleIds.at(-1) },
+                ],
+              },
             },
           },
         }),
@@ -241,7 +245,7 @@ maybeDescribe(
         const providerAccountId = `${scenario.provider}_reply_parts`;
         const jid =
           scenario.provider === 'slack'
-            ? 'sl:C_REPLY'
+            ? `sl:C_REPLY_${cases.indexOf(scenario)}`
             : `dc:reply-${cases.indexOf(scenario)}`;
         providerEdge.parentChannelId = jid.slice(3);
         const opts: ChannelOpts = {
@@ -319,15 +323,16 @@ maybeDescribe(
                   status = 'partially_sent';
               },
               getStreamedTranscriptDeliveryStatus: () => status,
-              persistCompletedStreamedGeneration: async (
+              persistStreamedGeneration: async (
                 content,
                 deliveryStatus,
                 receipts,
+                generationId,
               ) => {
                 await persistBotMessage(
                   runtime.ops,
                   {
-                    id: `stream:${scenario.name}`,
+                    id: `stream:${generationId}`,
                     chat_jid: jid,
                     providerAccountId,
                     sender: 'gantry',
@@ -427,7 +432,9 @@ maybeDescribe(
             });
           };
           for (const id of providerEdge.visibleIds) {
-            let route: { chatJid: string; threadId?: string } = { chatJid: jid };
+            let route: { chatJid: string; threadId?: string } = {
+              chatJid: jid,
+            };
             if ('opensThread' in scenario) {
               if (scenario.provider === 'discord') {
                 const context = await resolveDiscordConversationContext({
@@ -483,6 +490,24 @@ maybeDescribe(
           }
           expect(await replyIsForAgent('unrelated-message')).toBe(false);
           if ('live' in scenario) await finishStream?.();
+          if (scenario.path === 'stream') {
+            // Live projections and completion replace one row, preserving the
+            // entire generation and every receipt instead of duplicating history.
+            const conversationIds =
+              await runtime.repositories.messages.listConversationIdsForJid(jid);
+            const messages = (
+              await Promise.all(
+                conversationIds.map((conversationId) =>
+                  runtime.repositories.messages.listRecentMessages({
+                    conversationId,
+                    limit: 10,
+                  }),
+                ),
+              )
+            ).flat();
+            expect(messages).toHaveLength(1);
+            expect(messages[0].parts).toMatchObject([{ kind: 'text', text }]);
+          }
         } finally {
           await wiring.disconnectChannels();
         }

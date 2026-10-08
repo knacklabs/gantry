@@ -6259,7 +6259,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('bounds provider-visible streamed output and persisted transcript for large chunked output', async () => {
+    it('keeps the whole streamed generation in one message and redacts provider handles', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
       });
@@ -6307,13 +6307,15 @@ describe('createGroupProcessor', () => {
       expect(deliveredStream).not.toContain(splitProviderHandle);
       expect(deliveredStream).toContain('[REDACTED]');
       expect(deliveredStream.endsWith(tailChunk)).toBe(true);
-      const storedTranscript = (deps.opsRepository as any).storeMessage.mock
-        .calls[0][0].content as string;
-      expect(storedTranscript.length).toBeLessThanOrEqual(
-        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+      // Live acknowledgements update one message; its final text is the entire
+      // generation. Only the run summary and fallback transcript remain bounded.
+      const projections = vi.mocked(deps.opsRepository.storeMessage).mock.calls.map(
+        ([message]) => message,
       );
-      expect(storedTranscript).toMatch(/^\[output truncated; showing tail\]\n/);
-      expect(storedTranscript).not.toContain('HEAD-START');
+      expect(new Set(projections.map((message) => message.id)).size).toBe(1);
+      const storedTranscript = projections.at(-1)!.content;
+      expect(storedTranscript).toBe(deliveredStream);
+      expect(storedTranscript).toContain('HEAD-START');
       expect(storedTranscript).not.toContain(splitProviderHandle);
       expect(storedTranscript).toContain('[REDACTED]');
       expect(storedTranscript.endsWith(tailChunk)).toBe(true);

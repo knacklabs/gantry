@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 import type {
   MessageSendOptions,
@@ -44,10 +46,11 @@ export function createGroupOutputBuffer(input: {
   /** A generation finished having delivered nothing to the user. */
   onGenerationUndelivered?: (text: string) => void;
   getStreamedTranscriptDeliveryStatus: () => 'none' | 'sent' | 'partially_sent';
-  persistCompletedStreamedGeneration?: (
+  persistStreamedGeneration?: (
     text: string,
     deliveryStatus: 'sent' | 'partially_sent' | 'failed',
     receipts: readonly unknown[],
+    generationId: string,
   ) => Promise<void>;
   log: RuntimeLogger;
 }) {
@@ -55,17 +58,10 @@ export function createGroupOutputBuffer(input: {
   const wasSent = (sent: StreamingChunkResult) =>
     typeof sent === 'object' ? true : sent;
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
-  // Scoped to ONE generation, unlike userVisibleTranscript which spans the run.
-  // `text` below is only the delta since the previous flush (the visible
-  // accumulator resets on every flush), so persisting it alone would store a
-  // multi-chunk reply truncated to its last chunk.
-  //
-  // Plain accumulation, NOT createRuntimeResultSummaryAccumulator: that one is
-  // the bounded 4k summary used for `boundedTranscript`, and it keeps only the
-  // tail. Persisting a durable message through it would silently truncate any
-  // reply the user received in full. Held only until the generation completes.
+  // Keep one generation's sanitized deltas verbatim, beyond the 4k summary bound.
   let generationParts: string[] = [];
   let generationReceipts: unknown[] = [];
+  let generationId = randomUUID();
   let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
@@ -103,6 +99,16 @@ export function createGroupOutputBuffer(input: {
     try {
       settlement = await attempt();
       input.applyDeliverySettlement(settlement, options);
+      const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
+      if (options.streamed && deliveryStatus !== 'none') {
+        // Project acknowledgements before a reply in another thread is admitted.
+        await input.persistStreamedGeneration?.(
+          generationParts.join(''),
+          deliveryStatus,
+          generationReceipts,
+          generationId,
+        );
+      }
       return settlement;
     } finally {
       await Promise.resolve(
@@ -137,6 +143,7 @@ export function createGroupOutputBuffer(input: {
     );
     if (!text) return false;
     if (input.supportsStreamingChunks) {
+      generationParts.push(finalStreamDelta);
       await runVisibleDelivery(
         () =>
           settleDeliveryAttempt(
@@ -155,10 +162,6 @@ export function createGroupOutputBuffer(input: {
           }),
         { streamed: true, terminal },
       );
-      // Verbatim, no separator: flush boundaries are a transport detail and
-      // can fall mid-word, so appending a newline here would store "hel\nlo"
-      // for a reply the user received as "hello".
-      generationParts.push(text);
       if (done) {
         const deliveryStatus = input.getStreamedTranscriptDeliveryStatus();
         const completed = generationParts.join('').trim();
@@ -182,10 +185,11 @@ export function createGroupOutputBuffer(input: {
           // acknowledge asynchronously (the app channel emits events rather
           // than confirming a send) leave the status at 'none', so the message
           // never reached /messages at all.
-          await input.persistCompletedStreamedGeneration?.(
+          await input.persistStreamedGeneration?.(
             completed,
             deliveryStatus === 'none' ? 'failed' : deliveryStatus,
             generationReceipts,
+            generationId,
           );
           if (deliveryStatus === 'none') {
             // Also offer it to finalization's fallback: the run-wide sent flag
@@ -199,6 +203,7 @@ export function createGroupOutputBuffer(input: {
         // previous one's transcript and its sent/partially_sent status.
         generationParts = [];
         generationReceipts = [];
+        generationId = randomUUID();
         input.resetStreamedTranscriptDeliveryStatus?.();
       }
     } else {
@@ -224,6 +229,7 @@ export function createGroupOutputBuffer(input: {
       if (!input.supportsStreamingChunks) return;
       const safeDelta = streamSanitizer.append(raw);
       if (!safeDelta) return;
+      generationParts.push(safeDelta);
       await runVisibleDelivery(
         () =>
           settleDeliveryAttempt(

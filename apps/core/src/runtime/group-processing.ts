@@ -495,24 +495,23 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             liveness.finishVisibleDelivery(delivered),
           getStreamedTranscriptDeliveryStatus: () =>
             streamedTranscriptDeliveryStatus,
-          // Persistence is per completed generation, so the accounting has to be
-          // too: otherwise a delivered generation leaves the status non-'none' and
-          // a later, wholly undelivered one is persisted as if it had been sent.
+          // A later generation must not inherit a previous one's delivery status.
           resetStreamedTranscriptDeliveryStatus: () => {
             streamedTranscriptDeliveryStatus = 'none';
           },
           onGenerationUndelivered: (text) => {
             undeliveredGenerations.push(text);
           },
-          persistCompletedStreamedGeneration: async (
+          persistStreamedGeneration: async (
             text,
             deliveryStatus,
             receipts,
+            generationId,
           ) => {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
             const message: NewMessage = {
-              id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
+              id: `streamed-outbound:${generationId}`,
               chat_jid: chatJid,
               sender: 'gantry',
               sender_name: 'Gantry',
