@@ -1,6 +1,7 @@
 import * as config from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { NewMessage } from '../domain/types.js';
+import { persistBotMessage } from '../application/messages/bot-message-persistence.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
@@ -506,7 +507,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           persistCompletedStreamedGeneration: async (
             text,
             deliveryStatus,
-            externalMessageIds,
+            receipts,
           ) => {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
@@ -521,22 +522,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               is_bot_message: true,
               thread_id: activeThreadId,
               providerAccountId: group.providerAccountId,
-              // Every provider message the answer spans, so a reply to any
-              // part of it is a reply to the bot.
-              external_message_id: externalMessageIds[0],
-              external_message_ids: externalMessageIds,
               delivery_status: deliveryStatus,
               // Only claim a delivery time when something was actually delivered.
               delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
             };
-            await ops()
-              .storeMessage(message)
-              .catch((err: unknown) =>
+            await persistBotMessage(ops(), message, receipts).catch(
+              (err: unknown) =>
                 logger.warn(
                   { err, group: group.name },
                   'Failed to persist streamed assistant generation',
                 ),
-              );
+            );
           },
           log: logger,
         });
@@ -748,10 +744,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             outputSentToUser,
             groupName: group.name,
             storeMessage: (message) =>
-              ops().storeMessage({
-                ...message,
-                id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
-              }),
+              persistBotMessage(
+                ops(),
+                {
+                  ...message,
+                  id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
+                  providerAccountId: group.providerAccountId,
+                },
+                outputBuffer.receiptsSnapshot(),
+              ),
             log: logger,
           });
           const finalization = await finalizeGroupAgentUserVisibleOutput({

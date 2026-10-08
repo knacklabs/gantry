@@ -1,6 +1,8 @@
 import type { App } from '@slack/bolt';
+import type { FilesInfoResponse } from '@slack/web-api';
 
 import type { MessageFileAttachment } from '../../domain/types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 
 type SlackPostMessagePayload = {
   channel: string;
@@ -32,7 +34,41 @@ export type SlackSnippetFallbackInput = {
 export type SlackSnippetFallbackResult = {
   fallbackArtifactId: string;
   externalMessageId?: string;
+  externalMessageIds?: string[];
 };
+
+async function uploadedMessageIds(
+  app: App,
+  channelId: string,
+  fileId: string,
+  file: FilesInfoResponse['file'],
+): Promise<string[]> {
+  const shareIds = (value: FilesInfoResponse['file']) => [
+    ...new Set(
+      Object.values(value?.shares ?? {}).flatMap((channels) =>
+        (channels[channelId] ?? []).flatMap((share) =>
+          share.ts ? [share.ts] : [],
+        ),
+      ),
+    ),
+  ];
+  const ids = shareIds(file);
+  if (ids.length > 0) return ids;
+  try {
+    const info = await app.client.files.info({ file: fileId });
+    if (info.ok === false)
+      throw new Error(info.error || 'Slack file lookup failed');
+    const resolvedIds = shareIds(info.file);
+    if (resolvedIds.length > 0) return resolvedIds;
+  } catch {
+    // The upload is already visible; a receipt lookup must never resend it.
+  }
+  logger.warn(
+    { channelId, fileId },
+    'Slack uploaded message references unavailable',
+  );
+  return [];
+}
 
 export function isSlackPayloadTooLarge(err: unknown): boolean {
   const candidate = err as {
@@ -63,7 +99,7 @@ async function uploadSlackAttachment(input: {
   channelId: string;
   threadTs?: string;
   file: MessageFileAttachment;
-}): Promise<void> {
+}): Promise<string[]> {
   const upload = await input.app.client.files.getUploadURLExternal({
     filename: input.file.filename,
     length: input.file.sizeBytes,
@@ -87,6 +123,12 @@ async function uploadSlackAttachment(input: {
   if (completed.ok === false) {
     throw new Error(completed.error || 'Slack upload completion failed');
   }
+  return uploadedMessageIds(
+    input.app,
+    input.channelId,
+    upload.file_id,
+    completed.files?.[0],
+  );
 }
 
 export async function uploadSlackTextFallback(input: {
@@ -94,7 +136,11 @@ export async function uploadSlackTextFallback(input: {
   channelId: string;
   threadTs?: string;
   text: string;
-}): Promise<{ fileId: string; externalMessageId?: string }> {
+}): Promise<{
+  fileId: string;
+  externalMessageId?: string;
+  externalMessageIds: string[];
+}> {
   const content = Buffer.from(input.text, 'utf8');
   const asSnippet = content.byteLength <= SLACK_SNIPPET_MAX_BYTES;
   const upload = await input.app.client.files.getUploadURLExternal({
@@ -113,28 +159,24 @@ export async function uploadSlackTextFallback(input: {
   if (!response.ok) {
     throw new Error(`Slack external upload failed (${response.status})`);
   }
-  const completed = (await input.app.client.files.completeUploadExternal({
+  const completed = await input.app.client.files.completeUploadExternal({
     files: [{ id: upload.file_id, title: 'Gantry response' }],
     channel_id: input.channelId,
     ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
-  })) as {
-    ok?: boolean;
-    error?: string;
-    files?: Array<{
-      shares?: Record<string, Record<string, Array<{ ts?: string }>>>;
-    }>;
-  };
+  });
   if (completed.ok === false) {
     throw new Error(completed.error || 'Slack upload completion failed');
   }
-  const shares = completed.files?.[0]?.shares;
-  const externalMessageId = shares
-    ? Object.values(shares).flatMap((byChannel) =>
-        Object.values(byChannel).flat(),
-      )[0]?.ts
-    : undefined;
+  const externalMessageIds = await uploadedMessageIds(
+    input.app,
+    input.channelId,
+    upload.file_id,
+    completed.files?.[0],
+  );
+  const externalMessageId = externalMessageIds[0];
   return {
     fileId: upload.file_id,
+    externalMessageIds,
     ...(externalMessageId ? { externalMessageId } : {}),
   };
 }
@@ -152,12 +194,13 @@ export async function uploadSlackAttachments(input: {
 }): Promise<void> {
   for (const [index, file] of (input.files ?? []).entries()) {
     try {
-      await uploadSlackAttachment({
+      const ids = await uploadSlackAttachment({
         app: input.app,
         channelId: input.channelId,
         threadTs: input.threadTs,
         file,
       });
+      input.externalMessageIds.push(...ids);
     } catch (error) {
       const reason = `${file.filename} upload failed.`;
       input.warnings.push('slack.attachment_upload_failed');

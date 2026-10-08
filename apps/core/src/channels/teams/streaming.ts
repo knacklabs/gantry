@@ -1,4 +1,8 @@
 import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
+import {
+  isPartialMessageDeliveryError,
+  PartialMessageDeliveryError,
+} from '../../domain/messages/partial-delivery.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import {
   TEAMS_HARD_MESSAGE_BYTES,
@@ -7,8 +11,12 @@ import {
 } from './delivery.js';
 import { buildTeamsMessageCard } from './cards.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
-import type { StreamingChunkOptions } from '../../domain/types.js';
+import type {
+  MessageDeliveryResult,
+  StreamingChunkOptions,
+} from '../../domain/types.js';
 import type { TeamsSdkClient } from './types.js';
+import { TEAMS_SOFT_MESSAGE_BYTES } from './limits.js';
 
 export interface TeamsStreamingState {
   conversationId: string;
@@ -43,9 +51,29 @@ export async function applyTeamsStreamingChunk(input: {
     input.options.done ||
     !input.state.messageId ||
     now - input.state.lastFlushAt >= CHANNEL_STREAM_UPDATE_INTERVAL_MS.teams;
-  if (!shouldFlush) return Boolean(input.state.messageId);
+  if (!shouldFlush)
+    return input.state.messageId
+      ? { externalMessageIds: [input.state.messageId] }
+      : false;
 
-  const delivered = await flushTeamsStreamingState(input);
+  let delivered: StreamingChunkResult;
+  try {
+    delivered = await flushTeamsStreamingState(input);
+  } catch (err) {
+    if (!input.state.messageId || isPartialMessageDeliveryError(err)) throw err;
+    const partial = new PartialMessageDeliveryError({
+      cause: err,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      name: 'PartialTeamsStreamDeliveryError',
+      message: 'Teams stream partially delivered',
+    });
+    Object.assign(partial, {
+      provider: 'teams',
+      externalMessageIds: [input.state.messageId],
+    });
+    throw partial;
+  }
   input.state.lastFlushAt = now;
   if (input.options.done) {
     input.activeStreams.delete(input.key);
@@ -109,17 +137,51 @@ async function flushTeamsStreamingState(input: {
     input.state.messageId = sent?.externalMessageId;
   }
 
-  if (!options.done) return true;
+  if (!options.done) return finished([input.state.messageId]);
   if (parts.length > 1 && input.shouldContinue()) {
     // ponytail: cap overflow at Teams' provider limit; do not add rolling
     // chunk messages during normal streaming cadence.
-    const overflow = await sendTeamsTextMessage(
-      input.sdkClient,
-      input.state.conversationId,
-      parts.slice(1).join(''),
-      options,
-      input.shouldContinue,
-    );
+    const overflowText = parts.slice(1).join('');
+    let overflow: MessageDeliveryResult | void;
+    try {
+      overflow = await sendTeamsTextMessage(
+        input.sdkClient,
+        input.state.conversationId,
+        overflowText,
+        options,
+        input.shouldContinue,
+      );
+    } catch (err) {
+      if (!input.state.messageId) throw err;
+      const tail = isPartialMessageDeliveryError(err) ? err : undefined;
+      const partial = new PartialMessageDeliveryError({
+        cause: err,
+        deliveredChunks: 1 + (tail?.deliveredChunks ?? 0),
+        totalChunks:
+          1 +
+          (tail?.totalChunks ??
+            splitTeamsTextByByteBudget(overflowText, TEAMS_SOFT_MESSAGE_BYTES)
+              .length),
+        name: 'PartialTeamsStreamDeliveryError',
+        message: 'Teams stream partially delivered',
+      });
+      Object.assign(partial, {
+        provider: 'teams',
+        externalMessageIds: [
+          input.state.messageId,
+          ...(tail?.externalMessageIds ?? []),
+        ],
+        retryTail: tail?.retryTail ?? {
+          canonicalText: overflowText,
+          providerPayload: {
+            provider: 'teams',
+            conversationId: input.state.conversationId,
+            ...(options.threadId ? { threadId: options.threadId } : {}),
+          },
+        },
+      });
+      throw partial;
+    }
     return finished([
       input.state.messageId,
       ...(overflow?.externalMessageIds ?? []),

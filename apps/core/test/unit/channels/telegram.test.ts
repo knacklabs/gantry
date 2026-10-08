@@ -3919,7 +3919,9 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      await channel.sendStreamingChunk('tg:-1001234567890', 'group update');
+      await expect(
+        channel.sendStreamingChunk('tg:-1001234567890', 'group update'),
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       await channel.sendStreamingChunk('tg:-1001234567890', '', { done: true });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -4066,6 +4068,44 @@ describe('TelegramChannel', () => {
       });
     });
 
+    it.each([
+      ['successful edit', false, 0],
+      ['successful edit', false, 1],
+      ['unchanged edit', true, 0],
+      ['unchanged edit', true, 1],
+    ] as const)(
+      'retains the Telegram head after %s and overflow failure (%s, %i delivered)',
+      async (_label, unchanged, deliveredOverflow) => {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+        currentBot()
+          .api.sendMessage.mockReset()
+          .mockResolvedValueOnce({ message_id: 701 });
+        if (deliveredOverflow)
+          currentBot().api.sendMessage.mockResolvedValueOnce({
+            message_id: 702,
+          });
+        currentBot().api.sendMessage.mockRejectedValue(
+          new Error('overflow send failed'),
+        );
+        if (unchanged)
+          currentBot().api.editMessageText.mockRejectedValue(
+            new Error('Bad Request: message is not modified'),
+          );
+        await channel.sendStreamingChunk('tg:-1001234567890', 'x'.repeat(8000));
+        await expect(
+          channel.sendStreamingChunk('tg:-1001234567890', '', { done: true }),
+        ).rejects.toMatchObject({
+          partialMessageDelivery: true,
+          deliveredChunks: 1 + deliveredOverflow,
+          externalMessageIds: deliveredOverflow ? ['701', '702'] : ['701'],
+          retryTail: {
+            canonicalText: 'x'.repeat(deliveredOverflow ? 1000 : 4500),
+          },
+        });
+      },
+    );
+
     it('reports every message a long finished group answer spans', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4198,7 +4238,7 @@ describe('TelegramChannel', () => {
       channel.resetStreaming(jid, { threadId: stream.threadId });
       await expect(
         channel.sendStreamingChunk(jid, 'new', stream),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       finishOldEdit();
       await oldCompletion;
 

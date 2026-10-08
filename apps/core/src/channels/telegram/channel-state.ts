@@ -272,9 +272,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         ...(stream.messageId ? [String(stream.messageId)] : []),
         ...sentIds,
       ];
-      return options.done && ok && ids.length > 0
-        ? { externalMessageIds: ids }
-        : ok;
+      return ok && ids.length > 0 ? { externalMessageIds: ids } : ok;
     };
     const isCurrentState = () =>
       this.streamResetEpochs.isCurrent(key, streamEpoch) &&
@@ -304,6 +302,62 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     const headText = parts[0] ?? '';
     const overflowParts = parts.slice(1).filter((part) => part.length > 0);
     const overflowText = parts.slice(1).join('');
+    const sendOverflow = async () => {
+      const sendOptions = state.threadId
+        ? { message_thread_id: state.threadId }
+        : {};
+      let sentOverflowParts = 0;
+      try {
+        for (const part of overflowParts) {
+          if (!isCurrentState()) break;
+          const messageId = await this.withTelegramGroupRateLimitRetry(
+            jid,
+            () =>
+              sendTelegramMessageWithResult(
+                this.bot!.api,
+                numericId,
+                part,
+                sendOptions,
+                { preserveStyleMarkers: true },
+              ),
+          );
+          if (messageId !== undefined) sentIds.push(String(messageId));
+          sentOverflowParts += 1;
+          delivered = true;
+        }
+      } catch (err) {
+        const externalMessageIds = [
+          ...(state.messageId ? [String(state.messageId)] : []),
+          ...sentIds,
+        ];
+        const partial = new PartialMessageDeliveryError({
+          cause: err,
+          deliveredChunks: 1 + sentOverflowParts,
+          totalChunks: 1 + overflowParts.length,
+          name: 'PartialTelegramGroupFinalEditDeliveryError',
+          message: 'Telegram group stream partially delivered',
+        });
+        Object.assign(partial, {
+          provider: 'telegram',
+          deliveredParts: 1 + sentOverflowParts,
+          totalParts: 1 + overflowParts.length,
+          externalMessageId: externalMessageIds[0],
+          externalMessageIds,
+          retryTail: {
+            canonicalText: overflowParts.slice(sentOverflowParts).join(''),
+            providerPayload: {
+              provider: 'telegram',
+              chatId: numericId,
+              externalMessageId: externalMessageIds[0],
+              externalMessageIds,
+              ...(state.threadId ? { threadId: String(state.threadId) } : {}),
+            },
+          },
+        });
+        finishCurrentState();
+        throw partial;
+      }
+    };
     try {
       if (shouldFlush) {
         if (!state.messageId) {
@@ -389,25 +443,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         if (options.done) {
           if (!isCurrentState()) return result();
           if (overflowParts.length > 0 && isCurrentState()) {
-            const sendOptions = state.threadId
-              ? { message_thread_id: state.threadId }
-              : {};
-            for (const part of overflowParts) {
-              if (!isCurrentState()) break;
-              const messageId = await this.withTelegramGroupRateLimitRetry(
-                jid,
-                () =>
-                  sendTelegramMessageWithResult(
-                    this.bot!.api,
-                    numericId,
-                    part,
-                    sendOptions,
-                    { preserveStyleMarkers: true },
-                  ),
-              );
-              if (messageId !== undefined) sentIds.push(String(messageId));
-              delivered = true;
-            }
+            await sendOverflow();
           }
           finishCurrentState();
         }
@@ -421,75 +457,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         if (state.messageId) {
           const headExternalMessageId = String(state.messageId);
           const visibleExternalMessageIds = [headExternalMessageId];
-          const sendOptions = state.threadId
-            ? { message_thread_id: state.threadId }
-            : {};
           if (overflowParts.length > 0 && isCurrentState()) {
-            const sentOverflowMessageIds: string[] = [];
-            try {
-              for (const part of overflowParts) {
-                if (!isCurrentState()) break;
-                const messageId = await this.withTelegramGroupRateLimitRetry(
-                  jid,
-                  () =>
-                    sendTelegramMessageWithResult(
-                      this.bot!.api,
-                      numericId,
-                      part,
-                      sendOptions,
-                      { preserveStyleMarkers: true },
-                    ),
-                );
-                if (messageId !== undefined) {
-                  const externalMessageId = String(messageId);
-                  sentOverflowMessageIds.push(externalMessageId);
-                  visibleExternalMessageIds.push(externalMessageId);
-                  sentIds.push(externalMessageId);
-                }
-                delivered = true;
-              }
-              finishCurrentState();
-              return result();
-            } catch (tailErr) {
-              const unsentOverflowText = overflowParts
-                .slice(sentOverflowMessageIds.length)
-                .join('');
-              const deliveredVisibleParts = visibleExternalMessageIds.length;
-              const totalVisibleParts = 1 + overflowParts.length;
-              const partial = new PartialMessageDeliveryError({
-                cause: tailErr,
-                deliveredChunks: deliveredVisibleParts,
-                name: 'PartialTelegramGroupFinalEditDeliveryError',
-                message:
-                  'Telegram group stream partially delivered after final edit failure',
-                totalChunks: totalVisibleParts,
-              });
-              Object.assign(partial, {
-                provider: 'telegram',
-                deliveredParts: deliveredVisibleParts,
-                totalParts: totalVisibleParts,
-                externalMessageId: headExternalMessageId,
-                externalMessageIds: visibleExternalMessageIds,
-                ...(unsentOverflowText.trim()
-                  ? {
-                      retryTail: {
-                        canonicalText: unsentOverflowText,
-                        providerPayload: {
-                          provider: 'telegram',
-                          chatId: numericId,
-                          externalMessageId: headExternalMessageId,
-                          externalMessageIds: visibleExternalMessageIds,
-                          ...(state.threadId
-                            ? { threadId: String(state.threadId) }
-                            : {}),
-                        },
-                      },
-                    }
-                  : {}),
-              });
-              finishCurrentState();
-              throw partial;
-            }
+            await sendOverflow();
+            finishCurrentState();
+            return result();
           }
           const partial = new PartialMessageDeliveryError({
             cause: err,
@@ -548,25 +519,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     if (options.done) {
       if (!isCurrentState()) return result();
       if (overflowParts.length > 0 && isCurrentState()) {
-        const sendOptions = state.threadId
-          ? { message_thread_id: state.threadId }
-          : {};
-        for (const part of overflowParts) {
-          if (!isCurrentState()) break;
-          const messageId = await this.withTelegramGroupRateLimitRetry(
-            jid,
-            () =>
-              sendTelegramMessageWithResult(
-                this.bot!.api,
-                numericId,
-                part,
-                sendOptions,
-                { preserveStyleMarkers: true },
-              ),
-          );
-          if (messageId !== undefined) sentIds.push(String(messageId));
-          delivered = true;
-        }
+        await sendOverflow();
       }
       finishCurrentState();
     }

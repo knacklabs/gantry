@@ -192,9 +192,10 @@ export async function sendSlackMessage(input: {
         });
         if (fallback) {
           warnings.push('slack.snippet_fallback');
-          if (fallback.externalMessageId) {
-            externalMessageIds.push(fallback.externalMessageId);
-          }
+          externalMessageIds.push(
+            ...(fallback.externalMessageIds ??
+              (fallback.externalMessageId ? [fallback.externalMessageId] : [])),
+          );
           await postActionsFollowUpNonFatal(oversizedCtx, warnings);
           const ids = [...externalMessageIds];
           return {
@@ -255,17 +256,30 @@ export async function sendSlackMessage(input: {
     }
   }
 
-  await uploadSlackAttachments({
-    app: input.app,
-    jid: input.jid,
-    channelId: input.channelId,
-    threadTs,
-    files: input.options.files,
-    warnings,
-    externalMessageIds,
-    log: input.log,
-    postSlackMessageWithRetry,
-  });
+  try {
+    await uploadSlackAttachments({
+      app: input.app,
+      jid: input.jid,
+      channelId: input.channelId,
+      threadTs,
+      files: input.options.files,
+      warnings,
+      externalMessageIds,
+      log: input.log,
+      postSlackMessageWithRetry,
+    });
+  } catch (cause) {
+    throw buildPartialSlackDelivery({
+      cause,
+      deliveredParts,
+      totalParts: parts.length + (input.options.files?.length ?? 0),
+      externalMessageIds,
+      unsentTail: '',
+      channelId: input.channelId,
+      threadTs,
+      warnings,
+    });
+  }
 
   return {
     ...(externalMessageIds[0]
@@ -290,7 +304,13 @@ export async function sendSlackFallbackStreamParts(input: {
   const threadTs = slackThreadTsFromThreadId(input.state.threadId);
   let deliveredParts = 0;
   const visibleFallbackMessageIds = () =>
-    input.state.fallbackMessageTs.filter(Boolean);
+    [
+      ...new Set([
+        input.state.nativeStreamTs,
+        input.state.messageTs,
+        ...input.state.fallbackMessageTs,
+      ]),
+    ].filter((id): id is string => Boolean(id));
   const retryTailFromFallbackParts = () => {
     const tail = input.fallbackParts.slice(deliveredParts).join('');
     if (deliveredParts > 0 || !tail) return tail;

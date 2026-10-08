@@ -12,7 +12,10 @@ import {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
-import { isPartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
+import {
+  isPartialMessageDeliveryError,
+  PartialMessageDeliveryError,
+} from '../../domain/messages/partial-delivery.js';
 import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -320,6 +323,9 @@ export class DiscordChannel implements ChannelAdapter {
       state = { channelId, rawBuffer: '', lastFlushAt: 0 };
       this.activeStreams.set(key, state);
     }
+    const stream = state;
+    const receipt = (): StreamingChunkResult =>
+      stream.messageId ? { externalMessageIds: [stream.messageId] } : false;
     if (text) state.rawBuffer += text;
     if (!state.rawBuffer.trim() && options.done) {
       this.streamResetEpochs.deleteState(key, this.activeStreams);
@@ -331,10 +337,11 @@ export class DiscordChannel implements ChannelAdapter {
       options.done ||
       !state.messageId ||
       now - state.lastFlushAt >= CHANNEL_STREAM_UPDATE_INTERVAL_MS.discord;
-    if (!shouldFlush) return Boolean(state.messageId);
+    if (!shouldFlush) return receipt();
 
     const parts = splitDiscordText(state.rawBuffer);
     const headText = parts[0] ?? ' ';
+    let sendingOverflow = false;
     try {
       const body = {
         content: headText,
@@ -351,10 +358,11 @@ export class DiscordChannel implements ChannelAdapter {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
       }
-      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return receipt();
       state.lastFlushAt = now;
       if (options.done) {
         const overflowParts = parts.slice(1).filter((part) => part.length > 0);
+        sendingOverflow = overflowParts.length > 0;
         const overflow =
           overflowParts.length > 0
             ? await postDiscordMessageParts({
@@ -375,18 +383,50 @@ export class DiscordChannel implements ChannelAdapter {
         }
         return externalMessageIds.length > 0 ? { externalMessageIds } : true;
       } else {
-        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+          return receipt();
         this.activeStreams.set(key, state);
       }
-      return true;
+      return receipt();
     } catch (err) {
+      if (options.done && state.messageId) {
+        const tail = isPartialMessageDeliveryError(err) ? err : undefined;
+        const partial = new PartialMessageDeliveryError({
+          cause: err,
+          deliveredChunks: 1 + (tail?.deliveredChunks ?? 0),
+          name: 'PartialDiscordStreamDeliveryError',
+          message: 'Discord stream partially delivered',
+          totalChunks: tail ? 1 + tail.totalChunks : Math.max(2, parts.length),
+        });
+        Object.assign(partial, {
+          provider: 'discord',
+          externalMessageIds: [
+            state.messageId,
+            ...(tail?.externalMessageIds ?? []),
+          ],
+          ...(tail?.retryTail
+            ? { retryTail: tail.retryTail }
+            : sendingOverflow
+              ? {
+                  retryTail: {
+                    canonicalText: parts.slice(1).join(''),
+                    providerPayload: {
+                      provider: 'discord',
+                      channelId: state.channelId,
+                    },
+                  },
+                }
+              : {}),
+        });
+        throw partial;
+      }
       if (isPartialMessageDeliveryError(err)) throw err;
       logger.warn(
         { jid, err },
         'Discord streaming update failed; preserving current stream state',
       );
       if (options.done) return false;
-      return Boolean(state.messageId);
+      return receipt();
     }
   }
 

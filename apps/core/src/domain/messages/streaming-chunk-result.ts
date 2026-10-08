@@ -1,8 +1,8 @@
 import type { StreamingSink } from '../types.js';
 
 /**
- * A finished stream (options.done) reports the provider ids of every message
- * the answer spans, so replies to any part of it can be matched.
+ * Streams report the provider ids already visible, including every part when
+ * finished, so replies still match after a partial send or a reset.
  */
 export type StreamingChunkResult = Awaited<
   ReturnType<StreamingSink['sendStreamingChunk']>

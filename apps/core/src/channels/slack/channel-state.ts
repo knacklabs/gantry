@@ -68,11 +68,10 @@ export interface ActiveStreamState {
   lastFlushAt: number;
 }
 
-/** A finished stream reports every Slack message it posted. */
+/** Every visible flush reports its references before a reset can discard them. */
 export function slackStreamChunkResult(
   state: ActiveStreamState,
   delivered: boolean,
-  done?: boolean,
 ): StreamingChunkResult {
   const ok = delivered || Boolean(state.messageTs || state.nativeStreamTs);
   const ids = [
@@ -82,7 +81,7 @@ export function slackStreamChunkResult(
       ...state.fallbackMessageTs,
     ]),
   ].filter((ts): ts is string => Boolean(ts));
-  return done && ok && ids.length > 0 ? { externalMessageIds: ids } : ok;
+  return ok && ids.length > 0 ? { externalMessageIds: ids } : ok;
 }
 
 export interface ActiveProgressState {

@@ -616,7 +616,7 @@ export class PostgresCanonicalMessageRepository {
         and(
           messageConversationFilter(m, [chatJid], input.providerAccountId),
           eq(m.direction, 'outbound'),
-          eq(m.deliveryStatus, 'sent'),
+          inArray(m.deliveryStatus, ['sent', 'partially_sent']),
           input.threadId
             ? or(
                 messageThreadFilter(

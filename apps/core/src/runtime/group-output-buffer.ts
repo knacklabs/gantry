@@ -47,7 +47,7 @@ export function createGroupOutputBuffer(input: {
   persistCompletedStreamedGeneration?: (
     text: string,
     deliveryStatus: 'sent' | 'partially_sent' | 'failed',
-    externalMessageIds: string[],
+    receipts: readonly unknown[],
   ) => Promise<void>;
   log: RuntimeLogger;
 }) {
@@ -65,10 +65,29 @@ export function createGroupOutputBuffer(input: {
   // tail. Persisting a durable message through it would silently truncate any
   // reply the user received in full. Held only until the generation completes.
   let generationParts: string[] = [];
+  let generationReceipts: unknown[] = [];
   let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
   let pendingOutputHasParts = false;
+
+  const sendStreamingChunk = async (
+    text: string,
+    options: StreamingChunkOptions,
+  ) => {
+    try {
+      const receipt = await input.channelRuntime.sendStreamingChunk(
+        input.chatJid,
+        text,
+        options,
+      );
+      generationReceipts.push(receipt);
+      return wasSent(receipt);
+    } catch (err) {
+      generationReceipts.push(err);
+      throw err;
+    }
+  };
 
   const runVisibleDelivery = async (
     attempt: () => Promise<DeliverySettlement>,
@@ -118,22 +137,14 @@ export function createGroupOutputBuffer(input: {
     );
     if (!text) return false;
     if (input.supportsStreamingChunks) {
-      let finalExternalMessageIds: string[] = [];
       await runVisibleDelivery(
         () =>
           settleDeliveryAttempt(
             () =>
-              input.channelRuntime
-                .sendStreamingChunk(
-                  input.chatJid,
-                  finalStreamDelta,
-                  input.buildStreamingOptions({ done }),
-                )
-                .then((sent) => {
-                  if (typeof sent === 'object')
-                    finalExternalMessageIds = sent.externalMessageIds;
-                  return wasSent(sent);
-                }),
+              sendStreamingChunk(
+                finalStreamDelta,
+                input.buildStreamingOptions({ done }),
+              ),
             { scope: 'runtime-streaming-output-final', target: input.chatJid },
           ).catch((err) => {
             input.log.warn(
@@ -174,7 +185,7 @@ export function createGroupOutputBuffer(input: {
           await input.persistCompletedStreamedGeneration?.(
             completed,
             deliveryStatus === 'none' ? 'failed' : deliveryStatus,
-            finalExternalMessageIds,
+            generationReceipts,
           );
           if (deliveryStatus === 'none') {
             // Also offer it to finalization's fallback: the run-wide sent flag
@@ -187,6 +198,7 @@ export function createGroupOutputBuffer(input: {
         // that just ended: without these resets the next generation inherits a
         // previous one's transcript and its sent/partially_sent status.
         generationParts = [];
+        generationReceipts = [];
         input.resetStreamedTranscriptDeliveryStatus?.();
       }
     } else {
@@ -216,13 +228,10 @@ export function createGroupOutputBuffer(input: {
         () =>
           settleDeliveryAttempt(
             () =>
-              input.channelRuntime
-                .sendStreamingChunk(
-                  input.chatJid,
-                  safeDelta,
-                  input.buildStreamingOptions({ done: false }),
-                )
-                .then(wasSent),
+              sendStreamingChunk(
+                safeDelta,
+                input.buildStreamingOptions({ done: false }),
+              ),
             { scope: 'runtime-streaming-output-live', target: input.chatJid },
           ),
         { streamed: true, terminal: false },
@@ -230,5 +239,6 @@ export function createGroupOutputBuffer(input: {
     },
     flushBufferedOutput,
     transcriptSnapshot: () => userVisibleTranscript.snapshot(),
+    receiptsSnapshot: () => generationReceipts,
   };
 }

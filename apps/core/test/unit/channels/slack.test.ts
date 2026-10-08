@@ -4732,7 +4732,11 @@ describe('Slack channel', () => {
           },
         ],
       }),
-    ).rejects.toThrow('fallback unavailable');
+    ).rejects.toMatchObject({
+      partialMessageDelivery: true,
+      externalMessageIds: ['1710000000.100200'],
+      cause: expect.objectContaining({ message: 'fallback unavailable' }),
+    });
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         jid: 'sl:C1234567890',
@@ -5162,39 +5166,98 @@ describe('Slack channel', () => {
     );
   });
 
-  it.each(['outbound', 'stream'])('resolves all Slack upload reply ids when completion omits shares for %s delivery', async (delivery) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
-    const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
-    await channel.connect();
-    vi.mocked(appRef.current.client.files.info).mockResolvedValue({
-      ok: true,
-      file: { shares: {
-        public: { C1234567890: [{ ts: 'upload-one' }, { ts: 'upload-two' }], OTHER: [{ ts: 'other-channel' }] },
-        private: { C1234567890: [{ ts: 'upload-three' }] },
-      } },
-    });
-    if (delivery === 'outbound') {
-      const result = await channel.sendMessage('sl:C1234567890', 'Rendered.', {
-        files: [{ filename: 'report.txt', contentType: 'text/plain', sizeBytes: 1, content: new Uint8Array([120]) }],
+  it.each(['outbound', 'stream'])(
+    'resolves all Slack upload reply ids when completion omits shares for %s delivery',
+    async (delivery) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      );
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      vi.mocked(appRef.current.client.files.info).mockResolvedValue({
+        ok: true,
+        file: {
+          shares: {
+            public: {
+              C1234567890: [{ ts: 'upload-one' }, { ts: 'upload-two' }],
+              OTHER: [{ ts: 'other-channel' }],
+            },
+            private: { C1234567890: [{ ts: 'upload-three' }] },
+          },
+        },
       });
-      expect(result).toEqual(expect.objectContaining({ externalMessageIds: ['1710000000.100200', 'upload-one', 'upload-two', 'upload-three'] }));
-    } else {
-      vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
-      await expect(channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), { done: true })).resolves.toEqual({ externalMessageIds: ['upload-one', 'upload-two', 'upload-three'] });
-    }
-    expect(appRef.current.client.files.info).toHaveBeenCalledWith({ file: 'F123' });
-  });
+      if (delivery === 'outbound') {
+        const result = await channel.sendMessage(
+          'sl:C1234567890',
+          'Rendered.',
+          {
+            files: [
+              {
+                filename: 'report.txt',
+                contentType: 'text/plain',
+                sizeBytes: 1,
+                content: new Uint8Array([120]),
+              },
+            ],
+          },
+        );
+        expect(result).toEqual(
+          expect.objectContaining({
+            externalMessageIds: [
+              '1710000000.100200',
+              'upload-one',
+              'upload-two',
+              'upload-three',
+            ],
+          }),
+        );
+      } else {
+        vi.mocked(appRef.current.client.apiCall).mockResolvedValue({
+          ok: false,
+        });
+        await expect(
+          channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), {
+            done: true,
+          }),
+        ).resolves.toEqual({
+          externalMessageIds: ['upload-one', 'upload-two', 'upload-three'],
+        });
+      }
+      expect(appRef.current.client.files.info).toHaveBeenCalledWith({
+        file: 'F123',
+      });
+    },
+  );
 
   it('does not resend a visible Slack upload when receipt lookup fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
     const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
     await channel.connect();
     vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
-    vi.mocked(appRef.current.client.files.info).mockRejectedValue({ data: { error: 'missing_scope' } });
-    await expect(channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), { done: true })).resolves.toBe(true);
+    vi.mocked(appRef.current.client.files.info).mockRejectedValue({
+      data: { error: 'missing_scope' },
+    });
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(40_000), {
+        done: true,
+      }),
+    ).resolves.toBe(true);
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
-    expect(appRef.current.client.files.completeUploadExternal).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({ fileId: 'F123' }), 'Slack uploaded message references unavailable');
+    expect(
+      appRef.current.client.files.completeUploadExternal,
+    ).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ fileId: 'F123' }),
+      'Slack uploaded message references unavailable',
+    );
   });
 
   it('uploads large Slack stream text as a UTF-8 snippet before split delivery', async () => {
@@ -9434,8 +9497,9 @@ describe('Slack channel', () => {
         threadId,
       }),
     ).rejects.toMatchObject({
-      name: 'PartialSlackNativeStreamAppendDeliveryError',
+      name: 'PartialSlackStreamingFallbackDeliveryError',
       partialMessageDelivery: true,
+      externalMessageIds: ['1710000000.222333'],
       retryTail: {
         canonicalText: 'x'.repeat(1050),
         providerPayload: expect.objectContaining({
@@ -9828,65 +9892,81 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
-  it('does not accept a Slack snippet fallback that finishes after a targeted reset', async () => {
-    class SlackChannelWithDeferredSnippetFallback extends SlackChannel {
-      fallbackCalls: Array<Record<string, unknown>> = [];
-      resolveFallback!: (value: {
-        fallbackArtifactId: string;
-        externalMessageId: string;
-      }) => void;
-
-      protected override async sendSnippetFallback(input: {
-        channelId: string;
-        text: string;
-        threadId?: string;
-        reason: string;
-      }) {
-        this.fallbackCalls.push(input);
-        return new Promise<{
+  it.each([0, 1])(
+    'reports a visible Slack snippet after a targeted reset with %i successful native append parts',
+    async (successfulParts) => {
+      class SlackChannelWithDeferredSnippetFallback extends SlackChannel {
+        fallbackCalls: Array<Record<string, unknown>> = [];
+        resolveFallback!: (value: {
           fallbackArtifactId: string;
           externalMessageId: string;
-        }>((resolve) => {
-          this.resolveFallback = resolve;
-        });
+        }) => void;
+
+        protected override async sendSnippetFallback(input: {
+          channelId: string;
+          text: string;
+          threadId?: string;
+          reason: string;
+        }) {
+          this.fallbackCalls.push(input);
+          return new Promise<{
+            fallbackArtifactId: string;
+            externalMessageId: string;
+          }>((resolve) => {
+            this.resolveFallback = resolve;
+          });
+        }
       }
-    }
-    const channel = new SlackChannelWithDeferredSnippetFallback(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
-    await channel.connect();
-    vi.mocked(appRef.current.client.apiCall).mockImplementation(
-      async (method: string) => {
-        if (method === 'chat.startStream') {
-          return { ok: true, stream_ts: 'deferred-snippet-native-stream' };
-        }
-        if (method === 'chat.appendStream') {
-          return { ok: false, error: 'append failed' };
-        }
-        if (method === 'chat.stopStream') return { ok: true };
-        return { ok: false };
-      },
-    );
-    const jid = 'sl:C1234567890';
-    const threadId = '1710000000.111224';
-    await channel.sendStreamingChunk(jid, 'seed', { threadId });
+      const channel = new SlackChannelWithDeferredSnippetFallback(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await channel.connect();
+      let appendCount = 0;
+      vi.mocked(appRef.current.client.apiCall).mockImplementation(
+        async (method: string) => {
+          if (method === 'chat.startStream') {
+            return { ok: true, stream_ts: 'deferred-snippet-native-stream' };
+          }
+          if (method === 'chat.appendStream') {
+            return {
+              ok: appendCount++ < successfulParts,
+              error: 'append failed',
+            };
+          }
+          if (method === 'chat.stopStream') return { ok: true };
+          return { ok: false };
+        },
+      );
+      const jid = 'sl:C1234567890';
+      const threadId = '1710000000.111224';
+      await expect
+        .soft(channel.sendStreamingChunk(jid, 'seed', { threadId }))
+        .resolves.toEqual({
+          externalMessageIds: ['deferred-snippet-native-stream'],
+        });
 
-    const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(20_000), {
-      done: true,
-      threadId,
-    });
-    await vi.waitFor(() => expect(channel.fallbackCalls).toHaveLength(1));
-    channel.resetStreaming(jid, { threadId });
-    channel.resolveFallback({
-      fallbackArtifactId: 'slack-stream-artifact-after-reset',
-      externalMessageId: '1710000000.889002',
-    });
+      const delivery = channel.sendStreamingChunk(jid, 'x'.repeat(40_000), {
+        done: true,
+        threadId,
+      });
+      await vi.waitFor(() => expect(channel.fallbackCalls).toHaveLength(1));
+      channel.resetStreaming(jid, { threadId });
+      channel.resolveFallback({
+        fallbackArtifactId: 'slack-stream-artifact-after-reset',
+        externalMessageId: '1710000000.889002',
+      });
 
-    await expect(delivery).resolves.toBe(false);
-    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
-  });
+      await expect(delivery).resolves.toEqual({
+        externalMessageIds: [
+          'deferred-snippet-native-stream',
+          '1710000000.889002',
+        ],
+      });
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    },
+  );
 
   it('surfaces partial delivery when Slack fallback stream part delivery fails', async () => {
     const channel = new SlackChannel(
