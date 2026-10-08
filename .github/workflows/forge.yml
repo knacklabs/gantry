@@ -35,7 +35,7 @@ jobs:
         if: steps.parent-tests.outputs.reuse != 'true'
         with:
           node-version-file: .nvmrc
-      - run: "npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck'"
+      - run: "npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test'"
         if: steps.parent-tests.outputs.reuse != 'true'
 
   forge-pr-check:
