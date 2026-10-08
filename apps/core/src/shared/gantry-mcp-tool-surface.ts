@@ -243,6 +243,7 @@ export function renderGantryMcpToolAvailability(
       ([reason, names]) => `Unavailable: ${names.join(', ')} — ${reason}.`,
     ),
     'Use this list to determine availability; do not infer absence from deferred tool discovery.',
+    'Available lists exposed tools; execution still passes through Gantry permission checks.',
   ].join('\n');
 }
 
@@ -256,6 +257,23 @@ export function selectedGantryMcpFullToolNames(
 ): string[] {
   return selectedGantryMcpToolNames(configuredTools, options).map(
     gantryMcpFullToolName,
+  );
+}
+
+export function withMountedGantryToolNames(
+  prompt: string | undefined,
+  mountedNames: ReadonlySet<string>,
+): string {
+  const compiled = prompt ?? '';
+  const available = `Available: ${[...mountedNames].sort().join(', ')}.`;
+  const heading = '## Gantry tools in this run\n';
+  const section = compiled.lastIndexOf(heading);
+  if (section < 0)
+    return [prompt, heading + available].filter(Boolean).join('\n\n');
+  const start = section + heading.length;
+  const end = compiled.indexOf('\n', start);
+  return (
+    compiled.slice(0, start) + available + (end < 0 ? '' : compiled.slice(end))
   );
 }
 
