@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -13,17 +13,90 @@ import {
 import { buildSync } from 'esbuild';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import { FakeListChatModel } from '@langchain/core/utils/testing';
+import type { BaseMessage } from '@langchain/core/messages';
 
 import '@core/channels/register-builtins.js';
 import { compileSpawnSystemPrompt } from '@core/runtime/agent-spawn-prompt.js';
 import { prepareWorkerAuthorityProjection } from '@core/runtime/agent-spawn-preparation.js';
 import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
 import { connectGantryAndThirdPartyMcpTools } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
-import { composeDeepAgentSystemPrompt } from '@core/adapters/llm/deepagents-langchain/runner/system-prompt.js';
 import {
   DEFAULT_AGENT_ENGINE,
   DEEPAGENTS_ENGINE,
 } from '@core/shared/agent-engine.js';
+import { DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION } from '@core/shared/gantry-tool-facades.js';
+
+const sdkCalls = vi.hoisted(() => [] as Options[]);
+const deepProbe = vi.hoisted(() => ({
+  prompt: '',
+  tools: [] as string[],
+  model: undefined as unknown,
+}));
+vi.mock(
+  '@core/adapters/llm/deepagents-langchain/runner/model-factory.js',
+  () => ({
+    buildRunnerModel: async () => ({
+      model: deepProbe.model,
+      endpointFamily: 'openai',
+      modelId: 'test-model',
+    }),
+  }),
+);
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: ({ options }: { options: Options }) => {
+    sdkCalls.push(options);
+    return (async function* () {
+      yield {
+        type: 'system',
+        subtype: 'init',
+        session_id: 'tool-inventory-proof',
+        mcp_servers: [{ name: 'gantry', status: 'connected' }],
+      };
+      yield { type: 'result', subtype: 'success', result: 'ok' };
+    })();
+  },
+}));
+
+class CapturingModel extends FakeListChatModel {
+  bindTools(...args: Parameters<FakeListChatModel['bindTools']>) {
+    deepProbe.tools = args[0].map(({ name }) => name);
+    return super.bindTools(...args);
+  }
+}
+
+function captureMessages(messages: BaseMessage[]) {
+  deepProbe.prompt = messages
+    .filter((message) => message.getType() === 'system')
+    .map((message) =>
+      typeof message.content === 'string'
+        ? message.content
+        : message.content
+            .filter((block) => block.type === 'text')
+            .map((block) => ('text' in block ? block.text : ''))
+            .join('\n'),
+    )
+    .join('\n');
+}
+
+function publicNativeTools(tools: readonly string[]): Set<string> {
+  const projection = DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION;
+  const names = new Set<string>();
+  for (const nativeName of tools) {
+    const facade = Object.entries(projection.exactTools).find(
+      ([, nativeNames]) => nativeNames.includes(nativeName),
+    );
+    names.add(
+      facade?.[0] ??
+        (nativeName === projection.runCommandToolName
+          ? 'RunCommand'
+          : nativeName),
+    );
+  }
+  return names;
+}
 
 async function registeredTools(
   serverPath: string,
@@ -70,7 +143,11 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
     });
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    sdkCalls.length = 0;
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
 
   it.each([
     {
@@ -138,6 +215,14 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
     async (scenario) => {
       vi.stubEnv('GANTRY_NO_PERMISSION_TOOLS', '0');
       vi.stubEnv('GANTRY_IPC_DIR', root);
+      vi.stubEnv('GANTRY_WORKSPACE_GROUP_DIR', root);
+      vi.stubEnv('GANTRY_WORKSPACE_EXTRA_DIR', root);
+      const inputDir = join(root, 'input');
+      mkdirSync(inputDir, { recursive: true });
+      vi.stubEnv('GANTRY_IPC_INPUT_DIR', inputDir);
+      vi.stubEnv('CLAUDE_CONFIG_DIR', join(root, 'claude-config'));
+      vi.stubEnv('GANTRY_MCP_SERVERS_JSON', '{}');
+      vi.stubEnv('GANTRY_MCP_ALLOWED_TOOLS_JSON', '[]');
       const agentInput = {
         prompt: 'Which Gantry tools can I use in this run?',
         workspaceFolder: 'team',
@@ -269,21 +354,98 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
             fileArtifactStore: () => undefined,
             measureAsync: (_name, fn) => fn(),
           });
-          const prompt =
-            agentEngine === DEEPAGENTS_ENGINE
-              ? (composeDeepAgentSystemPrompt(
-                  {
-                    ...agentInput,
-                    allowedTools: scenario.tools,
-                    permissionMode: 'ask',
-                    compiledSystemPrompt: compiled,
-                  },
-                  deep.gantryOwnedToolNames,
-                ) ?? '')
-              : compiled;
-          expect(advertisedTools(prompt)).toEqual(
-            agentEngine === DEEPAGENTS_ENGINE ? deepMounted : mounted,
-          );
+          let prompt: string;
+          let completeMounted: Set<string>;
+          if (agentEngine === DEEPAGENTS_ENGINE) {
+            deepProbe.model = new CapturingModel({ responses: ['done'] });
+            const stream = FakeListChatModel.prototype._streamResponseChunks;
+            vi.spyOn(
+              FakeListChatModel.prototype,
+              '_streamResponseChunks',
+            ).mockImplementation(async function* (
+              this: FakeListChatModel,
+              ...args
+            ) {
+              captureMessages(args[0]);
+              yield* stream.call(this, ...args);
+            });
+            const { runDeepAgentTurn } =
+              await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
+            await runDeepAgentTurn({
+              agentInput: {
+                ...agentInput,
+                allowedTools: scenario.tools,
+                hideAuthorityTools: authority.hideAuthorityTools,
+                permissionMode: 'ask',
+                compiledSystemPrompt: compiled,
+                modelCredentialEnv: {
+                  OPENAI_BASE_URL: 'http://127.0.0.1:10254/openai',
+                  OPENAI_API_KEY: 'gtw_worker_tool_proof',
+                },
+              },
+              provider: 'openai',
+              modelId: 'test-model',
+              newSessionId: 'worker-tool-proof',
+              includeMemoryContext: false,
+              emit: () => {},
+            });
+            prompt = deepProbe.prompt;
+            completeMounted = new Set(deepProbe.tools);
+            expect(completeMounted).toEqual(deepMounted);
+          } else {
+            const { runQuery } =
+              await import('@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js');
+            await runQuery(
+              agentInput.prompt,
+              serverPath,
+              {
+                ...agentInput,
+                hideAuthorityTools: authority.hideAuthorityTools,
+                allowedTools: scenario.tools,
+                permissionMode: 'ask',
+                compiledSystemPrompt: compiled,
+              },
+              { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+              'sonnet',
+              undefined,
+              undefined,
+              { enableIpcFollowups: false, persistSdkSession: false },
+            );
+            const options = sdkCalls.at(-1);
+            expect(options).toBeDefined();
+            expect(Array.isArray(options?.tools)).toBe(true);
+            const nativeTools = Array.isArray(options?.tools)
+              ? options.tools
+              : [];
+            const gantryServer = options?.mcpServers?.gantry;
+            expect(gantryServer && 'env' in gantryServer).toBeTruthy();
+            expect(gantryServer?.alwaysLoad).toBe(true);
+            const actualMcpMounted = await registeredTools(
+              serverPath,
+              gantryServer && 'env' in gantryServer
+                ? (gantryServer.env ?? {})
+                : {},
+            );
+            completeMounted = new Set([
+              ...actualMcpMounted,
+              ...publicNativeTools(nativeTools),
+            ]);
+            expect(completeMounted.has('WebSearch')).toBe(true);
+            expect(completeMounted.has('WebRead')).toBe(true);
+            expect(completeMounted.has('FileRead')).toBe(true);
+            expect(completeMounted.has('RunCommand')).toBe(
+              !scenario.autonomous,
+            );
+            expect(completeMounted.has('delegate_task')).toBe(
+              scenario.delegation,
+            );
+            prompt = Array.isArray(options?.systemPrompt)
+              ? options.systemPrompt.join('\n')
+              : typeof options?.systemPrompt === 'string'
+                ? options.systemPrompt
+                : '';
+          }
+          expect(advertisedTools(prompt)).toEqual(completeMounted);
           if (scenario.reason) {
             const delegationLine = prompt
               .split('\n')

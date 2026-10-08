@@ -3,6 +3,16 @@
   "cleanupPlanId": "myclaw-architecture-gates-20260517-provider-boundary-sentinels",
   "exceptions": [
     {
+      "file": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
+      "matches": {
+        "@anthropic-ai/claude-agent-sdk": 3,
+        "@langchain/": 2,
+        "CLAUDE_CONFIG_DIR": 3
+      },
+      "reason": "Owner-boundary inventory regression captures the real Claude runner SDK options and DeepAgents graph with only external models faked. Exact provider imports and isolated SDK configuration add no production provider leakage.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
       "file": "apps/core/test/unit/runtime/inline-gantry-tools-in-run.test.ts",
       "matches": {
         "ANTHROPIC_": 2,

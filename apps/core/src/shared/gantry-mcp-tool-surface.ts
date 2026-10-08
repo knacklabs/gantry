@@ -20,6 +20,7 @@ import {
 } from './memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from './agent-tool-references.js';
 import { applyProviderAffinity } from './gantry-tool-provider-affinity.js';
+import { publicGantryToolNameForSdkTool } from './gantry-tool-facades.js';
 
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
@@ -238,7 +239,7 @@ export function renderGantryMcpToolAvailability(
   }
   return [
     '## Gantry tools in this run',
-    `Available: ${[...selected, ...callableToolNames].sort().join(', ')}.`,
+    `Available: ${[...completeGantryToolNames([...selected, ...callableToolNames])].sort().join(', ')}.`,
     ...[...unavailable].map(
       ([reason, names]) => `Unavailable: ${names.join(', ')} — ${reason}.`,
     ),
@@ -258,6 +259,16 @@ export function selectedGantryMcpFullToolNames(
   return selectedGantryMcpToolNames(configuredTools, options).map(
     gantryMcpFullToolName,
   );
+}
+
+export function completeGantryToolNames(
+  gantryNames: Iterable<string>,
+  nativeNames: Iterable<string> = [],
+): Set<string> {
+  return new Set([
+    ...Array.from(gantryNames, (name) => name.replace(/^mcp__gantry__/, '')),
+    ...Array.from(nativeNames, publicGantryToolNameForSdkTool),
+  ]);
 }
 
 export function withMountedGantryToolNames(
