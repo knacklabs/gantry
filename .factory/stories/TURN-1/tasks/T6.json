@@ -19,7 +19,8 @@
     "id": "2c831480-3539-43bd-bd6c-1071c5d9c9cf",
     "status": "clean"
   },
-  "status": "waiting for checks",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -41,5 +42,6 @@
       "at": "2026-10-08T13:59:37+00:00",
       "step": "review"
     }
-  ]
+  ],
+  "worker": "codex"
 }
