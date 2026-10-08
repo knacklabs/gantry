@@ -1,4 +1,5 @@
 {
+  "allow_large": "The agent cannot see which Gantry tools it has: every place it appears (instructions and both runner tool surfaces); no interface change",
   "base": "f05bc55b04f18aaab3de951d49084df68ff402a0",
   "branch": "fix/the-agent-can-t-tell-which-gantry-tools",
   "done_when": "Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual reason, all derived from the same selection that mounts the tools; delegate_task is always loaded when available; a test through the real prompt compile and runner tool surface proves it",
