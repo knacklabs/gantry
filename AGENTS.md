@@ -21,14 +21,24 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
    `forge work <KEY>/<TASK>`.
 4. `forge close <item>` closes it when the tests pass and the review finds no serious problem.
 5. The human merges unless the default branch's `forge.toml` has `merge = "agent"`.
-   Then, once close says Ready, the agent runs `forge merge <item>`. After the story's last merge,
-   `forge story done <KEY> "<outcome>"`.
+   Then, once close says Ready, the agent runs `forge merge <item>`. The story's last task merge
+   records it done, using `--outcome "<outcome>"` or its title. Use `forge story done` on an
+   existing work branch only to change that outcome later; it opens no separate pull request.
 
 ### The lanes
 
 - **Story:** anything that changes an interface or needs more than five code files.
 - **Fix:** a small change, started with `forge fix start "<why>" --done "<done when>"`.
   Specs, decisions, the roadmap and discovery notes ship as fixes.
+
+### Who builds
+
+`forge.toml`'s `workers` picks who builds; `forge work` and `forge next` name the worker for
+each item:
+
+- `codex`: every task and fix on Codex, user-facing ones with the design model's codex entry.
+- `claude`: every task and fix on Claude.
+- `split`: user-facing story tasks on Claude, everything else on Codex.
 
 ### Rules
 
