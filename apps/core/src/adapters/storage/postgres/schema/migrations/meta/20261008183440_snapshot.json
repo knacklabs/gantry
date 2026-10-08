@@ -1,5 +1,5 @@
 {
-  "id": "6556d452-c4ab-43fd-a1ee-46adc8725aab",
+  "id": "764c2f90-8484-4999-b676-9ccef9a1b683",
   "prevId": "a1df22a8-501a-47a8-b8d3-ed7714dc7011",
   "version": "7",
   "dialect": "postgresql",
@@ -10913,7 +10913,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "inbound_events_app_id_apps_id_fk": {
+          "name": "inbound_events_app_id_apps_id_fk",
+          "tableFrom": "inbound_events",
+          "tableTo": "apps",
+          "columnsFrom": [
+            "app_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

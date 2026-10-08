@@ -27,6 +27,21 @@ export interface InboundEventInput {
   payload: unknown;
   control: InboundControl | null;
 }
+// Fixed operation codes cannot carry message content or provider exceptions.
+export type InboundMalformedReason =
+  | 'missing_identity'
+  | 'invalid_scope'
+  | 'invalid_message';
+export interface InboundMalformedEvent extends Omit<
+  InboundEventInput,
+  'kind' | 'control'
+> {
+  // Classifiers use the envelope key or stableSha256Json(payload); unknown channel is ''.
+  kind: 'malformed';
+  control: null;
+  reason: InboundMalformedReason;
+}
+export type InboundSaveableEvent = InboundEventInput | InboundMalformedEvent;
 export type InboundProviderId = InboundEventInput['providerId'];
 export type InboundConnectionScope = Pick<
   InboundEventInput,
@@ -40,7 +55,12 @@ export type InboundHeldDeleteScope = InboundConnectionScope & {
 };
 export type InboundClassification =
   | { outcome: 'supported'; event: InboundEventInput }
-  | { outcome: 'unsupported' | 'malformed' };
+  | { outcome: 'unsupported' }
+  | {
+      outcome: 'malformed';
+      event: InboundMalformedEvent;
+      reason: InboundMalformedReason;
+    };
 
 export interface InboundDestination {
   providerAccountId: string;
@@ -73,8 +93,31 @@ export interface InboundUnpackedMessage {
   message: NewMessage;
   destinations: InboundDestination[];
 }
+export interface InboundQuestionReply extends InboundRawThreadScope {
+  providerAccountId: string;
+  promptMessageId: string;
+  promptAuthorId: string;
+  promptAuthorIsBot: boolean;
+  referenceAlias: string | null;
+  actorId: string;
+  answer: string;
+}
+export type InboundQuestionReplyResult =
+  | { outcome: 'handled' }
+  | { outcome: 'not_a_question' }
+  | { outcome: 'stale_claim' };
+// Only a genuinely missing binding permits ordinary-message fallback.
+export type InboundQuestionReplyHandler = (
+  reply: InboundQuestionReply,
+  context: InboundAttemptContext,
+) => Promise<InboundQuestionReplyResult>;
 export type InboundUnpackResult =
   | { outcome: 'message'; value: InboundUnpackedMessage }
+  | {
+      outcome: 'question_reply';
+      reply: InboundQuestionReply;
+      fallback: NewMessage;
+    }
   | { outcome: 'dropped' };
 export interface InboundEventCodec {
   classify(
@@ -87,7 +130,8 @@ export interface InboundEventCodec {
   ): Promise<InboundUnpackResult>;
   readControl(event: InboundEvent): InboundControl | null;
 }
-export interface InboundEvent extends InboundEventInput {
+export interface InboundEvent extends Omit<InboundEventInput, 'kind'> {
+  kind: InboundSaveableEvent['kind'];
   id: string;
   seq: number;
   state: 'pending' | 'claimed' | 'completed' | 'set_aside';
@@ -105,13 +149,13 @@ export interface InboundEvent extends InboundEventInput {
 }
 export type InboundSaveResult =
   | { outcome: 'saved' | 'duplicate'; event: InboundEvent }
-  | { outcome: 'unsupported' | 'malformed' };
+  | { outcome: 'unsupported' | 'invalid' };
 export interface InboundEventRepository {
   save(input: unknown): Promise<InboundSaveResult>;
   get(id: string, appId: string): Promise<InboundEvent | null>;
 }
 export type InboundEventSaver = (
-  input: InboundEventInput,
+  input: InboundSaveableEvent,
 ) => Promise<InboundSaveResult>;
 export type InboundHeldDeleteGuard = (
   scope: InboundHeldDeleteScope,

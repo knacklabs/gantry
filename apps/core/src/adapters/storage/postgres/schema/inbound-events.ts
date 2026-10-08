@@ -15,9 +15,11 @@ import {
 import type {
   InboundControl,
   InboundEventInput,
+  InboundSaveableEvent,
   InboundRouteReceipt,
   InboundUnpackResult,
 } from '../../../../domain/ports/inbound-events.js';
+import { appsPostgres } from './apps.js';
 
 const time = (name: string) =>
   timestamp(name, { withTimezone: true, mode: 'string' });
@@ -25,12 +27,14 @@ export const inboundEventsPostgres = pgTable(
   'inbound_events',
   {
     id: text('id').primaryKey(),
-    appId: text('app_id').notNull(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     providerId: text('provider_id')
       .$type<InboundEventInput['providerId']>()
       .notNull(),
     connectionId: text('connection_id').notNull(),
-    kind: text('kind').$type<InboundEventInput['kind']>().notNull(),
+    kind: text('kind').$type<InboundSaveableEvent['kind']>().notNull(),
     eventKey: text('event_key').notNull(),
     // Allocated only after the connection transaction lock, never a consumption cursor.
     seq: bigint('seq', { mode: 'number' })

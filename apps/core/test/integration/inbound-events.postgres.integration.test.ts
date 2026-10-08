@@ -3,8 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type {
   InboundEventInput,
   InboundEventRepository,
+  InboundClassification,
+  InboundUnpackResult,
 } from '@core/domain/ports/inbound-events.js';
 import { PostgresInboundEventRepository } from '@core/adapters/storage/postgres/repositories/inbound-event-repository.postgres.js';
+import { appsPostgres } from '@core/adapters/storage/postgres/schema/apps.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 import {
   createPostgresIntegrationRuntime,
   hasPostgresIntegrationDatabase,
@@ -38,6 +42,11 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
         schemaPrefix: 'inbox',
       });
       inbox = runtime.repositories.inboundEvents;
+      await runtime.service.db
+        .insert(appsPostgres)
+        .values(
+          ['inbox-app', 'other-app'].map((id) => ({ id, slug: id, name: id })),
+        );
     });
     afterAll(async () => {
       await runtime?.cleanup();
@@ -120,7 +129,101 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
       expect(await inbox.get(result.event.id, 'other-app')).toBeNull();
     });
 
-    it('does not save unsupported classifications or malformed incoming contracts', async () => {
+    it('retains malformed supported envelopes with unknown scope across restart and replay', async () => {
+      const payload = { message: { text: 'unreadable supported message' } };
+      const classification: InboundClassification = {
+        outcome: 'malformed',
+        reason: 'invalid_message',
+        event: {
+          ...event(),
+          kind: 'malformed',
+          rawChannelId: '',
+          rawMessageId: null,
+          eventKey: stableSha256Json(payload),
+          payload,
+          reason: 'invalid_message',
+        },
+      };
+      if (classification.outcome !== 'malformed')
+        throw new Error('Expected malformed classification');
+      const input = classification.event;
+      const saved = await inbox.save(input);
+      expect(saved.outcome).toBe('saved');
+      if (saved.outcome !== 'saved')
+        throw new Error('Expected saved malformed envelope');
+      const restarted = new PostgresInboundEventRepository(runtime.service.db);
+      expect(await restarted.get(saved.event.id, 'inbox-app')).toMatchObject({
+        kind: 'malformed',
+        rawChannelId: '',
+        payload,
+        failedOperation: 'invalid_message',
+        state: 'pending',
+      });
+      expect(await restarted.save(input)).toEqual({
+        outcome: 'duplicate',
+        event: saved.event,
+      });
+      expect(
+        await inbox.save({ ...input, reason: payload.message.text }),
+      ).toEqual({ outcome: 'invalid' });
+    });
+
+    it('retains a qualified question candidate and ordinary fallback in cached unpacking', async () => {
+      const saved = await inbox.save(
+        event({
+          eventKey: 'question-reply',
+          providerId: 'telegram',
+          connectionId: 'bot-connection',
+          rawChannelId: 'chat',
+          rawThreadId: 'topic',
+        }),
+      );
+      if (saved.outcome !== 'saved') throw new Error('Expected saved reply');
+      const unpacked: InboundUnpackResult = {
+        outcome: 'question_reply',
+        reply: {
+          appId: 'inbox-app',
+          providerId: 'telegram',
+          connectionId: 'bot-connection',
+          rawChannelId: 'chat',
+          rawThreadId: 'topic',
+          providerAccountId: 'bot-account',
+          promptMessageId: 'prompt',
+          promptAuthorId: 'bot',
+          promptAuthorIsBot: true,
+          referenceAlias: 'question-alias',
+          actorId: 'sender',
+          answer: 'answer',
+        },
+        fallback: {
+          id: 'reply',
+          chat_jid: 'tg:chat',
+          sender: 'sender',
+          sender_name: 'Sender',
+          content: 'answer',
+          timestamp: '2026-10-02T00:00:00.000Z',
+        },
+      };
+      // Storage crossing only; T11 owns executing the durable answer handler.
+      await runtime.service.pool.query(
+        'UPDATE inbound_events SET unpacked_json = $1 WHERE id = $2',
+        [JSON.stringify(unpacked), saved.event.id],
+      );
+      const restarted = new PostgresInboundEventRepository(runtime.service.db);
+      expect(
+        (await restarted.get(saved.event.id, 'inbox-app'))?.unpacked,
+      ).toEqual(unpacked);
+    });
+
+    it('rejects raw content without an owning app', async () => {
+      await expect(
+        inbox.save(event({ appId: 'missing-app' })),
+      ).rejects.toMatchObject({
+        cause: { code: '23503' },
+      });
+    });
+
+    it('does not save unsupported classifications or invalid repository inputs', async () => {
       const before = await runtime.service.pool.query(
         'SELECT count(*)::int AS count FROM inbound_events',
       );
@@ -135,7 +238,7 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
         { ...event(), payload: undefined },
         { ...event(), providerAccountId: 'account' },
       ]) {
-        expect(await inbox.save(input)).toEqual({ outcome: 'malformed' });
+        expect(await inbox.save(input)).toEqual({ outcome: 'invalid' });
       }
       const after = await runtime.service.pool.query(
         'SELECT count(*)::int AS count FROM inbound_events',

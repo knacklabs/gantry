@@ -17,7 +17,7 @@ const identifier = z
   .string()
   .min(1)
   .refine((value) => value.trim().length > 0);
-const inboundEventInputSchema = z.strictObject({
+const ordinaryEventInputSchema = z.strictObject({
   appId: identifier,
   providerId: identifier.refine(
     (value) => value !== 'app' && normalizeProviderId(value) === value,
@@ -38,6 +38,15 @@ const inboundEventInputSchema = z.strictObject({
     })
     .nullable(),
 });
+const inboundEventInputSchema = z.discriminatedUnion('kind', [
+  ordinaryEventInputSchema,
+  ordinaryEventInputSchema.extend({
+    kind: z.literal('malformed'),
+    rawChannelId: z.union([identifier, z.literal('')]),
+    control: z.null(),
+    reason: z.enum(['missing_identity', 'invalid_scope', 'invalid_message']),
+  }),
+]);
 
 function fromRow(row: typeof events.$inferSelect): InboundEvent {
   return {
@@ -62,7 +71,7 @@ export class PostgresInboundEventRepository implements InboundEventRepository {
     )
       return { outcome: 'unsupported' };
     const parsed = inboundEventInputSchema.safeParse(input);
-    if (!parsed.success) return { outcome: 'malformed' };
+    if (!parsed.success) return { outcome: 'invalid' };
     const event = parsed.data;
     return this.db.transaction(async (tx) => {
       // The bound connection FIFO preserves call order; this lock prevents a
@@ -85,7 +94,11 @@ export class PostgresInboundEventRepository implements InboundEventRepository {
       if (existing) return { outcome: 'duplicate', event: fromRow(existing) };
       const [saved] = await tx
         .insert(events)
-        .values({ id: randomUUID(), ...event })
+        .values({
+          id: randomUUID(),
+          ...event,
+          failedOperation: event.kind === 'malformed' ? event.reason : null,
+        })
         .returning();
       return { outcome: 'saved', event: fromRow(saved) };
     });

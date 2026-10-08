@@ -27,6 +27,7 @@ CREATE TABLE "inbound_events" (
 	CONSTRAINT "inbound_events_attempts_check" CHECK ("inbound_events"."attempts" BETWEEN 0 AND 6)
 );
 --> statement-breakpoint
+ALTER TABLE "inbound_events" ADD CONSTRAINT "inbound_events_app_id_apps_id_fk" FOREIGN KEY ("app_id") REFERENCES "apps"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "uq_inbound_events_identity" ON "inbound_events" USING btree ("app_id","provider_id","connection_id","kind","event_key");--> statement-breakpoint
 CREATE INDEX "idx_inbound_events_heads" ON "inbound_events" USING btree ("app_id","provider_id","connection_id","raw_channel_id","raw_thread_id","seq") WHERE "inbound_events"."state" IN ('pending', 'claimed');--> statement-breakpoint
 CREATE INDEX "idx_inbound_events_controls" ON "inbound_events" USING btree ("app_id","seq") WHERE "inbound_events"."control_json" IS NOT NULL AND "inbound_events"."state" IN ('pending', 'claimed');--> statement-breakpoint
