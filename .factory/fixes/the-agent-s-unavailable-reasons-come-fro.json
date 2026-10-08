@@ -1,4 +1,5 @@
 {
+  "allow_large": "Unavailable capability reasons not derived from the real mount decision: every place it appears; no interface change. Most counted files are inherited from the unmerged #605 this fix builds on",
   "base": "704de73f0a972e21087917b7b8cea791a4025305",
   "branch": "fix/the-agent-s-unavailable-reasons-come-fro",
   "done_when": "Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the browser IPC credential, not the Browser grant), and the boundary test checks every unavailable reason, not only delegation's",
