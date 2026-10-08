@@ -1,23 +1,25 @@
 {
   "branch": "task/TURN-1-T6",
+  "flagged": [],
   "review": {
     "blocking_level": "P1",
-    "changed": "bc4e91fc6bc4fbfc6da10d4f0a02b5317da3b2eb678ac600a9569671d8692612",
-    "commit": "94b49f3d4711ba77bed90148651d6159334991d2",
+    "branch_diff": "ee7b09f68e94dbce072d1bc40c07bdfd6b9283b1e07606f745d0c1f80fcd7a67",
+    "changed": "80560593deb10c38d30652da072e4848d1b620818b5ec63b131cc602177f0cda",
+    "commit": "35549c2fe0d6c7450f7b14cdd935c3cffe2aa097",
     "dismissals": [],
     "findings": [
       {
-        "body": "An allowed member's unmentioned reply to a completed Telegram group answer still stays history. Telegram groups use streaming (`apps/core/src/channels/register-builtins.ts:147`), and the streaming send returns only a boolean without recording the provider message ID (`apps/core/src/app/bootstrap/channel-wiring.ts:678`). The completed transcript is persisted without `external_message_id` (`apps/core/src/runtime/group-processing.ts:500\u2013513`), so this equality cannot find the message being replied to. With no topic or running turn, no other continuation check succeeds. Preserve the streamed answer's provider ID in storage and exercise this production path in the regression test. The current E2E scenario misses it because its fake runtime disables streaming (`apps/core/test/harness/fake-channel.ts:82`) and manually stores an external ID (`apps/core/test/e2e/mention-group-follows-conversation.postgres.e2e.test.ts:245`).",
-        "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
-        "line": 620,
-        "priority": "P1",
-        "title": "Not done: Mention-required groups follow the conversation"
+        "body": "When a finished Slack stream uses the snippet fallback, both successful-upload branches in channel-delivery.ts (lines 361\u2013370 and 407\u2013417) discard fallback.externalMessageId. That identifier is already returned by file-delivery.ts:130\u2013138. This helper therefore returns either true or only earlier message IDs, and hasSentBotMessage cannot identify the uploaded answer by its message ID. Preserve the snippet receipt in both branches before constructing the completed stream result. The existing successful-upload test supplies no share timestamp, so it misses this case.",
+        "file": "apps/core/src/channels/slack/channel-state.ts",
+        "line": 85,
+        "priority": "P2",
+        "title": "Include successful Slack snippet receipts in completed stream results"
       }
     ],
-    "status": "blocked",
-    "tree": "a70ee8cf23ce1c2cee253bf1c3edf7ea83a2d38342a4d6c7665e5c5ed6c9abce"
+    "id": "2c831480-3539-43bd-bd6c-1071c5d9c9cf",
+    "status": "clean"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -33,6 +35,10 @@
     },
     {
       "at": "2026-10-03T01:55:19+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T13:59:37+00:00",
       "step": "review"
     }
   ]

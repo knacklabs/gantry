@@ -10,6 +10,17 @@
       "item": "upgrade-forge-to-v1-2-7",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/channels/slack/channel-state.ts\tInclude successful Slack snippet receipts in completed stream results",
+      "kind": "edge",
+      "path": "apps/core/src/channels/slack/channel-state.ts",
+      "line": 85,
+      "text": "Include successful Slack snippet receipts in completed stream results",
+      "from": "review",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }
