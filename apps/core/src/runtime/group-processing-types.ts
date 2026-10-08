@@ -88,7 +88,6 @@ export type GroupProcessOptions = {
   }) => Promise<void> | void;
   onFirstVisibleOutput?: () => Promise<void> | void;
   onTurnTerminal?: () => Promise<void> | void;
-  onLiveStopActionToken?: (token: string) => Promise<void> | void;
 };
 
 export interface GroupProcessor {
@@ -133,7 +132,7 @@ export interface GroupProcessingDeps {
     ) => Promise<boolean>;
     resetStreaming: (
       chatJid: string,
-      options?: { providerAccountId?: string },
+      options?: { providerAccountId?: string; threadId?: string },
     ) => void;
     setTyping: (
       chatJid: string,

@@ -31,10 +31,7 @@ import {
   createGroupDoneProgressSender,
   sendGroupFinalProgress,
 } from './group-final-progress-action.js';
-import {
-  createResponseProgressSenders,
-  startInitialGroupProgress,
-} from './group-progress-heartbeats.js';
+import { createResponseProgressSenders } from './group-progress-heartbeats.js';
 import { GroupLivenessController } from './group-liveness-state.js';
 import {
   createGroupAgentRunner,
@@ -112,6 +109,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         missedMessages,
         permitsUnmentionedCompletion,
         hasMore,
+        lastReceiveOrder,
         activeThreadId,
         latestMessageReactionTarget,
       } = await takeGroupTurnInput({
@@ -192,6 +190,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           deps,
           queueJid,
           missedMessages,
+          cancelWaitingInput: async () => {
+            if (lastReceiveOrder === null) return;
+            await inputRepository.consumeAll({
+              scope: inputScope,
+              consumedBy: 'stopped',
+              waitingBefore: lastReceiveOrder,
+            });
+          },
           runAgent,
           processOptions: options,
           commandOverrideRouteKey: routeContext.commandOverrideRouteKey,
@@ -292,6 +298,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           groupName: group.name,
           channelRuntime: deps.channelRuntime,
           providerAccountId: group.providerAccountId,
+          threadId: activeThreadId,
           logger,
         });
         let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -308,7 +315,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         resetIdleTimer();
         let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
         let backgroundDemoted = false;
-        const { sendControlOnlyProgress, sendWaitingForUserResponseProgress } =
+        const { sendWaitingForUserResponseProgress } =
           createGroupTurnProgressSenders({
             supportsProgress,
             sendProgressToChannel,
@@ -330,19 +337,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         let activeGenerationHasOutput = false;
         let sentAnyTurnDoneProgress = false;
         let sentTurnDoneProgressGeneration: number | null = null;
-        let cancelInitialProgress: () => Promise<void> = async () => undefined;
         const sendTrackedDoneProgress = async (
           state: progress.FinalProgressState,
           generation = progressGeneration,
         ) => {
-          await cancelInitialProgress();
           await sendDoneProgress(state, generation);
           if (supportsProgress) {
             sentAnyTurnDoneProgress = true;
             sentTurnDoneProgressGeneration = generation;
           }
         };
-        let userVisibleTurnProgressReady: Promise<void> | null = null;
         const startUserVisibleTurn = async () => {
           liveness.resetStallEpoch();
           progressGeneration =
@@ -353,13 +357,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           sentAnyTurnDoneProgress = false;
           sentTurnDoneProgressGeneration = null;
           liveness.resume();
-          const progressReady = sendControlOnlyProgress().finally(() => {
-            if (userVisibleTurnProgressReady === progressReady) {
-              userVisibleTurnProgressReady = null;
-            }
-          });
-          userVisibleTurnProgressReady = progressReady;
-          await progressReady;
         };
         const { sendResponseReceipt } = createResponseProgressSenders({
           supportsProgress,
@@ -369,29 +366,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           sendMessageToChannel,
           sendProgressToChannel,
         });
-        await options
-          .onLiveStopActionToken?.(turnOptions.liveStopActionToken)
-          ?.catch((err) =>
-            logger.warn(
-              { err, chatJid, group: group.name },
-              'Failed to register live Stop action token before progress render',
-            ),
-          );
-        const initialProgress = startInitialGroupProgress({
-          supportsProgress,
-          groupName: group.name,
-          buildProgressOptions,
-          sendProgressToChannel,
-          log: logger,
-        });
-        cancelInitialProgress = () => initialProgress.cancel();
         const unregisterContinuationHandler =
           deps.queue.registerContinuationHandler?.(queueJid, () => {
             void startUserVisibleTurn();
           });
         cancelTurnUiTimers = async () => {
           clearBackgroundDemoteTimer();
-          await Promise.all([liveness.terminal(), cancelInitialProgress()]);
+          await liveness.terminal();
         };
         turnCleanup.activeTurnUiCleanupByQueue.set(queueJid, {
           turnMarker: turnUiMarker,
@@ -684,7 +665,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 options.existingRunLeaseWorkerInstanceId,
               existingRunLeaseFencingVersion:
                 options.existingRunLeaseFencingVersion,
-              liveStopActionToken: turnOptions.liveStopActionToken,
               responseSchema: missedMessages.find(
                 (message) => message.responseSchema !== undefined,
               )?.responseSchema,
@@ -702,7 +682,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             logger,
           });
           await finalizeStreamingOutput('turn-complete');
-          await cancelInitialProgress();
           if (output === 'success' && pendingIdleBoundary) {
             notifyTurnIdle();
           }

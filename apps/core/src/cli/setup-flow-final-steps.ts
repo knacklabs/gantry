@@ -26,7 +26,6 @@ import type { SetupDraft } from './setup-flow-state.js';
 import {
   requiredModelCredentialProviderReasonsForSetupDraft,
   requiredModelCredentialProvidersForSetupDraft,
-  verifyModelAccess,
 } from './setup-credentials.js';
 
 function setupBlocked(reason: string, nextAction: string): string {
@@ -263,23 +262,12 @@ export async function runVerifyStep(
     return { type: 'resume' };
   }
 
-  const modelAccess = await verifyModelAccess(
-    draft.runtimeHome,
-    loadRuntimeSettings(draft.runtimeHome),
-    { skipLiveProviderIds: credentialLiveSkipProviderIds },
+  const modelAccess = report.checks.find(
+    (check) => check.id === 'model-access-credentials',
   );
-  if (!modelAccess.ok) {
-    p.log.warn(
-      setupBlocked(
-        modelAccess.message,
-        modelAccess.nextAction ||
-          'run `gantry credentials model doctor`, then run `gantry setup`.',
-      ),
-    );
-    return { type: 'goto', step: 'credentials' };
-  }
-
-  p.log.success(`${modelAccess.message}\nVerification passed.`);
+  p.log.success(
+    [modelAccess?.message, 'Verification passed.'].filter(Boolean).join('\n'),
+  );
   return { type: 'next' };
 }
 

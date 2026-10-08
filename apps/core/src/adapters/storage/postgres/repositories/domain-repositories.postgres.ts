@@ -1431,6 +1431,20 @@ export class PostgresMessageRepository implements MessageRepository {
     after?: string;
     limit?: number;
   }): Promise<Message[]> {
+    return this.listMessagePage(input, false);
+  }
+  async listRecentMessages(input: {
+    conversationId: Conversation['id'];
+    threadId?: ConversationThread['id'];
+    after?: string;
+    limit?: number;
+  }): Promise<Message[]> {
+    return this.listMessagePage(input, true);
+  }
+  private async listMessagePage(
+    input: Parameters<MessageRepository['listMessages']>[0],
+    latest: boolean,
+  ): Promise<Message[]> {
     const m = pgSchema.messagesPostgres;
     let afterFilter: SQL | undefined;
     if (input.after) {
@@ -1457,8 +1471,12 @@ export class PostgresMessageRepository implements MessageRepository {
           afterFilter,
         ),
       )
-      .orderBy(asc(m.createdAt), asc(m.id))
+      .orderBy(
+        latest ? desc(m.createdAt) : asc(m.createdAt),
+        latest ? desc(m.id) : asc(m.id),
+      )
       .limit(input.limit ?? 100);
+    if (latest) rows.reverse();
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
     const parts = await this.db
@@ -1496,85 +1514,6 @@ export class PostgresMessageRepository implements MessageRepository {
       attachmentsByMessageId.set(attachment.messageId, existing);
     }
     return rows.map((row) =>
-      this.messageFromRows(
-        row,
-        partsByMessageId.get(row.id) ?? [],
-        attachmentsByMessageId.get(row.id) ?? [],
-      ),
-    );
-  }
-  async listRecentMessages(input: {
-    conversationId: Conversation['id'];
-    threadId?: ConversationThread['id'];
-    after?: string;
-    limit?: number;
-  }): Promise<Message[]> {
-    const m = pgSchema.messagesPostgres;
-    let afterFilter: SQL | undefined;
-    if (input.after) {
-      const afterRows = await this.db
-        .select({ createdAt: m.createdAt, id: m.id })
-        .from(m)
-        .where(eq(m.id, input.after))
-        .limit(1);
-      const after = afterRows[0];
-      if (after) {
-        afterFilter = or(
-          gt(m.createdAt, after.createdAt),
-          and(eq(m.createdAt, after.createdAt), gt(m.id, after.id)),
-        );
-      }
-    }
-    const rows = await this.db
-      .select()
-      .from(m)
-      .where(
-        and(
-          eq(m.conversationId, input.conversationId),
-          input.threadId ? eq(m.threadId, input.threadId) : undefined,
-          afterFilter,
-        ),
-      )
-      .orderBy(desc(m.createdAt), desc(m.id))
-      .limit(input.limit ?? 100);
-    const orderedRows = [...rows].reverse();
-    if (orderedRows.length === 0) return [];
-    const ids = orderedRows.map((row) => row.id);
-    const parts = await this.db
-      .select()
-      .from(pgSchema.messagePartsPostgres)
-      .where(inArray(pgSchema.messagePartsPostgres.messageId, ids))
-      .orderBy(
-        asc(pgSchema.messagePartsPostgres.messageId),
-        asc(pgSchema.messagePartsPostgres.ordinal),
-      );
-    const attachments = await this.db
-      .select()
-      .from(pgSchema.messageAttachmentsPostgres)
-      .where(inArray(pgSchema.messageAttachmentsPostgres.messageId, ids))
-      .orderBy(
-        asc(pgSchema.messageAttachmentsPostgres.messageId),
-        asc(pgSchema.messageAttachmentsPostgres.id),
-      );
-    const partsByMessageId = new Map<
-      string,
-      Array<typeof pgSchema.messagePartsPostgres.$inferSelect>
-    >();
-    for (const part of parts) {
-      const existing = partsByMessageId.get(part.messageId) ?? [];
-      existing.push(part);
-      partsByMessageId.set(part.messageId, existing);
-    }
-    const attachmentsByMessageId = new Map<
-      string,
-      Array<typeof pgSchema.messageAttachmentsPostgres.$inferSelect>
-    >();
-    for (const attachment of attachments) {
-      const existing = attachmentsByMessageId.get(attachment.messageId) ?? [];
-      existing.push(attachment);
-      attachmentsByMessageId.set(attachment.messageId, existing);
-    }
-    return orderedRows.map((row) =>
       this.messageFromRows(
         row,
         partsByMessageId.get(row.id) ?? [],

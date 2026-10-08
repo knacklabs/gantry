@@ -1,11 +1,11 @@
 import {
-  MAX_JOB_PERMISSION_CARD_RETIRED_ROWS,
   type JobPermissionCardRecord,
   type JobPermissionCardRevision,
   type JobPermissionCardRowSnapshot,
   type JobPermissionDurabilityState,
   type JobPermissionNeedRecord,
 } from '../../domain/ports/job-permission-durability.js';
+import { settledOnceNeedIds } from '../../domain/job-permission-card-history.js';
 import { sha256Hex } from '../../shared/stable-hash.js';
 import { canonicalJson } from '../../shared/canonical-json.js';
 import type { JobPermissionCardCapacity } from './job-permission-durability.js';
@@ -162,17 +162,11 @@ export function reviseLivingCard(
         ? ('expired' as const)
         : ('allowed' as const)
       : undefined;
-  const overflow = Math.max(
-    0,
-    expiredNeeds.length - MAX_JOB_PERMISSION_CARD_RETIRED_ROWS + 1,
-  );
+  // Living needs hold at most the newest three expiries, so the receipt
+  // lists them all.
   const retiredRows = retiresExpiredCard
-    ? expiredNeeds
-        .slice(0, MAX_JOB_PERMISSION_CARD_RETIRED_ROWS - (overflow ? 1 : 0))
-        .map((need) => ({ label: need.displayLabel }))
+    ? expiredNeeds.map((need) => ({ label: need.displayLabel }))
     : undefined;
-  if (retiredRows && overflow)
-    retiredRows.push({ label: `and ${overflow} more` });
   const last = state.card.revisions.at(-1);
   if (
     !options.force &&
@@ -326,11 +320,13 @@ export function confirmCardRevisionInState(input: {
 export function livingCardNeeds(
   state: JobPermissionDurabilityState,
 ): JobPermissionNeedRecord[] {
+  const settled = settledOnceNeedIds(state);
   return state.needs
     .filter(
       (need) =>
-        ['asking', 'handed_off', 'denied'].includes(need.state) ||
-        (need.state === 'cancelled' && Boolean(need.expiredAt)),
+        (['asking', 'handed_off', 'denied'].includes(need.state) ||
+          (need.state === 'cancelled' && Boolean(need.expiredAt))) &&
+        !settled.has(need.id),
     )
     .sort((left, right) =>
       left.createdAt === right.createdAt

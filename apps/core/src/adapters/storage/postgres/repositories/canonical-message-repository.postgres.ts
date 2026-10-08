@@ -27,7 +27,10 @@ import {
 } from '../../../../shared/message-cursor.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
-import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
+import {
+  enqueueLiveAdmissionWorkItemWithExecutor,
+  quietWindowMs,
+} from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -85,6 +88,8 @@ export interface MessageLiveAdmissionInput {
   agentSessionId?: string | null;
   providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
+  /** Decided by the caller that knows the route trigger; it never waits. */
+  sessionCommand?: boolean;
   now?: string;
 }
 
@@ -392,6 +397,12 @@ export class PostgresCanonicalMessageRepository {
           agentId,
         ),
         triggerDecision: admission.triggerDecision,
+        quietWindowMs:
+          admission.sessionCommand ||
+          (admission.triggerDecision?.source === 'callable_agent_follow_up' &&
+            admission.triggerDecision.requiresTrigger === false)
+            ? 0
+            : quietWindowMs(msg.content, providerId),
         now: admission.now ?? msg.timestamp,
       },
       this.maxLiveAdmissionBacklog,

@@ -175,6 +175,7 @@ export interface RuntimeMessageRepository {
       providerAccountId?: string | null;
       agentSessionId?: string | null;
       triggerDecision?: Record<string, unknown>;
+      sessionCommand?: boolean;
       now?: string;
     },
   ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined>;

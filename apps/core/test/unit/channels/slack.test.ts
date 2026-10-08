@@ -4762,7 +4762,6 @@ describe('Slack channel', () => {
       summary: 'Thread one',
       headline: 'Searching the web',
       status: 'running',
-      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: 'a', title: 'A', status: 'pending' }],
     });
     await channel.renderAgentTodo('sl:C1234567890', {
@@ -4774,7 +4773,6 @@ describe('Slack channel', () => {
       threadId: '1710000000.000111',
       summary: 'Thread one updated',
       status: 'done',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: 'a', title: 'A', status: 'completed' }],
     });
 
@@ -4788,9 +4786,6 @@ describe('Slack channel', () => {
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
       '⏳ Searching the web',
     );
-    expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).not.toContain(
-      'stop-token-1',
-    );
     expect(postMessage.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
         channel: 'C1234567890',
@@ -4802,9 +4797,6 @@ describe('Slack channel', () => {
         channel: 'C1234567890',
         ts: '1710000000.100201',
       }),
-    );
-    expect(JSON.stringify(update.mock.calls[0]?.[0])).not.toContain(
-      'stale-stop-token',
     );
   });
 
@@ -4981,57 +4973,6 @@ describe('Slack channel', () => {
       user: 'U_APPROVER',
       text: 'Not authorized to decide this review.',
     });
-  });
-
-  it('does not render Slack live stop action buttons', async () => {
-    const opts = {
-      ...createOptsWithApproverHook(['U_APPROVER']),
-      providerAccountId: 'slack_alpha',
-      onMessageAction: vi.fn(),
-    };
-    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
-    await channel.connect();
-
-    await channel.sendMessage('sl:C1234567890', 'Working...', {
-      providerAccountId: 'slack_beta',
-      actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
-      ],
-    });
-    const payload = appRef.current.client.chat.postMessage.mock.calls[0]?.[0];
-    expect(payload.blocks).toBeUndefined();
-    expect(JSON.stringify(payload)).not.toContain('live_turn_stop');
-    expect(JSON.stringify(payload)).not.toContain('Stop');
-  });
-
-  it('ignores stale Slack live stop action callbacks', async () => {
-    const opts = {
-      ...createOptsWithApproverHook(['U_APPROVER']),
-      providerAccountId: 'slack_alpha',
-      onMessageAction: vi.fn(),
-    };
-    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
-    await channel.connect();
-
-    const actionHandler = slackActionHandler('gantry_message_action:0');
-    expect(actionHandler).toBeDefined();
-    const ack = vi.fn();
-    await actionHandler({
-      ack,
-      action: {
-        value:
-          '{"kind":"live_turn_stop","actionToken":"token-1","providerAccountId":"slack_beta"}',
-      },
-      body: {
-        channel: { id: 'C1234567890' },
-        user: { id: 'U_APPROVER' },
-        message: { thread_ts: '1710000000.000111' },
-      },
-    });
-
-    expect(ack).toHaveBeenCalled();
-    expect(opts.onMessageAction).not.toHaveBeenCalled();
-    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
   it('chunks outbound Slack messages to 4000-char parts and returns delivery metadata', async () => {
@@ -5372,10 +5313,10 @@ describe('Slack channel', () => {
 
     await channel.sendProgressUpdate('sl:C1234567890', '', {
       actionOnly: true,
-      threadId: '1710000000.000111',
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
+      threadId: '1710000000.000111',
     });
 
     expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
@@ -5659,10 +5600,10 @@ describe('Slack channel', () => {
 
     await channel.sendProgressUpdate('sl:C1234567890', '', {
       actionOnly: true,
-      threadId: '1710000000.000111',
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
+      threadId: '1710000000.000111',
     });
 
     expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
@@ -7104,7 +7045,7 @@ describe('Slack channel', () => {
       '1. Command',
       '2. Command',
     ]);
-    const repository = configureSlackPermissionRequest(batch);
+    configureSlackPermissionRequest(batch);
     const providerAlias = 'slack-terminalize-batch';
     await bindPendingPermissionInteractionMessage({
       request: batch,
@@ -9958,57 +9899,6 @@ describe('Slack channel', () => {
 
     expect(vi.mocked(appRef.current.client.apiCall).mock.calls.length).toBe(
       callsBeforeStale,
-    );
-  });
-
-  it('seals previous generation on resetStreaming to reject late stale chunks', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
-    await channel.connect();
-
-    vi.mocked(appRef.current.client.apiCall).mockImplementation(
-      async (method: string) => {
-        if (method === 'chat.startStream') {
-          return { ok: true, stream_ts: '1710000000.222333' };
-        }
-        if (method === 'chat.appendStream' || method === 'chat.stopStream') {
-          return { ok: true };
-        }
-        return { ok: false };
-      },
-    );
-
-    const threadId = '1710000000.000100';
-    await channel.sendStreamingChunk('sl:C1234567890', 'old', {
-      generation: 1,
-      threadId,
-    });
-
-    channel.resetStreaming('sl:C1234567890');
-    await Promise.resolve();
-    vi.mocked(appRef.current.client.apiCall).mockClear();
-
-    await channel.sendStreamingChunk('sl:C1234567890', 'stale', {
-      generation: 1,
-      threadId,
-    });
-
-    expect(vi.mocked(appRef.current.client.apiCall)).not.toHaveBeenCalled();
-
-    await channel.sendStreamingChunk('sl:C1234567890', 'fresh', {
-      generation: 2,
-      threadId,
-    });
-
-    expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
-      'chat.startStream',
-      expect.objectContaining({
-        channel: 'C1234567890',
-        markdown_text: 'fresh',
-      }),
     );
   });
 

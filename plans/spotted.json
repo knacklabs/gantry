@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "key": "bug\t.claude/agents/worker.md\tNot done: proof list\tforge-files-20261008-1318",
+      "kind": "bug",
+      "path": ".claude/agents/worker.md",
+      "line": 2,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "forge-files-20261008-1318",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
+      "kind": "bug",
+      "path": "forge.toml",
+      "line": 2,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "upgrade-forge-to-v1-2-7",
+      "status": "open",
+      "closed_by": null
+    }
+  ]
+}

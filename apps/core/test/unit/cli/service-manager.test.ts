@@ -154,30 +154,6 @@ describe('service manager background start', () => {
     ]);
   });
 
-  it('installs nohup service script with migration before runtime on linux without systemd', async () => {
-    const runtimeHome = createRuntimeHome();
-    const mod = await loadServiceManagerWithMocks(vi.fn(), undefined, {
-      platform: 'linux',
-      hasSystemdUser: false,
-      runtimeHome,
-    });
-
-    const outcome = mod.installService(import.meta.url, runtimeHome);
-
-    expect(outcome.ok).toBe(true);
-    expect(outcome.kind).toBe('nohup');
-    const script = fs.readFileSync(
-      path.join(runtimeHome, 'start-gantry.sh'),
-      'utf-8',
-    );
-    expect(script).not.toContain('--local-services-start');
-    expect(script).toContain('postgres-migrate.js');
-    expect(script.indexOf('postgres-migrate.js')).toBeLessThan(
-      script.indexOf('nohup'),
-    );
-    expect(script).toContain('nohup');
-  });
-
   it('installs launchd service with GANTRY_HOME in the plist', async () => {
     const runtimeHome = createRuntimeHome();
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-home-'));

@@ -1069,8 +1069,15 @@
     {
       "idx": 155,
       "version": "7",
-      "when": 1790941630934,
-      "tag": "20261002114710_inbound_events",
+      "when": 1790878744548,
+      "tag": "20261001181904_shrink_job_permission_card_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1791484377930,
+      "tag": "20261008183257_inbound_events",
       "breakpoints": true
     }
   ]

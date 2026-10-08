@@ -36,7 +36,10 @@ import {
   writeProgressStateEntries,
 } from '../progress-state-file.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
-import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import {
+  StreamGenerationFence,
+  StreamResetEpochs,
+} from '../stream-reset-epochs.js';
 import { dropPendingTelegramInteraction } from './disconnect.js';
 import {
   cancelPendingTelegramPermission,
@@ -70,8 +73,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     { chatId: string; messageId: number }
   >();
   protected activeGroupStreams = new Map<string, ActiveGroupStreamState>();
-  protected streamGenerationByJid = new Map<string, number>();
-  protected sealedStreamGenerationByJid = new Map<string, number>();
+  protected readonly streamGenerations = new StreamGenerationFence();
   protected readonly streamResetEpochs = new StreamResetEpochs();
   protected activeProgressMessages = new Map<string, ActiveProgressState>();
   protected sealedProgressGenerationByKey = new Map<string, number>();
@@ -178,65 +180,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   private progressStateFilePath(): string | null {
     return channelProgressStateFilePath('telegram', this.botToken);
   }
-  protected clearStreamingStateForJid(jid: string): void {
-    for (const key of this.activeGroupStreams.keys()) {
-      if (!key.startsWith(`${jid}:`)) continue;
-      this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
-    }
-  }
   resetStreaming(jid: string, options?: { threadId?: string }): void {
-    if (options) {
-      const key = this.buildStreamKey(jid, options.threadId);
-      this.streamResetEpochs.bump(key);
-      this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
-      return;
-    }
-    const prefix = `${jid}:`;
-    this.streamResetEpochs.bumpMatching(this.activeGroupStreams.keys(), prefix);
-    this.sealStreamingGenerationOnReset(jid);
-    this.clearStreamingStateForJid(jid);
-  }
-  protected shouldAcceptStreamingChunk(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) return false;
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) {
-      this.streamGenerationByJid.set(jid, generation);
-      return true;
-    }
-    if (generation < latest) return false;
-    if (generation > latest) {
-      this.clearStreamingStateForJid(jid);
-      this.streamGenerationByJid.set(jid, generation);
-    }
-    return true;
-  }
-  protected isCurrentStreamingGeneration(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) return false;
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return true;
-    return generation === latest;
-  }
-  protected markStreamingGenerationDone(
-    jid: string,
-    generation?: number,
-  ): void {
-    if (generation === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed)
-      this.sealedStreamGenerationByJid.set(jid, generation);
-  }
-  protected sealStreamingGenerationOnReset(jid: string): void {
-    this.markStreamingGenerationDone(jid, this.streamGenerationByJid.get(jid));
+    const key = this.buildStreamKey(jid, options?.threadId);
+    this.streamResetEpochs.bump(key);
+    this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
   }
 
   private telegramRateLimitRetryDelayMs(err: unknown): number | null {
@@ -318,11 +265,11 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     const isCurrentState = () =>
       this.streamResetEpochs.isCurrent(key, streamEpoch) &&
       this.activeGroupStreams.get(key) === state &&
-      this.isCurrentStreamingGeneration(jid, options.generation);
+      this.streamGenerations.isCurrent(key, options.generation);
     const finishCurrentState = () => {
       if (!isCurrentState()) return;
       this.streamResetEpochs.deleteState(key, this.activeGroupStreams);
-      this.markStreamingGenerationDone(jid, options.generation);
+      this.streamGenerations.markDone(key, options.generation);
     };
     if (text) state.rawBuffer += text;
     const renderedBuffer = formatTelegramStreamingText(

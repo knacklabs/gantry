@@ -1,0 +1,35 @@
+{
+  "base": "ca1a63abce51dc864aca7debad53d3794aba95fa",
+  "branch": "fix/upgrade-forge-to-v1-2-7",
+  "done_when": "This repo pins and runs Forge v1.2.7.",
+  "flagged": [
+    "forge.toml"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "20f5b28fffc5e057941cea2dd3e71ffbd90c628a5a12e71dd9be87cf5502dc7a",
+    "changed": "59aa812f1a1071b5151ec4a21d0c6602382afed89dad10df398c177253ed8961",
+    "commit": "2d206ffed22af6392a124438c51ee0ac569fafaa",
+    "dismissals": [],
+    "findings": [],
+    "id": "cf720cff-9e98-4a04-bc05-73539d5a356e",
+    "status": "clean"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-08T08:06:26+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-08T08:09:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T08:13:47+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Upgrade Forge to v1.2.7."
+}
