@@ -23,6 +23,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/shared/gantry-mcp-tool-surface.ts\tNot done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual\tthe-agent-can-t-tell-which-gantry-tools",
+      "kind": "bug",
+      "path": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
+      "line": 287,
+      "text": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual",
+      "from": "blocking",
+      "item": "the-agent-can-t-tell-which-gantry-tools",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
@@ -39,6 +50,17 @@
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
       "line": 157,
       "text": "Not done: Test compiled availability against the actual mounted runner surface",
+      "from": "blocking",
+      "item": "the-agent-can-t-tell-which-gantry-tools",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test unavailable capabilities against the real mounting selection\tthe-agent-can-t-tell-which-gantry-tools",
+      "kind": "bug",
+      "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
+      "line": 352,
+      "text": "Not done: Test unavailable capabilities against the real mounting selection",
       "from": "blocking",
       "item": "the-agent-can-t-tell-which-gantry-tools",
       "status": "open",

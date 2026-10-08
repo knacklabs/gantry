@@ -5,32 +5,33 @@
   "done_when": "Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual reason, all derived from the same selection that mounts the tools; delegate_task is always loaded when available; a test through the real prompt compile and runner tool surface proves it",
   "flagged": [
     "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/shared/gantry-mcp-tool-surface.ts",
     "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts"
   ],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "c2f6f1148b0e456c3e7d0c83a81a420a68644f345e87b4bac017428d2cafd9fb",
-    "changed": "41d12718df64e1c3fa3276d6396a461db5737831a462480cd53f0a3dec451dfb",
-    "commit": "b39a7eb1401f77871c6964ab985415f86dcd432e",
+    "branch_diff": "0db816ca315857e4192ad1afcec2980ec49ff4ee6b7aa0329deb918ce9f1ede9",
+    "changed": "7c71b9edf6624cf626ef9db9738c9eb0bfc94a8e44539ccf946ddfcf33406de5",
+    "commit": "d5495cb67214e0fe2407fe7faa63b0f780636595",
     "dismissals": [],
     "findings": [
       {
-        "body": "The Claude worker still advertises only MCP and callable-agent names. New sibling-path evidence: its real query mounts `capabilities.availableTools` in `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:443`. Those include native implementations of Gantry public WebSearch, WebRead, File* and RunCommand tools, as mapped in `apps/core/src/shared/gantry-tool-facades.ts:126`. For example, WebSearch and WebFetch are mounted by default but absent from this inventory. Unlike the DeepAgents worker, the Claude worker never finalizes availability from that complete mounting selection. This leaves the Done-when requirement unmet and can still make the agent report available web/file capabilities as absent.",
-        "file": "apps/core/src/runtime/agent-spawn-prompt.ts",
-        "line": 161,
+        "body": "Both worker runners use this finalizer, but it replaces only `Available:` and preserves the host's unavailable-tool reasons. New evidence beyond the mounting-boundary ruling: `agent-spawn-preparation.ts:115` predicts browser IPC availability from the Browser grant, while Claude registration uses the actual credential (`agent-capabilities.ts:289`), as does DeepAgents (`gantry-mcp-env.ts:47`). In the proof list's Browser-selected/no-credential scenario, using the real authority projection therefore removes browser tools from Available without stating why they are unavailable. Facade capabilities have the same gap: DeepAgents omits RunCommand without its grant (`mcp-tools.ts:375`), but the unavailable renderer iterates only MCP names, so instructions never state that gate. Finalize unavailable reasons alongside available names from the actual mounting selection.",
+        "file": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
+        "line": 287,
         "priority": "P1",
         "title": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual"
       },
       {
-        "body": "The Claude expectation compares the compiled prompt exclusively with the Gantry stdio server's registrations. It excludes the public capabilities implemented by the native tools that the real worker passes through `options.tools` (`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:443`). Consequently, all six cases pass while mounted WebSearch/WebRead/File* and RunCommand projections remain absent from Claude's advertised inventory. The WebSearch/FileRead/RunCommand assertions earlier in this test inspect only DeepAgents. Extend the Claude runner-boundary proof to compare final model instructions with the complete exposed surface, using the public-name mapping; the proof-list claim of agreement with actual mounts is currently incomplete.",
+        "body": "The worker-boundary proof overwrites the real authority projection with `browserIpcEnabled: false` before compiling instructions. Production preparation instead derives that value from the Browser grant (`agent-spawn-preparation.ts:115`). This supplies the missing browser reason in the fixture and hides the finalizer's failure to derive it from the credential-based mount selection. Moreover, the final assertions check unavailable reasons only for delegate_task; the browser scenario and existing RunCommand-absent cases would pass with no explanation for those missing capabilities. Preserve the real authority projection and assert the final instructions' unavailable reasons against these actual runner gates for both engines.",
         "file": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
-        "line": 285,
+        "line": 352,
         "priority": "P1",
-        "title": "Not done: Test Claude instructions against the complete runner tool surface"
+        "title": "Not done: Test unavailable capabilities against the real mounting selection"
       }
     ],
-    "id": "4d30ed89-fd0f-4016-b99f-ed569f39addb",
+    "id": "71a18828-745b-47a6-a1b0-ad7ea2417a3e",
     "status": "blocked"
   },
   "round": 4,
@@ -46,6 +47,10 @@
     },
     {
       "at": "2026-10-08T16:25:54+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T17:20:53+00:00",
       "step": "review"
     }
   ],
