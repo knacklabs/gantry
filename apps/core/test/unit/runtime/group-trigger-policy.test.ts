@@ -73,6 +73,39 @@ function decide(
 }
 
 describe('decideBatch', () => {
+  it.each([
+    ['Document', 'file'],
+    ['Photo', 'image'],
+    ['Video', 'video'],
+    ['Voice message', 'audio'],
+    ['Audio', 'audio'],
+    ['Sticker', 'other'],
+    ['Animation', 'other'],
+  ] as const)(
+    'matches %s captions without treating filename brackets as the prefix end',
+    async (label, kind) => {
+      for (const fileName of [
+        'report[1].pdf',
+        'report[[1]] draft.pdf',
+        'report] @Andy [draft.pdf',
+      ]) {
+        for (const reference of ['', ' (ref)']) {
+          const media = (caption: string) =>
+            message({
+              content: `[${label}: ${fileName}]${reference} ${caption}`,
+              attachments: [{ id: 'media', kind, file_name: fileName }],
+            });
+          await expect(
+            decide([media('@Andy review [this]')]),
+          ).resolves.toBe(true);
+          await expect(
+            decide([media('Please review @Andy [this]')]),
+          ).resolves.toBe(false);
+        }
+      }
+    },
+  );
+
   it('takes every part of a split message when one part mentions the bot', async () => {
     await expect(
       decide([
