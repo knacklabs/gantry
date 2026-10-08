@@ -3,12 +3,37 @@
   "base": "f05bc55b04f18aaab3de951d49084df68ff402a0",
   "branch": "fix/forge-files-20261008-1318",
   "done_when": "The files match what forge sync writes for the pinned Forge",
+  "flagged": [
+    ".claude/agents/worker.md"
+  ],
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "dba41be2ba1327de68de38e45a40a2a47dbf2e5e5dec980864f88e5a23455d86",
+    "changed": "6cf80588d5bf5d69fbea944c37f89f954abe4f2adc88ed5a59c27d4b633db7fd",
+    "commit": "26c20e191a92ff91926403dac21d3c7436855212",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The supplied proof list is `missing`, and the latest implementation commit contains only its subject, with no proof entries. Add the required list covering the Done-when item, naming the pinned Forge v1.2.7 and the check demonstrating that its sync leaves the generated files for both Claude Code and Codex unchanged. This configuration change needs that named check, not a new application end-to-end test.",
+        "file": ".claude/agents/worker.md",
+        "line": 2,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "0bf5e35e-09b0-4e78-a8ae-7619b20d6a17",
+    "status": "blocked"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-08T13:18:34+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-08T13:23:24+00:00",
+      "step": "review"
     }
   ],
   "why": "Bring the files Forge writes for Claude Code and Codex up to date"
