@@ -74,7 +74,7 @@ web UI, host-side webhooks. Do not build placeholders for them.
   `adapters/storage/postgres/repositories/`. Follow the `schema-change` skill:
   contracts, readiness, repository tests.
 - Agent tools: register `brain_search`, `brain_query`, `brain_write` on the
-  existing runner MCP tool surface (`apps/core/src/runner/gantry-mcp-tool-surface.ts`,
+  existing runner MCP tool surface (`apps/core/src/shared/gantry-mcp-tool-surface.ts`,
   `runner/mcp/tools/`) following existing memory/scheduler tool patterns.
 - Embedding backfill: register a brain backfill cron next to the existing
   memory backfill in `apps/core/src/jobs/system-jobs.ts`, reusing its batch machinery.
