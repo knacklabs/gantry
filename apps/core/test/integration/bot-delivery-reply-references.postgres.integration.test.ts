@@ -16,6 +16,7 @@ const providerEdge = vi.hoisted(() => ({
   postCount: 0,
   uploadFails: false,
   sequence: 0,
+  parentChannelId: '',
   visibleId() {
     const id = `1800000000.${++this.sequence}`;
     this.visibleIds.push(id);
@@ -75,6 +76,7 @@ import type {
   ChannelOpts,
 } from '@core/channels/channel-provider.js';
 import { DiscordChannel } from '@core/channels/discord/index.js';
+import { resolveDiscordConversationContext } from '@core/channels/discord/conversation-context.js';
 import { SlackChannel } from '@core/channels/slack/channel-adapter.js';
 import {
   getProvider,
@@ -133,6 +135,29 @@ const cases = [
     provider: 'discord',
     path: 'stream',
     chars: 6500,
+  },
+  {
+    name: 'Discord reply while the bot is streaming',
+    provider: 'discord',
+    path: 'stream',
+    chars: 20,
+    live: true,
+  },
+  {
+    name: 'Discord thread opened on a still-streaming bot message',
+    provider: 'discord',
+    path: 'stream',
+    chars: 20,
+    live: true,
+    opensThread: true,
+  },
+  {
+    name: 'Slack thread opened on a still-streaming bot message',
+    provider: 'slack',
+    path: 'stream',
+    chars: 20,
+    live: true,
+    opensThread: true,
   },
   {
     name: 'partial stream chunks',
@@ -205,6 +230,11 @@ maybeDescribe(
               return new Response('{}', { status: 500 });
             return Response.json({ id: providerEdge.visibleId() });
           }
+          if (init?.method === 'GET')
+            return Response.json({
+              type: 11,
+              parent_id: providerEdge.parentChannelId,
+            });
           return Response.json({});
         });
 
@@ -213,6 +243,7 @@ maybeDescribe(
           scenario.provider === 'slack'
             ? 'sl:C_REPLY'
             : `dc:reply-${cases.indexOf(scenario)}`;
+        providerEdge.parentChannelId = jid.slice(3);
         const opts: ChannelOpts = {
           providerAccountId,
           onMessage: async () => 'stored',
@@ -266,6 +297,7 @@ maybeDescribe(
             throwOnMissing: true,
             messageOptions: options,
           });
+        let finishStream: (() => Promise<boolean>) | undefined;
         try {
           if (scenario.path === 'stream') {
             let status: 'none' | 'sent' | 'partially_sent' = 'none';
@@ -313,7 +345,9 @@ maybeDescribe(
             });
             await buffer.appendRawOutput(text);
             if ('resetBeforeFinal' in scenario) wiring.resetStreaming(jid);
-            await buffer.flushBufferedOutput('turn complete');
+            // Live cases evaluate replies while generation output is still open.
+            finishStream = () => buffer.flushBufferedOutput('turn complete');
+            if (!('live' in scenario)) await finishStream();
           } else if (scenario.path === 'core') {
             await sendCoreMessage({
               message: { text },
@@ -364,16 +398,19 @@ maybeDescribe(
           const replyIsForAgent = (
             externalId: string,
             account = providerAccountId,
+            route: { chatJid: string; threadId?: string } = { chatJid: jid },
+            isDirectReply = true,
           ) => {
             const reply: NewMessage = {
               id: `reply:${externalId}`,
-              chat_jid: jid,
+              chat_jid: route.chatJid,
               providerAccountId: account,
               sender: 'member',
               sender_name: 'Member',
               content: 'Please explain this part.',
               timestamp: new Date().toISOString(),
-              reply_to_message_id: externalId,
+              ...(isDirectReply ? { reply_to_message_id: externalId } : {}),
+              thread_id: route.threadId,
             };
             return decideBatch({
               group: {
@@ -381,7 +418,8 @@ maybeDescribe(
                 requiresTrigger: true,
                 providerAccountId: account,
               },
-              chatJid: jid,
+              chatJid: route.chatJid,
+              threadId: route.threadId,
               triggerPattern: /^@Gantry\b/,
               messages: [reply],
               receivedDuringTurn: new Set(),
@@ -389,15 +427,62 @@ maybeDescribe(
             });
           };
           for (const id of providerEdge.visibleIds) {
+            let route: { chatJid: string; threadId?: string } = { chatJid: jid };
+            if ('opensThread' in scenario) {
+              if (scenario.provider === 'discord') {
+                const context = await resolveDiscordConversationContext({
+                  channelId: id,
+                  botToken: 'test-token',
+                  cache: new Map(),
+                  headers: () => ({}),
+                  requestJson: async <T>(path: string, init: RequestInit) => {
+                    const response = await fetch(
+                      `https://discord.com/api/v10${path}`,
+                      init,
+                    );
+                    return (await response.json()) as T;
+                  },
+                });
+                route = {
+                  chatJid: context.conversationJid,
+                  threadId: context.threadId,
+                };
+              } else route = { chatJid: jid, threadId: id };
+            }
             expect(
-              await replyIsForAgent(id),
+              await replyIsForAgent(id, providerAccountId, route),
               `reply to provider-visible ${id}`,
             ).toBe(true);
             expect(
-              await replyIsForAgent(id, `${providerAccountId}_other`),
+              await replyIsForAgent(id, `${providerAccountId}_other`, route),
             ).toBe(false);
+            if ('live' in scenario)
+              expect(
+                await replyIsForAgent(id, providerAccountId, {
+                  ...route,
+                  chatJid:
+                    scenario.provider === 'discord'
+                      ? 'dc:unrelated-parent'
+                      : 'sl:C_UNRELATED',
+                }),
+              ).toBe(false);
+            if ('opensThread' in scenario) {
+              expect(
+                await replyIsForAgent(id, providerAccountId, route, false),
+                `unmentioned follow-up in the thread opened on ${id}`,
+              ).toBe(true);
+              expect(
+                await replyIsForAgent(
+                  id,
+                  `${providerAccountId}_other`,
+                  route,
+                  false,
+                ),
+              ).toBe(false);
+            }
           }
           expect(await replyIsForAgent('unrelated-message')).toBe(false);
+          if ('live' in scenario) await finishStream?.();
         } finally {
           await wiring.disconnectChannels();
         }
