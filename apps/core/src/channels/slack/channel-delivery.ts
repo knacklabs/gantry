@@ -367,7 +367,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return false;
           if (fallback) {
             delivered = true;
-            state.fallbackMessageTs = [];
+            if (fallback.externalMessageId)
+              state.fallbackMessageTs.push(fallback.externalMessageId);
           }
         }
         if (!delivered && fallbackParts.length > 0) {
@@ -414,7 +415,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
                 return false;
               if (fallback) {
                 delivered = true;
-                state.fallbackMessageTs = [];
+                if (fallback.externalMessageId)
+                  state.fallbackMessageTs.push(fallback.externalMessageId);
               }
             }
             if (!delivered && fallbackParts.length > 0) {

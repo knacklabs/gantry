@@ -791,7 +791,10 @@ describe('DiscordChannel', () => {
           },
         ],
       }),
-    ).resolves.toMatchObject({ externalMessageId: 'text-message-1' });
+    ).resolves.toMatchObject({
+      externalMessageId: 'text-message-1',
+      externalMessageIds: ['text-message-1', 'warning-message-1'],
+    });
 
     const textBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(textBody.content).toBe('Report attached');
