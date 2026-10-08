@@ -5,24 +5,24 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "f0fa397079029206da6e04e684514b700229f550e8d6c3016fde860e84334e36",
-    "changed": "eb652df650696967678efdf47a6f45c87bfe076c6e57782b084c5a0e4a069685",
-    "commit": "f7e71019eee16e165200d217b2f968d619c446a6",
+    "branch_diff": "f6ba55c82142a7302c6f5179b025d12c18657e076f7f9f329d599228f9151008",
+    "changed": "7e6dc79574e0e1b5c798f6cb6541359b647e1d875183413676f14ba4e4dbb4a1",
+    "commit": "64bb0db0c4e8a2251bd2dc43b34b0846b540d58f",
     "dismissals": [],
     "findings": [
       {
-        "body": "Live stream receipts remain only in memory until the generation's `done` flush persists them. An allowed member can open a Discord thread on the bot's visible streaming message and send an unmentioned follow-up while the original stream continues. Discord maps that message to a separate thread queue (`channels/discord/conversation-context.ts:324\u2013327`), so the exact-queue check in `live-admission-work-item-repository.postgres.ts:192` does not mark it as received during the running turn. The bot-reference lookup also finds nothing because the visible root has not been persisted, and `group-processing.ts:240\u2013254` consumes the follow-up without running the agent. Slack replies opening a thread on a top-level streaming answer have the same gap. New evidence beyond the receipt/reset rulings: the reply-reference tests finish the stream at `bot-delivery-reply-references.postgres.integration.test.ts:316` before checking replies, so they cannot detect admission while the original stream is still running. Persist acknowledged live references through the existing message projection before another queue evaluates them, and cover a bot-rooted follow-up with the original stream held open.",
-        "file": "apps/core/src/runtime/group-output-buffer.ts",
-        "line": 84,
-        "priority": "P1",
-        "title": "Not done: Mention-required groups follow the conversation"
+        "body": "A Telegram document named `report[1].pdf` with caption `@Helper review this` produces `[Document: report[1].pdf] (ref) @Helper review this`. This regex stops at the filename's first `]`, leaving `.pdf] (ref) @Helper review this`, so the anchored route trigger fails and the request stays history unless another continuation rule applies. The unchanged document handler interpolates the original filename into the placeholder (`media-ingestion.ts:248\u2013252`). New evidence beyond the caption ruling: filename brackets prevent the chosen placeholder-removal rule from reaching the caption. Extract the caption independently of filename punctuation or remove the complete known placeholder.",
+        "file": "apps/core/src/runtime/group-trigger-policy.ts",
+        "line": 23,
+        "priority": "P2",
+        "title": "Handle brackets in document names when matching caption triggers"
       }
     ],
-    "id": "f29ff76c-c3cb-490a-8852-d9f7f082b370",
-    "status": "blocked"
+    "id": "86923ad7-a096-4118-839a-659df805db40",
+    "status": "clean"
   },
   "round": 3,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T18:08:13+00:00",
@@ -50,6 +50,10 @@
     },
     {
       "at": "2026-10-08T16:52:18+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T17:47:36+00:00",
       "step": "review"
     }
   ],
