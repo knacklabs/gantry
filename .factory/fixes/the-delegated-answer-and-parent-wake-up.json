@@ -1,0 +1,14 @@
+{
+  "base": "ca1a63abce51dc864aca7debad53d3794aba95fa",
+  "branch": "fix/the-delegated-answer-and-parent-wake-up",
+  "done_when": "delegated-answer-and-parent-wakeup.postgres.integration.test.ts passes on main because the parent wake-up record is created again, with the root cause fixed in code rather than the test loosened",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-08T09:43:14+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The delegated answer and parent wake-up test fails on main after later merges"
+}
