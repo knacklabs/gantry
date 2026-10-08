@@ -354,9 +354,12 @@ export class PostgresCanonicalMessageRepository {
           agentId,
         ),
         triggerDecision: admission.triggerDecision,
-        quietWindowMs: admission.sessionCommand
-          ? 0
-          : quietWindowMs(msg.content, providerId),
+        quietWindowMs:
+          admission.sessionCommand ||
+          (admission.triggerDecision?.source === 'callable_agent_follow_up' &&
+            admission.triggerDecision.requiresTrigger === false)
+            ? 0
+            : quietWindowMs(msg.content, providerId),
         now: admission.now ?? msg.timestamp,
       },
       this.maxLiveAdmissionBacklog,
