@@ -1,0 +1,14 @@
+{
+  "base": "ca1a63abce51dc864aca7debad53d3794aba95fa",
+  "branch": "fix/upgrade-forge-to-v1-2-7",
+  "done_when": "This repo pins and runs Forge v1.2.7.",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-08T08:06:26+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Upgrade Forge to v1.2.7."
+}
