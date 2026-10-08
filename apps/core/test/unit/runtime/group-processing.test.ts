@@ -6309,9 +6309,9 @@ describe('createGroupProcessor', () => {
       expect(deliveredStream.endsWith(tailChunk)).toBe(true);
       // Live acknowledgements update one message; its final text is the entire
       // generation. Only the run summary and fallback transcript remain bounded.
-      const projections = vi.mocked(deps.opsRepository.storeMessage).mock.calls.map(
-        ([message]) => message,
-      );
+      const projections = vi
+        .mocked(deps.opsRepository.storeMessage)
+        .mock.calls.map(([message]) => message);
       expect(new Set(projections.map((message) => message.id)).size).toBe(1);
       const storedTranscript = projections.at(-1)!.content;
       expect(storedTranscript).toBe(deliveredStream);

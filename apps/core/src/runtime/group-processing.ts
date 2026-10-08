@@ -511,7 +511,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
             const message: NewMessage = {
-              id: `streamed-outbound:${generationId}`,
+              id: `streamed-outbound:${options.existingRunId ?? generationId}:${generationId}`,
               chat_jid: chatJid,
               sender: 'gantry',
               sender_name: 'Gantry',

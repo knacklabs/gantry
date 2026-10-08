@@ -494,7 +494,9 @@ maybeDescribe(
             // Live projections and completion replace one row, preserving the
             // entire generation and every receipt instead of duplicating history.
             const conversationIds =
-              await runtime.repositories.messages.listConversationIdsForJid(jid);
+              await runtime.repositories.messages.listConversationIdsForJid(
+                jid,
+              );
             const messages = (
               await Promise.all(
                 conversationIds.map((conversationId) =>
