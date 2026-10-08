@@ -1,0 +1,15 @@
+{
+  "allow_large": "Doctor brings every file forge sync writes up to date in one change; vrknetha allowed it by running forge doctor --fix.",
+  "base": "f05bc55b04f18aaab3de951d49084df68ff402a0",
+  "branch": "fix/forge-files-20261008-1318",
+  "done_when": "The files match what forge sync writes for the pinned Forge",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-08T13:18:34+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Bring the files Forge writes for Claude Code and Codex up to date"
+}
