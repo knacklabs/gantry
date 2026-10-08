@@ -141,16 +141,22 @@ function unavailableTools(prompt: string): Map<string, string> {
   return reasons;
 }
 
-function expectedUnavailableTools(scenario: {
-  tools: string[];
-  accessPreset: 'full' | 'locked';
-  hidden: boolean;
-  asyncEnabled: boolean;
-  autonomous: boolean;
-  browserCredential?: boolean;
-  slack?: boolean;
-  reviewer?: boolean;
-}): Map<string, string> {
+function expectedUnavailableTools(
+  scenario: {
+    tools: string[];
+    accessPreset: 'full' | 'locked';
+    hidden: boolean;
+    asyncEnabled: boolean;
+    autonomous: boolean;
+    browserCredential?: boolean;
+    slack?: boolean;
+    reviewer?: boolean;
+    shellEnabled?: boolean;
+    filesystemEnabled?: boolean;
+    persona?: 'developer' | 'generalist';
+  },
+  engine: string,
+): Map<string, string> {
   const reasons = new Map<string, string>();
   const add = (names: string[], reason: string) => {
     for (const name of names) reasons.set(name, reason);
@@ -187,6 +193,50 @@ function expectedUnavailableTools(scenario: {
       ['delegate_task', 'task_message'],
       taskReason ?? 'AgentDelegation has not been granted',
     );
+  }
+  if (engine === DEFAULT_AGENT_ENGINE) {
+    add(
+      ['AgentDelegation'],
+      taskReason ??
+        (scenario.tools.includes('AgentDelegation')
+          ? 'use delegate_task for delegation in this runner'
+          : 'AgentDelegation has not been granted'),
+    );
+    if (scenario.autonomous) {
+      add(['RunCommand'], 'not exposed by the scheduled runner');
+      add(
+        ['FileEdit', 'FileWrite'].filter(
+          (name) => !scenario.tools.includes(name),
+        ),
+        'not exposed by the scheduled runner',
+      );
+      if (scenario.persona === 'generalist') {
+        add(
+          ['FileRead', 'FileSearch'].filter(
+            (name) => !scenario.tools.includes(name),
+          ),
+          'not exposed by the scheduled runner',
+        );
+      }
+    }
+  } else {
+    if (taskReason || !scenario.tools.includes('AgentDelegation')) {
+      add(
+        ['AgentDelegation'],
+        taskReason ?? 'AgentDelegation has not been granted',
+      );
+    }
+    if (!(scenario.shellEnabled ?? scenario.tools.includes('RunCommand'))) {
+      add(['RunCommand'], 'shell execution is unavailable');
+    } else if (!scenario.tools.includes('RunCommand')) {
+      add(['RunCommand'], 'RunCommand has not been granted');
+    }
+    if (scenario.filesystemEnabled === false) {
+      add(
+        ['FileSearch', 'FileRead', 'FileEdit', 'FileWrite'],
+        'filesystem tools are unavailable',
+      );
+    }
   }
   if (!scenario.tools.includes('Browser') || !scenario.browserCredential) {
     add(
@@ -397,6 +447,76 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
       reviewer: true,
       delegation: false,
     },
+    {
+      name: 'a RunCommand grant has no runner shell',
+      tools: ['RunCommand'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      shellEnabled: false,
+      delegation: false,
+    },
+    {
+      name: 'an enabled runner shell has no RunCommand grant',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      shellEnabled: true,
+      delegation: false,
+    },
+    {
+      name: 'file grants have no runner filesystem',
+      tools: ['FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      filesystemEnabled: false,
+      delegation: false,
+    },
+    {
+      name: 'an enabled runner filesystem needs no file grants',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      filesystemEnabled: true,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled developer has file and command grants',
+      tools: ['RunCommand', 'FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'developer' as const,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled assistant has file and command grants',
+      tools: ['RunCommand', 'FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'generalist' as const,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled assistant has no file grants',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'generalist' as const,
+      delegation: false,
+    },
   ])(
     'advertises the mounted surface and every unavailable reason when $name',
     async (scenario) => {
@@ -415,6 +535,7 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
         workspaceFolder: 'team',
         chatJid: scenario.slack ? 'sl:1001' : 'tg:1001',
         memoryReviewerIsControlApprover: scenario.reviewer === true,
+        persona: scenario.persona,
         toolPolicyRules: scenario.tools,
         hideAuthorityTools: scenario.hidden,
         isScheduledJob: scenario.autonomous,
@@ -454,10 +575,12 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: scenario.reviewer
           ? '1'
           : '',
-        GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED: '1',
-        GANTRY_DEEPAGENTS_SHELL_ENABLED: scenario.tools.includes('RunCommand')
-          ? '1'
-          : '',
+        GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED:
+          scenario.filesystemEnabled === false ? '' : '1',
+        GANTRY_DEEPAGENTS_SHELL_ENABLED:
+          (scenario.shellEnabled ?? scenario.tools.includes('RunCommand'))
+            ? '1'
+            : '',
         GANTRY_CHAT_JID: agentInput.chatJid,
         GANTRY_AGENT_ACCESS_PRESET: authority.accessPreset,
         GANTRY_NO_PERMISSION_TOOLS: authority.hideAuthorityTools ? '1' : '',
@@ -524,9 +647,19 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
         expect(deepMounted).toEqual(deep.gantryOwnedToolNames);
         expect(deepMounted.has('WebSearch')).toBe(true);
         expect(deepMounted.has('WebRead')).toBe(true);
-        expect(deepMounted.has('FileRead')).toBe(true);
+        for (const name of [
+          'FileRead',
+          'FileSearch',
+          'FileEdit',
+          'FileWrite',
+        ]) {
+          expect(deepMounted.has(name)).toBe(
+            scenario.filesystemEnabled !== false,
+          );
+        }
         expect(deepMounted.has('RunCommand')).toBe(
-          scenario.tools.includes('RunCommand'),
+          (scenario.shellEnabled ?? scenario.tools.includes('RunCommand')) &&
+            scenario.tools.includes('RunCommand'),
         );
         expect(deepMounted.has('delegate_task')).toBe(scenario.delegation);
         for (const agentEngine of [DEFAULT_AGENT_ENGINE, DEEPAGENTS_ENGINE]) {
@@ -625,7 +758,18 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
             ]);
             expect(completeMounted.has('WebSearch')).toBe(true);
             expect(completeMounted.has('WebRead')).toBe(true);
-            expect(completeMounted.has('FileRead')).toBe(true);
+            for (const name of ['FileRead', 'FileSearch']) {
+              expect(completeMounted.has(name)).toBe(
+                scenario.tools.includes(name) ||
+                  !scenario.autonomous ||
+                  scenario.persona !== 'generalist',
+              );
+            }
+            for (const name of ['FileEdit', 'FileWrite']) {
+              expect(completeMounted.has(name)).toBe(
+                scenario.tools.includes(name) || !scenario.autonomous,
+              );
+            }
             expect(completeMounted.has('RunCommand')).toBe(
               !scenario.autonomous,
             );
@@ -639,9 +783,9 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
                 : '';
           }
           expect(advertisedTools(prompt)).toEqual(completeMounted);
-          expect(unavailableTools(prompt)).toEqual(
-            expectedUnavailableTools(scenario),
-          );
+          expect
+            .soft(unavailableTools(prompt), agentEngine)
+            .toEqual(expectedUnavailableTools(scenario, agentEngine));
         }
       } finally {
         await deep.close();

@@ -33,6 +33,16 @@ export function composeDeepAgentSystemPrompt(
             hideAuthorityTools: input.hideAuthorityTools === true,
             processEnv: process.env,
           }).env,
+          {
+            RunCommand:
+              process.env.GANTRY_DEEPAGENTS_SHELL_ENABLED === '1'
+                ? 'RunCommand has not been granted'
+                : 'shell execution is unavailable',
+            FileSearch: 'filesystem tools are unavailable',
+            FileRead: 'filesystem tools are unavailable',
+            FileEdit: 'filesystem tools are unavailable',
+            FileWrite: 'filesystem tools are unavailable',
+          },
         )
       : input.compiledSystemPrompt,
     hasMemoryContext: Boolean(memoryBlock),
