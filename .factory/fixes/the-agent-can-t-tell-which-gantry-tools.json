@@ -10,27 +10,27 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "86b6b9cb12f3b12eb9e8771a8877ebf4368b9d4c601c0fcdaaa275d5dd9ecf33",
-    "changed": "8f6c0a52469a1e7df729cc3d8884e7cc2829cea04f18096fbc6bfbfb28d7f250",
-    "commit": "8bbcfe97587d2041be93d655186fd30d4d71f3cc",
+    "branch_diff": "c2f6f1148b0e456c3e7d0c83a81a420a68644f345e87b4bac017428d2cafd9fb",
+    "changed": "41d12718df64e1c3fa3276d6396a461db5737831a462480cd53f0a3dec451dfb",
+    "commit": "b39a7eb1401f77871c6964ab985415f86dcd432e",
     "dismissals": [],
     "findings": [
       {
-        "body": "The Done-when requirement remains unmet in two runtime paths. Inline runs call compileSpawnSystemPrompt without gantryToolSelection (apps/core/src/runtime/agent-spawn-host.ts:192\u2013213), so this conditional omits the inventory and delegation gate entirely for both inline engines. Worker runs advertise only MCP names, although the DeepAgents runner also mounts Gantry facade and shell tools (apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts:210\u2013247), including WebSearch and WebRead. Those capabilities are absent from the supposedly authoritative availability list. Derive instructions from the complete mounting selection for worker and inline runs.",
+        "body": "The Claude worker still advertises only MCP and callable-agent names. New sibling-path evidence: its real query mounts `capabilities.availableTools` in `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:443`. Those include native implementations of Gantry public WebSearch, WebRead, File* and RunCommand tools, as mapped in `apps/core/src/shared/gantry-tool-facades.ts:126`. For example, WebSearch and WebFetch are mounted by default but absent from this inventory. Unlike the DeepAgents worker, the Claude worker never finalizes availability from that complete mounting selection. This leaves the Done-when requirement unmet and can still make the agent report available web/file capabilities as absent.",
         "file": "apps/core/src/runtime/agent-spawn-prompt.ts",
-        "line": 158,
+        "line": 161,
         "priority": "P1",
         "title": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual"
       },
       {
-        "body": "The new boundary proof compares the prompt with effectiveEnabledMcpToolNames and DeepAgents selectedToolNames, rather than tools registered and exposed by the runner. It never exercises inline prompt preparation or connectGantryAndThirdPartyMcpTools. Consequently, all six scenarios pass despite the missing inline inventory and omitted worker facade tools. The SDK integration tests likewise inspect configuration passed to the fake SDK without compiling run availability. Add an owner-boundary test comparing the final instructions with the actual exposed Gantry tools, covering these omitted runtime paths and their delegation gates.",
+        "body": "The Claude expectation compares the compiled prompt exclusively with the Gantry stdio server's registrations. It excludes the public capabilities implemented by the native tools that the real worker passes through `options.tools` (`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop-phases-setup.ts:443`). Consequently, all six cases pass while mounted WebSearch/WebRead/File* and RunCommand projections remain absent from Claude's advertised inventory. The WebSearch/FileRead/RunCommand assertions earlier in this test inspect only DeepAgents. Extend the Claude runner-boundary proof to compare final model instructions with the complete exposed surface, using the public-name mapping; the proof-list claim of agreement with actual mounts is currently incomplete.",
         "file": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
-        "line": 157,
+        "line": 285,
         "priority": "P1",
-        "title": "Not done: Test compiled availability against the actual mounted runner surface"
+        "title": "Not done: Test Claude instructions against the complete runner tool surface"
       }
     ],
-    "id": "ca01030e-b8e3-43d6-9432-546a857bfca6",
+    "id": "4d30ed89-fd0f-4016-b99f-ed569f39addb",
     "status": "blocked"
   },
   "round": 3,
@@ -42,6 +42,10 @@
     },
     {
       "at": "2026-10-08T15:23:29+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T16:25:54+00:00",
       "step": "review"
     }
   ],
