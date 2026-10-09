@@ -1,0 +1,46 @@
+{
+  "allow_large": "Unavailable capability reasons not derived from the real mount decision: every place it appears; no interface change. Most counted files are inherited from the unmerged #605 this fix builds on",
+  "base": "704de73f0a972e21087917b7b8cea791a4025305",
+  "branch": "fix/the-agent-s-unavailable-reasons-come-fro",
+  "done_when": "Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the browser IPC credential, not the Browser grant), and the boundary test checks every unavailable reason, not only delegation's",
+  "flagged": [
+    "apps/core/src/shared/gantry-mcp-tool-surface.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "056ca522f5637823d9f1b0f22d9811d839f39a3539a4e1d57def6f50793bc47b",
+    "changed": "cbfaac8f98e7005f744fd3f8354d412e6f2e6cd65dea961834b8d4fc5bd366a9",
+    "commit": "69bac70bcb5fa5678e833571bd8aff7d6d1dd470",
+    "dismissals": [],
+    "findings": [],
+    "id": "99ce0f40-4bd8-469c-92c9-adc7e3cb1136",
+    "status": "clean"
+  },
+  "round": 7,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-08T18:19:01+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-08T19:43:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T22:50:54+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T04:17:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T08:05:41+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The agent's 'unavailable' reasons come from grants instead of what the runner really mounts",
+  "worker": "codex"
+}

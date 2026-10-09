@@ -6,7 +6,7 @@ import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
-import { agentDirectoryQuery } from '../../agents/agents-queries';
+import { agentDetailQuery } from '../../agents/agents-queries';
 import {
   agentConversationInstallsQuery,
   channelAccountsQuery,
@@ -23,23 +23,16 @@ export function ChannelAccountDetailRoute() {
   const installs = useQuery(
     agentConversationInstallsQuery(account?.agentId ?? ''),
   );
-  const agents = useQuery(
-    agentDirectoryQuery({
-      page: 1,
-      pageSize: 100,
-      search: '',
-      status: 'all',
-      role: 'all',
-      sort: 'name',
-      direction: 'asc',
-    }),
-  );
+  const owner = useQuery({
+    ...agentDetailQuery(account?.agentId ?? ''),
+    enabled: Boolean(account),
+  });
 
   if (
     accounts.isError ||
     providers.isError ||
     conversations.isError ||
-    agents.isError
+    owner.isError
   ) {
     return (
       <LoadError
@@ -47,7 +40,7 @@ export function ChannelAccountDetailRoute() {
           void accounts.refetch();
           void providers.refetch();
           void conversations.refetch();
-          void agents.refetch();
+          if (account) void owner.refetch();
         }}
       />
     );
@@ -56,7 +49,7 @@ export function ChannelAccountDetailRoute() {
     !accounts.data ||
     !providers.data ||
     !conversations.data ||
-    !agents.data
+    (account && !owner.data)
   ) {
     return (
       <PageState
@@ -80,7 +73,7 @@ export function ChannelAccountDetailRoute() {
   const provider = providers.data.providers.find(
     (item) => item.id === account.providerId,
   );
-  const agent = agents.data.data.find((item) => item.id === account.agentId);
+  const agent = owner.data?.agent;
   const conversationById = new Map(
     conversations.data.conversations.map((item) => [item.id, item]),
   );

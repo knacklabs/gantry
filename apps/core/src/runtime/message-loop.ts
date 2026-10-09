@@ -22,7 +22,6 @@ import {
   isSenderControlAllowed,
   loadSenderControlAllowlist,
 } from '../platform/sender-allowlist.js';
-import { buildTriggerPattern } from '../shared/trigger-pattern.js';
 import {
   makeAgentThreadQueueKey,
   normalizeThreadQueueId,
@@ -33,9 +32,14 @@ export interface MessageLoopDeps {
   appId?: string;
   inputRepository?: Pick<
     LiveAdmissionWorkItemRepository,
-    'listUnconsumedLiveAdmissionQueueJids' | 'consumeInputItem' | 'releaseInput'
+    | 'listUnconsumedLiveAdmissionQueueJids'
+    | 'consumeInputItem'
+    | 'releaseInput'
+    | 'consumeAll'
   >;
   getConversationRoutes: () => Record<string, ConversationRoute>;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
   hasChannel: (
     chatJid: string,
     options?: { providerAccountId?: string; threadId?: string },
@@ -263,21 +267,21 @@ export async function processLiveAdmissionWorkItem(
     return 'listener_degraded';
   }
   if (deps.handleActiveControlCommand && deps.opsRepository?.getMessagesByIds) {
-    const [message] = await deps.opsRepository.getMessagesByIds(
-      {
-        appId: item.appId,
-        conversationId: item.conversationId,
-        threadId: item.threadId,
-        agentId: item.agentId,
-        providerAccountId: item.providerAccountId,
-      },
-      [item.messageId],
-    );
+    const scope = {
+      appId: item.appId,
+      conversationId: item.conversationId,
+      threadId: item.threadId,
+      agentId: item.agentId,
+      providerAccountId: item.providerAccountId,
+    };
+    const [message] = await deps.opsRepository.getMessagesByIds(scope, [
+      item.messageId,
+    ]);
     const command =
       message &&
       extractSessionCommand(
         message.content,
-        buildTriggerPattern(group.trigger ?? ''),
+        deps.getTriggerPattern(group.trigger),
       );
     if (
       message &&
@@ -302,6 +306,15 @@ export async function processLiveAdmissionWorkItem(
         }))
       ) {
         return 'completed';
+      }
+      // /stop also cancels the batch waiting before it: those messages
+      // become history and start no turn. Later messages keep theirs.
+      if (command.kind === 'stop' && item.receiveOrder !== null) {
+        await deps.inputRepository?.consumeAll({
+          scope,
+          consumedBy: 'stopped',
+          waitingBefore: item.receiveOrder,
+        });
       }
       // Only a clean refusal goes back; a throw may follow a partial effect.
       const handled = await deps.handleActiveControlCommand({

@@ -15,7 +15,6 @@ import {
   storeModelCredentialInput,
   verifyModelCredentialInputWithPrompt,
 } from './credentials.js';
-import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 import { prepareOnboardingCredentialStorage } from './onboarding-config.js';
 
 export interface CredentialSetupDraft {
@@ -36,38 +35,6 @@ export type CredentialStepAction =
   | { type: 'goto'; step: 'storage' }
   | { type: 'resume' }
   | { type: 'cancel' };
-
-export async function verifyModelAccess(
-  runtimeHome?: string,
-  settings?: Parameters<typeof inspectModelCredentialReadiness>[1],
-  options: { skipLiveProviderIds?: readonly string[] } = {},
-): Promise<{ ok: boolean; message: string; nextAction?: string }> {
-  if (!runtimeHome || !settings) {
-    return {
-      ok: false,
-      message: 'runtime settings are required for Model Access verification.',
-      nextAction: 'run `gantry setup` from the configured Runtime home.',
-    };
-  }
-
-  try {
-    const check = await inspectModelCredentialReadiness(runtimeHome, settings, {
-      live: true,
-      skipLiveProviderIds: options.skipLiveProviderIds,
-    });
-    return {
-      ok: check.status !== 'fail',
-      message: check.message,
-      nextAction: check.nextAction,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      message: `could not inspect Model Access (${err instanceof Error ? err.message : String(err)})`,
-      nextAction: 'run `gantry credentials model doctor`.',
-    };
-  }
-}
 
 export async function runCredentialsStep(
   draft: CredentialSetupDraft,

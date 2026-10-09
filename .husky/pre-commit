@@ -1,3 +1,4 @@
+. "$(git rev-parse --show-toplevel)/.forge/hooks.sh" && forge_husky "$0" pre-commit 2 "$@"; exit $?
 if ! command -v npm >/dev/null 2>&1; then
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 

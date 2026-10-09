@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import {
   type ChannelAdapter,
   type ConversationContextHydrationRequest,
@@ -7,7 +8,6 @@ import type {
   MessageSendOptions,
   NewMessage,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -75,7 +75,10 @@ import {
   resolvePendingTeamsUserQuestion,
   settlePendingTeamsPermission,
 } from './interaction-handlers.js';
-import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import {
+  StreamGenerationFence,
+  StreamResetEpochs,
+} from '../stream-reset-epochs.js';
 import {
   DurableInteractionPersistenceError,
   recordDurableQuestionAnswerProgress,
@@ -125,8 +128,7 @@ export class TeamsChannel implements ChannelAdapter {
     new JobPermissionCardDeliverySettlement();
   private readonly activeStreams = new Map<string, TeamsStreamingState>();
   private readonly streamResetEpochs = new StreamResetEpochs();
-  private readonly streamGenerationByJid = new Map<string, number>();
-  private readonly sealedStreamGenerationByJid = new Map<string, number>();
+  private readonly streamGenerations = new StreamGenerationFence();
   private readonly pendingUserQuestions = new Map<
     string,
     PendingTeamsUserQuestion
@@ -299,13 +301,18 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     if (!this.outboundReady) return false;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return false;
 
     const key = this.streamKey(jid, options.threadId);
+    const accepted = this.streamGenerations.accept(
+      key,
+      options.generation,
+      () => this.resetStreaming(jid, { threadId: options.threadId }),
+    );
+    if (!accepted) return false;
     const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
@@ -345,7 +352,7 @@ export class TeamsChannel implements ChannelAdapter {
         this.activeStreams.get(key) === state
       ) {
         this.streamResetEpochs.deleteState(key, this.activeStreams);
-        this.markStreamingGenerationDone(jid, options.generation);
+        this.streamGenerations.markDone(key, options.generation);
       }
       return delivered;
     };
@@ -354,15 +361,9 @@ export class TeamsChannel implements ChannelAdapter {
   }
 
   resetStreaming(jid: string, options?: { threadId?: string }): void {
-    if (options) {
-      const key = this.streamKey(jid, options.threadId);
-      this.streamResetEpochs.bump(key);
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-      return;
-    }
-    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
-    this.clearStreamingStateForJid(jid);
-    this.sealStreamingGenerationOnReset(jid);
+    const key = this.streamKey(jid, options?.threadId);
+    this.streamResetEpochs.bump(key);
+    this.streamResetEpochs.deleteState(key, this.activeStreams);
   }
 
   async renderAgentTodo(
@@ -380,50 +381,6 @@ export class TeamsChannel implements ChannelAdapter {
 
   private streamKey(jid: string, threadId?: string): string {
     return `${jid}\n${threadId ?? ''}`;
-  }
-
-  private clearStreamingStateForJid(jid: string): void {
-    for (const key of this.activeStreams.keys()) {
-      if (!key.startsWith(`${jid}\n`)) continue;
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-    }
-  }
-
-  private shouldAcceptStreamingChunk(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) return false;
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) {
-      this.streamGenerationByJid.set(jid, generation);
-      return true;
-    }
-    if (generation < latest) return false;
-    if (generation > latest) {
-      this.clearStreamingStateForJid(jid);
-      this.streamGenerationByJid.set(jid, generation);
-    }
-    return true;
-  }
-
-  private markStreamingGenerationDone(jid: string, generation?: number): void {
-    if (generation === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, generation);
-    }
-  }
-
-  private sealStreamingGenerationOnReset(jid: string): void {
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || latest > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, latest);
-    }
   }
 
   async ingestMessage(message: TeamsInboundMessage): Promise<void> {

@@ -39,7 +39,13 @@ export async function buildConversationContextPacket(input: {
     | 'getLatestThreadMessages'
   >;
 }): Promise<ConversationContextPacket> {
-  const currentMessages = dedupeMessages(input.currentMessages);
+  // The batch keeps Gantry's receive order; the provider's clock never
+  // reorders it.
+  const currentMessages = input.currentMessages.filter(
+    (message, index, all) =>
+      all.findIndex((other) => messageKey(other) === messageKey(message)) ===
+      index,
+  );
   const activeThreadId = input.activeThreadId?.trim() || null;
   const recentChannelContextPromise =
     input.repository.getRecentTopLevelMessagesBefore(

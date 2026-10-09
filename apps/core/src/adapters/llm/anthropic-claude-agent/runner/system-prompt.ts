@@ -6,6 +6,7 @@ import {
   type GantryAgentPromptMode,
 } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
+import { withMountedGantryToolNames } from '../../../../shared/gantry-mcp-tool-surface.js';
 import { log } from './logging.js';
 import type { AgentRunnerInput } from './types.js';
 
@@ -42,6 +43,8 @@ export function readMemoryContextBlock(agentInput: AgentRunnerInput): string {
 export function buildRunnerSystemPrompt(
   agentInput: AgentRunnerInput,
   memoryBlock: string,
+  mountedGantryToolNames?: ReadonlySet<string>,
+  gantryMcpEnv: Readonly<Record<string, string | undefined>> = {},
 ): ReturnType<typeof buildSystemPrompt> {
   return promptParts(
     buildGantryAgentSystemPrompt({
@@ -49,7 +52,31 @@ export function buildRunnerSystemPrompt(
       promptMode: agentInput.promptMode as GantryAgentPromptMode | undefined,
       assistantName: agentInput.assistantName,
       persona: agentInput.persona,
-      compiledSystemPrompt: agentInput.compiledSystemPrompt,
+      compiledSystemPrompt: mountedGantryToolNames
+        ? withMountedGantryToolNames(
+            agentInput.compiledSystemPrompt,
+            mountedGantryToolNames,
+            agentInput.allowedTools ?? [],
+            gantryMcpEnv,
+            {
+              ...(agentInput.isScheduledJob
+                ? {
+                    RunCommand: 'not exposed by the scheduled runner',
+                    FileRead: 'not exposed by the scheduled runner',
+                    FileSearch: 'not exposed by the scheduled runner',
+                    FileEdit: 'not exposed by the scheduled runner',
+                    FileWrite: 'not exposed by the scheduled runner',
+                  }
+                : {}),
+              ...(mountedGantryToolNames.has('delegate_task')
+                ? {
+                    AgentDelegation:
+                      'use delegate_task for delegation in this runner',
+                  }
+                : {}),
+            },
+          )
+        : agentInput.compiledSystemPrompt,
       hasMemoryContext: Boolean(memoryBlock),
       selectedToolRules: agentInput.allowedTools,
       workspaceFolder: agentInput.workspaceFolder,

@@ -158,7 +158,7 @@ export function createCanUseToolCallback(
     const toolInput = forceBackgroundNativeAgentInput(toolName, rawToolInput);
     if (REMOVED_NATIVE_SUBAGENT_TOOL.test(toolName)) {
       const message =
-        'Native SDK Task subagent tools are not supported. Use the Agent tool for native subagents, or request the Gantry AgentDelegation facade.';
+        'Native SDK Task subagent tools are not supported. Use Gantry delegate_task when mounted. If it is missing, ask the owner to grant AgentDelegation, use the full access preset, and enable delegation tools, then start a fresh run.';
       emitGateDenialActivity({
         agentInput: input.agentInput,
         getNewSessionId: input.getNewSessionId,

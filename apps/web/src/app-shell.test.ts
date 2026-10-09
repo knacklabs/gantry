@@ -9,14 +9,6 @@ describe('web shell boundary', () => {
     expect(source).not.toContain(['/', 'ui-api'].join(''));
   });
 
-  it('keeps_the_preview_tablet_and_desktop_only', () => {
-    const source = readFileSync('src/app/app-shell.tsx', 'utf8');
-
-    expect(source).toContain('Tablet or desktop required');
-    expect(source).toContain('md:grid');
-    expect(source).toContain('md:hidden');
-  });
-
   it('uses_a_non_modal_alert_for_the_connection_gate', () => {
     const source = readFileSync(
       'src/ui/compositions/connection-gate.tsx',

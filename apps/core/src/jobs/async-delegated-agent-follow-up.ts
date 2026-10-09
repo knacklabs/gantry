@@ -22,7 +22,8 @@ export type CallableAgentFollowUpMessageRepository = Pick<
 export function isCallableAgentDelegatedTask(task: AsyncTaskRecord): boolean {
   return (
     task.kind === 'delegated_agent' &&
-    task.authoritySnapshotJson.toolName === 'AgentDelegation'
+    (task.authoritySnapshotJson.toolName === 'AgentDelegation' ||
+      task.authoritySnapshotJson.toolName === 'delegate_task')
   );
 }
 
@@ -122,7 +123,8 @@ export async function deliverPendingCallableAgentFollowUp(input: {
       now: timestamp,
     },
   );
-  if (!admitted) return false;
+  // Overloaded: not delivered, so the recovery sweep retries it.
+  if (!admitted || admitted.outcome === 'overloaded') return false;
   const receipt = task.receiptJson;
   if (!receipt) return true;
   await input.repository.updateTaskReceipt(

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
-} from '@agent-runner-src/gantry-mcp-tool-surface.js';
+} from '@core/shared/gantry-mcp-tool-surface.js';
 import {
   GANTRY_CLAUDE_SDK_SKILLS_ENV,
   SDK_NATIVE_SKILL_DISABLE_ENV,
@@ -848,6 +848,7 @@ describe('Claude Agent SDK boundary integration', () => {
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_BROWSER_PROFILE_NAME: '',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
+        GANTRY_AGENT_ACCESS_PRESET: 'full',
         GANTRY_NO_PERMISSION_TOOLS: '',
         GANTRY_PERMISSION_LANE: 'interactive',
         GANTRY_CALLABLE_AGENT_MANIFEST_JSON: '[]',
@@ -1156,7 +1157,7 @@ describe('Claude Agent SDK boundary integration', () => {
     );
   });
 
-  it('passes no-permission authority hiding into the SDK capability projection', async () => {
+  it('keeps recovery proposals and selected admin tools mounted while hiding other authority tools', async () => {
     const env = prepareRuntimeEnv();
     const { runQuery } = await importRunQuery();
 
@@ -1182,10 +1183,13 @@ describe('Claude Agent SDK boundary integration', () => {
         ?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
     );
     expect(projectedGantryToolNames).toContain('send_message');
-    expect(projectedGantryToolNames).not.toEqual(
-      expect.arrayContaining(['request_access']),
+    // The mounted inventory retains birthright recovery and selected admin
+    // tools; it does not supply an SDK auto-approval allowlist.
+    expect(projectedGantryToolNames).toEqual(
+      expect.arrayContaining(['request_access', 'settings_desired_state']),
     );
-    expect(projectedGantryToolNames).not.toContain('settings_desired_state');
+    expect(projectedGantryToolNames).not.toContain('request_settings_update');
+    expect(sdkState.calls[0]?.options.allowedTools).toBeUndefined();
     expect(
       sdkState.calls[0]?.options.mcpServers.gantry?.env
         ?.GANTRY_MCP_TOOL_NAMES_JSON,
@@ -1197,7 +1201,7 @@ describe('Claude Agent SDK boundary integration', () => {
             'mcp__gantry__request_access',
             'mcp__gantry__settings_desired_state',
           ],
-          { excludeAuthorityTools: true },
+          { excludeAuthorityTools: true, keepRecoveryProposals: true },
         ),
       ),
     );
@@ -1413,7 +1417,7 @@ describe('Claude Agent SDK boundary integration', () => {
     ).toContain('configured subagent definition');
   });
 
-  it('rejects legacy Task subagent tool aliases before native subagent validation', async () => {
+  it('rejects Task subagent tool aliases with Gantry delegation guidance before native subagent validation', async () => {
     const env = prepareRuntimeEnv();
     const previousToolName = process.env.TEST_SUBAGENT_TOOL_NAME;
     process.env.TEST_SUBAGENT_TOOL_NAME = 'Task';
@@ -1446,7 +1450,14 @@ describe('Claude Agent SDK boundary integration', () => {
     );
     expect(
       String((sdkState.calls[0]?.permissionDecision as any).message),
-    ).toContain('Use the Agent tool');
+    ).toContain('Use Gantry delegate_task when mounted');
+    // SDK subagent aliases now point to the host-owned delegation path and
+    // explain how the owner can make that path available for a fresh run.
+    expect(sdkState.calls[0]?.permissionDecision).toMatchObject({
+      message: expect.stringContaining(
+        'ask the owner to grant AgentDelegation',
+      ),
+    });
   });
 
   it('preserves subagent-attributed assistant messages as runner resume anchors', async () => {
