@@ -34,6 +34,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/runtime/core-tools/registry.ts\tThe existing task branch exceeds the enforced 700-line budget and blocks forge test; repairing it would exceed the coordinator-only-three-findings instruction.",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/core-tools/registry.ts",
+      "line": 703,
+      "text": "The existing task branch exceeds the enforced 700-line budget and blocks forge test; repairing it would exceed the coordinator-only-three-findings instruction.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
       "kind": "bug",
       "path": "apps/core/src/runtime/group-output-buffer.ts",
@@ -74,6 +85,28 @@
       "text": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the\u30d6\u30e9",
       "from": "blocking",
       "item": "the-agent-s-unavailable-reasons-come-fro",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/shared/permission-display-input.ts\tNot done: command credentials are hidden in durable snapshots\tPERMFLOW-1/T5",
+      "kind": "bug",
+      "path": "apps/core/src/shared/permission-display-input.ts",
+      "line": 193,
+      "text": "Not done: command credentials are hidden in durable snapshots",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+      "line": 1482,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
       "status": "open",
       "closed_by": null
     },
@@ -243,6 +276,17 @@
       "closed_by": null
     },
     {
+      "key": "edge\tapps/core/src/application/interactions/pending-interaction-permission-envelope.ts\tPreserve literal XML tags in the request-derived why line",
+      "kind": "edge",
+      "path": "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
+      "line": 184,
+      "text": "Preserve literal XML tags in the request-derived why line",
+      "from": "review",
+      "item": "PERMFLOW-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "edge\tapps/core/src/channels/slack/channel-state.ts\tInclude successful Slack snippet receipts in completed stream results",
       "kind": "edge",
       "path": "apps/core/src/channels/slack/channel-state.ts",
@@ -283,17 +327,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
-      "kind": "bug",
-      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-      "line": 1482,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
       "status": "open",
       "closed_by": null
     }
