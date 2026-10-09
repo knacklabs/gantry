@@ -1,0 +1,14 @@
+{
+  "base": "e149362400f34884dd505317367e1a5d27e0e114",
+  "branch": "fix/background-work-started-by-a-job-can-t-b",
+  "done_when": "The spec is confirmed and its story is on the roadmap",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-09T12:36:50+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Background work started by a job can't be saved: spec for the fix and the unused job-results table removal"
+}
