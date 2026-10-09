@@ -13,24 +13,16 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "7c1c26e5d98997d43de6b27d899fcca7d00f06815715b58819a01f8eea882d10",
-    "changed": "8926f411a8e8c3e166db00ac271ce3df6d1a3415b9006845fc79defeec1d3384",
-    "commit": "ca969ecdea35f9fb61e8503dd257a789720c57fc",
+    "branch_diff": "ce343d5afca7a96d5bc1c7edf1372180cec7c67195f662e2f9b8da946c00fd6d",
+    "changed": "939f59c01bf5dd57e76e55b48e2ac4c0493244d1ce0c10987b15213f524d716e",
+    "commit": "8e2fc92742b982c1d8a1c38acfb59da0c21bb773",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "chunk 2/2:\n\nNew evidence beyond the previous cleanup/service-launch finding: this guide identifies `job_runs` as terminal evidence, and the same claim appears in its data table at line 242 and `10-shared-domain.md:218`. However, `apps/core/src/adapters/storage/postgres/repositories/canonical-job-run-insert.postgres.ts:35` inserts scheduler runs into `agentRunsPostgres`, and `canonical-job-repository.postgres.ts:483\u2013490` writes terminal status and summaries to that same `agent_runs` table. Production references to `jobRunsPostgres` are limited to its schema declaration and the async-task foreign key. These descriptions direct readers to an unwritten table when investigating execution outcomes. Correct all three current-guide descriptions and repeat source verification to meet the code-checked documentation requirement.",
-        "file": "docs/architecture/areas/11-deploy-scaling.md",
-        "line": 283,
-        "priority": "P1",
-        "title": "Not done: docs/architecture/areas/ guides checked against the code"
-      }
-    ],
-    "id": "94688ddd-eb0a-4504-af26-cfef39b0927a",
-    "status": "blocked"
+    "findings": [],
+    "id": "67444aa0-63c4-4cc5-bedb-183ad0a1ff31",
+    "status": "clean"
   },
   "round": 6,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T17:01:12+00:00",
@@ -46,6 +38,10 @@
     },
     {
       "at": "2026-10-09T11:22:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T11:56:10+00:00",
       "step": "review"
     }
   ],
