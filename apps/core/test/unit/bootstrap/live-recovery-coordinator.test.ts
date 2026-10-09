@@ -4,7 +4,7 @@ import {
   LIVE_RECOVERY_COORDINATOR_LEASE_KEY,
   liveTurnScopeForQueue,
   routeScopeActiveLiveTurnAdmission,
-  routeScopeActiveLiveTurnAdmissionFromCursor,
+  routeScopeActiveLiveTurnAdmissionFromInput,
   startLiveRecoveryCoordinatorLeaseAcquisition,
 } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
@@ -446,7 +446,6 @@ describe('live-turn host lease acquisition', () => {
 
   it('routes scope-active pending messages to the owning live turn', async () => {
     const completeSessionAgentRun = vi.fn(async () => undefined);
-    const onRouted = vi.fn(async () => undefined);
     const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
 
     await expect(
@@ -463,7 +462,6 @@ describe('live-turn host lease acquisition', () => {
           text: 'Ravi: continue',
           senderUserIds: ['user-1'],
           idempotencyKey: 'continuation:chat-1:msg-1',
-          onRouted,
         },
         routeMessage,
         completeSessionAgentRun,
@@ -478,7 +476,6 @@ describe('live-turn host lease acquisition', () => {
         idempotencyKey: 'continuation:chat-1:msg-1',
       }),
     );
-    expect(onRouted).toHaveBeenCalledOnce();
     expect(completeSessionAgentRun).toHaveBeenCalledWith(
       expect.objectContaining({
         runId: 'run-redundant',
@@ -490,8 +487,6 @@ describe('live-turn host lease acquisition', () => {
   it('requeues scope-active pending messages when replay fills the page', async () => {
     const enqueueMessageCheck = vi.fn();
     const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
-    const setAgentCursor = vi.fn();
-    const saveState = vi.fn();
     const messages = [
       {
         id: 1,
@@ -509,7 +504,7 @@ describe('live-turn host lease acquisition', () => {
     const { inputRepository, getMessagesByIds, takeInput } = inputFor(messages);
 
     await expect(
-      routeScopeActiveLiveTurnAdmissionFromCursor({
+      routeScopeActiveLiveTurnAdmissionFromInput({
         scope: {
           appId: 'app:test',
           agentSessionId: 'session-1',
@@ -527,13 +522,10 @@ describe('live-turn host lease acquisition', () => {
         ownerRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
-        replayCursor: '2024-01-01T00:00:00.000Z::0',
         messageFetchPageSize: 1,
         timezone: 'UTC',
         inputRepository,
         getMessagesByIds,
-        setAgentCursor,
-        saveState,
         enqueueMessageCheck,
         routeMessage,
       }),
@@ -554,67 +546,49 @@ describe('live-turn host lease acquisition', () => {
     );
   });
 
-  it.each([
-    {
-      failing: 'saving the old marker',
-      saveState: async () => {
-        throw new Error('state store down');
-      },
-      completeSessionAgentRun: async () => undefined,
-    },
-    {
-      failing: 'settling the new run',
-      saveState: async () => undefined,
-      completeSessionAgentRun: async () => {
-        throw new Error('run store down');
-      },
-    },
-  ])(
-    'keeps a queued follow-up consumed when $failing fails',
-    async ({ saveState, completeSessionAgentRun }) => {
-      const message = {
-        id: 1,
-        chat_jid: 'chat-1',
-        sender: 'user-1',
-        content: 'follow-up',
-        timestamp: '2024-01-01T00:00:01.000Z',
-        is_from_me: false,
-        sender_name: 'Ravi',
-      };
-      const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
-        message,
-      ]);
-      const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
+  it('keeps a queued follow-up consumed when settling the new run fails', async () => {
+    const message = {
+      id: 1,
+      chat_jid: 'chat-1',
+      sender: 'user-1',
+      content: 'follow-up',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      sender_name: 'Ravi',
+    };
+    const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
+      message,
+    ]);
+    const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
 
-      await expect(
-        routeScopeActiveLiveTurnAdmissionFromCursor({
-          scope: {
-            appId: 'app:test',
-            agentSessionId: 'session-1',
-            conversationId: 'chat-1',
-            threadId: null,
-          },
-          queueJid: 'chat-1',
-          liveRunId: 'run-new',
-          ownerTurnId: 'turn-active',
-          ownerRunId: 'run-active',
-          chatJid: 'chat-1',
+    await expect(
+      routeScopeActiveLiveTurnAdmissionFromInput({
+        scope: {
+          appId: 'app:test',
+          agentSessionId: 'session-1',
+          conversationId: 'chat-1',
           threadId: null,
-          messageFetchPageSize: 50,
-          timezone: 'UTC',
-          inputRepository,
-          getMessagesByIds,
-          setAgentCursor: vi.fn(),
-          saveState: vi.fn(saveState),
-          completeSessionAgentRun: vi.fn(completeSessionAgentRun),
-          routeMessage,
+        },
+        queueJid: 'chat-1',
+        liveRunId: 'run-new',
+        ownerTurnId: 'turn-active',
+        ownerRunId: 'run-active',
+        chatJid: 'chat-1',
+        threadId: null,
+        messageFetchPageSize: 50,
+        timezone: 'UTC',
+        inputRepository,
+        getMessagesByIds,
+        completeSessionAgentRun: vi.fn(async () => {
+          throw new Error('run store down');
         }),
-      ).resolves.toBe(true);
+        routeMessage,
+      }),
+    ).resolves.toBe(true);
 
-      expect(routeMessage).toHaveBeenCalledOnce();
-      expect(releaseInput).not.toHaveBeenCalled();
-    },
-  );
+    expect(routeMessage).toHaveBeenCalledOnce();
+    expect(releaseInput).not.toHaveBeenCalled();
+  });
 
   it('keeps a queued follow-up consumed when a later wakeup step throws', async () => {
     const { inputRepository, getMessagesByIds, releaseInput } = inputFor([
@@ -630,7 +604,7 @@ describe('live-turn host lease acquisition', () => {
     ]);
 
     await expect(
-      routeScopeActiveLiveTurnAdmissionFromCursor({
+      routeScopeActiveLiveTurnAdmissionFromInput({
         scope: {
           appId: 'app:test',
           agentSessionId: 'session-1',
@@ -647,8 +621,6 @@ describe('live-turn host lease acquisition', () => {
         timezone: 'UTC',
         inputRepository,
         getMessagesByIds,
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
         enqueueMessageCheck: () => {
           throw new Error('queue closed');
         },
@@ -676,7 +648,7 @@ describe('live-turn host lease acquisition', () => {
     };
 
     await expect(
-      routeScopeActiveLiveTurnAdmissionFromCursor({
+      routeScopeActiveLiveTurnAdmissionFromInput({
         scope: {
           appId: 'app:test',
           agentSessionId: 'session-1',
@@ -689,12 +661,9 @@ describe('live-turn host lease acquisition', () => {
         ownerRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
-        replayCursor: '2024-01-01T00:00:00.000Z::0',
         messageFetchPageSize: 1,
         timezone: 'UTC',
         ...inputFor([message]),
-        setAgentCursor: vi.fn(),
-        saveState: vi.fn(),
         enqueueMessageCheck,
         routeMessage: vi.fn(async () => 'queued_to_owner' as const),
         addReaction: vi.fn(() => new Promise<void>(() => undefined)),
@@ -726,7 +695,7 @@ describe('live-turn host lease acquisition', () => {
       };
 
       await expect(
-        routeScopeActiveLiveTurnAdmissionFromCursor({
+        routeScopeActiveLiveTurnAdmissionFromInput({
           scope: {
             appId: 'app:test',
             agentSessionId: 'session-1',
@@ -744,12 +713,9 @@ describe('live-turn host lease acquisition', () => {
           ownerRunId: 'run-active',
           chatJid: 'chat-1',
           threadId: 'thread-1',
-          replayCursor: '2024-01-01T00:00:00.000Z::0',
           messageFetchPageSize: 10,
           timezone: 'UTC',
           ...inputFor([message]),
-          setAgentCursor: vi.fn(),
-          saveState: vi.fn(),
           routeMessage,
           addReaction,
         }),
@@ -773,8 +739,6 @@ describe('live-turn host lease acquisition', () => {
       (message) => message.content === '/compact',
     );
     const handleActiveControlMessage = vi.fn(async () => true);
-    const setAgentCursor = vi.fn();
-    const saveState = vi.fn();
     const enqueueMessageCheck = vi.fn();
     const messages = [
       {
@@ -805,7 +769,7 @@ describe('live-turn host lease acquisition', () => {
     const input = inputFor(messages);
 
     const route = () =>
-      routeScopeActiveLiveTurnAdmissionFromCursor({
+      routeScopeActiveLiveTurnAdmissionFromInput({
         scope: {
           appId: 'app:test',
           agentSessionId: 'session-1',
@@ -822,8 +786,6 @@ describe('live-turn host lease acquisition', () => {
         timezone: 'UTC',
         inputRepository: input.inputRepository,
         getMessagesByIds: input.getMessagesByIds,
-        setAgentCursor,
-        saveState,
         enqueueMessageCheck,
         isActiveControlMessage,
         handleActiveControlMessage,
@@ -842,10 +804,6 @@ describe('live-turn host lease acquisition', () => {
       }),
     );
     expect(routeMessage.mock.calls[0][0].text).not.toContain('/compact');
-    expect(setAgentCursor).toHaveBeenCalledWith(
-      'chat-1',
-      JSON.stringify({ timestamp: '2024-01-01T00:00:02.000Z', id: 2 }),
-    );
     expect(enqueueMessageCheck).toHaveBeenCalledWith('chat-1');
   });
 });

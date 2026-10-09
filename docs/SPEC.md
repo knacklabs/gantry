@@ -896,7 +896,7 @@ not create job visibility or run authority.
 ## Deployment
 
 Gantry runs as one local runtime service. The installer chooses launchd on
-macOS, systemd user units on Linux when available, and a nohup/background
+macOS, systemd user units on Linux when available, and a detached Node
 fallback otherwise. Managed local services are started before the runtime when
 they are configured.
 

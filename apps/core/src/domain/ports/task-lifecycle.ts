@@ -24,10 +24,6 @@ export interface AgentTodoRender {
   items: AgentTodoItem[];
   headline?: string | null;
   status?: AgentTodoCardStatus;
-  stop?: {
-    label?: string;
-    actionToken: string;
-  };
   threadId?: string | null;
   updatedAt?: string;
   flush?: boolean;

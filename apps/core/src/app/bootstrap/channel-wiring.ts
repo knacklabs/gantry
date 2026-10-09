@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -19,6 +20,7 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
+import { persistBotMessage } from '../../application/messages/bot-message-persistence.js';
 // prettier-ignore
 import { getRuntimeRepositories, getRuntimeStorage, tryAcquireRuntimeAdvisoryLease } from '../../adapters/storage/postgres/runtime-store.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
@@ -81,7 +83,8 @@ const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
   app: RuntimeApp,
-  deps: Partial<ChannelWiringDeps> = {},
+  deps: Partial<ChannelWiringDeps> &
+    Pick<ChannelWiringDeps, 'getTriggerPattern'>,
 ): ChannelWiring {
   app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
@@ -318,7 +321,7 @@ export function createChannelWiring(
   ): Promise<void> {
     await sendProviderMessageInternal(jid, rawText, {
       ...options,
-      persistence: 'message_row_projection',
+      projectPendingMessage: true,
     });
   }
   async function sendProviderMessage(
@@ -338,7 +341,7 @@ export function createChannelWiring(
     return sendProviderMessageInternal(jid, rawText, {
       durability: 'best_effort',
       ...options,
-      persistence: 'none',
+      projectPendingMessage: false,
     });
   }
   async function sendProviderMessageInternal(
@@ -348,7 +351,7 @@ export function createChannelWiring(
       durability: 'required' | 'best_effort';
       throwOnMissing?: boolean;
       messageOptions?: MessageSendOptions;
-      persistence: 'message_row_projection' | 'none';
+      projectPendingMessage: boolean;
     },
   ): Promise<MessageDeliveryResult | undefined> {
     const channel = findBoundChannelForRequest(
@@ -416,21 +419,19 @@ export function createChannelWiring(
         );
       }
     }
-    let outboundOps = (() => {
-      if (options.persistence !== 'message_row_projection') return undefined;
-      return optionalOps();
-    })();
+    const outboundOps = optionalOps();
     try {
-      await outboundOps?.storeMessage({
-        ...baseMessage,
-        delivery_status: 'pending',
-      });
+      if (options.projectPendingMessage) {
+        await outboundOps?.storeMessage({
+          ...baseMessage,
+          delivery_status: 'pending',
+        });
+      }
     } catch (err) {
       resolved.logger.warn(
         { err, jid },
         'Outbound pending message-row projection persistence failed; continuing with provider send',
       );
-      outboundOps = undefined;
     }
 
     let result: MessageDeliveryResult | undefined;
@@ -525,13 +526,17 @@ export function createChannelWiring(
         }
       }
       try {
-        await outboundOps?.storeMessage({
-          ...baseMessage,
-          delivery_status: partial ? 'partially_sent' : 'failed',
-          delivered_at: partial ? nowIso() : undefined,
-          delivery_error: sanitizeDeliveryError(err, provider),
-          delivery_retry_tail: sanitizedRetryTail,
-        });
+        await persistBotMessage(
+          outboundOps,
+          {
+            ...baseMessage,
+            delivery_status: partial ? 'partially_sent' : 'failed',
+            delivered_at: partial ? nowIso() : undefined,
+            delivery_error: sanitizeDeliveryError(err, provider),
+            delivery_retry_tail: sanitizedRetryTail,
+          },
+          [err],
+        );
       } catch (persistErr) {
         resolved.logger.error(
           { err: persistErr, jid },
@@ -543,6 +548,58 @@ export function createChannelWiring(
         error: sanitizeDeliveryError(err, provider),
       });
       throw thrownError;
+    }
+    try {
+      await persistBotMessage(
+        outboundOps,
+        {
+          ...baseMessage,
+          delivery_status: 'sent',
+          delivered_at: nowIso(),
+        },
+        [result],
+      );
+    } catch (err) {
+      const ambiguousError =
+        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
+      resolved.logger.warn(
+        {
+          err,
+          jid,
+          provider,
+          durability: options.durability,
+          externalMessageId: result?.externalMessageId,
+          externalMessageIds: result?.externalMessageIds,
+          deliveryWarnings: result?.warnings,
+        },
+        options.durability === 'required'
+          ? 'Provider send succeeded but outbound sent-status projection failed'
+          : 'Provider send succeeded but outbound sent-status persistence failed',
+      );
+      if (options.durability === 'required') {
+        try {
+          await persistBotMessage(
+            outboundOps,
+            {
+              ...baseMessage,
+              delivery_status: 'partially_sent',
+              delivered_at: nowIso(),
+              delivery_error: ambiguousError,
+            },
+            [result],
+          );
+        } catch (ambiguousPersistErr) {
+          resolved.logger.error(
+            {
+              err: ambiguousPersistErr,
+              jid,
+              provider,
+              sourceMessageId: messageId,
+            },
+            'Failed to persist ambiguous durable outbound status after sent-status write failure',
+          );
+        }
+      }
     }
     if (options.durability === 'required' && durableAttempt) {
       const ambiguousSentSettlementError =
@@ -594,52 +651,6 @@ export function createChannelWiring(
         });
       }
     }
-    try {
-      await outboundOps?.storeMessage({
-        ...baseMessage,
-        external_message_id: result?.externalMessageId,
-        delivery_status: 'sent',
-        delivered_at: nowIso(),
-      });
-    } catch (err) {
-      const ambiguousError =
-        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
-      resolved.logger.warn(
-        {
-          err,
-          jid,
-          provider,
-          durability: options.durability,
-          externalMessageId: result?.externalMessageId,
-          externalMessageIds: result?.externalMessageIds,
-          deliveryWarnings: result?.warnings,
-        },
-        options.durability === 'required'
-          ? 'Provider send succeeded but outbound sent-status projection failed'
-          : 'Provider send succeeded but outbound sent-status persistence failed',
-      );
-      if (options.durability === 'required') {
-        try {
-          await outboundOps?.storeMessage({
-            ...baseMessage,
-            external_message_id: result?.externalMessageId,
-            delivery_status: 'partially_sent',
-            delivered_at: nowIso(),
-            delivery_error: ambiguousError,
-          });
-        } catch (ambiguousPersistErr) {
-          resolved.logger.error(
-            {
-              err: ambiguousPersistErr,
-              jid,
-              provider,
-              sourceMessageId: messageId,
-            },
-            'Failed to persist ambiguous durable outbound status after sent-status write failure',
-          );
-        }
-      }
-    }
     await publishConversationOutboundEvent({
       deliveryStatus: 'sent',
       externalMessageId: result?.externalMessageId,
@@ -660,7 +671,7 @@ export function createChannelWiring(
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     const channel = findBoundChannel(jid, options?.providerAccountId);
     if (!channel) {
       resolved.logger.warn(

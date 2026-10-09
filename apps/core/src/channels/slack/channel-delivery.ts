@@ -1,3 +1,5 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
+import { slackStreamChunkResult } from './channel-state.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -5,7 +7,6 @@ import { deliveryNotSent } from '../permission-approval-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -225,12 +226,17 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     if (!this.app) return false;
     const parsed = this.parseJid(jid);
     if (!parsed) return false;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = this.streamKey(jid, options.threadId);
+    const accepted = this.streamGenerations.accept(
+      key,
+      options.generation,
+      () => this.resetStreaming(jid, { threadId: options.threadId }),
+    );
+    if (!accepted) return false;
     const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
@@ -263,7 +269,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     );
     if (!rendered && options.done) {
       this.streamResetEpochs.deleteState(key, this.activeStreams);
-      this.markStreamingGenerationDone(jid, options.generation);
+      this.streamGenerations.markDone(key, options.generation);
       return false;
     }
     const now = currentTimeMs();
@@ -272,7 +278,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       options.done ||
       !hasMessageHandle ||
       now - state.lastFlushAt >= SLACK_STREAM_UPDATE_INTERVAL_MS;
-    if (!shouldFlush) return Boolean(state.messageTs || state.nativeStreamTs);
+    if (!shouldFlush) return slackStreamChunkResult(state, false);
     let nextText = rendered;
     if (!nextText) nextText = state.lastSentText;
     let delivered = false;
@@ -288,7 +294,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) {
           if (nativeStreamTs)
             await this.tryNativeStreamStop(state.channelId, nativeStreamTs);
-          return false;
+          state.nativeStreamTs = nativeStreamTs;
+          return slackStreamChunkResult(state, Boolean(nativeStreamTs));
         }
         state.nativeStreamTs = nativeStreamTs;
         if (state.nativeStreamTs) {
@@ -335,8 +342,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           if (stopped) delivered = true;
         }
       }
-      if (!this.isCurrentStreamingGeneration(jid, options.generation)) {
-        return delivered;
+      if (!this.streamGenerations.isCurrent(key, options.generation)) {
+        return slackStreamChunkResult(state, delivered);
       }
       if (!state.nativeEnabled) {
         const fallbackTextRaw =
@@ -358,11 +365,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             threadId: state.threadId,
             reason: 'stream_output_too_large',
           });
-          if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return false;
           if (fallback) {
             delivered = true;
-            state.fallbackMessageTs = [];
+            state.fallbackMessageTs.push(...fallback.externalMessageIds);
           }
+          if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+            return slackStreamChunkResult(state, delivered);
         }
         if (!delivered && fallbackParts.length > 0) {
           await sendFallbackParts(fallbackParts);
@@ -374,6 +382,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       state.lastFlushAt = now;
     } catch (err) {
       if (isPartialMessageDeliveryError(err)) {
+        Object.assign(err, slackStreamChunkResult(state, true));
         const partialMetadata = getPartialMessageDeliveryMetadata(err);
         const sentPrefix = partialMetadata.sentPrefix ?? '';
         if (sentPrefix.length > 0) {
@@ -404,12 +413,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
                 threadId: state.threadId,
                 reason: 'stream_output_too_large',
               });
-              if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
-                return false;
               if (fallback) {
                 delivered = true;
-                state.fallbackMessageTs = [];
+                state.fallbackMessageTs.push(...fallback.externalMessageIds);
               }
+              if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+                return slackStreamChunkResult(state, delivered);
             }
             if (!delivered && fallbackParts.length > 0) {
               await sendFallbackParts(fallbackParts);
@@ -419,10 +428,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             state.lastFlushAt = now;
             const ok = this.streamResetEpochs.isCurrent(key, streamEpoch);
             if (ok) this.streamResetEpochs.deleteState(key, this.activeStreams);
-            if (ok) this.markStreamingGenerationDone(jid, options.generation);
-            return (
-              delivered || Boolean(state.messageTs || state.nativeStreamTs)
-            );
+            if (ok) this.streamGenerations.markDone(key, options.generation);
+            return slackStreamChunkResult(state, delivered);
           } catch (fallbackErr) {
             if (isPartialMessageDeliveryError(fallbackErr)) {
               const fallbackMetadata =
@@ -482,7 +489,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) throw err;
         if (options.done) {
           this.streamResetEpochs.deleteState(key, this.activeStreams);
-          this.markStreamingGenerationDone(jid, options.generation);
+          this.streamGenerations.markDone(key, options.generation);
         } else {
           this.activeStreams.set(key, state);
         }
@@ -505,26 +512,20 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (options.done) {
       if (this.streamResetEpochs.isCurrent(key, streamEpoch)) {
         this.streamResetEpochs.deleteState(key, this.activeStreams);
-        this.markStreamingGenerationDone(jid, options.generation);
+        this.streamGenerations.markDone(key, options.generation);
       }
     } else if (this.streamResetEpochs.isCurrent(key, streamEpoch))
       this.activeStreams.set(key, state);
-    return delivered || Boolean(state.messageTs || state.nativeStreamTs);
+    return slackStreamChunkResult(state, delivered);
   }
   resetStreaming(jid: string, options?: { threadId?: string }): void {
-    if (options) {
-      const key = this.streamKey(jid, options.threadId);
-      const state = this.activeStreams.get(key);
-      this.streamResetEpochs.bump(key);
-      if (state?.nativeStreamTs) {
-        void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
-      }
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-      return;
+    const key = this.streamKey(jid, options?.threadId);
+    const state = this.activeStreams.get(key);
+    this.streamResetEpochs.bump(key);
+    if (state?.nativeStreamTs) {
+      void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
     }
-    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}:`);
-    this.sealStreamingGenerationOnReset(jid);
-    this.clearStreamingStateForJid(jid);
+    this.streamResetEpochs.deleteState(key, this.activeStreams);
   }
   async sendProgressUpdate(
     jid: string,
@@ -697,6 +698,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     this.deactivateHistoryCoverageInbound?.();
     this.deactivateHistoryCoverageInbound = null;
     this.streamResetEpochs.clear();
+    this.streamGenerations.clear();
     for (const providerAlias of this.pendingPermissionPrompts.keys()) {
       const result = await this.claimAndResolvePermissionPrompt(
         providerAlias,
@@ -721,8 +723,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     this.app = await disconnectSlackDelivery({
       app: this.app,
       activeStreams: this.activeStreams,
-      streamGenerationByJid: this.streamGenerationByJid,
-      sealedStreamGenerationByJid: this.sealedStreamGenerationByJid,
       activeProgress: this.activeProgress,
       pendingUserQuestions: this.pendingUserQuestions,
       stopNativeStream: (channelId, streamTs) =>

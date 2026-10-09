@@ -72,6 +72,24 @@ export function brainContentHash(input: {
   return createHash('sha256').update(brainEmbeddingText(input)).digest('hex');
 }
 
+export function markdownWithFrontmatter(
+  frontmatter: Record<string, string | string[]>,
+  body: string,
+): string {
+  const lines = ['---'];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (Array.isArray(value)) {
+      lines.push(
+        `${key}: [${value.map((entry) => JSON.stringify(entry)).join(', ')}]`,
+      );
+    } else {
+      lines.push(`${key}: ${JSON.stringify(value)}`);
+    }
+  }
+  lines.push('---', body);
+  return lines.join('\n');
+}
+
 export function parseBrainMarkdown(markdown: string): ParsedBrainMarkdown {
   const text = markdown.replace(/\r\n/g, '\n');
   if (!text.startsWith('---\n')) {

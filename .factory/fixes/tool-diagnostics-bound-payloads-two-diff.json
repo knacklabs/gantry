@@ -1,0 +1,27 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/tool-diagnostics-bound-payloads-two-diff",
+  "done_when": "One bounded encoder limits tool diagnostic payloads, and the second traversal is deleted",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "416aad7463a5a5bdc7928e3e640b1e115a710fffd6cb8c85628e7a88829bdc40",
+    "commit": "7e61b8ebee800bc8cca07d8be0b4e84acf3159b1",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "ebc25729470232692cefef568dbb02cc4738a8575ee33dbd9c75eeca4e65b81a"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T13:23:21+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:55:55+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Tool diagnostics bound payloads two different ways"
+}

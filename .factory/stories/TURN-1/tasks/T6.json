@@ -1,0 +1,57 @@
+{
+  "branch": "task/TURN-1-T6",
+  "flagged": [
+    "apps/core/src/runtime/group-output-buffer.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "ddd95feb9e85f56175a0d73ca2ebd00cf3089555b00bb8fae14f4013c57d1bd8",
+    "changed": "37ea4f83aaba9fbc7e56c1d8b048b8bd5ba433283dd84f7fb56ac4c41204488e",
+    "commit": "d088b795e46b7f4b1f47d150afd0b0e8768f5244",
+    "dismissals": [],
+    "findings": [],
+    "id": "59156398-0527-4e7b-9b67-c91972c7ef5d",
+    "status": "clean"
+  },
+  "round": 4,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T18:08:13+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:56:40+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T00:47:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:55:19+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T13:59:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T14:58:51+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T16:52:18+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T17:47:36+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T19:02:01+00:00",
+      "step": "review"
+    }
+  ],
+  "worker": "codex"
+}

@@ -141,6 +141,8 @@ export interface NewMessage {
   reply_to_message_content?: string;
   reply_to_sender_name?: string;
   external_message_id?: string;
+  external_message_ids?: string[];
+  mentionsBot?: boolean;
   delivery_status?: MessageDeliveryStatus;
   delivered_at?: string;
   delivery_error?: string;
@@ -662,7 +664,7 @@ export interface StreamingSink {
     jid: string,
     text: string,
     options?: StreamingChunkOptions,
-  ): Promise<boolean>;
+  ): Promise<boolean | { externalMessageIds: string[] }>;
 }
 export interface StreamingStateSink {
   resetStreaming(jid: string, options?: { threadId?: string }): void;

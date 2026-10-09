@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ChildProcess } from 'child_process';
 import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
-import {
-  decodeGroupMessageCursor,
-  encodeGroupMessageCursor,
-} from '@core/shared/message-cursor.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
 import { STALL_HEARTBEAT_THRESHOLD_MS } from '@core/runtime/group-liveness-state.js';
 import type {
@@ -343,9 +339,6 @@ function makeDeps(
     getConversationRoutes: vi.fn().mockReturnValue({}),
     getGroup: vi.fn().mockReturnValue(undefined),
     clearSession: vi.fn(),
-    getCursor: vi.fn().mockReturnValue('0'),
-    setCursor: vi.fn(),
-    saveState: vi.fn(),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
     setGroupPermissionModeOverride: vi.fn(),
@@ -594,8 +587,6 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
         'group1@g.us',
       );
-      expect(deps.setCursor).not.toHaveBeenCalled();
-      expect(deps.saveState).not.toHaveBeenCalled();
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
@@ -730,12 +721,6 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
         'group1@g.us',
       );
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000010',
-        id: '10',
-      });
     });
   });
 
@@ -784,87 +769,10 @@ describe('createGroupProcessor', () => {
 
       expect(result).toBe(true);
       expect(mockSpawnAgent).not.toHaveBeenCalled();
-      expect(deps.getCursor).not.toHaveBeenCalled();
       expect(
         (deps.opsRepository as any).getRecentTopLevelMessagesBefore,
       ).not.toHaveBeenCalled();
       expect(mockFormatConversationContextMessages).not.toHaveBeenCalled();
-    });
-
-    it('allows an untagged continuation in a trigger-owned Slack thread', async () => {
-      const group = makeGroup({
-        requiresTrigger: true,
-        trigger: 'Andy',
-      });
-      const reply = makeMessage({
-        chat_jid: 'sl:C123',
-        content: 'yes, continue with that',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: 'root-message',
-      });
-      const root = makeMessage({
-        id: 'root-message',
-        chat_jid: 'sl:C123',
-        content: '@Andy please help',
-        thread_id: '1710000000.000100',
-      });
-      const { deps } = setupHappyPath({ group, messages: [reply] });
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        '1700000000::root-message',
-      );
-      mockGetMessagesSince.mockImplementation(
-        (_chatJid, cursor, _limit, options) =>
-          cursor === '' && options?.threadId === '1710000000.000100'
-            ? [root]
-            : [reply],
-      );
-      mockIsTriggerAllowed.mockReturnValue(true);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages(
-        'sl:C123::thread:1710000000.000100',
-      );
-
-      expect(result).toBe(true);
-      expect(mockSpawnAgent).toHaveBeenCalled();
-    });
-
-    it('keeps an untagged human Slack thread trigger-gated', async () => {
-      const group = makeGroup({
-        requiresTrigger: true,
-        trigger: 'Andy',
-      });
-      const reply = makeMessage({
-        chat_jid: 'sl:C123',
-        content: 'can someone look at this?',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: 'root-message',
-      });
-      const root = makeMessage({
-        id: 'root-message',
-        chat_jid: 'sl:C123',
-        content: 'human thread root',
-        thread_id: '1710000000.000100',
-      });
-      const { deps } = setupHappyPath({ group, messages: [reply] });
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        '1700000000::root-message',
-      );
-      mockGetMessagesSince.mockImplementation(
-        (_chatJid, cursor, _limit, options) =>
-          cursor === '' && options?.threadId === '1710000000.000100'
-            ? [root]
-            : [reply],
-      );
-      mockIsTriggerAllowed.mockReturnValue(true);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages(
-        'sl:C123::thread:1710000000.000100',
-      );
-
-      expect(result).toBe(true);
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
     it('requeues when a no-trigger replay fills the bounded pending replay', async () => {
@@ -884,15 +792,6 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
         'group1@g.us',
       );
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      expect(setCursorCalls).toHaveLength(1);
-      expect(setCursorCalls[0][0]).toBe('group1@g.us');
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000010',
-        id: '10',
-      });
-      expect(deps.saveState).toHaveBeenCalled();
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
@@ -1081,19 +980,6 @@ describe('createGroupProcessor', () => {
         }),
       ];
       const { deps } = setupHappyPath({ messages });
-      let cursor = '0';
-      deps.getCursor = vi.fn(() => cursor);
-      deps.setCursor = vi.fn((_queueJid, nextCursor) => {
-        cursor = nextCursor;
-      });
-      mockGetMessagesSince.mockImplementation((_jid, cursor) => {
-        const afterTimestamp = decodeGroupMessageCursor(
-          String(cursor),
-        ).timestamp;
-        return messages.filter(
-          (message) => Number(message.timestamp) > Number(afterTimestamp),
-        );
-      });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -1129,19 +1015,6 @@ describe('createGroupProcessor', () => {
         makeMessage({ id: '3', timestamp: '3', content: 'plain follow-up' }),
       ];
       const { deps } = setupHappyPath({ messages });
-      let cursor = '0';
-      deps.getCursor = vi.fn(() => cursor);
-      deps.setCursor = vi.fn((_queueJid, nextCursor) => {
-        cursor = nextCursor;
-      });
-      mockGetMessagesSince.mockImplementation((_jid, cursor) => {
-        const afterTimestamp = decodeGroupMessageCursor(
-          String(cursor),
-        ).timestamp;
-        return messages.filter(
-          (message) => Number(message.timestamp) > Number(afterTimestamp),
-        );
-      });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -1177,19 +1050,6 @@ describe('createGroupProcessor', () => {
         makeMessage({ id: '2', timestamp: '2', content: 'plain follow-up' }),
       ];
       const { deps } = setupHappyPath({ messages });
-      let cursor = '0';
-      deps.getCursor = vi.fn(() => cursor);
-      deps.setCursor = vi.fn((_queueJid, nextCursor) => {
-        cursor = nextCursor;
-      });
-      mockGetMessagesSince.mockImplementation((_jid, sinceCursor) => {
-        const afterTimestamp = decodeGroupMessageCursor(
-          String(sinceCursor),
-        ).timestamp;
-        return messages.filter(
-          (message) => Number(message.timestamp) > Number(afterTimestamp),
-        );
-      });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -1214,28 +1074,6 @@ describe('createGroupProcessor', () => {
       await processGroupMessages('group1@g.us');
 
       expect(mockSpawnAgent.mock.calls[0][1].responseSchema).toBeUndefined();
-    });
-
-    it('advances cursor to last message timestamp', async () => {
-      const messages = [
-        makeMessage({ timestamp: '1700000001' }),
-        makeMessage({ timestamp: '1700000005', id: 'msg-2' }),
-      ];
-      const { deps } = setupHappyPath({ messages });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      // Cursor set to last message timestamp
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      expect(setCursorCalls).toHaveLength(1);
-      expect(setCursorCalls[0][0]).toBe('group1@g.us');
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000005',
-        id: 'msg-2',
-      });
-      expect(deps.saveState).toHaveBeenCalled();
     });
 
     it('returns true on successful agent run', async () => {
@@ -1433,152 +1271,9 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
-    it('sends an immediate control-only Stop affordance without host acknowledgement copy', async () => {
-      const runnerResult = deferred<AgentOutput>();
-      const onFirstProgress = vi.fn();
-      const messages = [
-        makeMessage({ external_message_id: '1710000000.000200' }),
-      ];
-      const { deps } = setupHappyPath({ messages });
-      const progressChannel = makeChannel({
-        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
-      });
-      deps.channelRuntime = progressChannel;
-      mockSpawnAgent.mockImplementation(async () => runnerResult.promise);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const processing = processGroupMessages('group1@g.us', {
-        onFirstProgress,
-      });
-
-      await vi.waitFor(() => {
-        expect(progressChannel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          '',
-          expect.objectContaining({
-            actionOnly: true,
-            actionAffordances: [
-              expect.objectContaining({
-                kind: 'live_turn_stop',
-                label: 'Stop',
-                actionToken: expect.any(String),
-              }),
-            ],
-          }),
-        );
-      });
-      expect(onFirstProgress).toHaveBeenCalledWith({
-        jid: 'group1@g.us',
-        messageRef: '1710000000.000200',
-      });
-
-      runnerResult.resolve({ status: 'success', result: 'done' });
-      await processing;
-      const doneProgress = (
-        progressChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls.find((call) => call[1] === 'Done.');
-      expect(doneProgress?.[2]).toEqual(
-        expect.objectContaining({ done: true }),
-      );
-      expect(doneProgress?.[2]).not.toHaveProperty('actionAffordances');
-    });
-
-    it('registers the live Stop token before rendering the Stop affordance', async () => {
-      const order: string[] = [];
-      const runnerResult = deferred<AgentOutput>();
-      const onLiveStopActionToken = vi.fn(async () => {
-        order.push('token');
-      });
-      const { deps } = setupHappyPath();
-      const progressChannel = makeChannel({
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          if (text === '') order.push('progress');
-        }),
-      });
-      deps.channelRuntime = progressChannel;
-      mockSpawnAgent.mockImplementation(async () => runnerResult.promise);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const processing = processGroupMessages('group1@g.us', {
-        onLiveStopActionToken,
-      });
-
-      await vi.waitFor(() => {
-        expect(progressChannel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          '',
-          expect.objectContaining({
-            actionOnly: true,
-            actionAffordances: [
-              expect.objectContaining({
-                kind: 'live_turn_stop',
-                label: 'Stop',
-                actionToken: expect.any(String),
-              }),
-            ],
-          }),
-        );
-      });
-      const progressCall = (
-        progressChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls.find((call) => call[1] === '');
-      const renderedStopRef =
-        progressCall?.[2]?.actionAffordances?.[0]?.actionToken;
-      expect(onLiveStopActionToken).toHaveBeenCalledWith(renderedStopRef);
-      expect(order.slice(0, 2)).toEqual(['token', 'progress']);
-
-      runnerResult.resolve({ status: 'success', result: 'done' });
-      await processing;
-    });
-
-    it('settles initial Stop affordance before sending terminal progress', async () => {
-      const runnerResult = deferred<AgentOutput>();
-      const stopProgressSettled = deferred<void>();
-      const { deps } = setupHappyPath();
-      const progressChannel = makeChannel({
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          if (text === '') await stopProgressSettled.promise;
-        }),
-      });
-      deps.channelRuntime = progressChannel;
-      mockSpawnAgent.mockImplementation(async () => runnerResult.promise);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const processing = processGroupMessages('group1@g.us');
-
-      await vi.waitFor(() => {
-        expect(progressChannel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          '',
-          expect.objectContaining({ actionOnly: true }),
-        );
-      });
-      runnerResult.resolve({ status: 'success', result: 'done' });
-      await Promise.resolve();
-      expect(
-        (progressChannel.sendProgressUpdate as ReturnType<typeof vi.fn>).mock
-          .calls,
-      ).not.toContainEqual([
-        'group1@g.us',
-        'Done.',
-        expect.objectContaining({ done: true }),
-      ]);
-
-      stopProgressSettled.resolve();
-      await processing;
-      expect(progressChannel.sendProgressUpdate).toHaveBeenCalledWith(
-        'group1@g.us',
-        'Done.',
-        expect.objectContaining({ done: true }),
-      );
-    });
-
-    it('cancels initial progress before sending the final fallback message', async () => {
-      const initialProgressSettled = deferred<void>();
+    it('sends the final fallback message when the runner has no visible output', async () => {
       const channel = makeChannel({
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          if (text === '') await initialProgressSettled.promise;
-        }),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath({
         agentOutput: {
@@ -1592,9 +1287,6 @@ describe('createGroupProcessor', () => {
       const processing = processGroupMessages('group1@g.us');
 
       await vi.waitFor(() => expect(mockSpawnAgent).toHaveBeenCalledOnce());
-      expect(channel.sendMessage).not.toHaveBeenCalled();
-
-      initialProgressSettled.resolve();
       await processing;
       expect(channel.sendMessage).toHaveBeenCalledWith(
         'group1@g.us',
@@ -1602,12 +1294,9 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('cancels initial progress before sending a failover-exhausted notice', async () => {
-      const initialProgressSettled = deferred<void>();
+    it('sends a failover-exhausted notice after the final retry', async () => {
       const channel = makeChannel({
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          if (text === '') await initialProgressSettled.promise;
-        }),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath();
       deps.channelRuntime = channel;
@@ -1630,9 +1319,6 @@ describe('createGroupProcessor', () => {
       });
 
       await vi.waitFor(() => expect(mockSpawnAgent).toHaveBeenCalledOnce());
-      expect(channel.sendMessage).not.toHaveBeenCalled();
-
-      initialProgressSettled.resolve();
       await processing;
       expect(channel.sendMessage).toHaveBeenCalledWith(
         'group1@g.us',
@@ -1728,14 +1414,6 @@ describe('createGroupProcessor', () => {
       const channel = makeChannel({ setTyping });
       const { deps } = setupHappyPath({ messages });
       deps.channelRuntime = channel;
-      let cursor = '0';
-      deps.getCursor = vi.fn(() => cursor);
-      deps.setCursor = vi.fn((_queueJid: string, nextCursor: string) => {
-        cursor = nextCursor;
-      });
-      mockGetMessagesSince.mockImplementation((_chatJid, sinceCursor) =>
-        sinceCursor === '0' ? messages : messages.slice(10),
-      );
 
       let runCount = 0;
       let secondRunStarted = false;
@@ -1789,14 +1467,6 @@ describe('createGroupProcessor', () => {
         const channel = makeChannel({ setTyping });
         const { deps } = setupHappyPath({ messages });
         deps.channelRuntime = channel;
-        let cursor = '0';
-        deps.getCursor = vi.fn(() => cursor);
-        deps.setCursor = vi.fn((_queueJid: string, nextCursor: string) => {
-          cursor = nextCursor;
-        });
-        mockGetMessagesSince.mockImplementation((_chatJid, sinceCursor) =>
-          sinceCursor === '0' ? messages : messages.slice(10),
-        );
 
         let runCount = 0;
         let secondRunStarted = false;
@@ -2080,82 +1750,6 @@ describe('createGroupProcessor', () => {
       }
     });
 
-    it('keeps a continuation live when initial-progress cancellation overlaps a turn-complete marker', async () => {
-      const initialProgressSettled = deferred<void>();
-      const liveRun = deferred<AgentOutput>();
-      const markerHandled = deferred<void>();
-      let continuationHandler: (() => void) | undefined;
-      let blankProgressCalls = 0;
-      const channel = makeChannel({
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          if (text === '' && blankProgressCalls++ === 0) {
-            await initialProgressSettled.promise;
-          }
-          return true;
-        }),
-      });
-      const { deps } = setupHappyPath();
-      deps.channelRuntime = channel;
-      deps.queue = {
-        ...deps.queue,
-        registerContinuationHandler: vi.fn((_queueJid, handler) => {
-          continuationHandler = handler;
-          return () => {
-            if (continuationHandler === handler)
-              continuationHandler = undefined;
-          };
-        }),
-      };
-      mockSpawnAgent.mockImplementation(async (...args: unknown[]) => {
-        const onOutput = args[3] as
-          | ((output: AgentOutput) => Promise<void>)
-          | undefined;
-        const marker = onOutput?.({ status: 'success', result: null });
-        markerHandled.resolve();
-        await marker;
-        await liveRun.promise;
-        return { status: 'success', result: null } as AgentOutput;
-      });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const processing = processGroupMessages('group1@g.us');
-      await markerHandled.promise;
-      await vi.waitFor(() =>
-        expect(channel.setTyping).toHaveBeenLastCalledWith(
-          'group1@g.us',
-          false,
-        ),
-      );
-      const initialGeneration = (
-        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls.find((call) => call[1] === '')?.[2]?.generation;
-
-      expect(continuationHandler).toBeDefined();
-      continuationHandler?.();
-      await vi.waitFor(() =>
-        expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true),
-      );
-
-      initialProgressSettled.resolve();
-      await vi.waitFor(() =>
-        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          'Done.',
-          expect.objectContaining({ generation: initialGeneration }),
-        ),
-      );
-      const continuationGeneration = (
-        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls
-        .filter((call) => call[1] === '')
-        .at(-1)?.[2]?.generation;
-      expect(continuationGeneration).not.toBe(initialGeneration);
-      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
-
-      liveRun.resolve({ status: 'success', result: null });
-      await processing;
-    });
-
     it('drains unawaited output callbacks before clearing typing and marking idle', async () => {
       const sendStarted = deferred();
       const sendReleased = deferred();
@@ -2253,10 +1847,6 @@ describe('createGroupProcessor', () => {
         },
       );
 
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
 
@@ -2325,10 +1915,6 @@ describe('createGroupProcessor', () => {
         },
       );
 
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
       // A transient gateway failure releases the taken input for retry.
       const result = await processGroupMessages('group1@g.us');
@@ -2346,6 +1932,7 @@ describe('createGroupProcessor', () => {
       async (retryCount, expectedText) => {
         const channel = makeChannel({
           sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+          sendStreamingChunk: vi.fn().mockResolvedValue(true),
         });
         const { deps } = setupHappyPath();
         deps.channelRuntime = channel;
@@ -2358,6 +1945,10 @@ describe('createGroupProcessor', () => {
           const callback = args[3] as
             | ((output: AgentOutput) => Promise<void>)
             | undefined;
+          await callback?.({
+            status: 'success',
+            result: 'Working on the answer.',
+          });
           await callback?.(errorOutput);
           return errorOutput;
         });
@@ -2372,15 +1963,19 @@ describe('createGroupProcessor', () => {
         const progressCalls = (
           channel.sendProgressUpdate as ReturnType<typeof vi.fn>
         ).mock.calls;
-        const initialGeneration = progressCalls.find(
-          (call) => call[2]?.actionOnly === true,
-        )?.[2]?.generation;
+        const streamingCalls = (
+          channel.sendStreamingChunk as ReturnType<typeof vi.fn>
+        ).mock.calls;
+        expect(streamingCalls.length).toBeGreaterThan(0);
+        expect(streamingCalls.map((call) => call[2].generation)).toEqual(
+          streamingCalls.map(() => streamingCalls[0][2].generation),
+        );
         expect(progressCalls).toContainEqual([
           'group1@g.us',
           expectedText,
           expect.objectContaining({
             replaceOnly: true,
-            generation: initialGeneration,
+            generation: streamingCalls[0][2].generation,
           }),
         ]);
         expect(
@@ -2450,24 +2045,15 @@ describe('createGroupProcessor', () => {
         },
       );
 
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
-      // The old marker rollback is gone. Final retry keeps the consumed record
-      // when the user receives the failure notice.
+      // Final retry keeps the consumed record when the user receives the
+      // failure notice.
       const result = await processGroupMessages('group1@g.us', {
         finalRetry: true,
       });
 
       expect(result).toBe(true);
       expect(deps.getInputRepository?.().releaseInput).not.toHaveBeenCalled();
-      // Cursor is NOT rolled back to the previous value (storm stopped).
-      expect(deps.setCursor).not.toHaveBeenCalledWith(
-        'group1@g.us',
-        'prev-cursor',
-      );
       // User is notified: the turn is never silently dropped.
       const sendMessageCalls = (channel.sendMessage as ReturnType<typeof vi.fn>)
         .mock.calls;
@@ -2552,10 +2138,6 @@ describe('createGroupProcessor', () => {
           }
           return undefined;
         },
-      );
-
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
@@ -2827,10 +2409,6 @@ describe('createGroupProcessor', () => {
         },
       );
 
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
 
@@ -2839,13 +2417,6 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Model Access authentication failed. Update the provider API key in Model Access, then send the message again.',
       );
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      expect(setCursorCalls).toHaveLength(1);
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000001',
-        id: 'msg-1',
-      });
     });
   });
 
@@ -2883,10 +2454,6 @@ describe('createGroupProcessor', () => {
         },
       );
 
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
 
@@ -2896,17 +2463,6 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Partial response',
       );
-
-      // Cursor should NOT be rolled back: the last setCursor should be the advance, not a rollback
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      // First call advances cursor to message timestamp; there should be no second rollback call
-      expect(setCursorCalls).toHaveLength(1);
-      expect(setCursorCalls[0][0]).toBe('group1@g.us');
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000001',
-        id: 'msg-1',
-      });
     });
 
     it('treats partial channel delivery as output sent, avoids rollback, and replaces completion with delivery-incomplete', async () => {
@@ -2928,9 +2484,6 @@ describe('createGroupProcessor', () => {
       (channel.sendMessage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         partialDeliveryError,
       );
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
 
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
@@ -2940,13 +2493,6 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Agent reply text',
       );
-      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .calls;
-      expect(setCursorCalls).toHaveLength(1);
-      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '1700000001',
-        id: 'msg-1',
-      });
       expect(
         (
           channel.sendProgressUpdate as ReturnType<typeof vi.fn>
@@ -2967,9 +2513,6 @@ describe('createGroupProcessor', () => {
       const { deps } = setupHappyPath({ group, messages });
 
       mockSpawnAgent.mockRejectedValue(new Error('spawn failed'));
-      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-        'prev-cursor',
-      );
 
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
@@ -4324,11 +3867,7 @@ describe('createGroupProcessor', () => {
         expect.anything(),
         'provider-run:review-1',
         group.folder,
-        [
-          expect.stringMatching(
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-          ),
-        ],
+        [],
         undefined,
         { requiredContinuationUserId: 'sl:UADMIN' },
       );
@@ -4616,10 +4155,7 @@ describe('createGroupProcessor', () => {
       const finish = deferred<AgentOutput>();
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
-      const sendProgressUpdate = vi
-        .fn()
-        .mockResolvedValue(true)
-        .mockImplementationOnce(async () => true);
+      const sendProgressUpdate = vi.fn().mockResolvedValue(true);
       const channel = makeChannel({ sendProgressUpdate });
       const { deps } = setupHappyPath({ group, messages });
       deps.channelRuntime = channel;
@@ -4659,10 +4195,7 @@ describe('createGroupProcessor', () => {
       const finish = deferred<AgentOutput>();
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
-      const sendProgressUpdate = vi
-        .fn()
-        .mockResolvedValue(true)
-        .mockImplementationOnce(async () => true);
+      const sendProgressUpdate = vi.fn().mockResolvedValue(true);
       const channel = makeChannel({ sendProgressUpdate });
       const { deps } = setupHappyPath({ group, messages });
       deps.channelRuntime = channel;
@@ -5103,95 +4636,6 @@ describe('createGroupProcessor', () => {
       await processing;
     });
 
-    it('recreates control-only Stop affordance when a background-demoted turn resumes', async () => {
-      let continuationHandler: (() => void) | undefined;
-      const finishRun = deferred<void>();
-      const group = makeGroup({ requiresTrigger: false });
-      const messages = [makeMessage()];
-      const channel = makeChannel({
-        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
-      });
-      const { deps } = setupHappyPath({ group, messages });
-      deps.channelRuntime = channel;
-      deps.queue = {
-        ...deps.queue,
-        registerContinuationHandler: vi.fn((_queueJid, handler) => {
-          continuationHandler = handler;
-          return () => {
-            if (continuationHandler === handler)
-              continuationHandler = undefined;
-          };
-        }),
-      };
-
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: ConversationRoute,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          await onOutput?.({
-            status: 'success',
-            result: null,
-            interactionBoundary: 'user_interaction',
-          });
-          await finishRun.promise;
-          return { status: 'success', result: null } as AgentOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const processing = processGroupMessages('group1@g.us');
-
-      await vi.waitFor(() => {
-        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          'Waiting for your input.',
-          expect.objectContaining({ replaceOnly: true }),
-        );
-      });
-      await vi.advanceTimersByTimeAsync(121_000);
-      await vi.waitFor(() => {
-        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          'Running in background...',
-          expect.objectContaining({ done: true, replaceOnly: true }),
-        );
-      });
-
-      (channel.sendProgressUpdate as ReturnType<typeof vi.fn>).mockClear();
-      continuationHandler?.();
-
-      await vi.waitFor(() => {
-        expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
-          'group1@g.us',
-          '',
-          expect.objectContaining({
-            actionOnly: true,
-            actionAffordances: [
-              expect.objectContaining({
-                kind: 'live_turn_stop',
-                label: 'Stop',
-                actionToken: expect.any(String),
-              }),
-            ],
-          }),
-        );
-      });
-      expect(
-        (
-          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-        ).mock.calls.some(
-          (call) =>
-            typeof call[1] === 'string' && call[1].startsWith('⏳ Working'),
-        ),
-      ).toBe(false);
-
-      finishRun.resolve();
-      await processing;
-    });
-
     it('sends done progress for each terminal-marker-delimited turn', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
@@ -5349,7 +4793,7 @@ describe('createGroupProcessor', () => {
       await first;
     });
 
-    it('cancels initial progress before final completion on fast runs', async () => {
+    it('finishes fast runs with terminal progress and no empty card', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const visibleProgress: string[] = [];
@@ -5375,6 +4819,7 @@ describe('createGroupProcessor', () => {
         visibleProgress.some((item) => item.startsWith('✅ Done · ')),
       ).toBe(false);
       expect(visibleProgress).toContain('Done.');
+      expect(visibleProgress).not.toContain('');
     });
 
     it('posts no-output warning for long silent runs without auto-failing', async () => {
@@ -6274,16 +5719,13 @@ describe('createGroupProcessor', () => {
         continuationHandler?.();
         await vi.advanceTimersByTimeAsync(0);
         expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', true);
-        const resumedGeneration = (
-          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-        ).mock.calls
-          .filter((call) => call[1] === '')
-          .at(-1)?.[2]?.generation;
-        expect(resumedGeneration).toBeDefined();
-        expect(resumedGeneration).not.toBe(demotedGeneration);
-
         liveRun.resolve({ status: 'success', result: null });
         await processing;
+        const resumedGeneration = (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.findLast((call) => call[1] === 'Done.')?.[2]?.generation;
+        expect(resumedGeneration).toBeDefined();
+        expect(resumedGeneration).not.toBe(demotedGeneration);
       } finally {
         vi.useRealTimers();
       }
@@ -6817,7 +6259,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('bounds provider-visible streamed output and persisted transcript for large chunked output', async () => {
+    it('keeps the whole streamed generation in one message and redacts provider handles', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
       });
@@ -6865,13 +6307,15 @@ describe('createGroupProcessor', () => {
       expect(deliveredStream).not.toContain(splitProviderHandle);
       expect(deliveredStream).toContain('[REDACTED]');
       expect(deliveredStream.endsWith(tailChunk)).toBe(true);
-      const storedTranscript = (deps.opsRepository as any).storeMessage.mock
-        .calls[0][0].content as string;
-      expect(storedTranscript.length).toBeLessThanOrEqual(
-        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
-      );
-      expect(storedTranscript).toMatch(/^\[output truncated; showing tail\]\n/);
-      expect(storedTranscript).not.toContain('HEAD-START');
+      // Live acknowledgements update one message; its final text is the entire
+      // generation. Only the run summary and fallback transcript remain bounded.
+      const projections = vi
+        .mocked(deps.opsRepository.storeMessage)
+        .mock.calls.map(([message]) => message);
+      expect(new Set(projections.map((message) => message.id)).size).toBe(1);
+      const storedTranscript = projections.at(-1)!.content;
+      expect(storedTranscript).toBe(deliveredStream);
+      expect(storedTranscript).toContain('HEAD-START');
       expect(storedTranscript).not.toContain(splitProviderHandle);
       expect(storedTranscript).toContain('[REDACTED]');
       expect(storedTranscript.endsWith(tailChunk)).toBe(true);
@@ -7077,19 +6521,23 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('resets channel streaming state before running a new cycle', async () => {
+    it("resets only the turn's thread stream before running a new cycle", async () => {
       const resetStreaming = vi.fn();
       const streamingChannel = makeChannel({
         resetStreaming,
         sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
       });
-      const { deps } = setupHappyPath();
+      const { deps } = setupHappyPath({
+        messages: [makeMessage({ thread_id: '42' })],
+      });
       deps.channelRuntime = streamingChannel;
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
+      await processGroupMessages('group1@g.us::thread:42');
 
-      expect(resetStreaming).toHaveBeenCalledWith('group1@g.us');
+      expect(resetStreaming).toHaveBeenCalledWith('group1@g.us', {
+        threadId: '42',
+      });
     });
 
     it('handles non-string result by JSON.stringifying', async () => {
@@ -7259,12 +6707,7 @@ describe('createGroupProcessor', () => {
         mockProc,
         'test-container',
         'test-group',
-        [
-          'group1@g.us',
-          expect.stringMatching(
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-          ),
-        ],
+        ['group1@g.us'],
         'thread-a',
         undefined,
       );
@@ -7347,10 +6790,8 @@ describe('createGroupProcessor', () => {
       // and MESSAGE_FETCH_PAGE_SIZE 50 — the same cap-below-page relationship
       // as the shipped 10/200, which is the property that matters.
       //
-      // With 11 messages available, collectPendingMessagesSince asks for a
-      // page, gets 11, accepts 10, and returns immediately because the
-      // accepted slice is shorter than the batch
-      // (pending-message-replay.ts:66-68). One call.
+      // With 11 messages available, turn start takes 10 items and reads their
+      // rows once. One call.
       //
       // Verified sensitive: inverting the mock to cap 50 / page 5 makes this
       // assertion fail with 3 calls instead of 1. That is the intended loud
@@ -7403,7 +6844,7 @@ describe('createGroupProcessor', () => {
     // call — arithmetic on the fixture, not evidence about production. So this
     // suite proves the half it can actually see: the processor reads
     // independently, at execution time.
-    it('takes input at execution time without reading the saved marker', async () => {
+    it('takes input at execution time', async () => {
       const executionMessage = makeMessage({
         id: 'execution-only',
         content: 'group processor authoritative body',
@@ -7411,7 +6852,6 @@ describe('createGroupProcessor', () => {
       });
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
-      deps.getCursor = vi.fn().mockReturnValue('cursor-before');
       mockGetMessagesSince.mockResolvedValue([executionMessage]);
       mockFormatConversationContextMessages.mockImplementation(
         ({ currentMessages }: { currentMessages: NewMessage[] }) =>
@@ -7421,37 +6861,20 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', { queued: true });
 
-      expect(deps.getCursor).not.toHaveBeenCalled();
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         prompt: 'group processor authoritative body',
       });
     });
 
-    // The real unchanged-cursor mid-turn tripwire lives in message-loop.test.ts,
+    // The real mid-turn tripwire lives in message-loop.test.ts,
     // where admission and the queued group run both execute their production reads.
   });
 
   // =======================================================================
-  // Integration: cursor management end-to-end
+  // Record input scope
   // =======================================================================
 
   describe('record input scope', () => {
-    it('does not read the saved marker when no item is waiting', async () => {
-      const group = makeGroup({ requiresTrigger: false });
-      const channel = makeChannel();
-      const deps = makeDeps({
-        channelRuntime: channel,
-        getGroup: vi.fn().mockReturnValue(group),
-        getCursor: vi.fn().mockReturnValue('cursor-ts-123'),
-      });
-      mockGetMessagesSince.mockReturnValue([]);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.getCursor).not.toHaveBeenCalled();
-    });
-
     it('filters to unthreaded messages when invoked by the queue for a base chat', async () => {
       const { deps } = setupHappyPath();
 
@@ -7466,21 +6889,6 @@ describe('createGroupProcessor', () => {
           }),
         }),
       );
-    });
-
-    it('saves state after advancing cursor', async () => {
-      const messages = [makeMessage({ timestamp: '1700000099' })];
-      const { deps } = setupHappyPath({ messages });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      // setCursor should be called before saveState
-      const setCursorOrder = (deps.setCursor as ReturnType<typeof vi.fn>).mock
-        .invocationCallOrder[0];
-      const saveStateOrder = (deps.saveState as ReturnType<typeof vi.fn>).mock
-        .invocationCallOrder[0];
-      expect(setCursorOrder).toBeLessThan(saveStateOrder);
     });
   });
 
@@ -7517,11 +6925,7 @@ describe('createGroupProcessor', () => {
         mockProc,
         'test-container',
         'test-group',
-        [
-          expect.stringMatching(
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-          ),
-        ],
+        [],
         undefined,
         undefined,
       );
@@ -9389,43 +8793,6 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
     });
 
-    it('advanceCursor sets cursor and saves state', async () => {
-      const { capturedDeps, deps } = await captureSessionDeps();
-      const advanceCursor = capturedDeps.advanceCursor as (
-        message: Pick<NewMessage, 'timestamp' | 'id'>,
-      ) => void;
-
-      advanceCursor({ timestamp: '1700099999', id: 'msg-advance' });
-
-      expect(deps.setCursor).toHaveBeenCalledWith(
-        'group1@g.us',
-        encodeGroupMessageCursor({
-          timestamp: '1700099999',
-          id: 'msg-advance',
-        }),
-      );
-      expect(deps.saveState).toHaveBeenCalled();
-    });
-
-    it('advanceCursor catches saveState rejection', async () => {
-      const { capturedDeps, deps } = await captureSessionDeps();
-      (deps.saveState as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('state write failed'),
-      );
-      const advanceCursor = capturedDeps.advanceCursor as (
-        message: Pick<NewMessage, 'timestamp' | 'id'>,
-      ) => void;
-
-      advanceCursor({ timestamp: '1700099999', id: 'msg-advance' });
-      await Promise.resolve();
-
-      expect(deps.saveState).toHaveBeenCalled();
-      expect(deps.setCursor).toHaveBeenCalledWith(
-        'group1@g.us',
-        expect.any(String),
-      );
-    });
-
     it('getDefaultModel returns model from config', async () => {
       const { capturedDeps } = await captureSessionDeps();
       const getDefaultModel = capturedDeps.getDefaultModel as () =>
@@ -10138,7 +9505,6 @@ describe('createGroupProcessor', () => {
       const deps = makeDeps({
         channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
-        getCursor: vi.fn().mockReturnValue('0'),
       });
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
@@ -10182,7 +9548,6 @@ describe('createGroupProcessor', () => {
       const deps = makeDeps({
         channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
-        getCursor: vi.fn().mockReturnValue('0'),
       });
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
@@ -10242,7 +9607,6 @@ describe('createGroupProcessor', () => {
       const deps = makeDeps({
         channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
-        getCursor: vi.fn().mockReturnValue('0'),
       });
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
