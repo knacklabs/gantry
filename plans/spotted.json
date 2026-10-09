@@ -186,6 +186,28 @@
       "item": "TURN-1/T6",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
+      "kind": "bug",
+      "path": "docs/specs/subagents-end-to-end.md",
+      "line": 99,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "subagents-refuse-hang-lose-results-and-i",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tdocs/context/subagent-research-2026-10-02.md\tRepair the remaining broken research citations",
+      "kind": "edge",
+      "path": "docs/context/subagent-research-2026-10-02.md",
+      "line": 14,
+      "text": "Repair the remaining broken research citations",
+      "from": "review",
+      "item": "subagents-refuse-hang-lose-results-and-i",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }
