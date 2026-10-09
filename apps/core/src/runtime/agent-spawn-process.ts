@@ -42,14 +42,15 @@ import {
 } from './agent-spawn-log-sanitization.js';
 import { createRunnerStartupTiming } from './agent-spawn-startup-timing.js';
 import { publishRunnerProcessStartupDiagnostic } from './agent-spawn-process-diagnostic.js';
+import {
+  bindRunnerInput,
+  formatResumeSessionStatus,
+  runnerContextPayload,
+} from './agent-spawn-process-input.js';
 const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
-
-function formatResumeSessionStatus(sessionId?: string): string {
-  return sessionId ? 'present' : 'none';
-}
 
 function parseBufferedRunnerOutput(stdout: string): AgentOutput {
   const endIdx = stdout.lastIndexOf(OUTPUT_END_MARKER);
@@ -67,11 +68,6 @@ function parseBufferedRunnerOutput(stdout: string): AgentOutput {
   }
 
   return JSON.parse(jsonLine) as AgentOutput;
-}
-
-function runnerContextPayload(input: RunnerProcessSpec['input']) {
-  const { appId, agentId, sessionId, jobId, runId } = input;
-  return { appId, agentId, sessionId, jobId, runId };
 }
 
 export function executeRunnerProcess(
@@ -155,18 +151,11 @@ export function executeRunnerProcess(
       },
       warn: logger.warn.bind(logger),
     });
-    onProcess(runner, processName);
 
     let stdout = '';
     let stderr = '';
     let stdoutTruncated = false;
     let stderrTruncated = false;
-
-    startupTiming.measureStdinWrite(() => {
-      if (abortBinding.aborted()) return;
-      runner.stdin.write(JSON.stringify(input));
-      runner.stdin.end();
-    });
 
     let parseBuffer = '';
     let parseBufferTruncated = false;
@@ -196,10 +185,18 @@ export function executeRunnerProcess(
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);
     const resetTimeout = () => {
+      if (runnerInput.error()) return;
       if (hasExplicitTimeout && !input.isScheduledJob) return;
       clearTimeout(timeout);
       timeout = setTimeout(killOnTimeout, timeoutMs);
     };
+
+    const runnerInput = bindRunnerInput(
+      spec,
+      runner,
+      () => timedOut || abortBinding.aborted(),
+      () => clearTimeout(timeout),
+    );
 
     runner.stdout.on('data', (data) => {
       startupTiming.markFirstStdout();
@@ -525,7 +522,7 @@ export function executeRunnerProcess(
         });
         return;
       }
-      if (streamedSigterm && !stopRequested) {
+      if (streamedSigterm && !stopRequested && !runnerInput.error()) {
         outputChain.then(() => {
           logger.info(
             {
@@ -570,6 +567,9 @@ export function executeRunnerProcess(
         });
         return;
       }
+
+      const inputError = runnerInput.error();
+      if (inputError) return outputChain.then(() => resolve(inputError));
 
       if (code !== 0) {
         const sanitizedStdout = sanitizeLogText(stdout);
@@ -692,5 +692,8 @@ export function executeRunnerProcess(
         error: `${runnerLabel} spawn error: ${err.message}`,
       });
     });
+
+    onProcess(runner, processName);
+    startupTiming.measureStdinWrite(runnerInput.write);
   });
 }
