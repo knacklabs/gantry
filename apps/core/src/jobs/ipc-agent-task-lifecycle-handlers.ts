@@ -361,10 +361,9 @@ const asyncRunCommandHandler: TaskHandler = async (context) => {
   }
   const result = await service.start({
     ...scopedTaskOwner,
-    parentRunId: context.data.jobId ? null : (context.data.runId ?? null),
+    parentRunId: context.data.runId ?? null,
     parentTaskId: parentTask.parentTaskId,
     parentJobId: context.data.jobId ?? null,
-    parentJobRunId: context.data.jobId ? (context.data.runId ?? null) : null,
     command,
     cwd: resolveWorkspaceFolderPath(context.sourceAgentFolder),
     protectedReadPaths: sandboxPolicy.protectedReadPaths,

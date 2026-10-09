@@ -512,7 +512,6 @@ function makeCompactionTask(
     threadId: null,
     parentRunId: null,
     parentJobId: null,
-    parentJobRunId: null,
     kind: 'session_compaction',
     status: 'queued',
     admissionClass: 'task',

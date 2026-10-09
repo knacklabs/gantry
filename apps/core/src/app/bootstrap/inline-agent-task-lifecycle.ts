@@ -88,9 +88,8 @@ export function createInlineAgentTaskLifecycle(input: {
     authorityToolName: input.authorityToolName,
     enableDelegatedAsyncFollowUp: !run.jobId,
     parentTaskId: run.parentTaskId,
-    parentRunId: run.jobId
-      ? null
-      : (input.laneInput.correlationRunId ?? run.runId),
+    parentRunId: input.laneInput.correlationRunId ?? run.runId,
+    parentJobId: run.jobId ?? null,
     workspaceFolder: input.laneInput.group.folder,
     ...(run.parentTaskId
       ? {}

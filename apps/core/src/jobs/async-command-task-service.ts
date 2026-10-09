@@ -63,7 +63,6 @@ import type {
   AsyncCommandLaunchControl,
   AsyncCommandProcessHandle,
   AsyncCommandRunner,
-  AsyncCommandRunnerResult,
   StartAsyncCommandTaskInput,
   StartAsyncCommandTaskResult,
 } from './async-command-task-types.js';
@@ -153,7 +152,6 @@ export class AsyncCommandTaskService {
       threadId: input.threadId,
       parentRunId: input.parentRunId,
       parentJobId: input.parentJobId,
-      parentJobRunId: input.parentJobRunId,
       kind: 'async_command',
       status: 'queued',
       admissionClass: 'task',

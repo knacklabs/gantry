@@ -57,7 +57,6 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       threadId: input.threadId ?? null,
       parentRunId: input.parentRunId ?? null,
       parentJobId: input.parentJobId ?? null,
-      parentJobRunId: input.parentJobRunId ?? null,
       kind: input.kind,
       status: input.status,
       admissionClass: input.admissionClass,
@@ -463,7 +462,6 @@ describe('MCP IPC tool handlers', () => {
       conversationId: 'sl:C123',
       parentRunId: 'run-1',
       parentJobId: null,
-      parentJobRunId: null,
       summary: 'crm.create_deal',
     });
     expect(task.privateCorrelationJson.parentTaskId).toBe(parent.id);
@@ -731,7 +729,7 @@ describe('MCP IPC tool handlers', () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it('stores scheduled async MCP job metadata outside live parentRunId', async () => {
+  it('links scheduled tool calls to their starting agent run and job', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const callTool = vi.fn(async () => ({}));
     const createProxy = vi.fn(async () => ({
@@ -786,9 +784,8 @@ describe('MCP IPC tool handlers', () => {
       (candidate) => candidate.kind === 'mcp_tool_call',
     );
     expect(task).toMatchObject({
-      parentRunId: null,
+      parentRunId: 'job-run-1',
       parentJobId: 'job-1',
-      parentJobRunId: 'job-run-1',
     });
   });
 });

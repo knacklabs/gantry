@@ -80,7 +80,6 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       threadId: input.threadId ?? null,
       parentRunId: input.parentRunId ?? null,
       parentJobId: input.parentJobId ?? null,
-      parentJobRunId: input.parentJobRunId ?? null,
       kind: input.kind,
       status: input.status,
       admissionClass: input.admissionClass,
@@ -892,7 +891,7 @@ describe('agent task lifecycle IPC handlers', () => {
     expect(repository.tasks.get(child.id)?.status).toBe('cancelled');
   });
 
-  it('stores scheduled job run ids in the job-run parent column', async () => {
+  it('links scheduled commands to their starting agent run and job', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
@@ -945,9 +944,8 @@ describe('agent task lifecycle IPC handlers', () => {
 
     const taskId = await waitForStatus(repository, 'running');
     expect(repository.tasks.get(taskId)).toMatchObject({
-      parentRunId: null,
+      parentRunId: 'job-run-1',
       parentJobId: 'job-1',
-      parentJobRunId: 'job-run-1',
     });
     await agentTaskLifecycleHandlers.task_cancel(
       contextFor({
