@@ -31,6 +31,7 @@
     "id": "b5abdb18-af52-423e-99d8-7c899ec2da9f",
     "status": "blocked"
   },
+  "round": 1,
   "status": "fixing",
   "steps": [
     {
@@ -46,5 +47,6 @@
       "step": "review"
     }
   ],
-  "why": "Subagents refuse, hang, lose results and ignore job and permission rules"
+  "why": "Subagents refuse, hang, lose results and ignore job and permission rules",
+  "worker": "codex"
 }
