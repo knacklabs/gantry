@@ -1055,6 +1055,9 @@ describe('PromptProfileService', () => {
     const capped = new PromptProfileService({
       fileArtifactStore: () => store,
       sectionBudgets: {
+        // Common delegation policy grew the default runtime section. Keep
+        // this tiny fixture's section caps explicit so it still tests packing.
+        RUNTIME_RULES: 400,
         PERSONA: 0,
         SOUL: 400,
         CAPABILITY_GUIDANCE: 0,

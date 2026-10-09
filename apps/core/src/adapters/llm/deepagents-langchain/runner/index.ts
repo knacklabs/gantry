@@ -40,11 +40,10 @@ import {
 import type { DeepAgentRunnerInput } from './types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js';
+import { writeRunnerDiagnostic } from '../../../../runner/logging.js';
 
 function log(message: string): void {
-  if (process.env.GANTRY_RUNNER_LOG === '1') {
-    process.stderr.write(`[deepagents-runner] ${message}\n`);
-  }
+  writeRunnerDiagnostic(`[deepagents-runner] ${message}`);
 }
 
 function resolveModelId(): string {

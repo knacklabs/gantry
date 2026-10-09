@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type * as DomainTypes from '../../domain/types.js';
@@ -226,7 +227,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelReactions {
     jid: string,
     text: string,
     options: DomainTypes.StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     if (!this.bot || !jid.startsWith('tg:-')) return false;
     const accepted = this.streamGenerations.accept(
       this.buildStreamKey(jid, options.threadId),

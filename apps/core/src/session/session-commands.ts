@@ -10,12 +10,15 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
-} from './session-command-parse.js';
+} from '../application/sessions/session-command-parse.js';
 export {
   extractSessionCommand,
   isSessionCommandAllowed,
-} from './session-command-parse.js';
-export type { AgentResult, SessionCommand } from './session-command-parse.js';
+} from '../application/sessions/session-command-parse.js';
+export type {
+  AgentResult,
+  SessionCommand,
+} from '../application/sessions/session-command-parse.js';
 import {
   findModelByRunnerModel,
   type ModelDefaultAliases,
@@ -173,6 +176,8 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   clearCurrentSession: () => Promise<void> | void;
   stopCurrentRun?: () => boolean;
+  /** Makes the batch waiting before /stop history, so it starts no turn. */
+  cancelWaitingInput?: () => Promise<void>;
   runMemoryDreaming?: () => Promise<unknown>;
   getMemoryStatus?: () => Promise<MemoryStatusSnapshot>;
   getSessionCompactionStatus?: () =>
@@ -283,6 +288,7 @@ export async function handleSessionCommand(opts: {
   logger.info({ group: groupName, command: command.raw }, 'Session command');
 
   if (command.kind === 'stop') {
+    await deps.cancelWaitingInput?.();
     const stopped = deps.stopCurrentRun ? deps.stopCurrentRun() : false;
     await deps.sendMessage(
       stopped ? 'Stopping current run.' : 'No active run to stop.',

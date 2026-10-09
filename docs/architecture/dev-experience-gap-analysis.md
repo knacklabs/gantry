@@ -36,7 +36,7 @@ The settings parser validates the key
 but nothing on the worker path reads it. Claude workers get thinking control only
 through the `/thinking` slash command — a conversation-level `ThinkingOverride`
 (`apps/core/src/domain/types.ts` lines 31–55, parsed in
-`apps/core/src/session/session-command-parse.ts`) piped through
+`apps/core/src/application/sessions/session-command-parse.ts`) piped through
 `apps/core/src/runtime/group-agent-runner.ts` → subprocess stdin → SDK options in
 `apps/core/src/adapters/llm/anthropic-claude-agent/runner/model-config.ts`. The
 DeepAgents worker input contract
@@ -248,8 +248,8 @@ use case comes after.
 
 ## 4. Tier table
 
-| Tier | Items | Where |
-| --- | --- | --- |
-| 1 (approved) | B1 B2 B3, P1 P2 P3 P4 P5 P12, I1, I2 | `docs/architecture/dev-control-and-observability-goal-prompt.md` |
-| 2 | P6 hooks, P7 validation-retry, P10 usage API | next goal prompt after Tier 1 ships |
-| 3 | P8 fork, P9 MCP resources, P11 batches, I3 replay | backlog |
+| Tier         | Items                                             | Where                                                            |
+| ------------ | ------------------------------------------------- | ---------------------------------------------------------------- |
+| 1 (approved) | B1 B2 B3, P1 P2 P3 P4 P5 P12, I1, I2              | `docs/architecture/dev-control-and-observability-goal-prompt.md` |
+| 2            | P6 hooks, P7 validation-retry, P10 usage API      | next goal prompt after Tier 1 ships                              |
+| 3            | P8 fork, P9 MCP resources, P11 batches, I3 replay | backlog                                                          |

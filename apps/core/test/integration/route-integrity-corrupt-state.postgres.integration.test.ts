@@ -172,10 +172,15 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       item: {
         queueJid: fullyQualifiedRouteKey,
         conversationId: chatJid,
-        state: 'queued',
+        state: 'deferred',
       },
     });
     if (!admission) throw new Error('Expected a live admission work item.');
+    // End its quiet window now rather than waiting it out.
+    await runtime.service.pool.query(
+      `UPDATE ${table('live_admission_work_items')} SET defer_until = now() WHERE id = $1`,
+      [admission.item.id],
+    );
 
     await runtime.repositories.workerCoordination.registerWorker({
       id: workerInstanceId,

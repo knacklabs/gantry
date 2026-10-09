@@ -3,7 +3,10 @@ import { createHash } from 'node:crypto';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import { jidForConfiguredConversation } from '../config/settings/desired-state-provider-conversations.js';
 import type { NewMessage } from '../domain/types.js';
-import { normalizeBrainSlug } from './brain-page-ingest.js';
+import {
+  markdownWithFrontmatter,
+  normalizeBrainSlug,
+} from './brain-page-ingest.js';
 import type { BrainService } from './brain-service.js';
 import type { BrainPage } from './brain-types.js';
 
@@ -197,24 +200,4 @@ function dedupeStrings(values: string[]): string[] {
     if (trimmed) out.set(trimmed.toLowerCase(), trimmed);
   }
   return [...out.values()].sort((a, b) => a.localeCompare(b));
-}
-
-function markdownWithFrontmatter(
-  frontmatter: Record<string, string | string[]>,
-  body: string,
-): string {
-  const lines = ['---'];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (Array.isArray(value)) {
-      lines.push(`${key}: [${value.map(quoteYaml).join(', ')}]`);
-    } else {
-      lines.push(`${key}: ${quoteYaml(value)}`);
-    }
-  }
-  lines.push('---', body);
-  return lines.join('\n');
-}
-
-function quoteYaml(value: string): string {
-  return JSON.stringify(value);
 }

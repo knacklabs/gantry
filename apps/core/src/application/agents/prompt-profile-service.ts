@@ -10,7 +10,10 @@ import {
   resolveAgentRelationshipMode,
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
-import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
+import {
+  DELEGATION_GUIDANCE,
+  PROACTIVE_RECOMMENDATION_GUIDANCE,
+} from '../../shared/capability-guidance.js';
 // prettier-ignore
 import { composePromptWithRequiredCapabilityCatalog, renderCapabilityGuidancePrompt, type CapabilityCatalogRenderDiagnostics } from './agent-prompt-capability-guidance.js';
 import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
@@ -72,6 +75,7 @@ const RUNTIME_RULES_COMMON = [
   '- Follow Gantry safety and execution constraints exactly.',
   '- Keep static profile behavior separate from query-retrieved memory context.',
   '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
+  DELEGATION_GUIDANCE,
 ];
 const RUNTIME_RULES_BLOCK = [
   ...RUNTIME_RULES_COMMON,
@@ -92,28 +96,24 @@ export function builtInRolePrompt(
       return [
         '# Generalist persona',
         '- Help with planning, reminders, coordination, lightweight research, and cross-functional workflows.',
-        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Avoid developer, repository, shell, Git, deployment, PR, and runtime-admin assumptions unless the user explicitly asks and host capabilities allow it.',
       ].join('\n');
     case 'sales':
       return [
         '# Sales persona',
         '- Help with customer context, account follow-up, scheduling, messaging, and approved CRM-backed workflows.',
-        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'marketing':
       return [
         '# Marketing persona',
         '- Help with campaign context, messaging, content review, research, and approved analytics/content workflows.',
-        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'operations':
       return [
         '# Operations persona',
         '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
-        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- If an approved operational source is already connected or capability_status shows it as ready, use the approved tools directly; do not tell the user approval is needed unless the tool response says access is missing or denied.',
         '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools and fetch one-tool details with mcp_describe_tool when schema is needed before saying the source is unavailable or asking for another access path.',
         '- When listing operational choices for a human, prefer concise channel-native bullets with display names only.',
@@ -129,7 +129,6 @@ export function builtInRolePrompt(
       return [
         '# Research persona',
         '- Help with browsing, source-backed research, comparison, synthesis, and citations.',
-        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'developer':

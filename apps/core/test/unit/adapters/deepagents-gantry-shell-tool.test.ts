@@ -19,7 +19,6 @@ vi.mock('@core/runner/permission-ipc-client.js', () => ({
 import {
   createGantryShellTool,
   GANTRY_SHELL_TOOL_NAME,
-  SHELL_CHILD_NETWORK_ENV_KEYS,
 } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
 import type { DeepAgentsPermissionDenial } from '@core/adapters/llm/deepagents-langchain/runner/third-party-mcp-gate.js';
 import { buildToolNetworkEnv } from '@core/shared/tool-network-env.js';
@@ -309,34 +308,29 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
-  it('documents the network/proxy env keys the sandboxed child receives', () => {
-    // The child env is a scrubbed allowlist that includes these proxy/CA keys
-    // (agent-spawn populates them on the runner) so egress stays on the gateway —
-    // for non-node tools (curl/git CA trust) and Go/gRPC clients too.
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('HTTP_PROXY');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('HTTPS_PROXY');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('GANTRY_EGRESS_PROXY_URL');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('GRPC_PROXY');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('NODE_USE_ENV_PROXY');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('GODEBUG');
-    // Non-node CA-trust aliases (curl/git/python/etc).
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('SSL_CERT_FILE');
-    expect(SHELL_CHILD_NETWORK_ENV_KEYS).toContain('CURL_CA_BUNDLE');
-  });
-
-  it('stays a superset of every key buildToolNetworkEnv projects (drift guard)', () => {
-    // The runner's proxy/CA env is built by buildToolNetworkEnv; the shell child
-    // allowlist must carry every key it sets, or egress silently breaks for the
-    // dropped key. This guard fails if a new proxy/CA key is added there without
-    // being added to the allowlist (the exact drift that broke Go/gRPC egress).
-    const projected = buildToolNetworkEnv({
-      proxyUrl: 'http://127.0.0.1:18080/',
-      caBundlePath: '/tmp/ca.pem',
-      noProxy: { NO_PROXY: 'localhost', no_proxy: 'localhost' },
+  it('carries projected network values into the child without accepting other projected fields', async () => {
+    const projected = {
+      ...buildToolNetworkEnv({
+        proxyUrl: 'http://127.0.0.1:18080/',
+        caBundlePath: '/tmp/ca.pem',
+      }),
+      GODEBUG: 'netdns=go',
+      GANTRY_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
+    };
+    const tool = makeTool({
+      toolNetworkEnv: {
+        ...projected,
+        GANTRY_IPC_AUTH_TOKEN: 'projected-secret',
+        PATH: '/projected-path',
+      },
     });
-    const allowlist = new Set<string>(SHELL_CHILD_NETWORK_ENV_KEYS);
-    const missing = Object.keys(projected).filter((key) => !allowlist.has(key));
-    expect(missing).toEqual([]);
+    const result = await invoke(tool, '/usr/bin/env');
+    expect(result).toContain('exited with code 0');
+    for (const [key, value] of Object.entries(projected)) {
+      expect(result).toContain(`${key}=${value}`);
+    }
+    expect(result).not.toContain('projected-secret');
+    expect(result).not.toContain('/projected-path');
   });
 
   it('passes explicit tool network env so egress is proxied (child sees HTTP_PROXY)', async () => {

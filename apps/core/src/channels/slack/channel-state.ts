@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -65,6 +66,22 @@ export interface ActiveStreamState {
   nativeStreamTs?: string;
   nativeEnabled: boolean;
   lastFlushAt: number;
+}
+
+/** Every visible flush reports its references before a reset can discard them. */
+export function slackStreamChunkResult(
+  state: ActiveStreamState,
+  delivered: boolean,
+): StreamingChunkResult {
+  const ok = delivered || Boolean(state.messageTs || state.nativeStreamTs);
+  const ids = [
+    ...new Set([
+      state.nativeStreamTs,
+      state.messageTs,
+      ...state.fallbackMessageTs,
+    ]),
+  ].filter((ts): ts is string => Boolean(ts));
+  return ok && ids.length > 0 ? { externalMessageIds: ids } : ok;
 }
 
 export interface ActiveProgressState {

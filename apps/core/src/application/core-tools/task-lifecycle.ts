@@ -214,28 +214,23 @@ export function createCoreTaskLifecycleBackend(input: {
         if (completion) {
           return delegatedCompletionResult(completion);
         }
-        if (input.enableDelegatedAsyncFollowUp) {
-          if (!input.service.markDelegatedTaskAsyncFallback) {
-            return unavailable(
-              'Delegated task follow-up persistence is unavailable.',
-            );
-          }
-          const terminal = await input.service.markDelegatedTaskAsyncFallback({
-            ...input.owner,
-            taskId: result.task.id,
-          });
-          if (terminal) return delegatedCompletionResult(terminal);
+      }
+      if (result.ok && input.enableDelegatedAsyncFollowUp) {
+        if (!input.service.markDelegatedTaskAsyncFallback) {
+          return unavailable(
+            'Delegated task follow-up persistence is unavailable.',
+          );
         }
-        return {
-          ok: true,
-          message: `Queued: ${result.task.id}`,
-          data: result.task,
-        };
+        const terminal = await input.service.markDelegatedTaskAsyncFallback({
+          ...input.owner,
+          taskId: result.task.id,
+        });
+        if (terminal) return delegatedCompletionResult(terminal);
       }
       return result.ok
         ? {
             ok: true,
-            message: `Queued: ${result.task.summary || result.task.id}`,
+            message: `Queued: ${typeof args.syncWaitTimeoutMs === 'number' ? result.task.id : result.task.summary || result.task.id}`,
             data: result.task,
           }
         : { ok: false, message: result.message, code: 'forbidden' };

@@ -172,6 +172,7 @@ export class PostgresRuntimeRepositoryBundle
       agentId?: string | null;
       agentSessionId?: string | null;
       triggerDecision?: Record<string, unknown>;
+      sessionCommand?: boolean;
       now?: string;
     },
   ) {
@@ -218,6 +219,17 @@ export class PostgresRuntimeRepositoryBundle
       limit,
       options,
     );
+  }
+
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.messages.hasSentBotMessage(chatJid, input);
   }
 
   async getRecentTopLevelMessagesBefore(

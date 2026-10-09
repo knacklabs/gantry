@@ -12,31 +12,8 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { createGroupTurnTypingSender } from './group-liveness-state.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
-import type { ConversationRoute } from '../domain/types.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
-
-function providerSecond(timestamp: string): number {
-  const parsed = Date.parse(timestamp);
-  return Math.floor(
-    (Number.isNaN(parsed) ? Number(timestamp) * 1000 : parsed) / 1000,
-  );
-}
-
-export function orderBatchForPresentation<
-  T extends { message: NewMessage; receiveOrder: number | null },
->(batch: T[]): T[] {
-  return [...batch].sort((left, right) => {
-    const timeOrder =
-      providerSecond(left.message.timestamp) -
-      providerSecond(right.message.timestamp);
-    if (Number.isFinite(timeOrder) && timeOrder !== 0) return timeOrder;
-    return left.receiveOrder !== null && right.receiveOrder !== null
-      ? left.receiveOrder - right.receiveOrder
-      : 0;
-  });
-}
 
 export async function takeGroupTurnInput(input: {
   repository: Pick<LiveAdmissionWorkItemRepository, 'takeInput'>;
@@ -49,8 +26,11 @@ export async function takeGroupTurnInput(input: {
   threadId?: string | null;
 }): Promise<{
   missedMessages: NewMessage[];
+  receivedDuringTurn: ReadonlySet<NewMessage>;
   permitsUnmentionedCompletion: boolean;
   hasMore: boolean;
+  /** Receive order of the last taken item; a command ends the take. */
+  lastReceiveOrder: number | null;
   activeThreadId?: string;
   latestMessageReactionTarget?: { messageRef: string; threadId?: string };
 }> {
@@ -58,12 +38,14 @@ export async function takeGroupTurnInput(input: {
     message: NewMessage;
     receiveOrder: number | null;
     triggerDecision: Record<string, unknown>;
+    receivedDuringTurn: boolean;
   }> = [];
   for (let index = 0; index < input.maxMessages; index += 1) {
     const [item] = await input.repository.takeInput({
       scope: input.scope,
       limit: 1,
       consumedBy: input.consumer,
+      excludeWaiting: true,
     });
     if (!item) break;
     const [message] = await input.messages.getMessagesByIds(input.scope, [
@@ -74,6 +56,7 @@ export async function takeGroupTurnInput(input: {
       message,
       receiveOrder: item.receiveOrder,
       triggerDecision: item.triggerDecision ?? {},
+      receivedDuringTurn: item.triggerDecision?.receivedDuringTurn === true,
     });
     if (
       extractSessionCommand(message.content, input.triggerPattern) ||
@@ -89,16 +72,8 @@ export async function takeGroupTurnInput(input: {
       lastTaken.responseSchema !== undefined ||
       lastTaken.agentControls !== undefined);
   const hasMore = takenMessages.length === input.maxMessages || endsAtControl;
-  // The command or control message that ended the take stays last, so its
-  // handler sees every earlier-received message before it.
-  const missedMessages = (
-    endsAtControl
-      ? [
-          ...orderBatchForPresentation(takenMessages.slice(0, -1)),
-          takenMessages[takenMessages.length - 1]!,
-        ]
-      : orderBatchForPresentation(takenMessages)
-  ).map(({ message }) => message);
+  // Gantry's receive order, as taken; the provider's clock never reorders it.
+  const missedMessages = takenMessages.map(({ message }) => message);
   const { activeThreadId, reactionTarget } = resolveGroupReactionTarget({
     chatJid: input.chatJid,
     routeThreadId: input.threadId ?? undefined,
@@ -106,40 +81,21 @@ export async function takeGroupTurnInput(input: {
   });
   return {
     missedMessages,
+    receivedDuringTurn: new Set(
+      takenMessages
+        .filter(({ receivedDuringTurn }) => receivedDuringTurn)
+        .map(({ message }) => message),
+    ),
     permitsUnmentionedCompletion: takenMessages.some(
       ({ triggerDecision }) =>
         triggerDecision.source === 'callable_agent_follow_up' &&
         triggerDecision.requiresTrigger === false,
     ),
     hasMore,
+    lastReceiveOrder: takenMessages.at(-1)?.receiveOrder ?? null,
     activeThreadId,
     latestMessageReactionTarget: reactionTarget,
   };
-}
-
-export function hasTakenGroupTurnTrigger(input: {
-  group: ConversationRoute;
-  chatJid: string;
-  triggerPattern: RegExp;
-  messages: NewMessage[];
-  permitsUnmentionedCompletion: boolean;
-  threadId?: string | null;
-  messageRepository: RuntimeMessageRepository;
-  pageSize: number;
-}): Promise<boolean> {
-  if (input.permitsUnmentionedCompletion) return Promise.resolve(true);
-  return groupTurnHasRequiredTrigger({
-    group: input.group,
-    chatJid: input.chatJid,
-    triggerPattern: input.triggerPattern,
-    messages: input.messages,
-    continuation: {
-      threadId: input.threadId,
-      hasPriorCursor: true,
-      messageRepository: input.messageRepository,
-      pageSize: input.pageSize,
-    },
-  });
 }
 
 export function createGroupTurnChannelActions(input: {

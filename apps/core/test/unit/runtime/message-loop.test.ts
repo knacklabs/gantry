@@ -7,6 +7,7 @@ import {
 } from '@core/runtime/message-loop.js';
 import type { LiveAdmissionWorkItem } from '@core/domain/ports/live-turns.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
+import { getTriggerPattern } from '@core/config/index.js';
 
 function workItem(
   overrides: Partial<LiveAdmissionWorkItem> = {},
@@ -57,6 +58,7 @@ function deps() {
         requiresTrigger: false,
       },
     }),
+    getTriggerPattern,
     hasChannel: () => true,
     queue: { enqueueMessageCheck },
   } as unknown as MessageLoopDeps;
@@ -131,7 +133,10 @@ describe('durable admission wakeup', () => {
     const { input } = deps();
     const consumeInputItem = vi.fn(async () => true);
     input.queue = queue;
-    input.inputRepository = { consumeInputItem } as never;
+    input.inputRepository = {
+      consumeInputItem,
+      consumeAll: vi.fn(async () => 0),
+    } as never;
     input.opsRepository = {
       getMessagesByIds: vi.fn(async () => [
         {
@@ -172,6 +177,7 @@ describe('durable admission wakeup', () => {
       const releaseInput = vi.fn(async () => 1);
       input.inputRepository = {
         consumeInputItem: vi.fn(async () => claimed),
+        consumeAll: vi.fn(async () => 0),
         releaseInput,
       } as never;
       input.opsRepository = {
