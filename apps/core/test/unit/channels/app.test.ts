@@ -659,11 +659,13 @@ describe('app channel', () => {
     const channel = await createAppChannel(appOptions());
     const largeText = 'L'.repeat(8_192);
 
-    await channel.sendStreamingChunk('app:demo:conversation', largeText, {
-      threadId: 'thread-2',
-      done: false,
-      generation: 7,
-    });
+    await expect(
+      channel.sendStreamingChunk('app:demo:conversation', largeText, {
+        threadId: 'thread-2',
+        done: true,
+        generation: 7,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['2'] });
 
     const publishInput = runtimeEvents.publish.mock.calls.at(-1)?.[0];
     expect(publishInput).toBeDefined();

@@ -791,7 +791,10 @@ describe('DiscordChannel', () => {
           },
         ],
       }),
-    ).resolves.toMatchObject({ externalMessageId: 'text-message-1' });
+    ).resolves.toMatchObject({
+      externalMessageId: 'text-message-1',
+      externalMessageIds: ['text-message-1', 'warning-message-1'],
+    });
 
     const textBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(textBody.content).toBe('Report attached');
@@ -1371,8 +1374,12 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     try {
-      await channel.sendStreamingChunk('dc:channel-1', 'Hello');
-      await channel.sendStreamingChunk('dc:channel-1', ' world');
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', 'Hello'),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', ' world'),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1200);
@@ -1462,7 +1469,9 @@ describe('DiscordChannel', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     channel.resetStreaming('dc:channel-1', { threadId: 'thread-a' });
     resolveFirstSend(jsonResponse({ id: 'stream-old' }));
-    await inFlight;
+    await expect(inFlight).resolves.toEqual({
+      externalMessageIds: ['stream-old'],
+    });
 
     await channel.sendStreamingChunk('dc:channel-1', 'new', {
       threadId: 'thread-a',
@@ -1489,7 +1498,7 @@ describe('DiscordChannel', () => {
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
         done: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ externalMessageIds: ['stream-1', 'stream-2'] });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
@@ -1498,24 +1507,44 @@ describe('DiscordChannel', () => {
     ]);
   });
 
-  it('reports final Discord streaming overflow failure for retry', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ id: 'stream-1' }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+  it.each([-1, 0, 1])(
+    'retains Discord stream receipts when part %i fails (-1 is the final edit)',
+    async (failedPart) => {
+      const deliveredOverflow = Math.max(0, failedPart);
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse({ id: 'stream-1' }));
+      if (failedPart >= 0)
+        fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+      if (deliveredOverflow)
+        fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'overflow-1' }));
+      fetchMock.mockResolvedValueOnce(new Response('{}', { status: 500 }));
+      const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', `${'a'.repeat(2000)}b`),
-    ).resolves.toBe(true);
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', '', { done: true }),
-    ).resolves.toBe(false);
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(4001)),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', '', { done: true }),
+      ).rejects.toMatchObject({
+        partialMessageDelivery: true,
+        deliveredChunks: 1 + deliveredOverflow,
+        externalMessageIds: deliveredOverflow
+          ? ['stream-1', 'overflow-1']
+          : ['stream-1'],
+        ...(failedPart >= 0
+          ? {
+              retryTail: {
+                canonicalText: 'a'.repeat(deliveredOverflow ? 1 : 2001),
+              },
+            }
+          : {}),
+      });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    fetchMock.mockRestore();
-  });
+      expect(fetchMock).toHaveBeenCalledTimes(2 + Math.max(0, failedPart + 1));
+      fetchMock.mockRestore();
+    },
+  );
 
   it('retries Discord REST calls after rate-limit headers', async () => {
     vi.useFakeTimers();

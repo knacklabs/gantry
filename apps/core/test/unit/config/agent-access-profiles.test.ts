@@ -6,7 +6,7 @@ import {
   resolveAgentAccessPolicy,
 } from '@core/config/profiles.js';
 import { ADMIN_MCP_TOOL_NAMES } from '@core/shared/admin-mcp-tools.js';
-import { AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES } from '@core/runner/gantry-mcp-tool-surface.js';
+import { AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES } from '@core/shared/gantry-mcp-tool-surface.js';
 
 describe('agent access policy resolution', () => {
   it('defaults to the full preset', () => {

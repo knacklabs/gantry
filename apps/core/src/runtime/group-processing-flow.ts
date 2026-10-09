@@ -12,8 +12,6 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { createGroupTurnTypingSender } from './group-liveness-state.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
-import type { ConversationRoute } from '../domain/types.js';
 
 type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
@@ -28,6 +26,7 @@ export async function takeGroupTurnInput(input: {
   threadId?: string | null;
 }): Promise<{
   missedMessages: NewMessage[];
+  receivedDuringTurn: ReadonlySet<NewMessage>;
   permitsUnmentionedCompletion: boolean;
   hasMore: boolean;
   /** Receive order of the last taken item; a command ends the take. */
@@ -39,6 +38,7 @@ export async function takeGroupTurnInput(input: {
     message: NewMessage;
     receiveOrder: number | null;
     triggerDecision: Record<string, unknown>;
+    receivedDuringTurn: boolean;
   }> = [];
   for (let index = 0; index < input.maxMessages; index += 1) {
     const [item] = await input.repository.takeInput({
@@ -56,6 +56,7 @@ export async function takeGroupTurnInput(input: {
       message,
       receiveOrder: item.receiveOrder,
       triggerDecision: item.triggerDecision ?? {},
+      receivedDuringTurn: item.triggerDecision?.receivedDuringTurn === true,
     });
     if (
       extractSessionCommand(message.content, input.triggerPattern) ||
@@ -80,6 +81,11 @@ export async function takeGroupTurnInput(input: {
   });
   return {
     missedMessages,
+    receivedDuringTurn: new Set(
+      takenMessages
+        .filter(({ receivedDuringTurn }) => receivedDuringTurn)
+        .map(({ message }) => message),
+    ),
     permitsUnmentionedCompletion: takenMessages.some(
       ({ triggerDecision }) =>
         triggerDecision.source === 'callable_agent_follow_up' &&
@@ -90,31 +96,6 @@ export async function takeGroupTurnInput(input: {
     activeThreadId,
     latestMessageReactionTarget: reactionTarget,
   };
-}
-
-export function hasTakenGroupTurnTrigger(input: {
-  group: ConversationRoute;
-  chatJid: string;
-  triggerPattern: RegExp;
-  messages: NewMessage[];
-  permitsUnmentionedCompletion: boolean;
-  threadId?: string | null;
-  messageRepository: RuntimeMessageRepository;
-  pageSize: number;
-}): Promise<boolean> {
-  if (input.permitsUnmentionedCompletion) return Promise.resolve(true);
-  return groupTurnHasRequiredTrigger({
-    group: input.group,
-    chatJid: input.chatJid,
-    triggerPattern: input.triggerPattern,
-    messages: input.messages,
-    continuation: {
-      threadId: input.threadId,
-      hasPriorCursor: true,
-      messageRepository: input.messageRepository,
-      pageSize: input.pageSize,
-    },
-  });
 }
 
 export function createGroupTurnChannelActions(input: {
