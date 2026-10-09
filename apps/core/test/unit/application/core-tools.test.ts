@@ -49,6 +49,8 @@ function registryDeps(
       answers: {},
     })),
     taskLifecycleBackend: taskBackend(),
+    // The conversation route exists and no safety judge is wired.
+    permissionGate: { routeRefusal: () => undefined },
     requestId: (prefix) => `${prefix}-1`,
     evaluateToolPreChecks: evaluateNeutralToolPreChecks,
     evaluateToolPolicy: evaluateNeutralToolPolicy,

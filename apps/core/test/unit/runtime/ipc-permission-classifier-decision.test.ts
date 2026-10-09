@@ -21,6 +21,21 @@ import * as autoLaneAnalysis from '@core/application/permissions/auto-lane-analy
 import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 
+const ROUTED_JID = 'tg:test';
+
+/** The live route binding main_agent to ROUTED_JID. */
+function liveRoutes(permissionMode?: PermissionMode) {
+  return {
+    [ROUTED_JID]: {
+      name: 'test',
+      folder: 'main_agent',
+      trigger: '@gantry',
+      added_at: '2026-09-04',
+      ...(permissionMode ? { agentConfig: { permissionMode } } : {}),
+    },
+  } as never;
+}
+
 async function resolveWithClassifierRisk(input: {
   toolName: string;
   toolInput: unknown;
@@ -56,6 +71,7 @@ async function resolveWithClassifierRisk(input: {
 
   const decision = await resolvePermissionIpcDecision({
     request: {
+      targetJid: ROUTED_JID,
       requestId: `classifier-risk-${input.riskCategory}`,
       sourceAgentFolder: 'main_agent',
       toolName: input.toolName,
@@ -77,7 +93,7 @@ async function resolveWithClassifierRisk(input: {
     },
     sourceAgentFolder: 'main_agent',
     deps: {
-      conversationRoutes: () => ({}),
+      conversationRoutes: () => liveRoutes(),
       requestPermissionApproval,
       classifierConsult,
       publishRuntimeEvent: vi.fn(async () => undefined),
@@ -140,25 +156,15 @@ async function resolveCommandInLane(input: {
     const decision = await resolvePermissionIpcDecision({
       request: {
         requestId: `askfloor-${input.permissionMode}-${input.hostJobId ?? 'interactive'}`,
-        ...(responseKeyId ? { responseKeyId, targetJid: 'tg:test' } : {}),
+        ...(responseKeyId ? { responseKeyId } : {}),
+        targetJid: ROUTED_JID,
         sourceAgentFolder: 'main_agent',
         toolName: 'RunCommand',
         toolInput: { command: input.command },
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        conversationRoutes: () =>
-          responseKeyId
-            ? ({
-                'tg:test': {
-                  name: 'test',
-                  folder: 'main_agent',
-                  trigger: '@gantry',
-                  added_at: '2026-09-04',
-                  agentConfig: { permissionMode: input.permissionMode },
-                },
-              } as never)
-            : {},
+        conversationRoutes: () => liveRoutes(input.permissionMode),
         requestPermissionApproval,
         classifierConsult,
         publishRuntimeEvent: vi.fn(async () => undefined),
@@ -186,16 +192,6 @@ async function resolveCommandInLane(input: {
 }
 
 describe('IPC permission classifier decision', () => {
-  it('stamps a cached classifier verdict with status skipped', () => {
-    const source = fs.readFileSync(
-      'apps/core/src/runtime/ipc-permission-classifier-decision.ts',
-      'utf8',
-    );
-    expect(source).toMatch(
-      /cachedClassifierVerdict,\s*status: PermissionClassifierStatus\.Skipped,\s*latencyMs: 0/,
-    );
-  });
-
   it('passes the derived lane and workspace root into the classifier consult, never writes a native verdict whether allow or ask to the classifier cache, never writes an interactive-auto LLM allow for a gantry tool or a native file-write facade so an ambiguous executor allowed by the LLM does not replay in auto_strict, and skips the cache for capability_run even with a seeded allow', async () => {
     const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
     fs.mkdirSync(workspaceRoot, { recursive: true });
@@ -315,7 +311,10 @@ describe('IPC permission classifier decision', () => {
     },
   );
 
-  it('never authorizes an interactive-auto hard-floor out_of_trusted_root or read-only unsupported_meta_executor ask through a live or cached classifier allow', async () => {
+  // Contract change (PERMFLOW-1): the rail veto is gone. An out-of-root or
+  // unparsed-shape ask goes to the judge, and its allow is final; the
+  // verdict cache is never read for a rail ask.
+  it('lets a live classifier allow stand over an out-of-root or unparsed-shape ask and never reads the cache for it', async () => {
     const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
     for (const railCase of [
       {
@@ -327,95 +326,84 @@ describe('IPC permission classifier decision', () => {
         trustedRoots: [workspaceRoot],
       },
     ]) {
-      const live = await resolveWithClassifierRisk({
-        toolName: 'RunCommand',
-        riskLevel: 'low',
-        riskCategory: 'benign',
-        ...railCase,
-      });
-      expect(live.classifierConsult).toHaveBeenCalledOnce();
-      expect(live.requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(live.decision).not.toMatchObject({
-        approved: true,
-        decidedBy: 'auto_classifier',
-      });
-
       const getClassifierVerdict = vi.fn(async () => ({
         decision: 'allow' as const,
-        reason: 'Cached allow cannot bypass a hard floor.',
+        reason: 'Cached allow.',
         risk_level: 'low' as const,
         risk_category: 'benign' as const,
       }));
-      const cached = await resolveWithClassifierRisk({
+      const result = await resolveWithClassifierRisk({
         toolName: 'RunCommand',
         riskLevel: 'low',
         riskCategory: 'benign',
-        decisionMemory: { getClassifierVerdict } as never,
+        decisionMemory: {
+          getClassifierVerdict,
+          putClassifierVerdict: vi.fn(async () => undefined),
+        } as never,
         ...railCase,
       });
-      expect(getClassifierVerdict).toHaveBeenCalledOnce();
-      expect(cached.classifierConsult).not.toHaveBeenCalled();
-      expect(cached.requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(cached.decision).not.toMatchObject({
+      expect(getClassifierVerdict).not.toHaveBeenCalled();
+      expect(result.classifierConsult).toHaveBeenCalledOnce();
+      expect(result.requestPermissionApproval).not.toHaveBeenCalled();
+      expect(result.decision).toMatchObject({
         approved: true,
         decidedBy: 'auto_classifier',
+        railProvenance: { reason: expect.any(String) },
       });
     }
   });
 
-  it('keeps the rail veto for out_of_trusted_root in interactive auto, auto_strict, ask and job lanes', async () => {
+  it('follows the judge for an out-of-root command in a job like chat, while auto_strict and ask still ask a person', async () => {
     for (const lane of [
-      { permissionMode: 'auto_strict' as const },
-      { permissionMode: 'auto_strict' as const, trustedRoots: [] },
-      { permissionMode: 'ask' as const },
-      { permissionMode: 'auto' as const, hostJobId: 'job-1' },
+      { permissionMode: 'auto' as const, approved: true },
+      { permissionMode: 'auto' as const, hostJobId: 'job-1', approved: true },
+      { permissionMode: 'auto_strict' as const, approved: false },
+      { permissionMode: 'ask' as const, approved: false },
     ]) {
       const result = await resolveCommandInLane({
         ...lane,
         command: 'git status',
-        trustedRoots: lane.trustedRoots ?? ['/definitely/elsewhere'],
+        trustedRoots: ['/definitely/elsewhere'],
       });
-      expect(result.decision, JSON.stringify(lane)).toMatchObject({
-        approved: false,
-        decidedBy: 'owner',
-      });
-      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
-      if (lane.hostJobId) {
-        expect(result.classifierConsult).toHaveBeenCalledOnce();
-      } else {
+      expect(result.decision, JSON.stringify(lane)).toMatchObject(
+        lane.approved
+          ? { approved: true, decidedBy: 'auto_classifier' }
+          : { approved: false, decidedBy: 'owner' },
+      );
+      expect(result.requestPermissionApproval).toHaveBeenCalledTimes(
+        lane.approved ? 0 : 1,
+      );
+      if (lane.permissionMode === 'ask') {
         expect(result.classifierConsult).not.toHaveBeenCalled();
       }
     }
   });
 
-  it('keeps the hard-floor read-only find ask in interactive auto, auto_strict, ask and job lanes', async () => {
+  it('lets the judge allow a read-only find the parser cannot model in chat and in a job, while auto_strict and ask still ask a person', async () => {
     const trustedRoots = [resolveWorkspaceFolderPath('main_agent')];
-    const interactiveAuto = await resolveCommandInLane({
-      command: "find . -name '*.ts'",
-      permissionMode: 'auto',
-      trustedRoots,
-    });
-    expect(interactiveAuto.requestPermissionApproval).toHaveBeenCalledOnce();
-    expect(interactiveAuto.decision).toMatchObject({
-      approved: false,
-      decidedBy: 'owner',
-    });
-
     for (const lane of [
-      { permissionMode: 'auto_strict' as const },
-      { permissionMode: 'ask' as const },
-      { permissionMode: 'auto' as const, hostJobId: 'job-find' },
+      { permissionMode: 'auto' as const, approved: true },
+      {
+        permissionMode: 'auto' as const,
+        hostJobId: 'job-find',
+        approved: true,
+      },
+      { permissionMode: 'auto_strict' as const, approved: false },
+      { permissionMode: 'ask' as const, approved: false },
     ]) {
       const result = await resolveCommandInLane({
         ...lane,
         command: "find . -name '*.ts'",
         trustedRoots,
       });
-      expect(result.decision, JSON.stringify(lane)).toMatchObject({
-        approved: false,
-        decidedBy: 'owner',
-      });
-      expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(result.decision, JSON.stringify(lane)).toMatchObject(
+        lane.approved
+          ? { approved: true, decidedBy: 'auto_classifier' }
+          : { approved: false, decidedBy: 'owner' },
+      );
+      expect(result.requestPermissionApproval).toHaveBeenCalledTimes(
+        lane.approved ? 0 : 1,
+      );
     }
   });
 
@@ -510,8 +498,8 @@ describe('IPC permission classifier decision', () => {
     }
   });
 
-  it('denies a host job before classifier consultation when no deliverable route exists and ignores a worker-forged jobId', async () => {
-    const responseKeyId = 'autodet-job-response-key';
+  it('refuses a call whose conversation route is missing or removed, before a cached allow or the judge, for a job and for chat', async () => {
+    const responseKeyId = 'route-job-response-key';
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'low' as const,
       risk_category: 'benign' as const,
@@ -526,8 +514,9 @@ describe('IPC permission classifier decision', () => {
     }));
     const putClassifierVerdict = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn();
+    let routes: Record<string, unknown> = {};
     const deps = {
-      conversationRoutes: () => ({}),
+      conversationRoutes: () => routes,
       requestPermissionApproval,
       classifierConsult,
       publishRuntimeEvent: vi.fn(async () => undefined),
@@ -544,6 +533,13 @@ describe('IPC permission classifier decision', () => {
         memory: { llm: { models: { extractor: 'sonnet' } } },
       }),
     } as never;
+    const refusal = {
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'route',
+      reason:
+        "Permission approval is unavailable: mcp__crm__update_record has no deliverable approver route, because this conversation's route or agent binding is gone.",
+    };
 
     registerWorkerPermissionRunRestriction({
       sourceAgentFolder: 'main_agent',
@@ -554,43 +550,25 @@ describe('IPC permission classifier decision', () => {
       runId: 'host-run-1',
     });
     try {
-      await expect(
-        resolvePermissionIpcDecision({
-          request: {
-            requestId: 'autodet-host-job-miss',
-            responseKeyId,
-            sourceAgentFolder: 'main_agent',
-            toolName: 'mcp__crm__update_record',
-            toolInput: { id: 'customer-1' },
-            unattended: true,
-            // Worker-asserted risk must be stripped from the denial: without a
-            // host-derived rail risk, no untrusted low/benign claim may reach
-            // the decision/audit path or the grant card.
-            risk_level: 'low',
-            risk_category: 'benign',
-          },
+      const jobDecision = await resolvePermissionIpcDecision({
+        request: {
+          requestId: 'route-missing-job',
+          responseKeyId,
+          targetJid: ROUTED_JID,
           sourceAgentFolder: 'main_agent',
-          deps,
-        }),
-      ).resolves.toSatisfy(
-        (decision: {
-          approved: boolean;
-          mode: string;
-          decidedBy?: string;
-          reason?: string;
-          risk_level?: string;
-          risk_category?: string;
-        }) =>
-          !decision.approved &&
-          decision.mode === 'cancel' &&
-          decision.decidedBy === 'runtime' &&
-          decision.reason ===
-            'Autonomous permission approval is unavailable: mcp__crm__update_record has no deliverable approver route.' &&
-          // The worker-asserted low/benign claim must never survive: either
-          // trusted rail risk replaced it, or the fields were stripped.
-          decision.risk_level !== 'low' &&
-          decision.risk_category !== 'benign',
-      );
+          toolName: 'mcp__crm__update_record',
+          toolInput: { id: 'customer-1' },
+          unattended: true,
+          // Worker-asserted risk never survives a refusal.
+          risk_level: 'low',
+          risk_category: 'benign',
+        },
+        sourceAgentFolder: 'main_agent',
+        deps,
+      });
+      expect(jobDecision).toMatchObject(refusal);
+      expect(jobDecision.risk_level).toBeUndefined();
+      expect(jobDecision.risk_category).toBeUndefined();
     } finally {
       unregisterPermissionRunRestriction({
         sourceAgentFolder: 'main_agent',
@@ -598,21 +576,34 @@ describe('IPC permission classifier decision', () => {
       });
     }
 
-    expect(classifierConsult).not.toHaveBeenCalled();
+    const chatRequest = () => ({
+      requestId: 'route-chat',
+      targetJid: ROUTED_JID,
+      sourceAgentFolder: 'main_agent',
+      // A worker-asserted job id never makes this a job.
+      jobId: 'worker-forged-job',
+      toolName: 'mcp__crm__update_record',
+      toolInput: { id: 'customer-2' },
+    });
+    await expect(
+      resolvePermissionIpcDecision({
+        request: chatRequest(),
+        sourceAgentFolder: 'main_agent',
+        deps,
+      }),
+    ).resolves.toMatchObject(refusal);
+
     expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(putClassifierVerdict).not.toHaveBeenCalled();
     expect(requestPermissionApproval).not.toHaveBeenCalled();
 
+    // With the route live the cached allow answers the same call; once the
+    // route is removed it is refused again.
+    routes = liveRoutes() as Record<string, unknown>;
     await expect(
       resolvePermissionIpcDecision({
-        request: {
-          requestId: 'autodet-worker-forged-job-id',
-          sourceAgentFolder: 'main_agent',
-          jobId: 'worker-forged-job',
-          toolName: 'mcp__crm__update_record',
-          toolInput: { id: 'customer-2' },
-          unattended: true,
-        },
+        request: chatRequest(),
         sourceAgentFolder: 'main_agent',
         deps,
       }),
@@ -620,8 +611,15 @@ describe('IPC permission classifier decision', () => {
       approved: true,
       decidedBy: 'cached_classifier_verdict',
     });
-    expect(getClassifierVerdict).toHaveBeenCalledOnce();
-    expect(classifierConsult).not.toHaveBeenCalled();
+    routes = {};
+    await expect(
+      resolvePermissionIpcDecision({
+        request: chatRequest(),
+        sourceAgentFolder: 'main_agent',
+        deps,
+      }),
+    ).resolves.toMatchObject(refusal);
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
   it('allows a host-job RunCommand control-flow compound when every leaf is granted', async () => {
@@ -649,6 +647,7 @@ describe('IPC permission classifier decision', () => {
       await expect(
         resolvePermissionIpcDecision({
           request: {
+            targetJid: ROUTED_JID,
             requestId: 'autodet-host-job-compound',
             responseKeyId,
             sourceAgentFolder: 'main_agent',
@@ -660,7 +659,7 @@ describe('IPC permission classifier decision', () => {
           },
           sourceAgentFolder: 'main_agent',
           deps: {
-            conversationRoutes: () => ({}),
+            conversationRoutes: () => liveRoutes(),
             requestPermissionApproval,
             publishRuntimeEvent: vi.fn(async () => undefined),
             getToolRepository: () => toolRepository as never,
@@ -1536,7 +1535,7 @@ describe('IPC permission classifier decision', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => liveRoutes(),
           sendMessage: vi.fn(async () => {
             timeline.push('notice');
           }),
@@ -1608,7 +1607,7 @@ describe('IPC permission classifier decision', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => liveRoutes(),
           sendMessage,
           requestPermissionApproval,
           classifierConsult,
@@ -1658,7 +1657,7 @@ describe('IPC permission classifier decision', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => liveRoutes(),
           sendMessage: sendFailure,
           requestPermissionApproval,
           classifierConsult,
@@ -1683,7 +1682,7 @@ describe('IPC permission classifier decision', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        conversationRoutes: () => ({}),
+        conversationRoutes: () => liveRoutes(),
         sendMessage,
         requestPermissionApproval,
         classifierConsult: classifierMissing,
@@ -1712,7 +1711,7 @@ describe('IPC permission classifier decision', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => liveRoutes(),
           sendMessage,
           requestPermissionApproval,
           classifierConsult: classifierMissing,
@@ -1747,6 +1746,7 @@ describe('IPC permission classifier decision', () => {
 
       const decision = await resolvePermissionIpcDecision({
         request: {
+          targetJid: ROUTED_JID,
           requestId: `rail-risk-${category}`,
           sourceAgentFolder: 'main_agent',
           toolName: 'RunCommand',
@@ -1754,7 +1754,7 @@ describe('IPC permission classifier decision', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => liveRoutes(),
           requestPermissionApproval,
           getPermissionRuntimeSettings: () => ({
             agents: { main_agent: { permissionMode: 'ask' as const } },

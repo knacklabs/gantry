@@ -3,6 +3,7 @@ import { permissionDecisionResult } from '../channels/permission-approval-result
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { PermissionLane, RailSignal } from '@core/domain/permission-lane.js';
+import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import {
   HumanDecisionOutcome,
   HumanDecisionScope,
@@ -14,7 +15,6 @@ import { decisionForMode } from '@core/domain/permission-decision.js';
 import {
   coordinatePermissionClassifierRisk,
   coordinatePermissionDecision,
-  FAMILY_RULE_RAIL_HIT_REASON,
   PERMISSION_DECISION_STAGES,
   type PermissionDecisionTailContext,
   permissionRunRestriction,
@@ -27,6 +27,7 @@ import {
 } from '@core/runtime/agent-spawn-permission-run-restriction.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const GATES = [
   'SDK worker',
@@ -54,6 +55,33 @@ const reviewedAllow: ToolPolicyDecision = {
     toolName: 'FileRead',
     mutationIntent: 'read',
   },
+};
+
+const ROUTED_JID = 'tg:routed';
+
+/** A live route binding main_agent to ROUTED_JID. */
+function liveRoutes() {
+  return {
+    [makeAgentThreadQueueKey(ROUTED_JID, 'agent:main_agent')]: {
+      name: 'Main',
+      folder: 'main_agent',
+      trigger: '',
+      added_at: new Date(0).toISOString(),
+    },
+  };
+}
+
+const interactiveAuto = Object.freeze({
+  lane: PermissionLane.InteractiveAuto,
+  readOnlyMetaExecutor: false,
+});
+
+const classifierAsk = {
+  status: PermissionClassifierStatus.Answered,
+  decision: 'ask' as const,
+  reason: 'needs a person',
+  risk_level: 'high' as const,
+  latencyMs: 1,
 };
 
 function humanDecisionRow(input: {
@@ -116,8 +144,9 @@ describe('coordinatePermissionDecision', () => {
       sourceAgentFolder: 'main_agent',
       appId: 'default',
       agentId: 'agent:test',
-      toolName: 'mcp__gantry__send_message',
-      toolInput: { text: 'status' },
+      targetJid: ROUTED_JID,
+      toolName: 'mcp__gantry__canvas_create',
+      toolInput: { title: 'status' },
       decisionReason: workerMiss,
       unattended: true,
     };
@@ -126,19 +155,19 @@ describe('coordinatePermissionDecision', () => {
         request: ipcRequest,
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: liveRoutes,
           requestPermissionApproval: vi.fn(),
           getToolRepository: () => ({
             listAgentToolBindings: vi.fn(async () => [
               {
                 status: 'active',
-                toolId: 'tool:send-message',
+                toolId: 'tool:canvas-create',
                 personId: null,
               },
             ]),
             getTool: vi.fn(async () => ({
               appId: 'default',
-              name: 'mcp__gantry__send_message',
+              name: 'mcp__gantry__canvas_create',
             })),
           }),
           getPermissionRuntimeSettings: () => ({
@@ -152,7 +181,7 @@ describe('coordinatePermissionDecision', () => {
       expect(decision).toMatchObject({
         approved: true,
         decidedBy: 'reviewed_rule',
-        reason: 'Allowed by autonomous tool rule mcp__gantry__send_message.',
+        reason: 'Allowed by autonomous tool rule mcp__gantry__canvas_create.',
       });
       expect(ipcRequest.decisionReason).toBe(decision.reason);
       expect(ipcRequest.decisionReason).not.toBe(workerMiss);
@@ -344,43 +373,43 @@ describe('coordinatePermissionDecision', () => {
     expect(context.railDecision).toBe(railDecision);
   });
 
-  it('keeps the pinned stage order and runs the remembered No before hard restrictions and the remembered Allow after the rails and the trusted-root stage but before the classifier cache, never consulting the port under ask, auto_strict or a job lane, without a person, or under a non-overridable rail ask, resolves the workspace root from the rails input when the top-level one is absent, and maps decidedBy human_decision to repeatable human_decision provenance', async () => {
+  it('keeps the pinned ladder: route, hard rules, saved approvals, verdict cache, classifier, ask; a soft out-of-root ask skips the cache and reaches the classifier after the trusted-root stage; the remembered No and Allow are saved approvals behind the hard rules; and the person-memory port is never consulted under ask, auto_strict or a job lane, without a person, or under a hard-rule ask', async () => {
     expect(PERMISSION_DECISION_STAGES).toEqual([
-      'pre_coordination_route_analysis',
-      'exact_remembered_deny',
-      'hard_restrictions',
-      'reviewed_rules',
-      'deterministic_rails',
-      'conditional_trusted_root',
-      'remembered_allows',
-      'classifier_cache',
-      'tail',
+      'route',
+      'hard_rules',
+      'saved_approvals',
+      'verdict_cache',
+      'classifier',
+      'ask',
     ]);
-    for (const reviewedRuleDecision of [
-      undefined,
-      { ...reviewedAllow, isFamilyRule: true },
-    ]) {
+    for (const softRail of [false, true]) {
       const observed: string[] = [];
       let railEvaluation = 0;
       await coordinatePermissionDecision({
         request: { ...request, personId: 'person-one' },
+        routeRefusal: () => {
+          observed.push('route');
+          return undefined;
+        },
         analysis: Object.freeze({
           lane: PermissionLane.InteractiveAuto,
           readOnlyMetaExecutor: false,
         }),
         reviewedRuleDecision: async () => {
           observed.push('reviewed_rules');
-          return reviewedRuleDecision;
+          return undefined;
         },
         deterministicRails: () => {
           railEvaluation += 1;
           if (railEvaluation > 1) return undefined;
-          observed.push('deterministic_rails');
-          return {
-            railOutcome: 'ask',
-            reason: 'outside the trusted root',
-            railSignal: RailSignal.OutOfTrustedRoot,
-          };
+          observed.push('hard_rules');
+          return softRail
+            ? {
+                railOutcome: 'ask',
+                reason: 'outside the trusted root',
+                railSignal: RailSignal.OutOfTrustedRoot,
+              }
+            : undefined;
         },
         deterministicRailsInput: { workspaceRoot: '/workspace' },
         effectHash: 'stage-order',
@@ -398,37 +427,38 @@ describe('coordinatePermissionDecision', () => {
             return [];
           },
           getClassifierVerdict: async () => {
-            observed.push('classifier_cache');
-            return {
-              decision: 'allow',
-              reason: 'cached allow',
-              risk_level: 'low',
-            };
+            observed.push('verdict_cache');
+            return null;
           },
+          putClassifierVerdict: async () => undefined,
         } as never,
-        tail: async (context) => {
-          expect(context?.cachedClassifierVerdict).toMatchObject({
-            decision: 'allow',
-            reason: 'cached allow',
-          });
-          observed.push('tail');
+        consultClassifier: async () => {
+          observed.push('classifier');
           return {
-            approved: false,
-            mode: 'cancel',
-            decidedBy: 'human',
+            status: PermissionClassifierStatus.Answered,
+            decision: 'ask',
+            reason: 'needs a person',
+            risk_level: 'high',
+            latencyMs: 1,
           };
+        },
+        tail: async () => {
+          observed.push('ask');
+          return { approved: false, mode: 'cancel', decidedBy: 'human' };
         },
       });
       expect(observed).toEqual([
+        'route',
+        'hard_rules',
         'exact_remembered_deny',
         'reviewed_rules',
-        'deterministic_rails',
-        'conditional_trusted_root',
+        ...(softRail ? ['conditional_trusted_root'] : []),
         'remembered_allows',
-        'classifier_cache',
-        'tail',
+        ...(softRail ? [] : ['verdict_cache']),
+        'classifier',
+        'ask',
       ]);
-      expect(railEvaluation).toBe(2);
+      expect(railEvaluation).toBe(softRail ? 2 : 1);
     }
 
     const interactiveAnalysis = Object.freeze({
@@ -442,6 +472,23 @@ describe('coordinatePermissionDecision', () => {
         analysis: interactiveAnalysis,
         effectHash: 'remembered-deny',
         hardDenyReason: 'hard restriction',
+        decisionMemory: {
+          findHumanDecision: async () =>
+            humanDecisionRow({
+              outcome: HumanDecisionOutcome.Deny,
+              scope: HumanDecisionScope.Exact,
+              scopeKey: 'remembered-deny',
+            }),
+        } as never,
+        tail: denyTail,
+      }),
+    ).resolves.toMatchObject({ approved: false, decidedBy: 'hard_deny' });
+    await expect(
+      coordinatePermissionDecision({
+        request: { ...request, personId: 'person-one' },
+        analysis: interactiveAnalysis,
+        effectHash: 'remembered-deny',
+        deterministicRails: () => undefined,
         decisionMemory: {
           findHumanDecision: async () =>
             humanDecisionRow({
@@ -616,23 +663,8 @@ describe('coordinatePermissionDecision', () => {
       decisionMemory: { findHumanDecision: nonOverridableFind } as never,
       tail: railTail,
     });
-    expect(nonOverridableFind).toHaveBeenCalledTimes(2);
-    expect(nonOverridableFind).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        candidates: [
-          { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
-        ],
-      }),
-    );
-    expect(nonOverridableFind).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        candidates: [
-          { scope: HumanDecisionScope.Exact, scopeKey: 'non-overridable' },
-        ],
-      }),
-    );
+    // A hard-rule ask never consults saved approvals, even an exact one.
+    expect(nonOverridableFind).not.toHaveBeenCalled();
     expect(railTail).toHaveBeenCalledOnce();
   });
 
@@ -658,7 +690,7 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toContain('Destructive');
   });
 
-  it('a rail hit inside an allowed family asks and permits allow-once only', async () => {
+  it('a destructive rail hit inside an allowed family asks a person and offers only Allow once and Deny', async () => {
     const familyRequest: PermissionApprovalRequest = {
       ...request,
       toolName: 'RunCommand',
@@ -680,7 +712,7 @@ describe('coordinatePermissionDecision', () => {
       expect(familyRequest.suggestions).toEqual([]);
       expect(familyRequest.decisionOptions).toEqual(['allow_once', 'cancel']);
       expect(familyRequest.decisionReason).toBe(
-        `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
+        'Destructive command requires approval.',
       );
       return tailDecision;
     });
@@ -818,12 +850,15 @@ describe('coordinatePermissionDecision', () => {
       risk_category: 'filesystem' as const,
     }));
     const cachedRequest = { ...request };
+    const consultClassifier = vi.fn();
     await expect(
       coordinatePermissionDecision({
         request: cachedRequest,
+        analysis: interactiveAuto,
         effectHash: 'effect-hash-1',
         decisionMemory: { getClassifierVerdict } as never,
         deterministicRails: () => undefined,
+        consultClassifier,
         tail,
       }),
     ).resolves.toMatchObject({
@@ -841,8 +876,9 @@ describe('coordinatePermissionDecision', () => {
     expect(getClassifierVerdict).toHaveBeenCalledWith({
       appId: 'default',
       agentFolder: 'main_agent',
-      effectHash: 'effect-hash-1',
+      effectHash: 'effect-hash-1:interactive_auto',
     });
+    expect(consultClassifier).not.toHaveBeenCalled();
     expect(tail).not.toHaveBeenCalled();
   });
 
@@ -855,16 +891,23 @@ describe('coordinatePermissionDecision', () => {
     const tail = vi.fn(async () => liveClassifierDecision);
     const getClassifierVerdict = vi.fn(async () => null);
 
+    const consultClassifier = vi.fn(async () => classifierAsk);
     await expect(
       coordinatePermissionDecision({
         request: { ...request },
+        analysis: interactiveAuto,
         effectHash: 'expired-effect-hash',
-        decisionMemory: { getClassifierVerdict } as never,
+        decisionMemory: {
+          getClassifierVerdict,
+          putClassifierVerdict: vi.fn(async () => undefined),
+        } as never,
         deterministicRails: () => undefined,
+        consultClassifier,
         tail,
       }),
     ).resolves.toEqual(liveClassifierDecision);
     expect(getClassifierVerdict).toHaveBeenCalledOnce();
+    expect(consultClassifier).toHaveBeenCalledOnce();
     expect(tail).toHaveBeenCalledOnce();
   });
 
@@ -878,7 +921,7 @@ describe('coordinatePermissionDecision', () => {
     const conversationAHash = computePermissionEffectHash({ request: base })!;
     const cached = new Map([
       [
-        conversationAHash,
+        `${conversationAHash}:interactive_auto`,
         { decision: 'allow' as const, reason: 'cached low risk' },
       ],
     ]);
@@ -886,7 +929,11 @@ describe('coordinatePermissionDecision', () => {
       async ({ effectHash }: { effectHash: string }) =>
         cached.get(effectHash) ?? null,
     );
-    const decisionMemory = { getClassifierVerdict } as never;
+    const decisionMemory = {
+      getClassifierVerdict,
+      putClassifierVerdict: vi.fn(async () => undefined),
+    } as never;
+    const consultClassifier = vi.fn(async () => classifierAsk);
     const tail = vi.fn(async () => ({
       approved: false,
       mode: 'cancel' as const,
@@ -903,9 +950,11 @@ describe('coordinatePermissionDecision', () => {
       await expect(
         coordinatePermissionDecision({
           request: sameConversationRequest,
+          analysis: interactiveAuto,
           effectHash,
           decisionMemory,
           deterministicRails: () => undefined,
+          consultClassifier,
           tail,
         }),
       ).resolves.toMatchObject({
@@ -921,11 +970,13 @@ describe('coordinatePermissionDecision', () => {
     await expect(
       coordinatePermissionDecision({
         request: otherConversationRequest,
+        analysis: interactiveAuto,
         effectHash: computePermissionEffectHash({
           request: otherConversationRequest,
         }),
         decisionMemory,
         deterministicRails: () => undefined,
+        consultClassifier,
         tail,
       }),
     ).resolves.toMatchObject({ approved: false, decidedBy: 'human' });
@@ -966,7 +1017,9 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toBe('rail now asks');
   });
 
-  it('answers a hard-floor destructive ask from a remembered exact Allow (T3b-AC3 keys the consult on the rail case, never its hardFloor flag; story S4) while a protected-path ask never reaches exact memory', async () => {
+  // Contract change (PERMFLOW-1): a remembered exact Allow used to answer a
+  // destructive ask. Hard rules now come before every saved approval.
+  it('never answers a destructive or secret-path ask from a remembered exact Allow', async () => {
     const findHumanDecision = vi.fn(async () =>
       humanDecisionRow({
         outcome: HumanDecisionOutcome.Allow,
@@ -974,58 +1027,36 @@ describe('coordinatePermissionDecision', () => {
         scopeKey: 'destructive-allow',
       }),
     );
-    const interactive = Object.freeze({
-      lane: PermissionLane.InteractiveAuto,
-      readOnlyMetaExecutor: false,
-    });
-    const destructiveTail = vi.fn();
-    await expect(
-      coordinatePermissionDecision({
-        request: { ...request, personId: 'person-one' },
-        analysis: interactive,
-        effectHash: 'destructive-allow',
-        decisionMemory: { findHumanDecision } as never,
-        deterministicRails: () => ({
-          railOutcome: 'ask' as const,
-          reason: 'Destructive command requires approval.',
-          railSignal: RailSignal.Destructive,
-          hardFloor: true as const,
+    for (const rail of [
+      {
+        railOutcome: 'ask' as const,
+        reason: 'Destructive command requires approval.',
+        railSignal: RailSignal.Destructive,
+        hardFloor: true as const,
+      },
+      {
+        railOutcome: 'ask' as const,
+        reason: 'Command references a credential, secret, or protected path.',
+        railSignal: RailSignal.SecretPath,
+        hardFloor: true as const,
+      },
+    ]) {
+      const tail = vi.fn(async () =>
+        decisionForMode(request, 'cancel', 'human', 'human'),
+      );
+      await expect(
+        coordinatePermissionDecision({
+          request: { ...request, personId: 'person-one' },
+          analysis: interactiveAuto,
+          effectHash: 'destructive-allow',
+          decisionMemory: { findHumanDecision } as never,
+          deterministicRails: () => rail,
+          tail,
         }),
-        tail: destructiveTail,
-      }),
-    ).resolves.toMatchObject({
-      approved: true,
-      mode: 'allow_once',
-      decidedBy: 'human_decision',
-    });
-    // The No stage reads the port once before the rails, the Allow stage once after.
-    expect(findHumanDecision).toHaveBeenCalledTimes(2);
-    expect(destructiveTail).not.toHaveBeenCalled();
-
-    const tailDecision = {
-      approved: false,
-      mode: 'cancel' as const,
-      decidedBy: 'human',
-    };
-    const secretTail = vi.fn(async () => tailDecision);
-    await expect(
-      coordinatePermissionDecision({
-        request: { ...request, personId: 'person-one' },
-        analysis: interactive,
-        effectHash: 'destructive-allow',
-        decisionMemory: { findHumanDecision } as never,
-        deterministicRails: () => ({
-          railOutcome: 'ask' as const,
-          reason: 'Command references a credential, secret, or protected path.',
-          railSignal: RailSignal.SecretPath,
-          hardFloor: true as const,
-        }),
-        tail: secretTail,
-      }),
-    ).resolves.toEqual(tailDecision);
-    // Only the No stage read the port; the Allow consult never ran.
-    expect(findHumanDecision).toHaveBeenCalledTimes(3);
-    expect(secretTail).toHaveBeenCalledOnce();
+      ).resolves.toMatchObject({ approved: false, decidedBy: 'human' });
+      expect(tail).toHaveBeenCalledOnce();
+    }
+    expect(findHumanDecision).not.toHaveBeenCalled();
   });
 
   it('lets a locked preset outrank a cached allow (lock beats cache)', async () => {
@@ -1346,13 +1377,14 @@ describe('coordinatePermissionDecision', () => {
         request: {
           requestId: 'fixed-image-request',
           responseKeyId: key.responseKeyId,
+          targetJid: ROUTED_JID,
           sourceAgentFolder: key.sourceAgentFolder,
           toolName: 'FileRead',
           toolInput: { path: 'README.md' },
         },
         sourceAgentFolder: key.sourceAgentFolder,
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: liveRoutes,
           requestPermissionApproval,
           getPermissionRuntimeSettings: () => ({
             agents: {},
@@ -1369,7 +1401,7 @@ describe('coordinatePermissionDecision', () => {
     unregisterPermissionRunRestriction(key);
   });
 
-  it("projects a job owner's remembered Allow after rails in exact tool-kind category-kind tool-place category-place order resolving an overridable ask to allow_once with human_decision provenance and humanDecisionRecordId never overriding a non-overridable rail never matching a place row for an escaping target letting a guard-returned decision stand with zero lookups and never consulting the repository for a null owner", async () => {
+  it("projects a job owner's remembered Allow after rails in exact tool-kind category-kind tool-place category-place order resolving an overridable ask to allow_once with human_decision provenance and humanDecisionRecordId never overriding a non-overridable rail never matching a place row for an escaping target refusing a routeless call with zero lookups and never consulting the repository for a null owner", async () => {
     const projectionRequest: PermissionApprovalRequest = {
       ...request,
       toolName: 'RunCommand',
@@ -1409,7 +1441,6 @@ describe('coordinatePermissionDecision', () => {
         list: vi.fn(async () => []),
         findHumanDecision,
       } as never;
-      const guard = vi.fn(() => undefined);
       await expect(
         coordinatePermissionDecision({
           request: { ...projectionRequest },
@@ -1425,7 +1456,6 @@ describe('coordinatePermissionDecision', () => {
           humanDecisionProjection: {
             ownerPersonId: 'person-one',
             memory,
-            guard,
             warn: vi.fn(),
           },
           skipClassifierVerdictCache: true,
@@ -1439,7 +1469,6 @@ describe('coordinatePermissionDecision', () => {
         repeatableForFutureRuns: true,
         humanDecisionRecordId: `human-allow-${scope}`,
       });
-      expect(guard).toHaveBeenCalledOnce();
       expect(findHumanDecision).toHaveBeenCalledOnce();
     }
 
@@ -1461,7 +1490,6 @@ describe('coordinatePermissionDecision', () => {
             scopeKey,
           }),
         );
-        const guard = vi.fn(() => undefined);
         const tail = vi.fn(async (context?: PermissionDecisionTailContext) => {
           expect(context?.railDecision).toBe(hardFloorRail);
           return decisionForMode(projectionRequest, 'cancel', 'owner', 'human');
@@ -1480,14 +1508,12 @@ describe('coordinatePermissionDecision', () => {
             humanDecisionProjection: {
               ownerPersonId: 'person-one',
               memory: { findHumanDecision } as never,
-              guard,
               warn: vi.fn(),
             },
             skipClassifierVerdictCache: true,
             tail,
           }),
         ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
-        expect(guard).not.toHaveBeenCalled();
         expect(findHumanDecision).not.toHaveBeenCalled();
         expect(tail).toHaveBeenCalledOnce();
       }
@@ -1523,7 +1549,6 @@ describe('coordinatePermissionDecision', () => {
           humanDecisionProjection: {
             ownerPersonId: 'person-one',
             memory: { findHumanDecision } as never,
-            guard: vi.fn(() => undefined),
             warn: vi.fn(),
           },
           skipClassifierVerdictCache: true,
@@ -1571,7 +1596,6 @@ describe('coordinatePermissionDecision', () => {
         humanDecisionProjection: {
           ownerPersonId: 'person-one',
           memory: escapingMemory,
-          guard: vi.fn(() => undefined),
           warn: vi.fn(),
         },
         skipClassifierVerdictCache: true,
@@ -1586,17 +1610,12 @@ describe('coordinatePermissionDecision', () => {
       ]),
     );
 
-    const guardedDecision = decisionForMode(
-      projectionRequest,
-      'cancel',
-      'runtime',
-      'machine',
-    );
-    const guardedFind = vi.fn();
-    const guard = vi.fn(() => guardedDecision);
+    // A missing route refuses before any saved approval is read.
+    const routelessFind = vi.fn();
     await expect(
       coordinatePermissionDecision({
         request: { ...projectionRequest },
+        routeRefusal: () => 'route gone',
         analysis: {
           lane: PermissionLane.Autonomous,
           readOnlyMetaExecutor: false,
@@ -1606,15 +1625,14 @@ describe('coordinatePermissionDecision', () => {
         deterministicRails: () => undefined,
         humanDecisionProjection: {
           ownerPersonId: 'person-one',
-          memory: { findHumanDecision: guardedFind } as never,
-          guard,
+          memory: { findHumanDecision: routelessFind } as never,
           warn: vi.fn(),
         },
         skipClassifierVerdictCache: true,
         tail: vi.fn(),
       }),
-    ).resolves.toBe(guardedDecision);
-    expect(guardedFind).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ approved: false, decidedBy: 'route' });
+    expect(routelessFind).not.toHaveBeenCalled();
 
     const ownerlessFind = vi.fn();
     await expect(
@@ -1630,7 +1648,6 @@ describe('coordinatePermissionDecision', () => {
         humanDecisionProjection: {
           ownerPersonId: null,
           memory: { findHumanDecision: ownerlessFind } as never,
-          guard: vi.fn(() => undefined),
           warn: vi.fn(),
         },
         skipClassifierVerdictCache: true,

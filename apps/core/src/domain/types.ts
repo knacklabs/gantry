@@ -202,6 +202,8 @@ export interface PermissionApprovalRequest {
   turnIntentSummary?: string;
   toolName: string;
   toolUseID?: string;
+  /** Engine tool-call id the host gate pins to the run and action; see pinPermissionInvocationId. */
+  invocationId?: string;
   agentID?: string;
   subagentType?: string;
   title?: string;
