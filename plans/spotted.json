@@ -78,6 +78,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
+      "kind": "bug",
+      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+      "line": 2357,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "discord-thread-messages-are-dropped-when",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
@@ -188,6 +199,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
+      "kind": "bug",
+      "path": "docs/specs/job-background-work-saves.md",
+      "line": 50,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "background-work-started-by-a-job-can-t-b",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
       "kind": "bug",
       "path": "docs/specs/subagents-end-to-end.md",
@@ -261,17 +283,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
-      "kind": "bug",
-      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
-      "line": 2357,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "discord-thread-messages-are-dropped-when",
       "status": "open",
       "closed_by": null
     }

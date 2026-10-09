@@ -2,12 +2,37 @@
   "base": "e149362400f34884dd505317367e1a5d27e0e114",
   "branch": "fix/background-work-started-by-a-job-can-t-b",
   "done_when": "The spec is confirmed and its story is on the roadmap",
+  "flagged": [
+    "docs/specs/job-background-work-saves.md"
+  ],
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "9e143f23ae3e443081eccbb83cb02727ea0a33096d9794b342ee3c796dd754cc",
+    "changed": "1d24238e3d448e79c877ae9a113c14296058539eb7976b48fb8379a8f09a5bfa",
+    "commit": "8f5da33f657bc1deea8483d07b264f015c860f9e",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The latest commit has no `Proof list:` paragraph, and the supplied proof list is explicitly missing. Add entries covering both Done-when details\u2014spec confirmation and the story's roadmap entry\u2014with their named checks or evidence. The documentation and roadmap changes are present, but the required proof-list gate remains unmet.",
+        "file": "docs/specs/job-background-work-saves.md",
+        "line": 50,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "b94ccd94-a999-4258-8094-3e949015cdfa",
+    "status": "blocked"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-09T12:36:50+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-09T13:59:48+00:00",
+      "step": "review"
     }
   ],
   "why": "Background work started by a job can't be saved: spec for the fix and the unused job-results table removal"
