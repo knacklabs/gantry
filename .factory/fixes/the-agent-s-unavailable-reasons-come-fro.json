@@ -9,24 +9,16 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "547619792fc8b99fa86e4a03e9bcb586fddfe0133715f40e696b430a85044529",
-    "changed": "4fa2a900a91406df900e0c65142b5433a2ec68424068914b005b6dfcae3d5481",
-    "commit": "e62881ce7de8dacb478d22a6c275d49636e757fa",
+    "branch_diff": "cfc32aab66ef2a7f8efae9c9c3b695a686ff3d86b48941e8d6168c4fa327ca47",
+    "changed": "2c6f37c2eac1783bdd3d29b20137122ef9dbfab5f6d6cae84ede27a2658bd1e3",
+    "commit": "b3ebec61afbf21d23f65778342a831b5456059ef",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "In a full-preset run with authority hiding enabled, unselected admin tools receive `tools are hidden for this run`, although hiding does not prevent their mounting: selected admin tools are restored at lines 180\u2013182 and in `apps/core/src/runner/mcp/server.ts:196\u2013199`. Their actual missing condition is selection. This affects settings_desired_state, request_settings_update, guided_action_preview, admin_permission_list, admin_permission_revoke, service_restart and register_agent whenever unselected, in both engines. New evidence beyond the ruling preserving selected admin tools is that the reason renderer does not respect that exception. The boundary oracle at `apps/core/test/unit/runtime/gantry-tools-in-run.test.ts:285` requires the same incorrect hidden reason, so its existing hidden-run scenario passes despite the defect. Preserve locked-preset reasons, but report missing selection for these admin capabilities in nonlocked runs and correct the boundary expectations.",
-        "file": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
-        "line": 228,
-        "priority": "P1",
-        "title": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision"
-      }
-    ],
-    "id": "6a1600be-ef42-4c54-b35b-39c9bad96c9d",
-    "status": "blocked"
+    "findings": [],
+    "id": "166ae07c-cfd4-4b6d-aa16-605e8cca71a2",
+    "status": "clean"
   },
   "round": 5,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-08T18:19:01+00:00",
@@ -38,6 +30,10 @@
     },
     {
       "at": "2026-10-08T22:50:54+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T04:17:52+00:00",
       "step": "review"
     }
   ],
