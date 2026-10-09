@@ -1,6 +1,15 @@
 {
+  "approval": {
+    "at": "2026-10-09T15:46:14+00:00",
+    "by": "human-via-Claude",
+    "event": "toolu_01FS7hNf1XZ9r6Jq7xgVNPdD",
+    "hash": "0fc48194d1f28301d2be4e57acfbc8559da5ce094128d6e9c641013d94fd76b0",
+    "round": 3,
+    "runtime": "claude",
+    "session": "a69a30fe-23d4-5b7d-9b59-8360571f490c"
+  },
   "doc": "plans/JOBRUNS-1.md",
-  "status": "read",
+  "status": "approved",
   "steps": [
     {
       "at": "2026-10-09T15:29:52+00:00",
@@ -17,8 +26,12 @@
     {
       "at": "2026-10-09T15:45:27+00:00",
       "step": "read"
+    },
+    {
+      "at": "2026-10-09T15:46:14+00:00",
+      "step": "approved"
     }
   ],
   "title": "Background work started by a job is saved and finishes",
-  "touches": 0
+  "touches": 1
 }
