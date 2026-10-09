@@ -24,6 +24,7 @@
     "id": "b94ccd94-a999-4258-8094-3e949015cdfa",
     "status": "blocked"
   },
+  "round": 1,
   "status": "fixing",
   "steps": [
     {
@@ -35,5 +36,6 @@
       "step": "review"
     }
   ],
-  "why": "Background work started by a job can't be saved: spec for the fix and the unused job-results table removal"
+  "why": "Background work started by a job can't be saved: spec for the fix and the unused job-results table removal",
+  "worker": "codex"
 }
