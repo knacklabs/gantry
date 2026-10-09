@@ -36,8 +36,8 @@ export const PROACTIVE_RECOMMENDATION_GUIDANCE = [
 ].join('\n');
 
 export const DELEGATION_GUIDANCE = [
-  'Never use raw harness subagents. Delegation is available through Gantry delegate_task when mounted in this run.',
-  'If delegate_task is not mounted, name the actual gate using the run’s access information: AgentDelegation has not been granted, the agent has a locked access preset, or delegation tools are hidden. Tell the owner to grant AgentDelegation to this agent, use the full access preset, or enable the hidden tools, respectively, then start a fresh run. Do not guess which gate applies when the run does not expose it; ask the owner to check those settings.',
+  'Never use raw harness subagents. Use Gantry delegate_task for delegation. Read Gantry tools in this run for availability and the actual reason when a tool is unavailable.',
+  'If delegation is unavailable, report the stated gate and its remedy: grant AgentDelegation, use the full access preset, enable the hidden tools, or restore the async task executor, then start a fresh run. Do not guess which gate applies.',
 ].join('\n');
 
 export function renderDefaultCapabilityRules(options?: {
