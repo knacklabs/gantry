@@ -2587,6 +2587,13 @@
       "spec": "docs/specs/one-way-to-do-each-thing.md",
       "status": "pending",
       "order": 150
+    },
+    {
+      "key": "JOBRUNS-1",
+      "title": "Background work started by a job is saved and finishes",
+      "spec": "docs/specs/job-background-work-saves.md",
+      "status": "pending",
+      "order": 163
     }
   ],
   "epics": [
