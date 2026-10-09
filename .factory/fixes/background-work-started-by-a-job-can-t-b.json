@@ -1,0 +1,37 @@
+{
+  "base": "e149362400f34884dd505317367e1a5d27e0e114",
+  "branch": "fix/background-work-started-by-a-job-can-t-b",
+  "done_when": "The spec is confirmed and its story is on the roadmap",
+  "flagged": [
+    "docs/specs/job-background-work-saves.md"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "a0a16d2aed5f10c684d7e7b3d9e8c25eb9b30201f3ece3de6dafb61dc8a8db5c",
+    "changed": "1d24238e3d448e79c877ae9a113c14296058539eb7976b48fb8379a8f09a5bfa",
+    "commit": "21aaf8cb02a7ac8c30f38a8f754468cc561e3f96",
+    "dismissals": [],
+    "findings": [],
+    "id": "c09b9398-14fe-43a6-9306-a2039965c527",
+    "status": "clean"
+  },
+  "round": 1,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-09T12:36:50+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-09T13:59:48+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T14:09:29+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Background work started by a job can't be saved: spec for the fix and the unused job-results table removal",
+  "worker": "codex"
+}

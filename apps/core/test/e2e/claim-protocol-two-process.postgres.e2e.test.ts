@@ -4,14 +4,16 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
+import { _setRuntimeStorageForTest as setHarnessRuntimeStorage } from '@core/adapters/storage/postgres/runtime-store.js';
 import type { AgentExecutionAdapter } from '@core/application/agent-execution/agent-execution-adapter.js';
 import { resolveSelectedSkillProjection } from '@core/application/skills/selected-skill-projection.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
+import type { AppId } from '@core/domain/app/app.js';
 import type { ConversationRoute } from '@core/domain/types.js';
 import { processBrowserIpcRequest } from '@core/runtime/ipc-browser-handler.js';
 import { validateAgentToolRuntimeRules } from '@core/application/agents/agent-tool-runtime-rules.js';
@@ -805,11 +807,27 @@ function makeLiveTempRuntime(folder: string): LiveTempRuntime {
   return temp;
 }
 
-function writeLiveDeterministicRunner(temp: LiveTempRuntime): void {
+/**
+ * With `stayAlive`, the child behaves like a real live runner after its first
+ * answer: it reports the turn idle, answers each follow-up the host writes to
+ * its IPC input directory (logging the follow-up text to
+ * `continuationsPath(temp)`), and exits on the host's close signal.
+ */
+function writeLiveDeterministicRunner(
+  temp: LiveTempRuntime,
+  options: { stayAlive?: boolean } = {},
+): void {
   fs.writeFileSync(
     temp.runnerPath,
     `
 const fs = require('node:fs');
+const path = require('node:path');
+
+const emit = (output) => {
+  console.log('---GANTRY_OUTPUT_START---');
+  console.log(JSON.stringify({ ...output, newSessionId: 'live-e2e-session' }));
+  console.log('---GANTRY_OUTPUT_END---');
+};
 
 let stdin = '';
 process.stdin.on('data', (chunk) => {
@@ -817,6 +835,7 @@ process.stdin.on('data', (chunk) => {
 });
 process.stdin.on('end', () => {
   const input = JSON.parse(stdin);
+  fs.appendFileSync(${JSON.stringify(spawnsPath(temp))}, 'spawn\\n');
   fs.writeFileSync(
     ${JSON.stringify(temp.recordPath)},
     JSON.stringify({
@@ -828,16 +847,148 @@ process.stdin.on('end', () => {
       },
     }, null, 2),
   );
-  console.log('---GANTRY_OUTPUT_START---');
-  console.log(JSON.stringify({
-    status: 'success',
-    result: 'live e2e child saw: ' + input.prompt,
-    newSessionId: 'live-e2e-session',
-  }));
-  console.log('---GANTRY_OUTPUT_END---');
+  emit({ status: 'success', result: 'live e2e child saw: ' + input.prompt });
+  if (!${JSON.stringify(options.stayAlive === true)}) return;
+  emit({ status: 'success', result: null });
+  const inputDir = process.env.GANTRY_IPC_INPUT_DIR;
+  fs.mkdirSync(inputDir, { recursive: true });
+  const poll = setInterval(() => {
+    const files = fs.readdirSync(inputDir).filter((f) => f.endsWith('.json')).sort();
+    for (const file of files) {
+      const filePath = path.join(inputDir, file);
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      fs.unlinkSync(filePath);
+      fs.appendFileSync(
+        ${JSON.stringify(continuationsPath(temp))},
+        JSON.stringify(data.text) + '\\n',
+      );
+      emit({ status: 'success', result: 'live e2e child saw: ' + data.text });
+      emit({ status: 'success', result: null });
+    }
+    const closePath = path.join(inputDir, '_close');
+    if (fs.existsSync(closePath)) {
+      fs.unlinkSync(closePath);
+      clearInterval(poll);
+    }
+  }, 25);
 });
 `,
   );
+}
+
+function spawnsPath(temp: LiveTempRuntime): string {
+  return path.join(temp.root, 'child-spawns.log');
+}
+
+function continuationsPath(temp: LiveTempRuntime): string {
+  return path.join(temp.root, 'child-continuations.jsonl');
+}
+
+function readLines(filePath: string): string[] {
+  return fs.existsSync(filePath)
+    ? fs.readFileSync(filePath, 'utf-8').split('\n').filter(Boolean)
+    : [];
+}
+
+/** Fakes only the host edges (credentials, prompt compile, model config) around the spawned child runner. */
+function mockLiveRunnerHost(
+  temp: LiveTempRuntime,
+  schemaName: string,
+  idleTimeoutMs = 5_000,
+): void {
+  vi.doMock('@core/config/index.js', async () => {
+    const actual = await vi.importActual<
+      typeof import('@core/config/index.js')
+    >('@core/config/index.js');
+    const settings = actual.createDefaultRuntimeSettings();
+    const liveE2eHarness = ['anthropic', 'sdk'].join(
+      '_',
+    ) as typeof settings.agent.agentHarness;
+    settings.storage.postgres.urlEnv = 'GANTRY_TEST_DATABASE_URL';
+    settings.storage.postgres.schema = schemaName;
+    settings.credentialBroker.mode = 'none';
+    settings.agent.defaultModel = 'opus';
+    settings.agent.agentHarness = liveE2eHarness;
+    settings.runtime.queue.maxMessageRuns = 1;
+    settings.runtime.queue.maxRetries = 0;
+    settings.runtime.queue.baseRetryMs = 25;
+    settings.runtime.sandbox.provider = 'direct';
+    return {
+      ...actual,
+      AGENT_MAX_OUTPUT_SIZE: 1024 * 1024,
+      AGENT_TIMEOUT: 5_000,
+      DATA_DIR: temp.dataDir,
+      AGENTS_DIR: temp.agentRoot,
+      GANTRY_HOME: temp.runtimeHome,
+      IDLE_TIMEOUT: idleTimeoutMs,
+      PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
+      STORAGE_POSTGRES_SCHEMA: schemaName,
+      STORAGE_POSTGRES_URL: process.env.GANTRY_TEST_DATABASE_URL ?? '',
+      STORAGE_POSTGRES_URL_ENV: 'GANTRY_TEST_DATABASE_URL',
+      getEffectiveModelConfig: () => ({
+        model: 'opus',
+        source: 'test runtime default',
+      }),
+      getRuntimeSettingsForConfig: () => settings,
+      getSelectedAgentHarness: () => liveE2eHarness,
+    };
+  });
+  vi.doMock('@core/runtime/agent-spawn-host.js', () => ({
+    getHostRuntimeCredentialEnv: async () => ({
+      env: {},
+      credentialProviders: {},
+      brokerApplied: false,
+      brokerProfile: 'none',
+    }),
+    prepareHostRuntimeContext: () => ({
+      groupDir: temp.groupDir,
+      workspaceIpcDir: temp.workspaceIpcDir,
+      runnerDistDir: temp.runnerDistDir,
+    }),
+    withControls: (input: unknown) => input,
+    createConfiguredRunTokenBudget: () => ({
+      exceeded: false,
+      enforce: (output: unknown) => output,
+    }),
+    getConfiguredProviderSessionMaxInputTokens: () => 150_000,
+  }));
+  vi.doMock('@core/application/agents/prompt-profile-service.js', () => {
+    class MockPromptProfileService {
+      async ensureAgentDefaults(): Promise<void> {}
+      async compileSystemPrompt(): Promise<string> {
+        return 'compiled live e2e prompt';
+      }
+    }
+    return {
+      PromptProfileService: MockPromptProfileService,
+      promptProfileAgentIdForFolder: (agentFolder: string) =>
+        `agent:${agentFolder}`,
+      registerChannelPromptPresentationRenderer: vi.fn(),
+      renderChannelPromptPresentationLine: vi.fn(() => undefined),
+    };
+  });
+}
+
+function liveRunnerExecutionAdapter(
+  temp: LiveTempRuntime,
+): AgentExecutionAdapter {
+  return {
+    id: 'anthropic:claude-agent-sdk',
+    async prepare(input) {
+      return {
+        providerId: 'anthropic:claude-agent-sdk',
+        runnerPath: temp.runnerPath,
+        runnerArgs: [temp.runnerPath],
+        runnerInputPatch: {
+          modelCredentialEnv: { ...input.modelCredentialProjection.env },
+        },
+        env: {},
+        protectedFilesystemPaths: [],
+        runtimeDetails: ['executionProvider=anthropic:claude-agent-sdk'],
+        cleanup: () => {},
+      };
+    },
+  };
 }
 
 async function waitForLiveE2e(
@@ -994,77 +1145,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     process.env.GANTRY_HOME = temp.runtimeHome;
     process.env.GANTRY_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
 
-    vi.doMock('@core/config/index.js', async () => {
-      const actual = await vi.importActual<
-        typeof import('@core/config/index.js')
-      >('@core/config/index.js');
-      const settings = actual.createDefaultRuntimeSettings();
-      const liveE2eHarness = ['anthropic', 'sdk'].join(
-        '_',
-      ) as typeof settings.agent.agentHarness;
-      settings.storage.postgres.urlEnv = 'GANTRY_TEST_DATABASE_URL';
-      settings.storage.postgres.schema = runtime.schemaName;
-      settings.credentialBroker.mode = 'none';
-      settings.agent.defaultModel = 'opus';
-      settings.agent.agentHarness = liveE2eHarness;
-      settings.runtime.queue.maxMessageRuns = 1;
-      settings.runtime.queue.maxRetries = 0;
-      settings.runtime.queue.baseRetryMs = 25;
-      settings.runtime.sandbox.provider = 'direct';
-      return {
-        ...actual,
-        AGENT_MAX_OUTPUT_SIZE: 1024 * 1024,
-        AGENT_TIMEOUT: 5_000,
-        DATA_DIR: temp.dataDir,
-        AGENTS_DIR: temp.agentRoot,
-        GANTRY_HOME: temp.runtimeHome,
-        IDLE_TIMEOUT: 5_000,
-        PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
-        STORAGE_POSTGRES_SCHEMA: runtime.schemaName,
-        STORAGE_POSTGRES_URL: process.env.GANTRY_TEST_DATABASE_URL ?? '',
-        STORAGE_POSTGRES_URL_ENV: 'GANTRY_TEST_DATABASE_URL',
-        getEffectiveModelConfig: () => ({
-          model: 'opus',
-          source: 'test runtime default',
-        }),
-        getRuntimeSettingsForConfig: () => settings,
-        getSelectedAgentHarness: () => liveE2eHarness,
-      };
-    });
-    vi.doMock('@core/runtime/agent-spawn-host.js', () => ({
-      getHostRuntimeCredentialEnv: async () => ({
-        env: {},
-        credentialProviders: {},
-        brokerApplied: false,
-        brokerProfile: 'none',
-      }),
-      prepareHostRuntimeContext: () => ({
-        groupDir: temp.groupDir,
-        workspaceIpcDir: temp.workspaceIpcDir,
-        runnerDistDir: temp.runnerDistDir,
-      }),
-      withControls: (input: unknown) => input,
-      createConfiguredRunTokenBudget: () => ({
-        exceeded: false,
-        enforce: (output: unknown) => output,
-      }),
-      getConfiguredProviderSessionMaxInputTokens: () => 150_000,
-    }));
-    vi.doMock('@core/application/agents/prompt-profile-service.js', () => {
-      class MockPromptProfileService {
-        async ensureAgentDefaults(): Promise<void> {}
-        async compileSystemPrompt(): Promise<string> {
-          return 'compiled live e2e prompt';
-        }
-      }
-      return {
-        PromptProfileService: MockPromptProfileService,
-        promptProfileAgentIdForFolder: (agentFolder: string) =>
-          `agent:${agentFolder}`,
-        registerChannelPromptPresentationRenderer: vi.fn(),
-        renderChannelPromptPresentationLine: vi.fn(() => undefined),
-      };
-    });
+    mockLiveRunnerHost(temp, runtime.schemaName);
 
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
@@ -1078,23 +1159,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     const { DirectRunnerSandboxProvider } =
       await import('@core/adapters/sandbox/runner-sandbox-provider.js');
 
-    const executionAdapter: AgentExecutionAdapter = {
-      id: 'anthropic:claude-agent-sdk',
-      async prepare(input) {
-        return {
-          providerId: 'anthropic:claude-agent-sdk',
-          runnerPath: temp.runnerPath,
-          runnerArgs: [temp.runnerPath],
-          runnerInputPatch: {
-            modelCredentialEnv: { ...input.modelCredentialProjection.env },
-          },
-          env: {},
-          protectedFilesystemPaths: [],
-          runtimeDetails: ['executionProvider=anthropic:claude-agent-sdk'],
-          cleanup: () => {},
-        };
-      },
-    };
+    const executionAdapter = liveRunnerExecutionAdapter(temp);
 
     const messageQueue = new GroupQueue({
       maxMessageRuns: 1,
@@ -1381,6 +1446,365 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     ).toHaveLength(1);
   }, 60_000);
 });
+
+maybeDescribe(
+  'thread follow-up sender allowlist, real runner (Postgres)',
+  () => {
+    let runtime: PostgresIntegrationRuntime;
+    let previousGantryHome: string | undefined;
+    let previousDatabaseUrl: string | undefined;
+
+    beforeAll(async () => {
+      runtime = await createPostgresIntegrationRuntime({
+        schemaPrefix: 'thread_sender_real_runner',
+      });
+      // The harness repositories read storage through the module graph loaded
+      // with this file, not the one re-imported under the host mocks.
+      setHarnessRuntimeStorage(runtime.storageRuntime);
+    }, 60_000);
+
+    afterAll(async () => {
+      vi.doUnmock('@core/config/index.js');
+      vi.doUnmock('@core/runtime/agent-spawn-host.js');
+      vi.doUnmock('@core/application/agents/prompt-profile-service.js');
+      vi.resetModules();
+      if (previousGantryHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = previousGantryHome;
+      if (previousDatabaseUrl === undefined)
+        delete process.env.GANTRY_DATABASE_URL;
+      else process.env.GANTRY_DATABASE_URL = previousDatabaseUrl;
+      await runtime?.cleanup();
+      for (const temp of liveTempRuntimes.splice(0)) {
+        await removeLiveTempRuntime(temp);
+      }
+    });
+
+    it('answers a thread follow-up only when its sender may trigger the agent (real runner)', async () => {
+      vi.resetModules();
+      previousGantryHome = process.env.GANTRY_HOME;
+      previousDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+
+      const appId = 'default';
+      const folder = 'thread_sender_real_agent';
+      const chatJid = 'tg:-4300';
+      const threadId = '4343';
+      const providerAccountId = 'channel-providerAccount:default:telegram';
+      const temp = makeLiveTempRuntime(folder);
+      writeLiveDeterministicRunner(temp, { stayAlive: true });
+      process.env.GANTRY_HOME = temp.runtimeHome;
+      process.env.GANTRY_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
+      // The runner stays up until the test closes it, not until an idle timer.
+      mockLiveRunnerHost(temp, runtime.schemaName, 60_000);
+
+      const { _setRuntimeStorageForTest } =
+        await import('@core/adapters/storage/postgres/runtime-store.js');
+      _setRuntimeStorageForTest(runtime.storageRuntime);
+      const { createRuntimeApp } =
+        await import('@core/app/bootstrap/runtime-app.js');
+      const { buildLiveAdmissionProcessor, startLiveExecutionServices } =
+        await import('@core/app/bootstrap/live-execution.js');
+      const { createChannelPersistenceHandlers } =
+        await import('@core/app/bootstrap/channel-persistence-handlers.js');
+      const { AsyncTaskQueue } =
+        await import('@core/app/bootstrap/async-task-queue.js');
+      const { GroupQueue } = await import('@core/runtime/group-queue.js');
+      const { LiveTurnAuthority } =
+        await import('@core/runtime/live-turn-authority.js');
+      const { createAgentExecutionAdapterRegistry } =
+        await import('@core/application/agent-execution/agent-execution-adapter-registry.js');
+      const { DirectRunnerSandboxProvider } =
+        await import('@core/adapters/sandbox/runner-sandbox-provider.js');
+      const { listChannelProviders } =
+        await import('@core/channels/provider-registry.js');
+      const { EnvRuntimeSecretProvider } =
+        await import('@core/adapters/credentials/env-runtime-secret-provider.js');
+      const { logger } = await import('@core/infrastructure/logging/logger.js');
+      const allowlist = await import('@core/platform/sender-allowlist.js');
+      const {
+        createDefaultRuntimeSettings,
+        ensureConfiguredConversationBinding,
+        saveRuntimeSettings,
+      } = await import('@core/config/settings/runtime-settings.js');
+
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: 'thread-sender-real-group',
+        chatJid,
+        workspaceFolder: folder,
+      });
+      // Real settings in the runtime home: a mention-required Telegram group
+      // where only alice may trigger the agent.
+      const settings = createDefaultRuntimeSettings();
+      settings.storage.postgres.urlEnv = 'GANTRY_TEST_DATABASE_URL';
+      settings.storage.postgres.schema = runtime.schemaName;
+      settings.credentialBroker.mode = 'none';
+      const { conversationId } = ensureConfiguredConversationBinding(settings, {
+        agentId: folder,
+        agentName: 'Thread sender agent',
+        agentFolder: folder,
+        jid: chatJid,
+        displayName: 'Thread sender group',
+        trigger: 'Andy',
+        requiresTrigger: true,
+      });
+      settings.conversations[conversationId]!.senderPolicy = {
+        allow: ['alice'],
+        mode: 'trigger',
+      };
+      saveRuntimeSettings(temp.runtimeHome, settings);
+      allowlist.invalidateSenderAllowlistCache();
+
+      const executionAdapter = liveRunnerExecutionAdapter(temp);
+      const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+      const route: ConversationRoute = {
+        name: 'Thread sender group',
+        folder,
+        providerAccountId,
+        trigger: 'Andy',
+        added_at: nowIso(),
+        requiresTrigger: true,
+        conversationKind: 'group',
+        agentConfig: { model: 'opus' },
+      };
+      const ownerQueueJids = new Set<string>();
+      // Two workers: a follow-up claimed by the worker that does not hold the
+      // running turn is routed to that turn's owner, which writes it to its
+      // live child runner.
+      const startWorker = async (workerInstanceId: string) => {
+        await runtime.repositories.workerCoordination.registerWorker({
+          id: workerInstanceId,
+          bootNonce: workerInstanceId,
+        });
+        const queue = new GroupQueue({
+          maxMessageRuns: 1,
+          maxJobRuns: 1,
+          maxRetries: 0,
+          baseRetryMs: 25,
+        });
+        const app = createRuntimeApp({
+          queue,
+          opsRepository: runtime.ops,
+          ensureCredentialBinding: async () => ({ created: false }),
+          executionAdapter,
+          executionAdapters: createAgentExecutionAdapterRegistry([
+            executionAdapter,
+          ]),
+          runnerSandboxProvider: new DirectRunnerSandboxProvider(),
+          publishRuntimeEvent: (event) =>
+            runtime.storageRuntime.runtimeEvents.publish(event as never),
+        });
+        app.setChannelRuntime(channel.runtime);
+        await app.registerGroup(chatJid, route);
+        const leaseDeps = {
+          liveTurns: runtime.repositories.liveTurns,
+          coordination: runtime.repositories.workerCoordination,
+          workerInstanceId,
+        };
+        const authority = new LiveTurnAuthority({
+          leaseDeps,
+          slotCapacity: () => 1,
+          ownerPollMs: 25,
+        });
+        queue.setLiveTurnRunnerRegistrar((queueJid, hooks, routing) =>
+          authority.registerLocalRunner(queueJid, hooks, routing),
+        );
+        const processor = buildLiveAdmissionProcessor({
+          inputRepository: runtime.repositories.liveTurns,
+          liveTurnAuthority: authority,
+          app,
+          opsRepository: runtime.ops,
+          executionAdapter,
+          messageFetchPageSize: 50,
+          timezone: 'UTC',
+          getTriggerPattern,
+          enqueueMessageCheck: (queueJid) => {
+            queue.enqueueMessageCheck(queueJid);
+          },
+          warn: () => undefined,
+        });
+        queue.setProcessMessagesFn((queueJid, context) => {
+          ownerQueueJids.add(queueJid);
+          return processor(queueJid, context);
+        });
+        const handle = startLiveExecutionServices({
+          appId,
+          app,
+          liveTurnAuthority: authority,
+          liveTurnLeaseDeps: leaseDeps,
+          messageLoopDeps: {
+            appId,
+            inputRepository: runtime.repositories.liveTurns,
+            getConversationRoutes: app.getConversationRoutes,
+            hasChannel: channel.runtime.hasChannel,
+            setTyping: channel.runtime.setTyping,
+            sendProgressUpdate: channel.runtime.sendProgressUpdate,
+            queue,
+            opsRepository: runtime.ops,
+          },
+          recoveryCoordinator: undefined,
+          isEligibleToRecoverLiveTurn: () => true,
+          alertNoEligibleLiveTurnRecoverer: undefined,
+          registerActiveAdmissionLoop: () => undefined,
+          registerActiveRecoveryLoop: () => undefined,
+          onPollingCrash: (error) => {
+            throw error;
+          },
+          info: () => undefined,
+          warn: () => undefined,
+        });
+        return { app, queue, authority, handle };
+      };
+      const workers = [await startWorker('runtime-worker-thread-real-a')];
+      const owner = workers[0]!;
+      // The inbound entry point a connected channel calls.
+      const inbound = createChannelPersistenceHandlers({
+        app: owner.app,
+        resolved: {
+          appId: appId as AppId,
+          getTriggerPattern,
+          providerIds: listChannelProviders(),
+          loadSenderAllowlist: allowlist.loadSenderAllowlist,
+          loadSenderControlAllowlist: allowlist.loadSenderControlAllowlist,
+          isSenderAllowed: allowlist.isSenderAllowed,
+          isSenderControlAllowed: allowlist.isSenderControlAllowed,
+          shouldLogDenied: allowlist.shouldLogDenied,
+          logger,
+          runtimeSecrets: new EnvRuntimeSecretProvider(),
+        },
+        ops: () => runtime.ops,
+        persistenceQueue: new AsyncTaskQueue(4, 5_000),
+        runtimeSettings: () => settings,
+      });
+      const deliver = async (id: string, sender: string, content: string) =>
+        inbound.onMessage(chatJid, {
+          id,
+          chat_jid: chatJid,
+          provider: 'telegram',
+          providerAccountId,
+          sender,
+          sender_name: sender,
+          content,
+          timestamp: nowIso(),
+          is_from_me: false,
+          is_bot_message: false,
+          thread_id: threadId,
+          ...(id === 'thread-root'
+            ? {}
+            : { reply_to_message_id: 'thread-root' }),
+        });
+      const replies = () =>
+        channel.outbound
+          .map((message) => message.text)
+          .filter((text) => text.includes('live e2e child saw:'));
+      const continued = () =>
+        readLines(continuationsPath(temp)).map(
+          (line) => JSON.parse(line) as string,
+        );
+      const spawns = () => readLines(spawnsPath(temp)).length;
+      // How the runtime finished with a saved message: what consumed its input.
+      const consumedBy = async (id: string) => {
+        const [item] = await runtime.service.db
+          .select({
+            consumedBy: pgSchema.liveAdmissionWorkItemsPostgres.consumedBy,
+          })
+          .from(pgSchema.liveAdmissionWorkItemsPostgres)
+          .where(
+            like(pgSchema.liveAdmissionWorkItemsPostgres.messageId, `%:${id}`),
+          );
+        return item?.consumedBy ?? null;
+      };
+
+      try {
+        // 1. Alice's mention starts the thread and gets one reply.
+        expect(await deliver('thread-root', 'alice', 'Andy start a plan')).toBe(
+          'stored',
+        );
+        await waitForLiveE2e(
+          () => replies().length === 1,
+          'reply to the thread root',
+          20_000,
+        );
+        expect(replies()[0]).toContain('Andy start a plan');
+        expect(ownerQueueJids.size).toBe(1);
+        const queueJid = [...ownerQueueJids][0]!;
+        expect(owner.queue.isGroupActive(queueJid)).toBe(true);
+
+        // Follow-ups now land on the other worker, which routes them to the
+        // owner's still-running child.
+        owner.handle.stopAdmission();
+        await owner.handle.admissionLoop?.done;
+        workers.push(await startWorker('runtime-worker-thread-real-b'));
+
+        // 2. Bob's unmentioned follow-up never reaches the live runner.
+        expect(
+          await deliver(
+            'thread-bob-while-alive',
+            'bob',
+            'also do the other thing',
+          ),
+        ).toBe('stored');
+        await waitForLiveE2e(
+          async () =>
+            (await consumedBy('thread-bob-while-alive')) === 'history',
+          'the follow-up from bob handled while the runner is alive',
+        );
+
+        // 3. Alice's follow-up is delivered to that runner and answered.
+        expect(
+          await deliver(
+            'thread-alice-while-alive',
+            'alice',
+            'and add a summary',
+          ),
+        ).toBe('stored');
+        await waitForLiveE2e(
+          () => replies().length >= 2,
+          'reply to the allowed follow-up',
+          20_000,
+        );
+        expect(continued()).toHaveLength(1);
+        expect(continued()[0]).toContain('and add a summary');
+        expect(continued()[0]).not.toContain('also do the other thing');
+        expect(replies()).toHaveLength(2);
+        expect(replies()[1]).toContain('and add a summary');
+        expect(
+          replies().some((text) => text.includes('also do the other thing')),
+        ).toBe(false);
+        expect(owner.queue.isGroupActive(queueJid)).toBe(true);
+
+        // 4. Once the runner exits, Bob's follow-up still starts nothing.
+        owner.queue.closeStdin(queueJid);
+        await waitForLiveE2e(
+          () => !owner.queue.isGroupActive(queueJid),
+          'the child runner exited',
+          20_000,
+        );
+        expect(
+          await deliver(
+            'thread-bob-after-exit',
+            'bob',
+            'yes, continue with that',
+          ),
+        ).toBe('stored');
+        await waitForLiveE2e(
+          async () => (await consumedBy('thread-bob-after-exit')) !== null,
+          'the follow-up from bob handled after the runner exited',
+          20_000,
+        );
+        expect(spawns()).toBe(1);
+        expect(continued()).toHaveLength(1);
+        expect(replies()).toHaveLength(2);
+      } finally {
+        for (const worker of workers) {
+          worker.handle.stopAdmission();
+          worker.handle.stopRecovery();
+          await worker.queue.shutdown(500);
+          await worker.authority.shutdown();
+        }
+      }
+    }, 120_000);
+  },
+);
 
 maybeDescribe('agent capability boundary slices (Postgres)', () => {
   let runtime: PostgresIntegrationRuntime;
