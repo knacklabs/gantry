@@ -1,0 +1,56 @@
+{
+  "base": "c2047e791012ed4c6ceb2cd96b3a901173d2d0fe",
+  "branch": "fix/there-is-no-architecture-or-flow-documen",
+  "done_when": "docs/architecture/areas/ has one doc per audit area with architecture and flow diagrams and a plain-English walkthrough, checked against the code",
+  "flagged": [
+    "docs/architecture/README.md",
+    "docs/architecture/areas/06-storage.md",
+    "docs/architecture/areas/10-shared-domain.md",
+    "docs/architecture/areas/11-deploy-scaling.md",
+    "docs/architecture/areas/13-security-boundaries.md",
+    "docs/architecture/areas/README.md"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "ce343d5afca7a96d5bc1c7edf1372180cec7c67195f662e2f9b8da946c00fd6d",
+    "changed": "939f59c01bf5dd57e76e55b48e2ac4c0493244d1ce0c10987b15213f524d716e",
+    "commit": "8e2fc92742b982c1d8a1c38acfb59da0c21bb773",
+    "dismissals": [],
+    "findings": [],
+    "id": "67444aa0-63c4-4cc5-bedb-183ad0a1ff31",
+    "status": "clean"
+  },
+  "round": 6,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T17:01:12+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-09T10:29:17+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T11:01:21+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T11:22:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T11:56:10+00:00",
+      "step": "review"
+    }
+  ],
+  "stop": {
+    "choice": "narrow",
+    "file": "docs/architecture/areas/11-deploy-scaling.md",
+    "reason": "Owner chose narrow: correct only the guides' descriptions of where scheduler outcomes are stored (agent_runs, not job_runs)",
+    "round": 4
+  },
+  "why": "There is no architecture or flow documentation per app area for explaining the system",
+  "worker": "codex"
+}
