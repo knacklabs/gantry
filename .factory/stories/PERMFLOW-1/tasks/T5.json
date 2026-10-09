@@ -31,6 +31,7 @@
     "status": "blocked",
     "tree": "4daafcaa49dff66ff062195589fe7839dc32b952453ae298137e7459fd6a84b0"
   },
+  "round": 1,
   "status": "fixing",
   "steps": [
     {
@@ -55,5 +56,6 @@
     "file": "apps/core/src/shared/permission-display-input.ts",
     "reason": "Owner: keep it simple, like Claude Code. Narrow to the three open findings: run the one secret rule over the full text before any shortening, mask every credential-named field (key included) with no allowlist exceptions, store only the shown text, and drive the e2e tap through the real Telegram handler",
     "round": 4
-  }
+  },
+  "worker": "codex"
 }
