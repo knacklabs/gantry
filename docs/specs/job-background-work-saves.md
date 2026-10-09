@@ -9,31 +9,34 @@ saved: 2026-10-09T12:37:08+00:00
 
 ## Why
 
-When a job starts background work (a long command, a slow tool call or a subagent), Gantry saves a task record for it. For a job, that record links to the job's run through a field whose database rule requires a matching row in an old job-results table (`job_runs`). Nothing has written to that table since job outcomes moved to the agent-runs table. So the link points nowhere, and saving the task fails. The same task in a chat links its run through a second field, which points at the agent-runs table and works.
+When a job starts background work, Gantry saves a task record that should say which run and which job started it. Today that goes wrong in two ways:
 
-- **Cost today:** a job can't hand anything off to the background, so it can't use background commands, slow tools or subagents. The subagents spec records no delegated or background task ever completing.
-- **Two fields for one fact:** "which run started this task" lives in two fields, and the one jobs use points at a dead table. The architecture guides also named that table, and a review had to correct them.
+- **Background commands and slow tool calls started by a job fail to save.** Their record links to the job's run through a field whose database rule requires a matching row in an old job-results table (`job_runs`). Nothing has written to that table since job outcomes moved to the agent-runs table, so the link points nowhere and the save fails. The same task in a chat links its run through a second field that points at the agent-runs table, and works.
+- **Subagents started by a job save without their links.** The subagent path clears the run link for jobs and passes no job link, so the record can't be traced back to the job or run that started it.
+
+**Cost today:** a job can't run background commands or slow tools, and its subagents can't be found by job or run, which job cancellation and recovery need. "Which run started this task" also lives in two fields, and the one jobs use points at a dead table. The architecture guides also named that table, and a review had to correct them.
 
 ## Behaviour
 
-- **One run link.** Every background task records the run that started it in one field, which points at the agent-runs table. That is the same for chat turns and job runs. The job link (`parent_job_id`) stays, so a job's tasks are still found by job.
-- **Jobs can start background work.** A background command, slow tool call or subagent started inside a job run is saved and runs to its outcome, as it does in chat.
-- **The unused table and field are removed.** The old job-results table and the duplicate run-link field are dropped with a one-way migration, along with their index and database rule.
+- **One run link.** Every background task (command, slow tool call or subagent) records the run that started it in one field, which points at the agent-runs table. That is the same for chat turns and job runs.
+- **One job link.** A background task started inside a job also records that job, whatever its kind, so a job's tasks are found by job.
+- **Jobs can start background work.** A background command, slow tool call or subagent started inside a job run is saved with both links and runs to its outcome, as it does in chat.
+- **The unused table and field are removed.** A one-way migration first carries over what the duplicate field points at, for tasks that don't already have it: the old row's agent run becomes the task's run link, and its job becomes the task's job link. An old row with no agent run never had a run to point at, so its task keeps only the job link. The migration then drops the duplicate field, its index and database rule, and the old job-results table.
 
 ## Risks
 
-- **One-way migration.** It drops the old job-results table and the duplicate field on background tasks. Nothing writes to the table today. A background-task row could only have a value in the duplicate field if a matching job-results row existed, so no saved link is lost.
+- **One-way migration that deletes the old job-results table.** Its rows, if any, are history from before job outcomes moved to the agent-runs table, and nothing reads them. The only data that refers to them, a background task's duplicate run link, is carried over before the drop: to the one run link when the old row names an agent run, and to the job link in every case. So no task loses its run or its job; an old row without an agent run had no run to keep.
 
 ## Acceptance criteria
 
-- **AC1.** A background command, a slow tool call and a subagent each started inside a job run are saved and reach their outcome. A Postgres integration test proves this against the real schema.
-- **AC2.** A background task records its starting run in one field for chat and jobs alike. The job-results table and the duplicate field no longer exist after migration.
+- **AC1.** A background command, a slow tool call and a subagent, each started inside a job run through the production job dispatch, are saved and reach their outcome, and each saved record holds the starting run and the job. A Postgres integration test proves this against the real schema.
+- **AC2.** A background task records its starting run in one field for chat and jobs alike. After migration the old job-results table and the duplicate field no longer exist, and a Postgres migration test shows that a task linked only through the duplicate field keeps its run in the one run link when the old row names one, and keeps its job link in every case, including an old row with no agent run.
 
 ## Success measure
 
-- Metric: background tasks started by job runs that are saved, per week.
-- Baseline: 0. Saving fails for every job-started task today.
-- Target: every job-started background task in the first month after merge is saved, with no foreign-key failures in the logs.
+- Metric: share of background tasks started by job runs each week that are saved with both their run and job links.
+- Baseline: 0. Job-started commands and slow tool calls fail to save, and job-started subagents save without either link.
+- Target: 100% in each week of the first month after merge, with no foreign-key failures in the logs.
 - Check date: 2026-11-15
 
 ## Out of scope
