@@ -119,11 +119,8 @@ export async function replayPermissionRequest(
     decision = await resolvePermissionIpcDecision({
       request: {
         requestId: `tap-budget-${fixture.command ?? fixture.toolName}`,
-        ...(responseKeyId
-          ? { responseKeyId, targetJid }
-          : fixture.targetJid
-            ? { targetJid }
-            : {}),
+        ...(responseKeyId ? { responseKeyId } : {}),
+        targetJid,
         sourceAgentFolder: 'main_agent',
         toolName: fixture.toolName ?? 'RunCommand',
         toolInput: fixture.toolInput ?? { command: fixture.command },
@@ -134,17 +131,15 @@ export async function replayPermissionRequest(
       sourceAgentFolder: 'main_agent',
       deps: {
         conversationRoutes: () =>
-          responseKeyId
-            ? ({
-                [targetJid]: {
-                  name: 'tap budget',
-                  folder: 'main_agent',
-                  trigger: '@gantry',
-                  added_at: '2026-09-04',
-                  agentConfig: { permissionMode: fixture.permissionMode },
-                },
-              } as never)
-            : {},
+          ({
+            [targetJid]: {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: fixture.permissionMode },
+            },
+          }) as never,
         requestPermissionApproval: async (request) => {
           taps += 1;
           decisionReason = request.decisionReason;
@@ -214,7 +209,7 @@ export const TAP_BUDGET_WORKSPACE_ROOT =
 
 interface ExactMemoryReplay {
   taps: number[];
-  claimedCodes: PermissionRememberCode[];
+  claimedCodes: (PermissionRememberCode | 'cancel')[];
   applications: PermissionApprovalDecision['mode'][];
   decisions: PermissionApprovalDecision[];
   rows: PermissionDecisionMemoryRow[];
@@ -236,7 +231,7 @@ async function replayExactMemorySequence(
   const rows: PermissionDecisionMemoryRow[] = [];
   const decisionMemory = inMemoryDecisionMemory(rows);
   const durability = inMemoryPermissionDurability();
-  const claimedCodes: PermissionRememberCode[] = [];
+  const claimedCodes: (PermissionRememberCode | 'cancel')[] = [];
   const applications: PermissionApprovalDecision['mode'][] = [];
   const decisions: PermissionApprovalDecision[] = [];
   const taps: number[] = [];
@@ -259,7 +254,15 @@ async function replayExactMemorySequence(
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => ({
+            'tap-budget:conversation': {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: 'auto' },
+            },
+          }),
           requestPermissionApproval: async (
             request,
             facts?: PermissionRememberPromptFacts,
@@ -360,7 +363,7 @@ export async function replayRememberedExactAllow(
   options?: Parameters<typeof replayExactMemorySequence>[2],
 ): Promise<{
   taps: number[];
-  claimedCodes: PermissionRememberCode[];
+  claimedCodes: (PermissionRememberCode | 'cancel')[];
   applications: PermissionApprovalDecision['mode'][];
   activeRows: number;
 }> {
@@ -386,9 +389,10 @@ export function replayDestructiveExactMemory(
 ): Promise<ExactMemoryReplay> {
   return replayExactMemorySequence(
     's4',
+    // A hard rule asks every time, so every run is answered again.
     [
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
-      { command: 'rm -rf build' },
+      { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
       { command: 'rm -rf dist', rememberCode: 'cancel' },
       { command: 'rm -rf dist', rememberCode: 'cancel' },
     ],
@@ -732,10 +736,10 @@ export function inMemoryPermissionDurability(): {
         return true;
       },
       resolvePendingInteraction: async (input: any) => {
-        if (!members[0] || !group) return false;
+        if (!members[0]) return false;
         members[0].status = input.status;
         members[0].resolution = input.resolution;
-        group.prompt.settlementState = 'settled';
+        if (group) group.prompt.settlementState = 'settled';
         return true;
       },
       releasePendingPermissionCallback: async () => true,

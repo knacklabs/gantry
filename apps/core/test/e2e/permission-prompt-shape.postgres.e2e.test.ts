@@ -109,6 +109,15 @@ const AGENT_FOLDER = 'main_agent';
 const TARGET_JID = 'tg:100200300';
 const PROVIDER_ACCOUNT = 'telegram_prompt_shape';
 const APPROVER_USER_ID = 222;
+const conversationRoutes: IpcDeps['conversationRoutes'] = () => ({
+  [TARGET_JID]: {
+    name: 'Ops',
+    folder: AGENT_FOLDER,
+    trigger: '@Main',
+    added_at: '2026-10-02T00:00:00.000Z',
+    providerAccountId: PROVIDER_ACCOUNT,
+  },
+});
 
 // Real asks end to end: the runner's signed IPC request, the host processor
 // over Postgres, the channel approval requester, the Telegram channel's card
@@ -203,15 +212,7 @@ maybeDescribe('permission-prompt-shape', () => {
       providerAccountId: PROVIDER_ACCOUNT,
       onMessage: vi.fn(),
       onChatMetadata: vi.fn(),
-      conversationRoutes: () => ({
-        [TARGET_JID]: {
-          name: 'Ops',
-          folder: AGENT_FOLDER,
-          trigger: '@Main',
-          added_at: '2026-10-02T00:00:00.000Z',
-          providerAccountId: PROVIDER_ACCOUNT,
-        },
-      }),
+      conversationRoutes,
       runtimeSettings: () =>
         ({
           providers: { telegram: { enabled: true } },
@@ -343,7 +344,7 @@ maybeDescribe('permission-prompt-shape', () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const deps: IpcDeps = {
       sendMessage: vi.fn(async () => undefined),
-      conversationRoutes: () => ({}),
+      conversationRoutes,
       registerGroup: async () => undefined,
       syncGroups: async () => undefined,
       getAvailableGroups: () => [],
@@ -504,7 +505,7 @@ maybeDescribe('permission-prompt-shape', () => {
       AGENT_FOLDER,
       {
         sendMessage,
-        conversationRoutes: () => ({ [TARGET_JID]: { folder: AGENT_FOLDER } }),
+        conversationRoutes,
         registerGroup: async () => undefined,
         syncGroups: async () => undefined,
         getAvailableGroups: () => [],

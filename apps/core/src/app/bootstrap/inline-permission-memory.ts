@@ -74,7 +74,6 @@ export function inlineScheduledProjection(input: {
     ? {
         ownerPersonId: input.run.jobOwnerPersonId ?? null,
         memory,
-        guard: () => undefined,
         warn: (message, context) => input.deps.warn(context ?? {}, message),
       }
     : undefined;
@@ -135,7 +134,7 @@ export async function inlinePermissionRememberContext(input: {
     kindVariant: 'category',
   });
   if (!context.eligible) return context;
-  input.request.cardAffordances = buildPermissionCardAffordances({
+  input.request.cardAffordances = await buildPermissionCardAffordances({
     request: input.request,
     rememberContext: context,
   });

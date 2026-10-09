@@ -25,9 +25,12 @@ export interface BuildPermissionCardAffordancesInput {
 
 /** Card copy for the one save target a card offers: "Allow for future"
  *  remembers this exact action. Deny is never remembered. */
-export function buildPermissionCardAffordances(
+export async function buildPermissionCardAffordances(
   input: BuildPermissionCardAffordancesInput,
-): PermissionCardAffordances {
+): Promise<PermissionCardAffordances> {
+  if (input.request.cardAffordances?.eligible === false) {
+    return scalarPermissionCardAffordances();
+  }
   if (!input.rememberContext.eligible) return scalarPermissionCardAffordances();
   const exact = input.rememberContext.candidates.exact;
   if (!exact.ok && exact.reason === 'protected_destination') {

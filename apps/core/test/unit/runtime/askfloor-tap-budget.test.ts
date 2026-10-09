@@ -62,7 +62,7 @@ describe('ASKFLOOR tap budget', () => {
     });
   });
 
-  it('S3: 2>/dev/null costs 0 taps and hard-floor find costs 1 tap in interactive auto', async () => {
+  it('S3: 2>/dev/null and a read-only find the parser cannot model both cost 0 taps when the judge allows in interactive auto', async () => {
     const classifierVerdict = {
       risk_level: 'low' as const,
       risk_category: 'benign' as const,
@@ -89,35 +89,42 @@ describe('ASKFLOOR tap budget', () => {
       source: 'auto_classifier',
       railProvenance: null,
     });
+    // Contract change (PERMFLOW-1): the rail used to veto the judge's allow
+    // for a find the parser can't model; the judge's allow is now final.
     expect(readOnlyFind).toMatchObject({
-      taps: 1,
-      decidedBy: 'owner',
-      source: 'user',
-      railProvenance: null,
+      taps: 0,
+      decidedBy: 'auto_classifier',
+      source: 'auto_classifier',
+      railProvenance: { signal: 'unsupported_meta_executor' },
     });
   });
 
-  it('S4 asks once for rm -rf build remembers the exact command runs it again with zero taps and asks again for rm -rf dist because Deny saves nothing', async () => {
+  // Contract change (PERMFLOW-1): S4 used to remember an exact answer to a
+  // recursive delete. Hard rules now ask for each call, without remembering
+  // even a submitted remember callback.
+  it('S4 asks every time for rm -rf build and rm -rf dist and never saves a submitted remember callback', async () => {
     const replay = await replayDestructiveExactMemory();
 
-    expect(replay.taps).toEqual([1, 0, 1, 1]);
+    expect(replay.taps).toEqual([1, 1, 1, 1]);
+    expect(replay.rows).toHaveLength(0);
     expect(replay.claimedCodes).toEqual([
+      'remember_allow_exact',
       'remember_allow_exact',
       'cancel',
       'cancel',
     ]);
-    expect(replay.applications).toEqual(['allow_once', 'cancel', 'cancel']);
+    expect(replay.applications).toEqual([
+      'allow_once',
+      'allow_once',
+      'cancel',
+      'cancel',
+    ]);
     expect(replay.decisions).toMatchObject([
       { approved: true, mode: 'allow_once', source: 'human_once' },
-      { approved: true, mode: 'allow_once', source: 'human_decision' },
+      { approved: true, mode: 'allow_once', source: 'human_once' },
       { approved: false, mode: 'cancel', source: 'human_once' },
       { approved: false, mode: 'cancel', source: 'human_once' },
     ]);
-    expect(replay.rows).toMatchObject([
-      { outcome: 'allow', scope: 'exact', principal: 'RunCommand' },
-    ]);
-    expect(replay.rows).toHaveLength(1);
-    expect(replay.rows[0]?.scopeKey).toBe(replay.rows[0]?.effectHash);
   });
 
   it('S5 remembers in chat runs the projected job with zero cards still cards the near-miss forgets and the same job asks again', async () => {
@@ -299,7 +306,7 @@ describe('ASKFLOOR tap budget', () => {
     }
   });
 
-  it('S6 judge offline sends one notice per episode keeps trusted-root reads at zero taps asks at most once for an uncovered read and Allow still remembers while offline', async () => {
+  it('S6 judge offline sends no chat message, keeps trusted-root reads at zero taps, asks at most once for an uncovered read, and Allow still remembers while offline', async () => {
     const offlineConsult = vi.fn(async () => ({
       status: PermissionClassifierStatus.Unavailable,
       risk_level: 'high' as const,
@@ -336,7 +343,7 @@ describe('ASKFLOOR tap budget', () => {
     expect(readOnly).toMatchObject({ taps: 0 });
     expect(uncovered).toMatchObject({ taps: 1, decidedBy: 'owner' });
     expect(offlineConsult).toHaveBeenCalledOnce();
-    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
     const remembered = await replayRememberedExactAllow({
       classifierConsult: offlineConsult,
       sendMessage,
@@ -348,7 +355,7 @@ describe('ASKFLOOR tap budget', () => {
       applications: ['allow_once'],
       activeRows: 1,
     });
-    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(sendMessage).not.toHaveBeenCalled();
 
     const job = await replayPermissionRequest({
       permissionMode: 'auto',
@@ -372,7 +379,7 @@ describe('ASKFLOOR tap budget', () => {
       decidedBy: 'owner',
       decisionReason: 'Asking because my safety judge is offline.',
     });
-    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('aggregates the tap budget across S1 to S6 TB1 to TB4 and the mirror fixtures and reports the total per lane', async () => {
@@ -503,6 +510,8 @@ describe('ASKFLOOR tap budget', () => {
     }
 
     console.info('ASKFLOOR tap totals', totals);
+    // PERMFLOW-1: the read-only find no longer costs a tap (the judge's allow
+    // is final) and S4's recursive deletes ask every time (+2).
     expect(totals).toEqual({
       interactiveAuto: 10,
       strict: 4,

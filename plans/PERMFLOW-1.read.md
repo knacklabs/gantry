@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-10-02T02:12:57+00:00
-read_hash: d75d91d98fa335aa70232e9b166aaa7d2699dd8b
-round: 4
+read_at: 2026-10-02T09:24:41+00:00
+read_hash: 68d3bf3d759569cc05507795b9449b7fb84ce4b0
+round: 6
 passed: yes
-doc_seen: d75d91d98fa335aa70232e9b166aaa7d2699dd8b
+doc_seen: 68d3bf3d759569cc05507795b9449b7fb84ce4b0
 spec_seen: 4edda298df1c470d20c40e288fd906d0cad5511b
-notes_seen: 5968fa6c7a5467796a96c1bee6521231bd0edb49
+notes_seen: ab1b351b6f8b0c26ec5f460acc88191ac7a53261
 ---
 # Cold read notes
 
@@ -114,5 +114,23 @@ Only a genuine trade-off goes to the human, as a question with options.
    Disposition: cut
 
 ## Round 4
+
+No findings.
+
+## Round 5
+
+23. Split: T5 → buttons and individual delivery, then wording and durable display.
+    The expanded scope spans four channels, persistence and decision memory. Deleting `permission-batch-coalescer.ts` alone changes 320 lines, before removing its callers or changing renderers. This exceeds the approximately 400-line task limit; give each behavior and its proof one owner.
+   Disposition: keep T5 is already built (PR #569); most of its size is deleting the batch coalescer, and the review judges the delivered change
+
+24. Unproven: item 3: T2 cannot preserve the current request after the upstream truncation.
+    `runtime/agent-spawn.ts:574` supplies `input.prompt`, and `runtime/agent-spawn-helpers.ts:196` cuts it to 1,500 characters before the client receives it. Both producers are outside T2’s scope. Assign extraction before that cut and add a T2 test with the current request beyond the boundary; reordering client output cannot recover discarded text.
+   Disposition: keep amended: T2 takes the current request before the 1,500-character cut in agent-spawn and carries it separately; both files are in T2's scope with a beyond-the-boundary test
+
+25. T6’s new cleanup deliverable excludes the files defining and consuming the removed state.
+    `domain/types.ts` defines `batchDecision`, batch claims and remember codes; `domain/ports/worker-coordination.ts` defines batch matching and review-each settlement. The callback owner, `worker-coordination-interaction.postgres.ts` and `permission-remember-codec.ts` also consume them. None is scoped to T6, and T5’s types scope permits only the request batch field. Assign these owners explicitly so the removal can compile without retaining compatibility branches.
+   Disposition: keep amended: T6's scope names domain/types.ts, ports/worker-coordination.ts, the callback owner, the worker-coordination interaction repository and the remember codec
+
+## Round 6
 
 No findings.

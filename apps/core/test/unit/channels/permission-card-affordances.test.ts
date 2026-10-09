@@ -10,6 +10,7 @@ import {
   permissionCardDecisionOptions,
 } from '@core/channels/permission-card-affordances.js';
 import { permissionButtonLabel } from '@core/channels/permission-interaction.js';
+import { permissionDecisionOptions } from '@core/channels/permission-decision-options.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 const remembered = (scopeKey = 'scope') => ({
@@ -45,14 +46,16 @@ function context(
   };
 }
 
-const labels = (card: ReturnType<typeof buildPermissionCardAffordances>) =>
+const labels = (
+  card: Awaited<ReturnType<typeof buildPermissionCardAffordances>>,
+) =>
   permissionCardDecisionOptions(card).map((code) =>
     permissionButtonLabel(code),
   );
 
 describe('permission card affordances', () => {
-  it('offers Allow once, Allow for future and Deny, with Allow for future remembering only this exact action and Deny never remembered', () => {
-    const read = buildPermissionCardAffordances({
+  it('offers Allow once, Allow for future and Deny, with Allow for future remembering only this exact action and Deny never remembered', async () => {
+    const read = await buildPermissionCardAffordances({
       request: request({
         toolInput: { file_path: '/workspace/project/report.md' },
       }),
@@ -72,7 +75,7 @@ describe('permission card affordances', () => {
       'Remembered: this exact action. Change it any time with /permissions.',
     );
 
-    const write = buildPermissionCardAffordances({
+    const write = await buildPermissionCardAffordances({
       request: request({
         toolName: 'FileWrite',
         toolInput: { file_path: '/workspace/project/report.md' },
@@ -86,7 +89,7 @@ describe('permission card affordances', () => {
       'Remembered: writes to /workspace/project/report.md (any content). Change it any time with /permissions.',
     );
 
-    const destructive = buildPermissionCardAffordances({
+    const destructive = await buildPermissionCardAffordances({
       request: request({
         toolName: 'RunCommand',
         risk_category: 'destructive',
@@ -104,8 +107,8 @@ describe('permission card affordances', () => {
     ]);
   });
 
-  it('shows no alternative button even when a command family, trust growth or folder could be saved', () => {
-    const family = buildPermissionCardAffordances({
+  it('shows no alternative button even when a command family, trust growth or folder could be saved', async () => {
+    const family = await buildPermissionCardAffordances({
       request: request({
         toolName: 'RunCommand',
         toolInput: { command: 'git status' },
@@ -124,8 +127,8 @@ describe('permission card affordances', () => {
     expect(family.offered).toEqual(['remember_allow_exact']);
   });
 
-  it('offers only Allow once and Deny for a protected path, and falls back to the plain prompt when this action cannot be saved', () => {
-    const protectedCard = buildPermissionCardAffordances({
+  it('offers only Allow once and Deny for a protected path, and falls back to the plain prompt when this action cannot be saved', async () => {
+    const protectedCard = await buildPermissionCardAffordances({
       request: request({ blockedPath: '/workspace/.env' }),
       rememberContext: context({
         exact: { ok: false, reason: 'protected_destination' },
@@ -136,7 +139,7 @@ describe('permission card affordances', () => {
       '/workspace/.env is protected, so I always ask.',
     ]);
 
-    const unsaveable = buildPermissionCardAffordances({
+    const unsaveable = await buildPermissionCardAffordances({
       request: request(),
       rememberContext: context({
         exact: { ok: false, reason: 'incomplete_effect' },
@@ -144,7 +147,7 @@ describe('permission card affordances', () => {
     });
     expect(unsaveable.eligible).toBe(false);
     expect(
-      buildPermissionCardAffordances({
+      await buildPermissionCardAffordances({
         request: request(),
         rememberContext: { ...context(), eligible: false },
       }),
@@ -158,8 +161,36 @@ describe('permission card affordances', () => {
     });
   });
 
-  it('round-trips a stored card and rejects a forged code', () => {
-    const card = buildPermissionCardAffordances({
+  it('keeps person-only asks at Allow once and Deny even with an eligible remember context', async () => {
+    const personOnly = request({
+      toolName: 'RunCommand',
+      toolInput: { command: 'git status' },
+      decisionOptions: ['allow_once', 'cancel'],
+      cardAffordances: {
+        eligible: false,
+        offered: [],
+        destructive: false,
+        protected: false,
+        preTapLines: [],
+        postTapLines: {},
+      },
+    });
+    const card = await buildPermissionCardAffordances({
+      request: personOnly,
+      rememberContext: context(),
+    });
+    expect(card.eligible).toBe(false);
+    expect(card.offered).toEqual([]);
+    const options = permissionDecisionOptions({
+      ...personOnly,
+      cardAffordances: card,
+    });
+    expect(options).toEqual(['allow_once', 'cancel']);
+    expect(options.map(permissionButtonLabel)).toEqual(['Allow once', 'Deny']);
+  });
+
+  it('round-trips a stored card and rejects a forged code', async () => {
+    const card = await buildPermissionCardAffordances({
       request: request(),
       rememberContext: context(),
     });

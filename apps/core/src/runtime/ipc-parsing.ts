@@ -23,6 +23,7 @@ import {
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
 import {
+  attachmentOpenIdsFact,
   parsePermissionCancellationIpcRequest,
   parsePermissionLifecycle,
   parseQuestionCancellationIpcRequest,
@@ -34,11 +35,11 @@ export {
 import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
 import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
+import { capturePermissionInvocationAction } from './permission-invocation-id.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const HOST_INJECTED_COMMAND_PREFIX_MAX_LENGTH = 65_536;
 export type ParsedPermissionIpcRequest = PermissionApprovalRequest & {
-  classifierToolInput?: Record<string, unknown>;
   toolInputRedactedPaths?: string[];
   toolInputTruncatedPaths?: string[];
 };
@@ -459,7 +460,7 @@ export function parsePermissionIpcRequest(
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
   const permissionLifecycle = parsePermissionLifecycle(raw);
-  return {
+  const request: ParsedPermissionIpcRequest = {
     requestId,
     appId,
     ...(agentId ? { agentId } : {}),
@@ -501,14 +502,9 @@ export function parsePermissionIpcRequest(
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),
   };
+  return capturePermissionInvocationAction(request, decisionToolInput);
 }
 
-// prettier-ignore
-function attachmentOpenIdsFact(input: { toolName: string; toolInput: unknown }): PermissionApprovalRequest['attachmentOpenIds'] | undefined {
-  if (input.toolName !== 'mcp__gantry__attachment_open') return undefined;
-  const ids = isPlainObject(input.toolInput) ? input.toolInput.attachment_ids : undefined;
-  return { count: Array.isArray(ids) ? ids.length : 0, wellFormed: Array.isArray(ids) && ids.length >= 1 && ids.length <= 12 && ids.every((id) => toTrimmedString(id, { maxLen: 512 }) !== undefined) };
-}
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,

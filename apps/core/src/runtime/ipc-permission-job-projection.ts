@@ -8,7 +8,6 @@ export async function resolveIpcPermissionJobProjection(input: {
     IpcDeps,
     'opsRepository' | 'getPermissionDecisionMemoryRepository'
   >;
-  guard: HumanDecisionProjectionInput['guard'];
 }): Promise<HumanDecisionProjectionInput | undefined> {
   if (!input.hostJobId) return undefined;
   const memory = input.deps.getPermissionDecisionMemoryRepository?.();
@@ -29,5 +28,5 @@ export async function resolveIpcPermissionJobProjection(input: {
       errorName: error instanceof Error ? error.name : 'unknown',
     });
   }
-  return { ownerPersonId, memory, guard: input.guard, warn };
+  return { ownerPersonId, memory, warn };
 }

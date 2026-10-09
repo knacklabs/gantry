@@ -5,13 +5,11 @@ import {
   createInlineCoreTools,
   wireInlineAgentLoopTools,
 } from '@core/app/bootstrap/inline-agent-loop-tools.js';
-import {
-  JUDGE_OFFLINE_NOTICE,
-  JUDGE_OFFLINE_REASON,
-} from '@core/application/permissions/permission-judge-outage-latch.js';
+import { JUDGE_OFFLINE_REASON } from '@core/application/permissions/permission-judge-outage-latch.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import type { PermissionApprovalDecision } from '@core/domain/types.js';
-import { FAMILY_RULE_RAIL_HIT_REASON } from '@core/runtime/permission-decision-coordinator.js';
+import { ADMIN_ACTION_REASON } from '@core/runtime/permission-decision-coordinator.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import type { PermissionClassifierFailureCode } from '@core/runtime/permission-classifier.js';
 import { judgeOutageLatch } from '@core/runtime/permission-judge-outage.js';
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
@@ -69,6 +67,18 @@ const FIND_RAIL_CARD = {
   ...CARD,
   decisionReason:
     'Shell input is unsupported: Bash meta-executor find is not supported for persistent approval.',
+} as const;
+
+// A hard rule or an admin action asks a person without the judge, so the
+// prompt reads the same whether the judge answers or is offline.
+const DESTRUCTIVE_CARD = {
+  ...CARD,
+  decisionReason: 'Destructive command requires approval.',
+} as const;
+
+const ADMIN_CARD = {
+  ...CARD,
+  decisionReason: ADMIN_ACTION_REASON,
 } as const;
 
 const STRICT_CARD = {
@@ -187,7 +197,14 @@ async function replayFamilyRail(failureCode?: PermissionClassifierFailureCode) {
     },
     sourceAgentFolder: 'main_agent',
     deps: {
-      conversationRoutes: () => ({}),
+      conversationRoutes: () => ({
+        'invariance:family-rail': {
+          name: 'family rail',
+          folder: 'main_agent',
+          trigger: '@gantry',
+          added_at: '2026-09-04',
+        },
+      }),
       requestPermissionApproval: async (request) => {
         taps += 1;
         decisionReason = request.decisionReason;
@@ -252,23 +269,46 @@ async function replayInlineScheduled(
 ) {
   judgeOutageLatch.clearAll();
   const notices: string[] = [];
+  let taps = 0;
+  let decisionReason: string | undefined;
   wireInlineAgentLoopTools({
     app: {
       executionAdapter: undefined,
       executionAdapters: undefined,
       runnerSandboxProvider: { enforcing: true },
       getCredentialBroker: async () => undefined,
-      getConversationRoutes: () => ({}),
+      getConversationRoutes: () => ({
+        [makeAgentThreadQueueKey(
+          'conversation:inline-invariance',
+          'agent-inline',
+          undefined,
+          'account-inline',
+        )]: {
+          name: 'Inline',
+          folder: 'main_agent',
+          trigger: '@test',
+          added_at: new Date(0).toISOString(),
+          agentId: 'agent-inline',
+          providerAccountId: 'account-inline',
+        },
+      }),
       resolveExecutionProviderId: async () => 'test:inline',
     },
     channelWiring: {
-      sendMessage: async () => {
-        notices.push(JUDGE_OFFLINE_NOTICE);
+      sendMessage: async (_jid: string, text: string) => {
+        notices.push(text);
       },
-      requestPermissionApproval: async () => {
-        throw new Error(
-          'Scheduled jobs must not use the interactive card path.',
-        );
+      requestPermissionApproval: async (request: {
+        decisionReason?: string;
+      }) => {
+        taps += 1;
+        decisionReason = request.decisionReason;
+        return permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+          reason: 'Denied by the owner.',
+        });
       },
       requestUserAnswer: async () => ({ requestId: 'unused', answers: {} }),
     },
@@ -335,7 +375,7 @@ async function replayInlineScheduled(
     },
   ).authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'scheduled' });
   judgeOutageLatch.clearAll();
-  return { result, notices };
+  return { result, taps, decisionReason, notices };
 }
 
 describe('ASKFLOOR judge invariance', () => {
@@ -446,14 +486,14 @@ describe('ASKFLOOR judge invariance', () => {
           toolName: 'mcp__gantry__admin_permission_revoke',
           toolInput: {},
         },
-        answered: { ...CARD, decisionReason: 'admin mutation' },
-        unavailable: { ...CARD, decisionReason: 'admin mutation' },
+        answered: ADMIN_CARD,
+        unavailable: ADMIN_CARD,
       },
       {
         label: 'destructive',
         request: { permissionMode: 'auto' as const, command: 'rm -rf build' },
-        answered: ANSWERED_CARD,
-        unavailable: OFFLINE_CARD,
+        answered: DESTRUCTIVE_CARD,
+        unavailable: DESTRUCTIVE_CARD,
       },
     ];
 
@@ -471,32 +511,28 @@ describe('ASKFLOOR judge invariance', () => {
           `${fixture.label}:${failureCode}`,
         ).resolves.toEqual({
           tuple: fixture.unavailable,
-          notices:
-            fixture.unavailable.decisionReason === JUDGE_OFFLINE_REASON &&
-            fixture.request.targetJid
-              ? [JUDGE_OFFLINE_NOTICE]
-              : [],
+          // A judge outage is a log line and a reason, never a chat message.
+          notices: [],
         });
       }
     }
 
+    // A destructive command inside a granted family is a hard rule: the
+    // judge is never consulted, so its outage changes nothing.
     const family = await replayFamilyRail();
     expect(family).toEqual({
-      tuple: ANSWERED_CARD,
+      tuple: DESTRUCTIVE_CARD,
       notices: [],
-      policyDecisionReason: `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
+      policyDecisionReason: undefined,
     });
     for (const failureCode of FAILURE_CODES) {
       await expect(
         replayFamilyRail(failureCode),
         `family:${failureCode}`,
       ).resolves.toEqual({
-        tuple: OFFLINE_CARD,
-        notices: [JUDGE_OFFLINE_NOTICE],
-        policyDecisionReason:
-          failureCode === 'wiring_missing'
-            ? undefined
-            : `${FAMILY_RULE_RAIL_HIT_REASON} Destructive command requires approval.`,
+        tuple: DESTRUCTIVE_CARD,
+        notices: [],
+        policyDecisionReason: undefined,
       });
     }
 
@@ -588,7 +624,7 @@ describe('ASKFLOOR judge invariance', () => {
     }
   });
 
-  it('keeps the inline-scheduled path and the attachment_open birthright unchanged under an unavailable judge', async () => {
+  it('asks on the inline-scheduled path and keeps the attachment_open birthright unchanged under an unavailable judge', async () => {
     const attachment = {
       permissionMode: 'auto' as const,
       toolName: 'mcp__gantry__attachment_open',
@@ -614,17 +650,19 @@ describe('ASKFLOOR judge invariance', () => {
         notices: [],
       });
 
+      // The scheduled inline run asks a person like chat; only the reason
+      // line changes while the judge is offline.
       await expect(replayInlineScheduled()).resolves.toEqual({
-        result: {
-          allowed: false,
-          reason:
-            'Classifier requested human approval: The judge requires approval.',
-        },
+        result: { allowed: false, reason: 'Denied by the owner.' },
+        taps: 1,
+        decisionReason: 'The judge requires approval.',
         notices: [],
       });
       await expect(replayInlineScheduled(failureCode)).resolves.toEqual({
-        result: { allowed: false, reason: JUDGE_OFFLINE_REASON },
-        notices: [JUDGE_OFFLINE_NOTICE],
+        result: { allowed: false, reason: 'Denied by the owner.' },
+        taps: 1,
+        decisionReason: JUDGE_OFFLINE_REASON,
+        notices: [],
       });
     }
   });

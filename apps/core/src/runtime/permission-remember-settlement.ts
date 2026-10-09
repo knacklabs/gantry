@@ -105,7 +105,7 @@ export async function persistPermissionRememberPromptContext(input: {
     kindVariant: 'category',
   });
   if (!context.eligible) return true;
-  const cardAffordances = buildPermissionCardAffordances({
+  const cardAffordances = await buildPermissionCardAffordances({
     request: input.request,
     rememberContext: context,
   });
