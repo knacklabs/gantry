@@ -4,7 +4,7 @@ import path from 'node:path';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
-import { gantryMcpFullToolName } from '../../../../runner/gantry-mcp-tool-surface.js';
+import { gantryMcpFullToolName } from '../../../../shared/gantry-mcp-tool-surface.js';
 import { callableAgentToolName } from '../../../../application/core-tools/callable-agent-tools.js';
 import { resolveWorkspaceIpcDir } from './runtime-env.js';
 import type { DeepAgentRunnerInput } from './types.js';

@@ -6,7 +6,7 @@ import {
   gantryMcpFullToolName,
   parseEnabledGantryMcpToolNames,
   selectedGantryMcpToolNames,
-} from '@core/runner/gantry-mcp-tool-surface.js';
+} from '@core/shared/gantry-mcp-tool-surface.js';
 import {
   SCHEDULER_MCP_TOOL_NAMES,
   SCHEDULER_MUTATION_MCP_TOOL_NAMES,
