@@ -192,6 +192,109 @@ async function resolveCommandInLane(input: {
 }
 
 describe('IPC permission classifier decision', () => {
+  it('lets the judge decide for chat and jobs when no mode is set, and asks a person for chat and jobs set to ask on the agent or the conversation', async () => {
+    const cases = [
+      { label: 'chat, no mode', judged: true },
+      { label: 'job, no mode', job: true, judged: true },
+      { label: 'chat, agent ask', agentMode: 'ask' as const, judged: false },
+      {
+        label: 'job, agent ask',
+        agentMode: 'ask' as const,
+        job: true,
+        judged: false,
+      },
+      {
+        label: 'chat, conversation ask over agent auto',
+        agentMode: 'auto' as const,
+        routeMode: 'ask' as const,
+        judged: false,
+      },
+      {
+        label: 'chat, conversation auto over agent ask',
+        agentMode: 'ask' as const,
+        routeMode: 'auto' as const,
+        judged: true,
+      },
+    ];
+    for (const testCase of cases) {
+      const responseKeyId = `mode-${testCase.label}`;
+      if (testCase.job) {
+        registerWorkerPermissionRunRestriction({
+          sourceAgentFolder: 'main_agent',
+          responseKeyId,
+          hideAuthorityTools: false,
+          runKind: 'scheduled',
+          jobId: 'job-mode',
+          runId: 'run-mode',
+        });
+      }
+      const classifierConsult = vi.fn(async () => ({
+        risk_level: 'low' as const,
+        risk_category: 'benign' as const,
+        reason: 'A routine lookup.',
+        latencyMs: 1,
+      }));
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+        }),
+      );
+      try {
+        const decision = await resolvePermissionIpcDecision({
+          request: {
+            requestId: responseKeyId,
+            ...(testCase.job ? { responseKeyId } : {}),
+            targetJid: ROUTED_JID,
+            sourceAgentFolder: 'main_agent',
+            toolName: 'mcp__crm__lookup',
+            toolInput: { id: 'customer-1' },
+          },
+          sourceAgentFolder: 'main_agent',
+          deps: {
+            conversationRoutes: () => liveRoutes(testCase.routeMode),
+            opsRepository: {
+              getJobById: vi.fn(async () => ({
+                id: 'job-mode',
+                execution_context: { personId: null },
+              })),
+            },
+            requestPermissionApproval,
+            classifierConsult,
+            publishRuntimeEvent: vi.fn(async () => undefined),
+            getPermissionRuntimeSettings: () => ({
+              agents: {
+                main_agent: testCase.agentMode
+                  ? { permissionMode: testCase.agentMode }
+                  : {},
+              },
+              permissions: { autoMode: {}, trustedRoots: [] },
+              memory: { llm: { models: { extractor: 'sonnet' } } },
+            }),
+          } as never,
+        });
+        expect(decision, testCase.label).toMatchObject(
+          testCase.judged
+            ? { approved: true, decidedBy: 'auto_classifier' }
+            : { approved: false, decidedBy: 'owner' },
+        );
+        expect(classifierConsult, testCase.label).toHaveBeenCalledTimes(
+          testCase.judged ? 1 : 0,
+        );
+        expect(requestPermissionApproval, testCase.label).toHaveBeenCalledTimes(
+          testCase.judged ? 0 : 1,
+        );
+      } finally {
+        if (testCase.job) {
+          unregisterPermissionRunRestriction({
+            sourceAgentFolder: 'main_agent',
+            responseKeyId,
+          });
+        }
+      }
+    }
+  });
   it('passes the derived lane and workspace root into the classifier consult, never writes a native verdict whether allow or ask to the classifier cache, never writes an interactive-auto LLM allow for a gantry tool or a native file-write facade so an ambiguous executor allowed by the LLM does not replay in auto_strict, and skips the cache for capability_run even with a seeded allow', async () => {
     const workspaceRoot = resolveWorkspaceFolderPath('main_agent');
     fs.mkdirSync(workspaceRoot, { recursive: true });

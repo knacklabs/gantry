@@ -386,11 +386,12 @@ export function replayDestructiveExactMemory(
 ): Promise<ExactMemoryReplay> {
   return replayExactMemorySequence(
     's4',
+    // A hard rule asks every time, so every run is answered again.
     [
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
-      { command: 'rm -rf build' },
+      { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
       { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
-      { command: 'rm -rf dist' },
+      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
     ],
     options,
   );

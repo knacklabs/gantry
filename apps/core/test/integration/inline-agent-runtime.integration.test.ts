@@ -284,6 +284,8 @@ function scriptedCoreTools(events: string[]) {
         decidedBy: 'integration-approver',
       },
     })),
+    // The conversation route exists and no safety judge is wired.
+    permissionGate: { routeRefusal: () => undefined },
     publishRuntimeEvent: vi.fn(async (event) => {
       events.push(event.eventType);
     }),

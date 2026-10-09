@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { decisionForMode } from '../domain/permission-decision.js';
 import { PermissionLane, RailSignal } from '../domain/permission-lane.js';
@@ -8,7 +8,6 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
-  PermissionRiskLevel,
 } from '../domain/types.js';
 import {
   evaluatePermissionDeterministicRails,
@@ -31,7 +30,6 @@ import {
   ADMIN_MCP_TOOL_NAMES,
   AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
-import { canonicalJson } from '../shared/canonical-json.js';
 import { canonicalizeTrustedRoot } from '../shared/permission-trusted-paths.js';
 import {
   findConversationRouteForQueue,
@@ -49,6 +47,8 @@ import {
   observeJudgeAvailability,
   writePermissionClassifierVerdictCache,
 } from './permission-judge-outage.js';
+import { pinPermissionInvocationId } from './permission-invocation-id.js';
+import { applyClassifierRisk, requestRisk } from './permission-request-risk.js';
 import { projectHumanDecisionMatch } from '../application/permissions/human-decision-job-projection.js';
 
 export type DeterministicPermissionRails = (
@@ -66,8 +66,6 @@ export const PERMISSION_DECISION_STAGES = [
 ] as const;
 
 export const ADMIN_ACTION_REASON = 'Admin actions always ask a person.';
-export const INVOCATION_REUSED_REASON =
-  'This tool call id was already used for a different action in this run.';
 
 // Admin actions run the host's own approval and are never covered by a saved
 // approval, a cached verdict or the classifier. Proposal tools that only file
@@ -473,118 +471,6 @@ function familyRunnerShimReason(
     ?.command;
   if (typeof command !== 'string') return undefined;
   return runnerShimFamilyBypassReason(command);
-}
-
-const ENGINE_INVOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
-// ponytail: in-process bindings, oldest evicted past 10k; move them to the
-// waiting record if an id must stay bound across a restart.
-const MAX_INVOCATION_BINDINGS = 10_000;
-const invocationBindings = new Map<string, string>();
-
-/**
- * Pins the engine's tool-call id (SDK tool-use id or LangChain tool-call id)
- * to the authenticated run, app and agent, bound to a hash of the action. A
- * missing or malformed id, or one with no run to scope it, gets a fresh host
- * id. Returns why the call is refused when the id was already used in this
- * run for a different action.
- */
-export function pinPermissionInvocationId(
-  request: PermissionApprovalRequest,
-): string | undefined {
-  const engineId = request.invocationId?.trim();
-  if (!engineId || !ENGINE_INVOCATION_ID.test(engineId) || !request.runId) {
-    request.invocationId = `host:${randomUUID()}`;
-    return undefined;
-  }
-  request.invocationId = engineId;
-  const scope = [
-    request.appId ?? 'default',
-    request.agentId ?? '',
-    request.sourceAgentFolder,
-    request.runId,
-    engineId,
-  ].join('\u0000');
-  const action = permissionActionHash(request);
-  const bound = invocationBindings.get(scope);
-  if (bound !== undefined) {
-    return bound === action ? undefined : INVOCATION_REUSED_REASON;
-  }
-  if (invocationBindings.size >= MAX_INVOCATION_BINDINGS) {
-    invocationBindings.delete(invocationBindings.keys().next().value!);
-  }
-  invocationBindings.set(scope, action);
-  return undefined;
-}
-
-/** The same call under two names (`send_message`, `mcp__gantry__send_message`) hashes the same. */
-function permissionActionHash(request: PermissionApprovalRequest): string {
-  const toolName =
-    gantryNativeCanonicalToolName(request.toolName)?.canonical ??
-    request.toolName;
-  return createHash('sha256')
-    .update(
-      canonicalJson([
-        toolName,
-        request.classifierToolInput ?? request.toolInput ?? null,
-      ]),
-    )
-    .digest('hex');
-}
-
-function applyClassifierRisk(
-  request: PermissionApprovalRequest,
-  railDecision: PermissionDeterministicRailDecision | undefined,
-  verdict: PermissionClassifierPromptConsultResult,
-): void {
-  const primaryRisk = selectPrimaryPermissionRisk(
-    permissionRiskForDeterministicRailDecision(railDecision),
-    { level: verdict.risk_level, category: verdict.risk_category },
-  );
-  if (!primaryRisk) return;
-  request.risk_level = primaryRisk.level;
-  if (primaryRisk.category) {
-    request.risk_category = primaryRisk.category;
-  } else {
-    delete request.risk_category;
-  }
-}
-
-function requestRisk(
-  request: PermissionApprovalRequest,
-): Pick<PermissionApprovalDecision, 'risk_level' | 'risk_category'> {
-  return {
-    ...(request.risk_level ? { risk_level: request.risk_level } : {}),
-    ...(request.risk_category ? { risk_category: request.risk_category } : {}),
-  };
-}
-
-const PERMISSION_RISK_SEVERITY_RANK: Record<PermissionRiskLevel, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-  critical: 3,
-};
-
-type PermissionRiskSignal = {
-  level: PermissionRiskLevel;
-  category?: PermissionApprovalRequest['risk_category'];
-};
-
-function selectPrimaryPermissionRisk(
-  railRisk: PermissionRiskSignal | undefined,
-  classifierRisk: PermissionRiskSignal | undefined,
-): PermissionRiskSignal | undefined {
-  if (!railRisk) return classifierRisk;
-  if (!classifierRisk) return railRisk;
-  if (
-    PERMISSION_RISK_SEVERITY_RANK[classifierRisk.level] <=
-    PERMISSION_RISK_SEVERITY_RANK[railRisk.level]
-  ) {
-    return railRisk;
-  }
-  return classifierRisk.category && classifierRisk.category !== 'benign'
-    ? classifierRisk
-    : { ...railRisk, level: classifierRisk.level };
 }
 
 const TRUSTED_ROOT_LEARN_OPTIONS: PermissionApprovalDecisionMode[] = [

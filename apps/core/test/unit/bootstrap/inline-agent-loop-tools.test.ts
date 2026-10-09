@@ -34,6 +34,8 @@ import {
 } from '@core/domain/ports/permission-decision-memory.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import { judgeOutageLatch } from '@core/runtime/permission-judge-outage.js';
+import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
+import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import type {
   AsyncTaskBacklogAdmissionInput,
   AsyncTaskClaimInput,
@@ -214,6 +216,126 @@ afterEach(() => {
 });
 
 describe('inline core tool bootstrap', () => {
+  it('sends IPC calls, inline remote MCP calls and inline core tools through the one host ladder: each brings the judge in auto mode and each refuses once its conversation route is gone', async () => {
+    const coordinate = vi.spyOn(
+      permissionCoordinator,
+      'coordinatePermissionDecision',
+    );
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'high' as const,
+      reason: 'Needs a person.',
+      latencyMs: 1,
+    }));
+    const inlineRoute = {
+      [makeAgentThreadQueueKey(
+        'conversation:test',
+        'agent-1',
+        undefined,
+        'slack-main',
+      )]: {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: new Date(0).toISOString(),
+        agentId: 'agent-1',
+        providerAccountId: 'slack-main',
+      },
+    };
+    let routes: Record<string, unknown> = inlineRoute;
+    wire({
+      classifierConsult,
+      app: {
+        executionAdapter: undefined,
+        executionAdapters: undefined,
+        runnerSandboxProvider: { enforcing: true },
+        getCredentialBroker: vi.fn(async () => undefined),
+        getConversationRoutes: () => routes,
+        resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      },
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+    const ipcRoutes = {
+      'conversation:test': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: new Date(0).toISOString(),
+      },
+    };
+    const ipc = () =>
+      resolvePermissionIpcDecision({
+        request: {
+          requestId: `ipc-${coordinate.mock.calls.length}`,
+          targetJid: 'conversation:test',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'mcp__crm__lookup',
+          toolInput: { id: 'crm-1' },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => (routes === inlineRoute ? ipcRoutes : {}),
+          requestPermissionApproval,
+          classifierConsult,
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' as const } },
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+    try {
+      await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', {
+        id: 'crm-1',
+      });
+      await tools.execute('delegate_task', { objective: 'Investigate' });
+      await ipc();
+      expect(coordinate).toHaveBeenCalledTimes(3);
+      for (const [gateInput] of coordinate.mock.calls) {
+        expect(gateInput.routeRefusal?.()).toBeUndefined();
+        expect(gateInput.consultClassifier).toEqual(expect.any(Function));
+      }
+      // The remote MCP call and the IPC call both reached the judge and,
+      // when it asked, the person.
+      expect(classifierConsult).toHaveBeenCalledTimes(2);
+      const asked = requestPermissionApproval.mock.calls.length;
+
+      routes = {};
+      const gone =
+        'no deliverable approver route, because this conversation' +
+        "'s route or agent binding is gone.";
+      await expect(
+        tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-2' }),
+      ).resolves.toMatchObject({
+        allowed: false,
+        reason: expect.stringContaining(gone),
+      });
+      await expect(
+        tools.execute('delegate_task', { objective: 'Investigate again' }),
+      ).resolves.toMatchObject({
+        isError: true,
+        error: { message: expect.stringContaining(gone) },
+      });
+      await expect(ipc()).resolves.toMatchObject({
+        approved: false,
+        decidedBy: 'route',
+        reason: expect.stringContaining(gone),
+      });
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(asked);
+      expect(classifierConsult).toHaveBeenCalledTimes(2);
+    } finally {
+      coordinate.mockRestore();
+    }
+  });
   it('denies a new tool call after its AI employee is offboarded', async () => {
     wire({
       getAgentRepository: () => ({

@@ -115,7 +115,6 @@ import {
   projectSpawnRunnerInput,
 } from './agent-spawn-input-projection.js';
 import { createSpawnAgent } from './agent-spawn-entry.js';
-import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type { AvailableGroup } from './agent-spawn-types.js';
 export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
@@ -290,12 +289,7 @@ async function spawnAgentWithContext(
         () =>
           executionAdapter.prepare({
             group,
-            input: {
-              ...input,
-              permissionMode: resolveEffectivePermissionMode(
-                input.permissionMode,
-              ),
-            },
+            input: { ...input, permissionMode: input.permissionMode ?? 'ask' },
             hostRuntime,
             groupDir,
             effectiveModel,
@@ -575,7 +569,7 @@ async function spawnAgentWithContext(
       hideAuthorityTools,
       agentAccessPreset: accessPreset,
       deploymentMode: getDeploymentMode(),
-      permissionMode: resolveEffectivePermissionMode(input.permissionMode),
+      permissionMode: input.permissionMode ?? 'ask',
       permissionLane: input.isScheduledJob ? 'autonomous' : 'interactive',
       turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,

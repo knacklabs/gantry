@@ -362,7 +362,15 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     };
     const deps: IpcDeps = {
       sendMessage: input.sendMessage ?? vi.fn(async () => undefined),
-      conversationRoutes: () => ({}),
+      // The live route binding the agent to the chain's conversation.
+      conversationRoutes: () => ({
+        [TARGET_JID]: {
+          name: 'Permission chain',
+          folder: AGENT_FOLDER,
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+        },
+      }),
       registerGroup: async () => undefined,
       syncGroups: async () => undefined,
       getAvailableGroups: () => [],
