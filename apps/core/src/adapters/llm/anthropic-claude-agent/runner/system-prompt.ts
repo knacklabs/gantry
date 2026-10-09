@@ -44,6 +44,7 @@ export function buildRunnerSystemPrompt(
   agentInput: AgentRunnerInput,
   memoryBlock: string,
   mountedGantryToolNames?: ReadonlySet<string>,
+  gantryMcpEnv: Readonly<Record<string, string | undefined>> = {},
 ): ReturnType<typeof buildSystemPrompt> {
   return promptParts(
     buildGantryAgentSystemPrompt({
@@ -55,6 +56,25 @@ export function buildRunnerSystemPrompt(
         ? withMountedGantryToolNames(
             agentInput.compiledSystemPrompt,
             mountedGantryToolNames,
+            agentInput.allowedTools ?? [],
+            gantryMcpEnv,
+            {
+              ...(agentInput.isScheduledJob
+                ? {
+                    RunCommand: 'not exposed by the scheduled runner',
+                    FileRead: 'not exposed by the scheduled runner',
+                    FileSearch: 'not exposed by the scheduled runner',
+                    FileEdit: 'not exposed by the scheduled runner',
+                    FileWrite: 'not exposed by the scheduled runner',
+                  }
+                : {}),
+              ...(mountedGantryToolNames.has('delegate_task')
+                ? {
+                    AgentDelegation:
+                      'use delegate_task for delegation in this runner',
+                  }
+                : {}),
+            },
           )
         : agentInput.compiledSystemPrompt,
       hasMemoryContext: Boolean(memoryBlock),

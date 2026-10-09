@@ -20,7 +20,11 @@ import {
 } from './memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from './agent-tool-references.js';
 import { applyProviderAffinity } from './gantry-tool-provider-affinity.js';
-import { publicGantryToolNameForSdkTool } from './gantry-tool-facades.js';
+import {
+  GANTRY_FACADE_EXACT_TOOL_NAMES,
+  RUN_COMMAND_TOOL_NAME,
+  publicGantryToolNameForSdkTool,
+} from './gantry-tool-facades.js';
 
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
@@ -190,34 +194,51 @@ export function renderGantryMcpToolAvailability(
   configuredTools: readonly string[],
   options: GantryMcpToolSelectionOptions,
   callableToolNames: readonly string[] = [],
+  mountedNames?: ReadonlySet<string>,
+  facadeUnavailableReasons: Readonly<Record<string, string>> = {},
 ): string {
-  const selected = new Set(
-    selectedGantryMcpToolNames(configuredTools, options),
-  );
+  const selected = completeGantryToolNames([
+    ...(mountedNames ?? selectedGantryMcpToolNames(configuredTools, options)),
+    ...callableToolNames,
+  ]);
   const unavailable = new Map<string, string[]>();
-  for (const name of ALL_GANTRY_MCP_TOOL_NAMES) {
+  const selectedAdminNames = new Set(
+    selectedAdminMcpToolNames(configuredTools),
+  );
+  for (const name of new Set([
+    ...ALL_GANTRY_MCP_TOOL_NAMES,
+    ...GANTRY_FACADE_EXACT_TOOL_NAMES,
+    RUN_COMMAND_TOOL_NAME,
+  ])) {
     if (selected.has(name)) continue;
     const hidden =
       NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET.has(name) ||
-      ADMIN_MCP_TOOL_NAME_SET.has(name);
-    const task = [
-      ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
-      ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
-    ].includes(name as never);
+      ADMIN_MCP_TOOL_NAME_SET.has(name) ||
+      name === 'AgentDelegation';
+    const task =
+      name === 'AgentDelegation' ||
+      [
+        ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+        ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+      ].includes(name as never);
     const browser = (GATED_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(
       name,
     );
-    let reason = 'not selected for this agent';
-    if (options.accessPreset === 'locked' && hidden) {
+    let reason =
+      facadeUnavailableReasons[name] ?? 'not selected for this agent';
+    if (ADMIN_MCP_TOOL_NAME_SET.has(name) && !selectedAdminNames.has(name)) {
+      reason = 'not selected for this agent';
+    } else if (options.accessPreset === 'locked' && hidden) {
       reason = 'locked access preset';
     } else if (options.excludeAuthorityTools && hidden) {
       reason = 'tools are hidden for this run';
     } else if (task && !options.asyncTaskToolsEnabled) {
       reason = 'async task executor is unavailable';
     } else if (
-      (DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(
-        name,
-      ) &&
+      (name === 'AgentDelegation' ||
+        (DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(
+          name,
+        )) &&
       !configuredTools.includes('AgentDelegation')
     ) {
       reason = 'AgentDelegation has not been granted';
@@ -239,7 +260,7 @@ export function renderGantryMcpToolAvailability(
   }
   return [
     '## Gantry tools in this run',
-    `Available: ${[...completeGantryToolNames([...selected, ...callableToolNames])].sort().join(', ')}.`,
+    `Available: ${[...selected].sort().join(', ')}.`,
     ...[...unavailable].map(
       ([reason, names]) => `Unavailable: ${names.join(', ')} — ${reason}.`,
     ),
@@ -274,17 +295,45 @@ export function completeGantryToolNames(
 export function withMountedGantryToolNames(
   prompt: string | undefined,
   mountedNames: ReadonlySet<string>,
+  configuredTools: readonly string[] = [],
+  mountEnv?: Readonly<Record<string, string | undefined>>,
+  facadeUnavailableReasons: Readonly<Record<string, string>> = {},
 ): string {
   const compiled = prompt ?? '';
-  const available = `Available: ${[...mountedNames].sort().join(', ')}.`;
-  const heading = '## Gantry tools in this run\n';
-  const section = compiled.lastIndexOf(heading);
-  if (section < 0)
-    return [prompt, heading + available].filter(Boolean).join('\n\n');
-  const start = section + heading.length;
-  const end = compiled.indexOf('\n', start);
+  // Inline callers supply their own gate guidance; worker callers use MCP mount evidence.
+  const availability = mountEnv
+    ? renderGantryMcpToolAvailability(
+        configuredTools,
+        {
+          accessPreset:
+            mountEnv.GANTRY_AGENT_ACCESS_PRESET === 'locked'
+              ? 'locked'
+              : 'full',
+          excludeAuthorityTools: mountEnv.GANTRY_NO_PERMISSION_TOOLS === '1',
+          browserIpcEnabled: Boolean(
+            mountEnv.GANTRY_BROWSER_IPC_AUTH_TOKEN?.trim(),
+          ),
+          asyncTaskToolsEnabled:
+            mountEnv.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1',
+          chatJid: mountEnv.GANTRY_CHAT_JID,
+          permissionLane:
+            mountEnv.GANTRY_PERMISSION_LANE === 'interactive'
+              ? 'interactive'
+              : 'autonomous',
+        },
+        [],
+        mountedNames,
+        facadeUnavailableReasons,
+      )
+    : `## Gantry tools in this run\nAvailable: ${[...mountedNames].sort().join(', ')}.`;
+  const heading = compiled.lastIndexOf('## Gantry tools in this run\n');
+  if (heading < 0) return [prompt, availability].filter(Boolean).join('\n\n');
+  const section = mountEnv
+    ? /^## Gantry tools in this run\nAvailable:[^\n]*(?:\nUnavailable:[^\n]*)*/
+    : /^## Gantry tools in this run\nAvailable:[^\n]*/;
   return (
-    compiled.slice(0, start) + available + (end < 0 ? '' : compiled.slice(end))
+    compiled.slice(0, heading) +
+    compiled.slice(heading).replace(section, () => availability)
   );
 }
 
