@@ -9,6 +9,24 @@ import { validateIpcAuthRequest } from './ipc-auth-validation.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
+export function attachmentOpenIdsFact(input: {
+  toolName: string;
+  toolInput: unknown;
+}): PermissionApprovalRequest['attachmentOpenIds'] | undefined {
+  if (input.toolName !== 'mcp__gantry__attachment_open') return undefined;
+  const ids = isPlainObject(input.toolInput)
+    ? input.toolInput.attachment_ids
+    : undefined;
+  return {
+    count: Array.isArray(ids) ? ids.length : 0,
+    wellFormed:
+      Array.isArray(ids) &&
+      ids.length >= 1 &&
+      ids.length <= 12 &&
+      ids.every((id) => toTrimmedString(id, { maxLen: 512 }) !== undefined),
+  };
+}
+
 export function parsePermissionLifecycle(
   raw: Record<string, unknown>,
 ): Pick<PermissionApprovalRequest, 'permissionLane' | 'expiresAt'> {

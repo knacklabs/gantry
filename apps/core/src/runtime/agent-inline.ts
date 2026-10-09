@@ -38,6 +38,7 @@ import {
 import { abortedRunnerOutput } from './agent-spawn-process-abort.js';
 import {
   formatScheduledJobIdleStallError,
+  inlineHeartbeat,
   readScheduledJobHeartbeat,
   scheduledJobIdleTimeoutMs,
   type ScheduledJobHeartbeatPayload,
@@ -48,6 +49,7 @@ import {
 } from './group-queue-types.js';
 import { activeRunStopWasRequested } from './group-queue-stop.js';
 import type { RunnerControlContinuationInput } from './runner-control-port.js';
+import { retirePermissionInvocationBindings } from './permission-invocation-id.js';
 
 export const INLINE_AGENT_LOOP_NOT_AVAILABLE =
   'INLINE_AGENT_LOOP_NOT_AVAILABLE';
@@ -495,6 +497,10 @@ async function executeInlineRun(input: {
     return outputWithProviderSession(first.output, providerSessionId);
   } finally {
     active = false;
+    retirePermissionInvocationBindings({
+      sourceAgentFolder: input.group.folder,
+      runKey: input.options.correlationRunId ?? input.input.runId,
+    });
     clearTimeout(timeout);
     if (heartbeatTimer) clearInterval(heartbeatTimer);
   }
@@ -648,46 +654,6 @@ function intersectInlineMcpToolScopes(
     }
   }
   return [...patterns].map((pattern) => `${prefix}${pattern}`);
-}
-
-function inlineHeartbeat(
-  input: AgentInput,
-  lastActivityAtMs: number,
-  activity: {
-    lastTool?: string;
-    pendingPermissionToolNames: readonly string[];
-    totalToolCalls: number;
-  },
-): AgentOutput {
-  const emittedAtMs = currentTimeMs();
-  return {
-    status: 'success',
-    result: null,
-    runtimeEventOnly: true,
-    runtimeEvents: [
-      {
-        appId: input.appId,
-        agentId: input.agentId,
-        runId: input.runId,
-        jobId: input.jobId,
-        conversationId: input.chatJid,
-        threadId: input.threadId,
-        eventType: RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
-        actor: 'runner',
-        responseMode: 'none',
-        payload: {
-          ...(activity.lastTool ? { lastTool: activity.lastTool } : {}),
-          lastActivityAt: new Date(lastActivityAtMs).toISOString(),
-          lastActivityAgoMs: Math.max(0, emittedAtMs - lastActivityAtMs),
-          pendingPermissionRequests: activity.pendingPermissionToolNames.length,
-          pendingPermissionToolNames: [
-            ...new Set(activity.pendingPermissionToolNames),
-          ],
-          totalToolCalls: activity.totalToolCalls,
-        },
-      },
-    ],
-  };
 }
 
 function inlineFailure(prefix: string, error: unknown): AgentOutput {

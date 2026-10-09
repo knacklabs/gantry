@@ -1,7 +1,5 @@
 import { PermissionClassifierStatus } from '../../domain/permission-classifier-status.js';
 
-export const JUDGE_OFFLINE_NOTICE =
-  "My safety judge is offline, so I'll check with you more than usual until it's back.";
 export const JUDGE_OFFLINE_REASON =
   'Asking because my safety judge is offline.';
 
@@ -11,6 +9,7 @@ export interface JudgeOutageLatchKey {
   targetJid?: string;
 }
 
+/** Opens once per outage per conversation, so the outage is logged once rather than per call. */
 export function createJudgeOutageLatch() {
   const openKeys = new Set<string>();
   const keyFor = ({
@@ -24,13 +23,13 @@ export function createJudgeOutageLatch() {
     observe(status: PermissionClassifierStatus, key: JudgeOutageLatchKey) {
       const value = keyFor(key);
       if (status === PermissionClassifierStatus.Unavailable) {
-        if (openKeys.has(value)) return { noticeDue: false };
+        if (openKeys.has(value)) return { logDue: false };
         openKeys.add(value);
-        return { noticeDue: true };
+        return { logDue: true };
       }
       if (status === PermissionClassifierStatus.Answered)
         openKeys.delete(value);
-      return { noticeDue: false };
+      return { logDue: false };
     },
     reset(key: JudgeOutageLatchKey) {
       openKeys.delete(keyFor(key));

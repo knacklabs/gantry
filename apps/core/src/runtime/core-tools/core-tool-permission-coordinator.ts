@@ -13,8 +13,18 @@ import {
   permissionTelemetryContext,
 } from '../ipc-permission-telemetry.js';
 import { coordinatePermissionDecision } from '../permission-decision-coordinator.js';
+import type { PermissionClassifierPromptConsultResult } from '../permission-classifier.js';
+
+/** The host gate's route check and safety judge for this run; the judge is absent when the agent's mode is `ask`. */
+export interface CorePermissionGate {
+  routeRefusal(toolName: string): string | undefined;
+  consultClassifier?: (
+    request: PermissionApprovalRequest,
+  ) => Promise<PermissionClassifierPromptConsultResult | undefined>;
+}
 
 interface CoreToolPermissionDeps {
+  permissionGate: CorePermissionGate;
   context: {
     sourceAgentFolder: string;
     accessPreset?: 'full' | 'locked';
@@ -58,8 +68,13 @@ export async function coordinateCoreToolPermission(input: {
   deps: CoreToolPermissionDeps;
 }): Promise<PermissionApprovalDecision> {
   const { request, deps } = input;
+  const { consultClassifier } = deps.permissionGate;
   return coordinatePermissionDecision({
     request,
+    routeRefusal: () => deps.permissionGate.routeRefusal(request.toolName),
+    ...(consultClassifier
+      ? { consultClassifier: () => consultClassifier(request) }
+      : {}),
     hardDenyReason: input.hardDenyReason,
     accessPreset: deps.context.accessPreset,
     fixedImageRestricted: deps.context.fixedImageRestricted,

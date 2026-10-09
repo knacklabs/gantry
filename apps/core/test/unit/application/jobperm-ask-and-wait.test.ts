@@ -18,6 +18,8 @@ import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-p
 import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import { unregisterPermissionRunRestriction } from '@core/runtime/permission-decision-coordinator.js';
 import { ipcInteractionAuthValidationOptions } from '@core/shared/ipc-interaction-lifetime.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
+import { inMemoryPermissionDurability } from '../runtime/askfloor-tap-budget-harness.js';
 import { getPermissionTimeoutMs } from '@core/shared/permission-timeout.js';
 import {
   buildAgentToolExecutionRequest,
@@ -239,6 +241,8 @@ it('denies a job request when its permission card cannot be attached', async () 
   const claimedPath = path.join(tempDir, 'claimed-permission.json');
   fs.writeFileSync(claimedPath, '{}');
   const auth = createIpcAuthEnvelope('main_agent');
+  const { repository } = inMemoryPermissionDurability();
+  configurePendingInteractionDurability({ repository: repository as never });
   const requestPermissionApproval = vi.fn();
   const attachRequest = vi.fn(async () => {
     throw new Error('card delivery route is unavailable');
@@ -263,6 +267,8 @@ it('denies a job request when its permission card cannot be attached', async () 
         sourceAgentFolder: 'main_agent',
         targetJid: 'tg:job',
         jobId: 'job-1',
+        runLeaseToken: 'lease-1',
+        runLeaseFencingVersion: 1,
         unattended: true,
         toolName: 'RunCommand',
         toolInput: { command: 'npm test | tee report.txt' },
@@ -316,6 +322,7 @@ it('denies a job request when its permission card cannot be attached', async () 
         'Could not raise the job permission card: card delivery route is unavailable',
     });
   } finally {
+    configurePendingInteractionDurability(null);
     unregisterPermissionRunRestriction({
       sourceAgentFolder: 'main_agent',
       responseKeyId: auth.responseKeyId,

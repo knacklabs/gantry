@@ -41,6 +41,12 @@ import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js
 import { sanitizeIpcToolInput } from '@core/runtime/ipc-tool-input-sanitization.js';
 import { evaluatePermissionDeterministicRails } from '@core/domain/permission-deterministic-rails.js';
 import { computePermissionEffectHash } from '@core/domain/permission-effect-key.js';
+import {
+  coordinatePermissionDecision,
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
+import { INVOCATION_REUSED_REASON } from '@core/runtime/permission-invocation-id.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from '@core/runtime/permission-classifier-prompt.js';
 import {
@@ -1369,6 +1375,68 @@ describe('validateIpcAuthRequest', () => {
       }),
     );
   });
+
+  it.each([
+    ['redacted', { apiToken: 'first-token' }, { apiToken: 'second-token' }],
+    [
+      'truncated',
+      { text: 'x'.repeat(20_000) + 'first' },
+      { text: 'x'.repeat(20_000) + 'second' },
+    ],
+  ])(
+    'rejects changed %s arguments under one call id after signed IPC parsing',
+    async (label, first, second) => {
+      const requests = [first, second].map((toolInput, index) => {
+        const request = parsePermissionIpcRequest(
+          signedPayload({
+            requestId: `bound-${label}-${index}`,
+            nonce: randomUUID(),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            sourceAgentFolder: 'team',
+            runId: `bound-${label}-run`,
+            toolName: 'mcp__thirdparty__unknown',
+            toolInput,
+            context: {
+              responseKeyId: TEST_RESPONSE_KEY_ID,
+              appId: 'app:one',
+              agentId: 'agent:team',
+            },
+          }),
+          'team',
+        );
+        // T2 owns transporting the engine id; this exercises the host binding.
+        request.invocationId = `bound-${label}-call`;
+        return request;
+      });
+      expect(requests[0]!.classifierToolInput).toEqual(
+        requests[1]!.classifierToolInput,
+      );
+      const tail = vi.fn(async () => ({ approved: false }));
+      const binding = {
+        sourceAgentFolder: 'team',
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+      };
+      registerPermissionRunRestriction({
+        ...binding,
+        hideAuthorityTools: false,
+        runKind: 'interactive',
+        runId: `bound-${label}-run`,
+      });
+      try {
+        await coordinatePermissionDecision({ request: requests[0]!, tail });
+        await expect(
+          coordinatePermissionDecision({ request: requests[1]!, tail }),
+        ).resolves.toMatchObject({
+          approved: false,
+          decidedBy: 'invocation_id',
+          reason: INVOCATION_REUSED_REASON,
+        });
+        expect(tail).toHaveBeenCalledOnce();
+      } finally {
+        unregisterPermissionRunRestriction(binding);
+      }
+    },
+  );
 
   it('caps wide signed permission tool input during parsing', () => {
     const toolInput: Record<string, unknown> = {

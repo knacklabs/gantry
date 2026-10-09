@@ -34,6 +34,8 @@ import {
 } from '@core/domain/ports/permission-decision-memory.js';
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
 import { judgeOutageLatch } from '@core/runtime/permission-judge-outage.js';
+import * as permissionCoordinator from '@core/runtime/permission-decision-coordinator.js';
+import { resolvePermissionIpcDecision } from '@core/runtime/ipc-permission-classifier-decision.js';
 import type {
   AsyncTaskBacklogAdmissionInput,
   AsyncTaskClaimInput,
@@ -214,6 +216,126 @@ afterEach(() => {
 });
 
 describe('inline core tool bootstrap', () => {
+  it('sends IPC calls, inline remote MCP calls and inline core tools through the one host ladder: each brings the judge in auto mode and each refuses once its conversation route is gone', async () => {
+    const coordinate = vi.spyOn(
+      permissionCoordinator,
+      'coordinatePermissionDecision',
+    );
+    const classifierConsult = vi.fn(async () => ({
+      risk_level: 'high' as const,
+      reason: 'Needs a person.',
+      latencyMs: 1,
+    }));
+    const inlineRoute = {
+      [makeAgentThreadQueueKey(
+        'conversation:test',
+        'agent-1',
+        undefined,
+        'slack-main',
+      )]: {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: new Date(0).toISOString(),
+        agentId: 'agent-1',
+        providerAccountId: 'slack-main',
+      },
+    };
+    let routes: Record<string, unknown> = inlineRoute;
+    wire({
+      classifierConsult,
+      app: {
+        executionAdapter: undefined,
+        executionAdapters: undefined,
+        runnerSandboxProvider: { enforcing: true },
+        getCredentialBroker: vi.fn(async () => undefined),
+        getConversationRoutes: () => routes,
+        resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
+      },
+    });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+    const ipcRoutes = {
+      'conversation:test': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '',
+        added_at: new Date(0).toISOString(),
+      },
+    };
+    const ipc = () =>
+      resolvePermissionIpcDecision({
+        request: {
+          requestId: `ipc-${coordinate.mock.calls.length}`,
+          targetJid: 'conversation:test',
+          sourceAgentFolder: 'main_agent',
+          toolName: 'mcp__crm__lookup',
+          toolInput: { id: 'crm-1' },
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => (routes === inlineRoute ? ipcRoutes : {}),
+          requestPermissionApproval,
+          classifierConsult,
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          getPermissionRuntimeSettings: () => ({
+            agents: { main_agent: { permissionMode: 'auto' as const } },
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+    try {
+      await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', {
+        id: 'crm-1',
+      });
+      await tools.execute('delegate_task', { objective: 'Investigate' });
+      await ipc();
+      expect(coordinate).toHaveBeenCalledTimes(3);
+      for (const [gateInput] of coordinate.mock.calls) {
+        expect(gateInput.routeRefusal?.()).toBeUndefined();
+        expect(gateInput.consultClassifier).toEqual(expect.any(Function));
+      }
+      // The remote MCP call and the IPC call both reached the judge and,
+      // when it asked, the person.
+      expect(classifierConsult).toHaveBeenCalledTimes(2);
+      const asked = requestPermissionApproval.mock.calls.length;
+
+      routes = {};
+      const gone =
+        'no deliverable approver route, because this conversation' +
+        "'s route or agent binding is gone. Reconnect this conversation's agent, then retry.";
+      await expect(
+        tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-2' }),
+      ).resolves.toMatchObject({
+        allowed: false,
+        reason: expect.stringContaining(gone),
+      });
+      await expect(
+        tools.execute('delegate_task', { objective: 'Investigate again' }),
+      ).resolves.toMatchObject({
+        isError: true,
+        error: { message: expect.stringContaining(gone) },
+      });
+      await expect(ipc()).resolves.toMatchObject({
+        approved: false,
+        decidedBy: 'route',
+        reason: expect.stringContaining(gone),
+      });
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(asked);
+      expect(classifierConsult).toHaveBeenCalledTimes(2);
+    } finally {
+      coordinate.mockRestore();
+    }
+  });
   it('denies a new tool call after its AI employee is offboarded', async () => {
     wire({
       getAgentRepository: () => ({
@@ -1327,24 +1449,20 @@ describe('inline core tool bootstrap', () => {
     );
   });
 
-  it('sends one offline notice from beforePrompt before the first offline card sets the offline reason line skips the notice on repeat re-notifies after an answered result swallows a send failure and yields wiring_missing when publishRuntimeEvent is absent', async () => {
+  // Contract change (PERMFLOW-1): a judge outage used to send a chat notice
+  // before the first card. It is now only a log line and the prompt's reason.
+  it('asks with the offline reason line and sends no chat message while the safety judge is offline', async () => {
     judgeOutageLatch.clearAll();
-    const timeline: string[] = [];
     let answered = false;
-    sendMessage.mockImplementation(async () => {
-      timeline.push('notice');
-    });
-    requestPermissionApproval.mockImplementation(async (request) => {
-      timeline.push(`card:${request.decisionReason}`);
-      return permissionDecisionResult({ approved: true, mode: 'allow_once' });
-    });
+    requestPermissionApproval.mockImplementation(async () =>
+      permissionDecisionResult({ approved: true, mode: 'allow_once' }),
+    );
     const classifierConsult = vi.fn(async () => ({
       status: answered
         ? PermissionClassifierStatus.Answered
         : PermissionClassifierStatus.Unavailable,
-      risk_level: answered ? ('low' as const) : ('high' as const),
-      ...(answered ? { risk_category: 'benign' as const } : {}),
-      reason: answered ? 'Answered.' : 'Offline.',
+      risk_level: answered ? ('high' as const) : ('high' as const),
+      reason: answered ? 'Needs a person.' : 'Offline.',
       latencyMs: 1,
       ...(answered ? {} : { failureCode: 'query_error' as const }),
     }));
@@ -1361,25 +1479,19 @@ describe('inline core tool bootstrap', () => {
 
     await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'one' });
     await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'two' });
-    expect(timeline).toEqual([
-      'notice',
-      'card:Asking because my safety judge is offline.',
-      'card:Asking because my safety judge is offline.',
-    ]);
-
     answered = true;
     await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'three' });
-    answered = false;
-    await tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'four' });
-    expect(sendMessage).toHaveBeenCalledTimes(2);
 
-    judgeOutageLatch.clearAll();
-    sendMessage.mockImplementationOnce(async () => {
-      throw new Error('notice delivery failed');
-    });
-    await expect(
-      tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'five' }),
-    ).resolves.toEqual({ allowed: true });
+    expect(
+      requestPermissionApproval.mock.calls.map(
+        ([request]) => request.decisionReason,
+      ),
+    ).toEqual([
+      'Asking because my safety judge is offline.',
+      'Asking because my safety judge is offline.',
+      expect.not.stringContaining('offline'),
+    ]);
+    expect(sendMessage).not.toHaveBeenCalled();
 
     const missingConsult = vi.fn();
     wire({ publishRuntimeEvent: undefined, classifierConsult: missingConsult });
@@ -1398,6 +1510,7 @@ describe('inline core tool bootstrap', () => {
     expect(requestPermissionApproval.mock.calls.at(-1)?.[0]).toMatchObject({
       decisionReason: 'Asking because my safety judge is offline.',
     });
+    expect(sendMessage).not.toHaveBeenCalled();
     judgeOutageLatch.clearAll();
   });
 
@@ -1437,9 +1550,11 @@ describe('inline core tool bootstrap', () => {
       }),
     ).resolves.toEqual({ allowed: true });
 
+    // A redacted or truncated action is a hard-rule ask: only a person
+    // answers it, so the safety judge is never consulted.
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+    expect(publishRuntimeEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'permission.classifier_decision' }),
     );
   });
@@ -1516,14 +1631,18 @@ describe('inline core tool bootstrap', () => {
       }),
     ).resolves.toEqual({ allowed: true });
 
+    // A redacted or truncated action is a hard-rule ask: only a person
+    // answers it, so the safety judge is never consulted.
     expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+    expect(publishRuntimeEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'permission.classifier_decision' }),
     );
   });
 
-  it('lets a no-projection scheduled request reach the classifier and routes its ask to the existing card path', async () => {
+  // Contract change (PERMFLOW-1): a scheduled inline run used to be cancelled
+  // when the judge asked. It now asks a person, like chat and the IPC path.
+  it('asks a person instead of cancelling when the classifier asks on a scheduled inline run', async () => {
     const classifierConsult = vi.fn(async () => ({
       risk_level: 'high' as const,
       reason: 'The requested scope needs human approval.',
@@ -1558,21 +1677,22 @@ describe('inline core tool bootstrap', () => {
 
     await expect(
       tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-1' }),
-    ).resolves.toEqual({
-      allowed: false,
-      reason:
-        'Classifier requested human approval: The requested scope needs human approval.',
-    });
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(input.emitOutput).not.toHaveBeenCalled();
+    ).resolves.toEqual({ allowed: true });
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        targetJid: 'conversation:test',
+        decisionReason: 'The requested scope needs human approval.',
+      }),
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ interactionBoundary: 'user_interaction' }),
+    );
   });
 
-  it('sends the offline notice before the scheduled terminal decision with the offline reason', async () => {
+  it('asks a person with the offline reason on a scheduled inline run while the judge is offline, with no chat message', async () => {
     judgeOutageLatch.clearAll();
-    const timeline: string[] = [];
-    sendMessage.mockImplementation(async () => {
-      timeline.push('notice');
-    });
     wire({
       classifierConsult: vi.fn(async () => ({
         status: PermissionClassifierStatus.Unavailable,
@@ -1595,11 +1715,14 @@ describe('inline core tool bootstrap', () => {
           reason: 'Approval required.',
         })) as never),
       ).authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'offline' }),
-    ).resolves.toEqual({
-      allowed: false,
-      reason: 'Asking because my safety judge is offline.',
-    });
-    expect(timeline).toEqual(['notice']);
+    ).resolves.toEqual({ allowed: true });
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-offline',
+        decisionReason: 'Asking because my safety judge is offline.',
+      }),
+    );
+    expect(sendMessage).not.toHaveBeenCalled();
     judgeOutageLatch.clearAll();
   });
 

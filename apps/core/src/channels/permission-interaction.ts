@@ -58,7 +58,6 @@ import {
   decisionForPermissionInteraction,
   buildPermissionBatchPromptParts,
   formatPermissionBatchPromptText,
-  isPermissionBatchRequest,
   permissionBatchButtonLabel,
 } from './permission-batch-coalescer.js';
 export { normalizePermissionAction } from './permission-decision-options.js';
@@ -89,7 +88,12 @@ export function permissionButtonLabel(
     return isMcpCapabilityProposal(_request)
       ? 'Allow once (no access)'
       : 'Allow once';
-  if (mode === 'cancel') return 'Cancel';
+  if (mode === 'cancel')
+    return _request.decisionOptions?.length === 2 &&
+      _request.decisionOptions.includes('allow_once') &&
+      _request.decisionOptions.includes('cancel')
+      ? 'Deny'
+      : 'Cancel';
   return 'Allow for future';
 }
 

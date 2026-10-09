@@ -119,11 +119,8 @@ export async function replayPermissionRequest(
     decision = await resolvePermissionIpcDecision({
       request: {
         requestId: `tap-budget-${fixture.command ?? fixture.toolName}`,
-        ...(responseKeyId
-          ? { responseKeyId, targetJid }
-          : fixture.targetJid
-            ? { targetJid }
-            : {}),
+        ...(responseKeyId ? { responseKeyId } : {}),
+        targetJid,
         sourceAgentFolder: 'main_agent',
         toolName: fixture.toolName ?? 'RunCommand',
         toolInput: fixture.toolInput ?? { command: fixture.command },
@@ -134,17 +131,15 @@ export async function replayPermissionRequest(
       sourceAgentFolder: 'main_agent',
       deps: {
         conversationRoutes: () =>
-          responseKeyId
-            ? ({
-                [targetJid]: {
-                  name: 'tap budget',
-                  folder: 'main_agent',
-                  trigger: '@gantry',
-                  added_at: '2026-09-04',
-                  agentConfig: { permissionMode: fixture.permissionMode },
-                },
-              } as never)
-            : {},
+          ({
+            [targetJid]: {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: fixture.permissionMode },
+            },
+          }) as never,
         requestPermissionApproval: async (request) => {
           taps += 1;
           decisionReason = request.decisionReason;
@@ -256,7 +251,15 @@ async function replayExactMemorySequence(
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => ({
+            'tap-budget:conversation': {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: 'auto' },
+            },
+          }),
           requestPermissionApproval: async (
             request,
             facts?: PermissionRememberPromptFacts,
@@ -383,11 +386,12 @@ export function replayDestructiveExactMemory(
 ): Promise<ExactMemoryReplay> {
   return replayExactMemorySequence(
     's4',
+    // A hard rule asks every time, so every run is answered again.
     [
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
-      { command: 'rm -rf build' },
+      { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
       { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
-      { command: 'rm -rf dist' },
+      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
     ],
     options,
   );
@@ -730,10 +734,10 @@ export function inMemoryPermissionDurability(): {
         return true;
       },
       resolvePendingInteraction: async (input: any) => {
-        if (!members[0] || !group) return false;
+        if (!members[0]) return false;
         members[0].status = input.status;
         members[0].resolution = input.resolution;
-        group.prompt.settlementState = 'settled';
+        if (group) group.prompt.settlementState = 'settled';
         return true;
       },
       releasePendingPermissionCallback: async () => true,

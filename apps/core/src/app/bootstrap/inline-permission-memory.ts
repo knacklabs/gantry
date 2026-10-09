@@ -74,7 +74,6 @@ export function inlineScheduledProjection(input: {
     ? {
         ownerPersonId: input.run.jobOwnerPersonId ?? null,
         memory,
-        guard: () => undefined,
         warn: (message, context) => input.deps.warn(context ?? {}, message),
       }
     : undefined;

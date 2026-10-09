@@ -131,6 +131,16 @@ describe('live-turn person scoping', () => {
       },
       sourceAgentFolder,
       deps: {
+        // The live route binding this agent to the DM, set to always ask.
+        conversationRoutes: () => ({
+          'dm:owner-1': {
+            name: 'owner',
+            folder: sourceAgentFolder,
+            trigger: '@gantry',
+            added_at: '2026-09-04',
+            agentConfig: { permissionMode: 'ask' },
+          },
+        }),
         requestPermissionApproval: vi.fn(async (request) => {
           promptedRequest = request;
           return permissionDecisionResult({
