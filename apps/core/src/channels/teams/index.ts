@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import {
   type ChannelAdapter,
   type ConversationContextHydrationRequest,
@@ -300,7 +301,7 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     if (!this.outboundReady) return false;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return false;
