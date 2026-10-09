@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts\tNot done: job-started subagents without a run save with the job link only\tJOBRUNS-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts",
+      "line": 91,
+      "text": "Not done: job-started subagents without a run save with the job link only",
+      "from": "blocking",
+      "item": "JOBRUNS-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
       "kind": "bug",
       "path": "apps/core/src/domain/ports/inbound-events.ts",
@@ -118,6 +129,17 @@
       "text": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the\u30d6\u30e9",
       "from": "blocking",
       "item": "the-agent-s-unavailable-reasons-come-fro",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+      "line": 1482,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
       "status": "open",
       "closed_by": null
     },
@@ -254,6 +276,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
+      "kind": "bug",
+      "path": "docs/specs/job-background-work-saves.md",
+      "line": 50,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "background-work-started-by-a-job-can-t-b",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
       "kind": "bug",
       "path": "docs/specs/subagents-end-to-end.md",
@@ -375,24 +408,13 @@
       "closed_by": null
     },
     {
-      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
-      "kind": "bug",
-      "path": "docs/specs/job-background-work-saves.md",
-      "line": 50,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "background-work-started-by-a-job-can-t-b",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
-      "kind": "bug",
-      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-      "line": 1482,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
+      "key": "improve\tdocs/architecture/areas/06-storage.md\tThe architecture inventory still describes the removed job-results table and parent link.",
+      "kind": "improve",
+      "path": "docs/architecture/areas/06-storage.md",
+      "line": 430,
+      "text": "The architecture inventory still describes the removed job-results table and parent link.",
+      "from": "worker",
+      "item": "JOBRUNS-1/T1",
       "status": "open",
       "closed_by": null
     }
