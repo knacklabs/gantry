@@ -273,7 +273,6 @@ export async function coordinatePermissionDecision(
     request.decisionReason = familyGap;
     request.suggestions = [];
     request.decisionOptions = ['allow_once', 'cancel'];
-    request.cardAffordances = scalarPermissionCardAffordances();
   } else if (reviewedRuleDecision) {
     request.decisionReason = reviewedRuleDecision.reason;
     request.closestRule = reviewedRuleDecision.closestRule;

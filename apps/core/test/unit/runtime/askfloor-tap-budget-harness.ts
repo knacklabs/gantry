@@ -734,10 +734,10 @@ export function inMemoryPermissionDurability(): {
         return true;
       },
       resolvePendingInteraction: async (input: any) => {
-        if (!members[0] || !group) return false;
+        if (!members[0]) return false;
         members[0].status = input.status;
         members[0].resolution = input.resolution;
-        group.prompt.settlementState = 'settled';
+        if (group) group.prompt.settlementState = 'settled';
         return true;
       },
       releasePendingPermissionCallback: async () => true,
