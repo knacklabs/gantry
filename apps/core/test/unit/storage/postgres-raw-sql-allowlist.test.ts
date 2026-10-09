@@ -7,6 +7,8 @@ const ROOT = process.cwd();
 const SCAN_ROOTS = ['apps/core/src/adapters/storage/postgres'];
 
 const ALLOWED_RAW_SQL_FILES = new Set([
+  // Connection-scoped transaction lock orders inbox sequence allocation and commit.
+  'apps/core/src/adapters/storage/postgres/repositories/inbound-event-repository.postgres.ts',
   'apps/core/src/adapters/storage/postgres/repositories/file-artifact-repository.postgres.ts',
   // pg_advisory_xact_lock serializes amendment approval-intent snapshots
   // per (app, capability) so concurrent approvals cannot double-insert.
