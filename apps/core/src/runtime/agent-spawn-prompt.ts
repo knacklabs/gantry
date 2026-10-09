@@ -23,6 +23,14 @@ import type {
 import { logger } from '../infrastructure/logging/logger.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import type { AgentInput } from './agent-spawn-types.js';
+import {
+  renderGantryMcpToolAvailability,
+  type GantryMcpToolSelectionOptions,
+} from '../shared/gantry-mcp-tool-surface.js';
+import {
+  callableAgentToolName,
+  type CallableAgentToolManifestEntry,
+} from '../shared/callable-agent-manifest.js';
 
 export function resolveSpawnPromptAccessPreset(
   configured: PromptAccessPreset,
@@ -54,6 +62,8 @@ export async function compileSpawnSystemPrompt(input: {
   accessPreset: PromptAccessPreset;
   mcpInventoryToolsMounted: boolean;
   agentEngine: AgentEngine;
+  gantryToolSelection?: GantryMcpToolSelectionOptions;
+  callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   modelIdentity?: PromptModelIdentity;
   resolveRoleSnapshot?: (
     agentId: string,
@@ -145,7 +155,18 @@ export async function compileSpawnSystemPrompt(input: {
       'Failed to compile prompt profile; continuing without custom system prompt',
     );
   }
-  return compiledSystemPrompt;
+  return input.gantryToolSelection
+    ? [
+        compiledSystemPrompt,
+        renderGantryMcpToolAvailability(
+          input.agentInput.toolPolicyRules ?? [],
+          input.gantryToolSelection,
+          (input.callableAgentManifest ?? []).map(callableAgentToolName),
+        ),
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    : compiledSystemPrompt;
 }
 
 export async function publishCapabilityCatalogOverflowDiagnostic(input: {

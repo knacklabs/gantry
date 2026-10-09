@@ -212,7 +212,7 @@ Cited at:
   imported by `apps/core/src/runtime/agent-spawn.ts`.
 
 The Gantry MCP allowlist composed by the `gantry-mcp` provider is the
-agent-visible tool surface (`apps/core/src/runner/gantry-mcp-tool-surface.ts`):
+agent-visible tool surface (`apps/core/src/shared/gantry-mcp-tool-surface.ts`):
 
 ```text
 send_message            ask_user_question

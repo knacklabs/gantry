@@ -265,6 +265,17 @@ export class CanonicalMessageOpsService {
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
   }
 
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.repository.hasSentBotMessage(chatJid, input);
+  }
+
   async getRecentTopLevelMessagesBefore(
     chatJid: string,
     before: Pick<NewMessage, 'timestamp' | 'id'>,
@@ -372,6 +383,7 @@ export class CanonicalMessageOpsService {
       reply_to_message_content: ref.reply_to_message_content,
       reply_to_sender_name: ref.reply_to_sender_name,
       external_message_id: ref.external_message_id,
+      ...(externalRef.mentions_bot === true ? { mentionsBot: true } : {}),
       providerAccountId,
       ...(responseSchema &&
       typeof responseSchema === 'object' &&

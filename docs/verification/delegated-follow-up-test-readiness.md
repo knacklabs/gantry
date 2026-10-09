@@ -7,17 +7,22 @@ one code file, no interface-glob matches, no production changes or new seams.
 The parent wake-up case must wait at most 10 seconds for the real admission
 claim to return its exact task, then preserve the agent/conversation/thread,
 full-answer message, and delivered receipt assertions. The separate full-stream
-answer case remains intact. Production batching remains unchanged.
+answer case remains intact. This fix leaves production batching unchanged.
+After reconciling current main, the case also preserves upstream's immediate
+helper-follow-up admission: `claimNow` is captured before delegation and passed
+unchanged to every claim. Polling cannot make a deferred quiet-window row due.
 
 ## Test audit
 
 - Contract: signed delegation through the real child process, IPC, completion
   persistence, and Postgres admission produces the complete answer on the parent
   route and records delivery.
-- Regression: an immediate claim runs before the normal 1500ms quiet window
-  expires; completion and notification persistence do not mean claim readiness.
-- Owner: the existing `wakes the chat parent with a durable delegated completion
-result` case in
+- Historical diagnosis: the original immediate claim preceded the then-normal
+  1500ms quiet window. Main now admits helper notices immediately; this is no
+  longer a reason to wait for elapsed admission time.
+- Current regression: notification persistence may follow task completion, but
+  a persisted helper notice must be claimable even at the pre-delegation clock.
+- Owner: the existing `immediately wakes the chat parent with a durable delegated completion result` case in
   `apps/core/test/integration/delegated-answer-and-parent-wakeup.postgres.integration.test.ts`.
   Extend this owner rather than add duplicate coverage. The sibling streamed
   answer case protects accumulation independently.
@@ -49,6 +54,8 @@ is removed at its existing owner.
 | Tests/verification           | Changed              | Bounded polling replaces immediate claim in the existing owner case. |
 
 ## Local verification
+
+### Historical runs before reconciliation
 
 These are local results, not a claim that CI is green. Publication belongs to
 the coordinator; live runtime restart is outside this task.
@@ -89,3 +96,13 @@ Generated logs live under ignored `node_modules/.cache/delegated-readiness/`,
 including the preserved round-one logs. No generated logs are committed.
 Logs were held in memory and restored after the gate's `npm ci` cleared
 `node_modules`. Final whitespace and scoped formatting checks passed.
+
+### Current reconciliation
+
+Merged `origin/main`, including its security dependency upgrades and APT refresh,
+and regenerated Forge-owned files with pinned Forge 1.2.7. Only the delegated
+test conflicted. Its immediate-readiness name, pre-delegation `claimNow`, routing,
+full-answer and receipt assertions remain intact; every poll uses that same
+clock. No production edits were made beyond accepting upstream unchanged.
+The eleven-surface matrix describes this fix's own changes relative to main.
+Current verification results will be recorded after the merged checks finish.
