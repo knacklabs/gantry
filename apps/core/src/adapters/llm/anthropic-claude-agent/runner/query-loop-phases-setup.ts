@@ -383,6 +383,9 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
       capabilities.gantryOwnedTools,
       capabilities.availableTools,
     ),
+    'env' in capabilities.mcpServers.gantry
+      ? (capabilities.mcpServers.gantry.env ?? {})
+      : {},
   );
   for (const toolName of capabilities.gantryOwnedTools) {
     const family = gantryOwnedToolActivityFamily(toolName);
