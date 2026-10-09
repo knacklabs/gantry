@@ -50,9 +50,7 @@ export async function executeResolvedDelegation(input: {
     authorityToolName: target.callableAgentEntry
       ? 'AgentDelegation'
       : undefined,
-    enableDelegatedAsyncFollowUp: Boolean(
-      target.callableAgentEntry && !input.trustedJobId,
-    ),
+    enableDelegatedAsyncFollowUp: !input.trustedJobId,
     parentRunId: input.trustedJobId ? null : (input.trustedParentRunId ?? null),
     workspaceFolder: target.group.folder,
     runDelegatedAgent: async ({
@@ -106,7 +104,7 @@ export async function executeResolvedDelegation(input: {
         },
         async (frame: AgentOutput) => {
           if (!frame.result) return;
-          latestResult = frame.result;
+          latestResult = (latestResult ?? '') + frame.result;
           await onProgress?.(frame.result);
         },
         {

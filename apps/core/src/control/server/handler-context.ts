@@ -88,6 +88,8 @@ export type ControlModelProviderPreflightResult = {
 export type ControlRouteContext = {
   app: RuntimeApp;
   sessionInteraction: SessionInteractionModule;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
   jobManagement: JobManagementService;
   runtimeHome: string;
   keys: ApiKeyRecord[];

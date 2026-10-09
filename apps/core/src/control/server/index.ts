@@ -23,6 +23,7 @@ import {
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
+  getTriggerPattern,
   patchRuntimeModelDefaults,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
@@ -366,6 +367,7 @@ export function startControlServer(input: {
     get getConfiguredAgentRuntime() {
       return getConfiguredAgentRuntime;
     },
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
@@ -373,6 +375,7 @@ export function startControlServer(input: {
   const ctx: ControlRouteContext = {
     app: input.app,
     sessionInteraction,
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     jobManagement: createJobManagementService({
       app: input.app,
       getBrowserStatus: input.getBrowserStatus,

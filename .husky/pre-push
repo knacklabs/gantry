@@ -1,0 +1,1 @@
+. "$(git rev-parse --show-toplevel)/.forge/hooks.sh" && forge_husky "$0" pre-push 2 "$@"; exit $?

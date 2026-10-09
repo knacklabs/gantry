@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ConversationMessageIngressModule } from '@core/application/external-ingress/conversation-message-ingress.js';
+import { getTriggerPattern } from '@core/config/index.js';
 
 function makeModule(overrides?: {
   conversation?: Record<string, unknown> | null;
@@ -91,6 +92,7 @@ function makeModule(overrides?: {
     makeQueueKey: (jid, threadId) =>
       threadId ? `${jid}::thread:${threadId}` : jid,
     resolveRoute: overrides?.resolveRoute,
+    getTriggerPattern,
     now: () => '2026-04-24T00:00:00.000Z',
     createId: overrides?.createId ?? (() => 'message-1'),
   });

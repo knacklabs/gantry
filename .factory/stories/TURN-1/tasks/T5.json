@@ -1,0 +1,47 @@
+{
+  "branch": "task/TURN-1-T5",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "e448f6b2c536151b1d1ca351edce725d63eb575136691b453752d01e09ba11dc",
+    "commit": "39c1602d045e109bba0938d6252d0ad2c441702c",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "1217ef918f07c44a2bb90e42ce9e5d382168eed2e12caa3c4de3aeaa5352d5c7"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T07:53:51+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T18:32:27+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T19:29:36+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T14:03:58+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T22:21:08+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:14:26+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T01:39:01+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-03T02:16:45+00:00",
+      "step": "review"
+    }
+  ]
+}
