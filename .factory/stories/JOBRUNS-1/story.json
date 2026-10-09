@@ -1,0 +1,12 @@
+{
+  "doc": "plans/JOBRUNS-1.md",
+  "status": "planning",
+  "steps": [
+    {
+      "at": "2026-10-09T15:29:52+00:00",
+      "step": "start"
+    }
+  ],
+  "title": "Background work started by a job is saved and finishes",
+  "touches": 0
+}
