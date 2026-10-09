@@ -1293,7 +1293,8 @@ describe('tool permission gate', () => {
     expect(decision).toEqual(
       expect.objectContaining({
         behavior: 'deny',
-        message: expect.stringContaining('Use the Agent tool'),
+        // Gantry owns delegation; the denied SDK tool is not a recovery path.
+        message: expect.stringContaining('Use Gantry delegate_task'),
       }),
     );
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();

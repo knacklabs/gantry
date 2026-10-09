@@ -19,6 +19,7 @@ import type { AppId } from '../../domain/app/app.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../domain/ports/live-turns.js';
 import { sha256Base64Url } from '../../shared/stable-hash.js';
 import { ApplicationError } from '../common/application-error.js';
+import { isSessionCommandText } from '../sessions/session-command-parse.js';
 
 export type ConversationMessageQueueIntent = {
   conversationJid: string;
@@ -36,6 +37,7 @@ type ConversationMessageThreadRouting = {
 type ConversationMessageRouteResolution = {
   agentId?: string | null;
   queueKey: string;
+  trigger?: string;
 };
 
 export class ConversationMessageIngressModule {
@@ -55,6 +57,7 @@ export class ConversationMessageIngressModule {
               agentSessionId?: string | null;
               providerAccountId?: string | null;
               triggerDecision?: Record<string, unknown>;
+              sessionCommand?: boolean;
               now?: string;
             };
           },
@@ -85,6 +88,8 @@ export class ConversationMessageIngressModule {
         conversationJid: string,
         threadId: string | null,
       ) => string;
+      /** The route-trigger pattern turn start parses commands with. */
+      getTriggerPattern: (trigger?: string) => RegExp;
       resolveRoute?: (input: {
         conversationJid: string;
         threadId: string | null;
@@ -243,6 +248,10 @@ export class ConversationMessageIngressModule {
                 source: 'external_ingress',
                 conversationKind: conversation.kind,
               },
+              sessionCommand: isSessionCommandText(
+                text,
+                this.deps.getTriggerPattern(route.trigger),
+              ),
             },
           },
         );

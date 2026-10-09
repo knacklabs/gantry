@@ -23,7 +23,6 @@ import type { DurableQuestionCallback } from '../../application/interactions/pen
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import {
   agentTodoLines,
-  agentTodoStopActions,
   countCompletedAgentTodos,
   formatAgentProgressLine,
   formatAgentTodoHeader,
@@ -58,8 +57,6 @@ export interface TeamsAdaptiveCardAction {
         };
         decision: string;
       }
-    // prettier-ignore
-    | { action: 'message_action'; kind: 'live_turn_stop'; actionToken: string; targetJid: string; threadId?: string }
     // prettier-ignore
     | { action: 'message_action'; kind: 'job_permission_decision'; actionToken: string; targetJid: string; threadId?: string }
     // prettier-ignore
@@ -212,7 +209,6 @@ export function buildTeamsApprovalDescriptorPayload(
 
 export function buildTeamsAgentTodoCard(
   render: AgentTodoRender,
-  targetJid = '',
 ): TeamsAdaptiveCardPayload {
   if (render.cardKind === 'progress') {
     return {
@@ -232,7 +228,6 @@ export function buildTeamsAgentTodoCard(
   const title = formatAgentTodoHeader(render);
   const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const done = countCompletedAgentTodos(render);
-  const stopAction = agentTodoStopActions(render)?.[0];
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
@@ -261,23 +256,7 @@ export function buildTeamsAgentTodoCard(
         wrap: true,
       },
     ],
-    actions:
-      stopAction?.kind === 'live_turn_stop'
-        ? [
-            {
-              type: 'Action.Execute',
-              title: stopAction.label,
-              verb: 'gantry.live.stop',
-              data: {
-                action: 'message_action',
-                kind: 'live_turn_stop',
-                actionToken: stopAction.actionToken,
-                targetJid,
-                ...(render.threadId ? { threadId: render.threadId } : {}),
-              },
-            },
-          ]
-        : [],
+    actions: [],
   };
 }
 
@@ -292,20 +271,6 @@ export function buildTeamsMessageCard(options: {
   const actions = (options.actionAffordances ?? [])
     .map((action): TeamsAdaptiveCardAction | null => {
       if (!action.label.trim()) return null;
-      if (action.kind === 'live_turn_stop') {
-        return {
-          type: 'Action.Execute',
-          title: action.label.trim(),
-          verb: 'gantry.live.stop',
-          data: {
-            action: 'message_action',
-            kind: 'live_turn_stop',
-            actionToken: action.actionToken,
-            targetJid: options.targetJid,
-            ...threadFragment,
-          },
-        };
-      }
       if (
         action.kind === 'job_permission_decision' ||
         action.kind === 'memory_forget'

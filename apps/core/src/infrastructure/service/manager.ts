@@ -23,7 +23,7 @@ import {
 } from '../../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../../config/settings/runtime-settings.js';
 
-export type ServiceKind = 'launchd' | 'systemd-user' | 'nohup' | 'background';
+export type ServiceKind = 'launchd' | 'systemd-user' | 'background';
 
 export interface ServiceOutcome {
   ok: boolean;
@@ -38,7 +38,6 @@ function resolveServiceKind(): ServiceKind {
   const platform = detectPlatform();
   if (platform === 'macos') return 'launchd';
   if (platform === 'linux' && hasSystemdUser()) return 'systemd-user';
-  if (platform === 'linux') return 'nohup';
   return 'background';
 }
 
@@ -265,33 +264,6 @@ WantedBy=default.target
   return unitPath;
 }
 
-function writeNohupScript(
-  runtimeHome: string,
-  runtimeEntry: string,
-  migratorEntry: string,
-): string {
-  const scriptPath = path.join(runtimeHome, 'start-gantry.sh');
-  const pidPath = fallbackPidPath(runtimeHome);
-  const script = `#!/bin/sh
-set -eu
-cd ${JSON.stringify(runtimeHome)}
-if [ -f ${JSON.stringify(pidPath)} ]; then
-  OLD_PID=$(cat ${JSON.stringify(pidPath)} 2>/dev/null || true)
-  if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-    kill "$OLD_PID" || true
-    sleep 1
-  fi
-fi
-GANTRY_HOME=${JSON.stringify(runtimeHome)} ${JSON.stringify(process.execPath)} ${JSON.stringify(migratorEntry)}
-GANTRY_HOME=${JSON.stringify(runtimeHome)} nohup ${JSON.stringify(process.execPath)} ${JSON.stringify(runtimeEntry)} \\
-  >> ${JSON.stringify(runtimeLogPath(runtimeHome))} \\
-  2>> ${JSON.stringify(runtimeErrorLogPath(runtimeHome))} &
-echo $! > ${JSON.stringify(pidPath)}
-`;
-  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
-  return scriptPath;
-}
-
 export function installService(
   importMetaUrl: string,
   runtimeHome: string,
@@ -339,19 +311,6 @@ export function installService(
       };
     }
 
-    if (kind === 'nohup') {
-      const scriptPath = writeNohupScript(
-        runtimeHome,
-        runtimeEntry,
-        migratorEntry,
-      );
-      return {
-        ok: true,
-        kind,
-        message: `Installed fallback service script at ${scriptPath}.`,
-      };
-    }
-
     return {
       ok: true,
       kind,
@@ -382,27 +341,6 @@ export function startService(runtimeHome: string): ServiceOutcome {
         );
       }
       return { ok: true, kind, message: 'systemd user service started.' };
-    }
-
-    if (kind === 'nohup') {
-      const scriptPath = path.join(runtimeHome, 'start-gantry.sh');
-      if (!fs.existsSync(scriptPath)) {
-        return {
-          ok: false,
-          kind,
-          message:
-            'Fallback service script is missing. Run `gantry service install` first.',
-        };
-      }
-      const result = tryExec('sh', [scriptPath]);
-      if (!result.ok) {
-        throw new Error(
-          result.stderr ||
-            result.stdout ||
-            'failed to run fallback start script',
-        );
-      }
-      return { ok: true, kind, message: 'Fallback service started.' };
     }
 
     const metadata = readFallbackServiceMetadata(runtimeHome);

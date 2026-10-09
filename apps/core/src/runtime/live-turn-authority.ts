@@ -320,19 +320,6 @@ export class LiveTurnAuthority {
     void this.drainQueue(queueJid);
   }
 
-  async registerStopAliases(
-    queueJid: string,
-    stopAliasJids: string[],
-  ): Promise<boolean> {
-    const registration = this.active.get(queueJid);
-    if (!registration) return false;
-    return this.deps.leaseDeps.liveTurns.updateLiveTurnRouting({
-      id: registration.turnId,
-      fence: registration.fence,
-      stopAliasJids,
-    });
-  }
-
   /** Fenced state transition for the locally owned turn. */
   async transitionOwnedTurn(
     queueJid: string,
@@ -365,7 +352,6 @@ export class LiveTurnAuthority {
     text: string;
     senderUserIds?: readonly string[] | null;
     idempotencyKey: string;
-    cursorAfter?: string | null;
     commandId?: string;
     expectedTurnId?: string;
   }): Promise<'queued_to_owner' | 'no_active_turn' | 'sender_not_allowed'> {
@@ -377,7 +363,6 @@ export class LiveTurnAuthority {
       commandId: input.commandId ?? globalThis.crypto.randomUUID(),
       expectedTurnId: input.expectedTurnId,
       idempotencyKey: input.idempotencyKey,
-      cursorAfter: input.cursorAfter,
       createdByWorkerId: this.deps.leaseDeps.workerInstanceId,
     });
     if (result.outcome === 'queued_to_owner') {

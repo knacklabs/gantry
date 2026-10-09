@@ -24,15 +24,15 @@
     "apps/core/src/jobs/ipc-skill-install-handlers.ts": 760,
     "apps/core/src/app/bootstrap/channel-wiring.ts": 790,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 900,
-    "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 798,
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts": 705,
+    "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 803,
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
     "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 750,
     "apps/core/src/application/permissions/permission-management-service.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 739,
-    "apps/core/src/app/bootstrap/live-execution.ts": 713,
-    "apps/core/src/app/bootstrap/runtime-services.ts": 1197,
+    "apps/core/src/app/bootstrap/runtime-services.ts": 1186,
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 776,
     "apps/core/src/channels/slack/channel-delivery.ts": 732,
     "apps/core/src/channels/slack/channel-interactions.ts": 712,
@@ -51,7 +51,7 @@
     "apps/core/src/runtime/agent-spawn.ts": 835,
     "apps/core/src/runtime/browser-capability.ts": 780,
     "apps/core/src/runtime/group-agent-runner.ts": 780,
-    "apps/core/src/runtime/group-processing.ts": 854,
+    "apps/core/src/runtime/group-processing.ts": 840,
     "apps/core/src/runtime/group-queue.ts": 757,
     "apps/core/src/runtime/ipc-interaction-processing.ts": 865,
     "apps/core/src/runtime/ipc-parsing.ts": 790,
@@ -234,8 +234,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

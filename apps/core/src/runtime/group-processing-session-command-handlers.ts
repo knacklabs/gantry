@@ -3,13 +3,11 @@ import type {
   MessageSendOptions,
   NewMessage,
 } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
 import { formatMessages } from '../messaging/router.js';
 import type { SessionCommandDeps } from '../session/session-commands.js';
 import { getGroupBrowserStatus } from './group-browser-status.js';
 import { getGroupMemoryStatus } from './group-memory-commands.js';
 import {
-  createAdvanceCursorHandler,
   createSaveProcedureHandler,
   createSenderCommandPolicy,
   createSessionArchiveHandlers,
@@ -44,6 +42,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
   deps: GroupProcessingDeps;
   queueJid: string;
   missedMessages: NewMessage[];
+  cancelWaitingInput: SessionCommandDeps['cancelWaitingInput'];
   runAgent: Parameters<typeof createSessionCommandAgentRunners>[0]['runAgent'];
   processOptions: GroupProcessOptions;
   commandOverrideRouteKey: string;
@@ -117,16 +116,6 @@ export function createGroupProcessingSessionCommandHandlers(input: {
     }),
     closeStdin: () => deps.queue.closeStdin(input.queueJid),
     compactionScopeKey: input.queueJid,
-    advanceCursor: createAdvanceCursorHandler({
-      queueJid: input.queueJid,
-      setCursor: deps.setCursor,
-      saveState: deps.saveState,
-      warn: (err) =>
-        logger.warn(
-          { group: group.name, err },
-          'Failed to persist session command cursor',
-        ),
-    }),
     formatMessages,
     getDefaultModel: input.getDefaultModel,
     getJobModelDefaults: input.getJobModelDefaults,
@@ -180,6 +169,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
         memoryUserId: await resolveMemoryUserId(),
       }),
     stopCurrentRun: () => deps.queue.stopGroup?.(input.queueJid) ?? false,
+    cancelWaitingInput: input.cancelWaitingInput,
     runMemoryDreaming: async () =>
       runDreamingForGroup({
         folder: group.folder,

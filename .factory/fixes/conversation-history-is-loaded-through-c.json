@@ -1,0 +1,27 @@
+{
+  "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
+  "branch": "fix/conversation-history-is-loaded-through-c",
+  "done_when": "Message lists use one hydration path for earliest and latest selection, with the same ordering and ties",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "b95f08320dd85fe08015deeff214d9afdd19c13ae0a48030afac5c087adbf598",
+    "commit": "5fcd9bcf73e32a7f36b15cfbc279b9563b7c2ea7",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "1efa88cb84ab9e54b212974e7344018bbcbbab9fb3604b99889abbc0fc107472"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T12:58:44+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T16:46:53+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Conversation history is loaded through copied query paths"
+}
