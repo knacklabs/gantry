@@ -40,7 +40,7 @@ Six findings verified by static call tracing. No files changed. An attempted exe
 
    **Today:** S3 skill reads and writes also await local cache warming. Reads always fetch from S3; the wrapper never reads its cache. Developers maintain another copy of the artifacts without gaining a cache hit.
 
-   **Locations:** Write warming [remote-first-skill-artifact-store.ts:21](../../../../apps/core/src/adapters/artifacts/skills/remote-first-skill-artifact-store.ts#L21), read warming [:32](../../../../apps/core/src/adapters/artifacts/skills/remote-first-skill-artifact-store.ts#L32), and production construction [factory.ts:250](../../../../apps/core/src/adapters/storage/postgres/factory.ts#L250).
+   **Locations at audit time:** Write warming in `remote-first-skill-artifact-store.ts:21`, read warming at `:32`, and production construction in [factory.ts](../../../../apps/core/src/adapters/storage/postgres/factory.ts). The wrapper has since been removed; the factory now selects `S3SkillArtifactStore` directly. This finding records the earlier implementation.
 
    **Survive:** `S3SkillArtifactStore` as remote authority; `LocalSkillArtifactStore` for the local driver.
 
