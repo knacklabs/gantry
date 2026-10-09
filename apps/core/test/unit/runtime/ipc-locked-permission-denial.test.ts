@@ -256,6 +256,15 @@ describe('locked agent parent-side permission IPC denial', () => {
       sourceAgentFolder: 'support_agent',
       deps: {
         requestPermissionApproval,
+        // The conversation route binding support_agent to tg:support.
+        conversationRoutes: () => ({
+          'tg:support': {
+            name: 'support',
+            folder: 'support_agent',
+            trigger: '@gantry',
+            added_at: '2026-09-04',
+          },
+        }),
       } as never,
       ipcBaseDir: tempDir,
       file: 'claimed-full-permission.json',

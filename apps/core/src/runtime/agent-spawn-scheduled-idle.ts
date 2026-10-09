@@ -1,6 +1,47 @@
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { formatDuration } from '../shared/human-format.js';
-import type { AgentOutput } from './agent-spawn-types.js';
+import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import type { AgentInput, AgentOutput } from './agent-spawn-types.js';
+
+export function inlineHeartbeat(
+  input: AgentInput,
+  lastActivityAtMs: number,
+  activity: {
+    lastTool?: string;
+    pendingPermissionToolNames: readonly string[];
+    totalToolCalls: number;
+  },
+): AgentOutput {
+  const emittedAtMs = currentTimeMs();
+  return {
+    status: 'success',
+    result: null,
+    runtimeEventOnly: true,
+    runtimeEvents: [
+      {
+        appId: input.appId,
+        agentId: input.agentId,
+        runId: input.runId,
+        jobId: input.jobId,
+        conversationId: input.chatJid,
+        threadId: input.threadId,
+        eventType: RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
+        actor: 'runner',
+        responseMode: 'none',
+        payload: {
+          ...(activity.lastTool ? { lastTool: activity.lastTool } : {}),
+          lastActivityAt: new Date(lastActivityAtMs).toISOString(),
+          lastActivityAgoMs: Math.max(0, emittedAtMs - lastActivityAtMs),
+          pendingPermissionRequests: activity.pendingPermissionToolNames.length,
+          pendingPermissionToolNames: [
+            ...new Set(activity.pendingPermissionToolNames),
+          ],
+          totalToolCalls: activity.totalToolCalls,
+        },
+      },
+    ],
+  };
+}
 
 const DEFAULT_SCHEDULED_JOB_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 const MIN_SCHEDULED_JOB_IDLE_TIMEOUT_MS = 60 * 1000;

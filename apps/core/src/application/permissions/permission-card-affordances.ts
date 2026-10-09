@@ -34,6 +34,9 @@ export interface BuildPermissionCardAffordancesInput {
 export async function buildPermissionCardAffordances(
   input: BuildPermissionCardAffordancesInput,
 ): Promise<PermissionCardAffordances> {
+  if (input.request.cardAffordances?.eligible === false) {
+    return scalarPermissionCardAffordances();
+  }
   if (!input.rememberContext.eligible) return scalarPermissionCardAffordances();
 
   const allowExact = input.rememberContext.candidates.exact.ok;

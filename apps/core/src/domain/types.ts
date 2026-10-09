@@ -1,4 +1,3 @@
-import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
 import type {
   PermissionApprovalRuleValue,
@@ -10,7 +9,14 @@ import type { ObserverDigestMessageView } from './observer-digest-view.js';
 import type { BrainReviewCardView } from './brain-review-card.js';
 import type { PermissionApprovalResult } from './permission-approval-result.js';
 import type { RailProvenance } from './permission-lane.js';
-import type { PermissionCardAffordances } from './permission-card-affordances.js';
+import type {
+  PermissionApprovalCancellation,
+  PermissionApprovalRequest,
+} from './permission-approval-request.js';
+export type {
+  PermissionApprovalCancellation,
+  PermissionApprovalRequest,
+} from './permission-approval-request.js';
 export type { PermissionApprovalResult } from './permission-approval-result.js';
 export type {
   MessageActionAffordanceKind,
@@ -176,79 +182,6 @@ export interface NewMessageAttachment {
 export type PermissionRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 // prettier-ignore
 export type PermissionRiskCategory = 'destructive' | 'privileged' | 'secret' | 'network' | 'filesystem' | 'benign';
-export interface PermissionApprovalRequest {
-  requestId: string;
-  appId?: string;
-  agentId?: string;
-  providerAccountId?: string;
-  personId?: string;
-  responseNonce?: string;
-  sourceAgentFolder: string;
-  requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
-  runHandle?: string;
-  jobId?: string;
-  setupFingerprint?: string;
-  jobName?: string;
-  runId?: string;
-  runLeaseToken?: string;
-  runLeaseFencingVersion?: number;
-  targetJid?: string;
-  approvalContextJid?: string;
-  threadId?: string;
-  responseKeyId?: string;
-  decisionPolicy?: 'control_allowlist' | 'same_channel';
-  unattended?: boolean;
-  permissionLane?: 'interactive' | 'autonomous';
-  expiresAt?: string;
-  senderId?: string;
-  turnIntentSummary?: string;
-  toolName: string;
-  toolUseID?: string;
-  agentID?: string;
-  subagentType?: string;
-  title?: string;
-  displayName?: string;
-  description?: string;
-  decisionReason?: string;
-  risk_level?: PermissionRiskLevel;
-  risk_category?: PermissionRiskCategory;
-  closestRule?: {
-    rule: string;
-    reason: string;
-  };
-  blockedPath?: string;
-  toolInput?: Record<string, unknown>;
-  hostInjectedCommandPrefix?: string;
-  /** 16K-limit input evaluated by decision rails/effect keys, not the 500-char
-   * display `toolInput`; set alongside it in IPC parsing. */
-  classifierToolInput?: Record<string, unknown>;
-  attachmentOpenIds?: { wellFormed: boolean; count: number };
-  toolInputSanitized?: boolean;
-  toolInputSanitizedPaths?: string[];
-  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
-  suggestions?: PermissionApprovalUpdate[];
-  decisionOptions?: PermissionApprovalDecisionMode[];
-  cardAffordances?: PermissionCardAffordances;
-  /** Learned-root ask-once (PERM-2 Task G): the persistent-rule option means
-   *  "remember this folder", so it approves without a tool-rule suggestion. */
-  trustedRootLearn?: boolean;
-  promotionHintCount?: number;
-  firstAskedAt?: string;
-  interaction?: InteractionDescriptor;
-  permissionBatch?: {
-    requestIds: string[];
-    rows: string[];
-  };
-}
-
-export interface PermissionApprovalCancellation {
-  requestId: string;
-  appId?: string;
-  sourceAgentFolder: string;
-  threadId?: string;
-  reason?: string;
-}
-
 // prettier-ignore
 export type PermissionApprovalDecisionMode = 'allow_once' | 'allow_persistent_rule' | 'cancel';
 // prettier-ignore

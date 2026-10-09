@@ -35,11 +35,8 @@ import {
   finishDurableQuestionInteraction,
   resolveDurablePermissionInteractionOutcome,
 } from '../application/interactions/durable-interaction-handler.js';
-import {
-  resolveAgentLockStatus,
-  type AgentLockStatus,
-} from '../config/profiles.js';
-import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
+import { resolveAgentLockStatus } from '../config/profiles.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import type { ParsedPermissionIpcRequest } from './ipc-parsing.js';
 import {
@@ -48,6 +45,8 @@ import {
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
 import {
+  denyLockedPermissionInteraction,
+  refusePermissionInteraction,
   writePermissionInteractionFailure,
   writeUserQuestionInteractionFailure,
 } from './ipc-interaction-failure.js';
@@ -63,7 +62,11 @@ import {
   publishPendingInteractionRuntimeEvent,
   publishPermissionRuntimeEvent,
 } from './ipc-interaction-runtime-events.js';
-import { permissionRunRestriction } from './permission-decision-coordinator.js';
+import {
+  findPermissionRoute,
+  missingPermissionRouteReason,
+  permissionRunRestriction,
+} from './permission-decision-coordinator.js';
 import { resolvePermissionDecisionIdentity } from './ipc-permission-decision-identity.js';
 import * as remember from './permission-remember-settlement.js';
 export { publishPendingInteractionRuntimeEvent };
@@ -118,6 +121,16 @@ export async function processPermissionInteractionIpc(input: {
 }): Promise<void> {
   let decision: PermissionApprovalDecision | undefined;
   let authorityApplicationStarted = false;
+  const runRestriction = input.request.responseKeyId
+    ? permissionRunRestriction({
+        sourceAgentFolder: input.sourceAgentFolder,
+        responseKeyId: input.request.responseKeyId,
+      })
+    : undefined;
+  const orphanedRun =
+    !runRestriction && Boolean(input.request.runId || input.request.jobId);
+  // Correlation/lease identity is host-owned, including on denied and orphaned requests.
+  input.request.runId = runRestriction?.runId;
   // Parent-side security boundary: locked agents never reach any permission
   // authority outcome (durable pending row, prompt, transient or persistent
   // grant). The gate runs before recordPendingInteractionRequested so a forged
@@ -129,31 +142,25 @@ export async function processPermissionInteractionIpc(input: {
     await denyLockedPermissionInteraction(input, lockStatus);
     return;
   }
+  if (orphanedRun) {
+    refusePermissionInteraction(
+      input,
+      'This run is no longer active. Start a new run, then retry.',
+    );
+    return;
+  }
   // The acting identity fields come from the host's own spawn-time run
   // registry, never the worker payload: a worker-supplied personId is a
   // forgeable identity claim, and a worker-supplied jobId could point the
   // grant path at another person's job (or a group job, widening the grant
   // to shared). A live signed run always has a registry entry (parsing
   // requires responseKeyId), so the forge scenario is covered by the
-  // overwrite. On a registry miss (host restarted mid-flight) keep the
-  // request's jobId: the grant path then resolves the job and fails closed,
-  // instead of silently widening to a shared grant.
-  const runRestriction = input.request.responseKeyId
-    ? permissionRunRestriction({
-        sourceAgentFolder: input.sourceAgentFolder,
-        responseKeyId: input.request.responseKeyId,
-      })
-    : undefined;
+  // overwrite. Requests claiming an orphaned run or job were refused above.
   if (runRestriction) {
     input.request.personId = runRestriction.memoryUserId;
     input.request.jobId = runRestriction.jobId;
   } else {
-    // Deliberate (decision 0118): keeping the request's jobId here is the
-    // safer residual, not an oversight. Stripping it would make EVERY durable
-    // grant on this edge shared; keeping it lets a legitimate scheduled
-    // request still resolve its person (or fail closed on a missing job),
-    // and a forged jobId can at worst reach the same shared endpoint that
-    // stripping would guarantee. Do not flip this to stripping again.
+    // Decision 0118: retain jobId on a registry miss; never widen it to shared authority.
     input.request.personId = undefined;
   }
   input.request.suggestions ??= synthesizeHostPermissionSuggestions(
@@ -161,6 +168,21 @@ export async function processPermissionInteractionIpc(input: {
     input.request.toolInput,
   );
   try {
+    if (
+      !findPermissionRoute({
+        routes: input.deps.conversationRoutes?.() ?? {},
+        targetJid: input.request.targetJid,
+        agentId: agentIdForFolder(input.sourceAgentFolder),
+        threadId: input.request.threadId,
+        providerAccountId: input.request.providerAccountId,
+      })
+    ) {
+      refusePermissionInteraction(
+        input,
+        missingPermissionRouteReason(input.request.toolName),
+      );
+      return;
+    }
     const requestedContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,
       decision: 'requested',
@@ -527,72 +549,6 @@ async function releasePermissionDecisionClaim(
   await releasePermissionInteractionCallback({
     claim: decision.permissionCallbackClaim,
   });
-}
-
-async function denyLockedPermissionInteraction(
-  input: Parameters<typeof processPermissionInteractionIpc>[0],
-  lockStatus: Exclude<AgentLockStatus, 'full'>,
-): Promise<void> {
-  input.logger.warn(
-    {
-      sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      toolName: input.request.toolName,
-      reason: 'denied_by_profile',
-      accessPreset: lockStatus,
-    },
-    'Denied locked-agent permission IPC at parent boundary',
-  );
-  try {
-    await input.deps.publishRuntimeEvent?.({
-      appId: (input.request.appId ?? 'default') as never,
-      agentId: (input.request.agentId ??
-        memoryAgentIdForWorkspaceFolder(input.sourceAgentFolder)) as never,
-      runId: input.request.runId as never,
-      jobId: input.request.jobId as never,
-      conversationId: input.request.targetJid as never,
-      threadId: input.request.threadId as never,
-      eventType: RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
-      actor: { kind: 'system', source: `agent:${input.sourceAgentFolder}` },
-      correlationId: input.request.requestId,
-      payload: {
-        requestId: input.request.requestId,
-        toolName: input.request.toolName,
-        reasonCode: 'denied_by_profile',
-        // 'unknown' marks a fail-closed denial: the settings desired state
-        // could not be read at decision time.
-        accessPreset: lockStatus,
-      },
-    });
-  } catch (err) {
-    input.logger.error(
-      {
-        err,
-        sourceAgentFolder: input.sourceAgentFolder,
-        requestId: input.request.requestId,
-      },
-      'Failed to publish denied_by_profile audit event',
-    );
-  }
-  writePermissionInteractionFailure({
-    ipcBaseDir: input.ipcBaseDir,
-    sourceAgentFolder: input.sourceAgentFolder,
-    requestId: input.request.requestId,
-    responseNonce: input.request.responseNonce,
-    threadId: input.request.threadId,
-    responseKeyId: input.request.responseKeyId,
-    reason:
-      lockStatus === 'locked'
-        ? 'denied_by_profile: this agent runs with a locked access preset. Permission prompts are disabled; provision the capability before the run.'
-        : 'denied_by_profile: agent access preset could not be verified; permission requests fail closed until runtime settings are readable.',
-    logger: input.logger,
-  });
-  archiveIpcErrorFile(
-    input.ipcBaseDir,
-    input.sourceAgentFolder,
-    input.file,
-    input.claimedPath,
-  );
 }
 
 function persistentPermissionScopeRequest(

@@ -747,7 +747,9 @@ describe('requestPermissionApproval', () => {
       workspaceFolder: 'main_agent',
       targetJid: 'tg:test',
       toolName: 'Bash',
-      toolInput: { command: 'rm -rf ./generated' },
+      // A single-file delete still reaches the judge; a recursive one is a
+      // hard rule that only a person answers.
+      toolInput: { command: 'rm ./generated.txt' },
     });
     const ipcBaseDir = path.join(tempDir, 'ipc');
     const requestDir = path.join(

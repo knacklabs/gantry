@@ -1179,7 +1179,17 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       reason: 'Classifier would allow this command.',
       latencyMs: 1,
     }));
-    const requestPermissionApproval = vi.fn();
+    // The job's agent is set to ask, so its first call goes to a person (who
+    // denies it) rather than the judge; the route stays live throughout.
+    const requestPermissionApproval = vi.fn(async () => ({
+      kind: 'decision' as const,
+      decision: {
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'job-owner',
+        decisionClassification: 'user_reject' as const,
+      },
+    }));
     const decisions: Array<{
       runId: string;
       decision: PermissionApprovalDecision;
@@ -1267,7 +1277,9 @@ maybeDescribe('job lifecycle (Postgres)', () => {
           },
           sourceAgentFolder: job.workspace_key,
           deps: {
-            conversationRoutes: () => ({}),
+            conversationRoutes: () => ({
+              'tg:job-lifecycle': makeConversationRoute(),
+            }),
             requestPermissionApproval,
             classifierConsult,
             publishRuntimeEvent: (event) =>
@@ -1278,7 +1290,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
             getPermissionRuntimeSettings: () => ({
               agents: {
                 [job.workspace_key]: {
-                  permissionMode: 'auto' as const,
+                  permissionMode: 'ask' as const,
                   capabilities: [],
                 },
               },
@@ -1427,12 +1439,10 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     expect(decisions[0]?.decision).toMatchObject({
       approved: false,
       mode: 'cancel',
-      decidedBy: 'runtime',
-      reason:
-        'Autonomous permission approval is unavailable: RunCommand has no deliverable approver route.',
+      decidedBy: 'job-owner',
     });
     expect(classifierConsult).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(setupRequest).toMatchObject({
       jobId: job.id,
@@ -1513,7 +1523,8 @@ maybeDescribe('job lifecycle (Postgres)', () => {
     });
     expect(preparePermissionInteraction).toHaveBeenCalledOnce();
     expect(classifierConsult).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    // The saved grant answers the second run without asking again.
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(
       decisions.every(
         ({ runId, decision }) =>
@@ -1546,7 +1557,7 @@ maybeDescribe('job lifecycle (Postgres)', () => {
       expect.arrayContaining([
         expect.objectContaining({
           phase: 'permission_denied',
-          decided_by: 'runtime',
+          decided_by: 'job-owner',
         }),
         expect.objectContaining({
           phase: 'permission_allowed',

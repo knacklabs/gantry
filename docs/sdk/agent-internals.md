@@ -39,7 +39,8 @@ whether an agent is `full` or `locked`. See
 
 ## Auto-permission mode
 
-`agents.<id>.permission_mode: auto` (default `ask`) lets an LLM classifier
+`agents.<id>.permission_mode: auto` (the default when no mode is set; `ask`
+asks a person for anything a hard rule or saved approval doesn't settle) lets an LLM classifier
 auto-approve gray-zone tool calls — third-party MCP operations and shell —
 that would otherwise interrupt a human, with `allow | ask` as the only
 verdict space (deny stays deterministic). The classifier is consulted only

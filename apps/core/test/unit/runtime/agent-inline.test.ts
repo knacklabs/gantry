@@ -79,6 +79,7 @@ import type {
 } from '@core/runtime/agent-spawn-types.js';
 import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
+import { coordinatePermissionDecision } from '@core/runtime/permission-decision-coordinator.js';
 
 const group: ConversationRoute = {
   name: 'Inline Test',
@@ -120,6 +121,35 @@ describe('runInlineAgent', () => {
     configureDefaultInlineAgentLoopLane(undefined);
     fs.rmSync(INLINE_DATA_DIR, { recursive: true, force: true });
   });
+
+  it.each(['success', 'error'] as const)(
+    'retires invocation bindings after an inline run ends with %s',
+    async (status) => {
+      const runId = `inline-lifetime-${status}`;
+      const decide = (text: string) =>
+        coordinatePermissionDecision({
+          request: {
+            requestId: 'lifetime',
+            sourceAgentFolder: group.folder,
+            runId,
+            invocationId: 'one-call',
+            toolName: 'mcp__crm__write',
+            toolInput: { text },
+          },
+          deterministicRails: () => undefined,
+          tail: async () => ({ approved: true, mode: 'allow_once' }),
+        });
+      await runInlineAgent(group, agentInput, vi.fn(), undefined, {
+        ...options(async () => {
+          expect((await decide('first')).approved).toBe(true);
+          expect((await decide('changed')).approved).toBe(false);
+          return { status, result: null };
+        }),
+        correlationRunId: runId,
+      });
+      expect((await decide('changed')).approved).toBe(true);
+    },
+  );
 
   it('preserves every AgentOutput terminal field on success', async () => {
     const terminal = {

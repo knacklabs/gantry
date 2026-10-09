@@ -4,7 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { createGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
@@ -23,6 +32,8 @@ import {
   findDurablePermissionInteractionByRequestId,
 } from '@core/application/interactions/pending-interaction-durability.js';
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
+import { beginDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
+import { synthesizeHostPermissionSuggestions } from '@core/application/permissions/permission-suggestion-synthesis.js';
 import { createAgentToolRuleSettingsMirror } from '@core/config/settings/agent-tool-rule-settings-mirror.js';
 import { GANTRY_HOME, RUNTIME_SETTINGS_PATH } from '@core/config/index.js';
 import {
@@ -42,6 +53,10 @@ import type {
   PermissionApprovalRequest,
 } from '@core/domain/types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 import {
   interactionInFlightKey,
@@ -207,6 +222,23 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     });
   }, 60_000);
 
+  beforeEach(() => {
+    registerPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'interactive',
+    });
+  });
+
+  afterEach(() => {
+    if (ipcAuth)
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: AGENT_FOLDER,
+        responseKeyId: ipcAuth.responseKeyId,
+      });
+  });
+
   afterAll(async () => {
     configurePendingInteractionDurability(null);
     configurePendingInteractionPermissionPersistence(null);
@@ -338,6 +370,8 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     sendMessage?: IpcDeps['sendMessage'];
     classifierConsult?: IpcDeps['classifierConsult'];
     getPermissionRuntimeSettings?: IpcDeps['getPermissionRuntimeSettings'];
+    conversationRoutes?: IpcDeps['conversationRoutes'];
+    beforeProcess?: (request: ParsedPermissionIpcRequest) => Promise<void>;
   }): Promise<Omit<DriveResult, 'decision'>> {
     const requestPath = await waitForPermissionRequest();
     const claimed = runnerControl.claimRequest(
@@ -347,6 +381,7 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     );
     const rawRequest = claimed.raw as Record<string, unknown>;
     const request = parsePermissionIpcRequest(rawRequest, AGENT_FOLDER);
+    await input.beforeProcess?.(request);
 
     const logs: CapturedLog[] = [];
     const logger = {
@@ -362,7 +397,17 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     };
     const deps: IpcDeps = {
       sendMessage: input.sendMessage ?? vi.fn(async () => undefined),
-      conversationRoutes: () => ({}),
+      // The live route binding the agent to the chain's conversation.
+      conversationRoutes:
+        input.conversationRoutes ??
+        (() => ({
+          [TARGET_JID]: {
+            name: 'Permission chain',
+            folder: AGENT_FOLDER,
+            trigger: '',
+            added_at: new Date(0).toISOString(),
+          },
+        })),
       registerGroup: async () => undefined,
       syncGroups: async () => undefined,
       getAvailableGroups: () => [],
@@ -412,6 +457,8 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
     sendMessage?: IpcDeps['sendMessage'];
     classifierConsult?: IpcDeps['classifierConsult'];
     getPermissionRuntimeSettings?: IpcDeps['getPermissionRuntimeSettings'];
+    conversationRoutes?: IpcDeps['conversationRoutes'];
+    beforeProcess?: (request: ParsedPermissionIpcRequest) => Promise<void>;
   }): Promise<DriveResult> {
     const decisionPromise = requestPermissionApprovalViaIpc(
       clientEnv(input.env),
@@ -586,6 +633,18 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       ),
     });
     const releaseRunSlot = await acquireRunSlot(jobId, 1, { runId });
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+    });
+    registerPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId,
+      runId,
+    });
     const runnerDecision = requestPermissionApprovalViaIpc(
       clientEnv({
         jobId,
@@ -1087,4 +1146,157 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       (await runtimeEvents(request.requestId)).map((event) => event.eventType),
     ).not.toContain(RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED);
   }, 60_000);
+
+  it.each(
+    (['allow_once', 'allow_persistent_rule'] as const).flatMap((mode) =>
+      (['connected', 'removed', 'rebound'] as const).map((route) => ({
+        mode,
+        route,
+      })),
+    ),
+  )(
+    'checks the $route conversation route before replaying a recorded $mode answer',
+    async ({ mode, route }) => {
+      // The human has answered, but the host restarted before applying it.
+      // Record this restart seam through the same durable prompt and callback
+      // APIs as the real requester, rather than supplying a repository answer.
+      let recordedClaim: unknown;
+      let pendingBefore: Awaited<ReturnType<typeof interactionRow>>;
+      let routes: ReturnType<NonNullable<IpcDeps['conversationRoutes']>> = {
+        [TARGET_JID]: {
+          name: 'Permission chain',
+          folder: AGENT_FOLDER,
+          trigger: '',
+          added_at: new Date(0).toISOString(),
+        },
+      };
+      const rulesBefore = await runtime.service.db
+        .select()
+        .from(pgSchema.permissionRulesPostgres);
+      const bindingsBefore = await runtime.service.db
+        .select()
+        .from(pgSchema.agentToolBindingsPostgres);
+      const grantsBefore = await runtime.service.db
+        .select()
+        .from(pgSchema.transientGrantsPostgres);
+      const promptsBefore = await runtime.service.db
+        .select()
+        .from(pgSchema.permissionPromptsPostgres);
+      const requestPermissionApproval = vi.fn(async () => {
+        throw new Error('A recorded human answer must not open another prompt');
+      });
+      const result = await driveSignedPermission({
+        options: {
+          agentFolder: AGENT_FOLDER,
+          toolName: 'Bash',
+          toolInput: {
+            command: `/usr/local/bin/permission-replay-${mode}-${route} --daily`,
+          },
+        },
+        requestPermissionApproval,
+        conversationRoutes: () => routes,
+        beforeProcess: async (request) => {
+          request.suggestions = synthesizeHostPermissionSuggestions(
+            request.toolName,
+            request.toolInput,
+          );
+          await beginDurablePermissionInteraction({
+            request,
+            sourceAgentFolder: AGENT_FOLDER,
+            payload: { request },
+          });
+          const recorded = await buttonDecision(mode)(request);
+          expect(recorded).toMatchObject({
+            kind: 'decision',
+            decision: { approved: true, mode, decidedBy: APPROVER },
+          });
+          recordedClaim =
+            (await runtime.repositories.workerCoordination.findPendingPermissionPromptByMember(
+              {
+                appId: APP_ID,
+                sourceAgentFolder: AGENT_FOLDER,
+                requestId: request.requestId,
+              },
+            ))!.prompt.claim;
+          pendingBefore = await interactionRow(request.requestId);
+          if (route === 'removed') routes = {};
+          if (route === 'rebound') {
+            routes = {
+              [TARGET_JID]: {
+                name: 'A different agent',
+                folder: 'another_agent',
+                trigger: '',
+                added_at: new Date(0).toISOString(),
+              },
+            };
+          }
+        },
+      });
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
+      const stored =
+        await runtime.repositories.workerCoordination.findPendingPermissionPrompt(
+          {
+            scope: {
+              appId: APP_ID,
+              sourceAgentFolder: AGENT_FOLDER,
+              interactionId: result.request.requestId,
+            },
+            includeTerminalSettlement: true,
+          },
+        );
+      expect(stored!.prompt.claim).toEqual(recordedClaim);
+      expect(stored!.prompt.claim!.intent).toMatchObject({
+        mode,
+        approverRef: APPROVER,
+      });
+      expect(
+        await runtime.service.db
+          .select()
+          .from(pgSchema.permissionPromptsPostgres),
+      ).toHaveLength(promptsBefore.length + 1);
+      if (route === 'connected') {
+        expect(result.decision).toMatchObject({
+          approved: true,
+          mode,
+          decidedBy: APPROVER,
+        });
+        expect((await interactionRow(result.request.requestId)).status).toBe(
+          'resolved',
+        );
+        if (mode === 'allow_persistent_rule') {
+          expect(
+            await runtime.service.db
+              .select()
+              .from(pgSchema.agentToolBindingsPostgres),
+          ).toHaveLength(bindingsBefore.length + 1);
+        }
+      } else {
+        // A signed transport refusal does not replace the human's recorded mode.
+        expect(result.decision.approved).toBe(false);
+        expect(result.decision.reason).toContain(
+          "Reconnect this conversation's agent, then retry.",
+        );
+        expect(stored!.prompt.settlementState).toBe('claimed');
+        expect(await interactionRow(result.request.requestId)).toEqual(
+          pendingBefore!,
+        );
+        expect(
+          await runtime.service.db
+            .select()
+            .from(pgSchema.permissionRulesPostgres),
+        ).toEqual(rulesBefore);
+        expect(
+          await runtime.service.db
+            .select()
+            .from(pgSchema.agentToolBindingsPostgres),
+        ).toEqual(bindingsBefore);
+        expect(
+          await runtime.service.db
+            .select()
+            .from(pgSchema.transientGrantsPostgres),
+        ).toEqual(grantsBefore);
+      }
+    },
+    60_000,
+  );
 });

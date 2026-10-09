@@ -49,6 +49,7 @@ import type {
 import {
   coordinateCoreToolPermission,
   CoreToolPermissionDeliveryError,
+  type CorePermissionGate,
 } from './core-tool-permission-coordinator.js';
 import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
 import { withMountedGantryToolNames } from '../../shared/gantry-mcp-tool-surface.js';
@@ -139,6 +140,7 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
   requestPermissionApproval?: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalResult>;
+  permissionGate: CorePermissionGate;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   emitAgentOutput?: (output: {
     status: 'success';
@@ -513,7 +515,6 @@ async function gateCoreTool(
     allowedToolRules: deps.context.allowedToolRules ?? [],
     autonomousAllowedToolRules: deps.context.autonomousAllowedToolRules,
   });
-  // Auto classifier omitted: only ineligible AgentDelegation reaches this seam.
   const request: PermissionApprovalRequest = {
     requestId: id('permission'),
     sourceAgentFolder: deps.context.sourceAgentFolder,

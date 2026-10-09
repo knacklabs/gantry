@@ -1,0 +1,68 @@
+{
+  "branch": "task/PERMFLOW-1-T1",
+  "flagged": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+    "apps/core/src/runtime/permission-decision-coordinator.ts",
+    "apps/core/src/runtime/permission-invocation-id.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "a47fc9a666d0c7ea5ca22989ac44a715f3d96e802f7db0d8c2f07b1e82ee4a9d",
+    "changed": "5d93479147978afa3a5fa73f009909fd9523214fd12a6e8965124a2ec1e8a0bf",
+    "commit": "84166af5a614021604440476ff009995500ec384",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The previously identified T2 gaps remain. apps/core/src/runner/permission-ipc-client.ts:179 transports toolUseID, while ipc-parsing.ts:483 does not populate invocationId, so real IPC requests cannot exercise the new engine-id binding. The Claude duplicate client remains, job-heartbeat.ts:6 reads its pending requests, and tool-permission-gate.ts:324 and :380 retain protected-path and YOLO checks. T2 must complete transport, client consolidation, runner-check removal and shared-client heartbeat proof. This is nonblocking for T1 under the accepted ownership ruling.",
+        "file": "apps/core/src/domain/permission-approval-request.ts",
+        "line": 40,
+        "priority": "P2",
+        "title": "Later: finish invocation transport and runner consolidation in T2"
+      },
+      {
+        "body": "The previously identified T3 gaps remain. registry.ts:575\u2013580 gates only delegation tools; DeepAgents runner/mcp-tools.ts:158\u2013164 returns selected Gantry tools without the common gate; and the Claude inline lane still allows core tools at inline-lane/index.ts:178\u2013192. IPC classifier consultation also passes the dispatcher name unchanged at ipc-permission-classifier-decision.ts:276. T3 must complete engine entry coverage and resolved-target decisions, then supply the four-engine chat/job/mode table, one-ask-versus-two-call proof and deepagents-gantry-tool-gate, which is absent from apps/core/test/e2e/. This remains nonblocking for T1.",
+        "file": "apps/core/src/runtime/core-tools/registry.ts",
+        "line": 143,
+        "priority": "P2",
+        "title": "Later: complete engine gate coverage and its proof in T3"
+      },
+      {
+        "body": "The previously identified T4 gaps remain. Unsupported shapes still ask before the judge under the approved temporary rail policy. Unchanged permission-classifier.ts:360 skips consultation without read-only proof in auto_strict; ipc-parsing.ts:447\u2013454 sanitizes before rail evaluation without a complete program/path summary; gantry-tool-risk.ts:70\u201371 fixes capability_run as high risk; and structured-local-cli-invocation.ts:170\u2013173 refuses template mismatches. T4 must implement these policies and their shape/danger, truncation, repeated/restarted template, piped/chained Postgres and piped-command-judge-allow proofs. This is nonblocking for T1 and does not challenge its temporary rail ruling.",
+        "file": "apps/core/src/runtime/permission-decision-coordinator.ts",
+        "line": 105,
+        "priority": "P2",
+        "title": "Later: finish command policy and its proof in T4"
+      },
+      {
+        "body": "The host now pins invocationId, but durable waiting-record identity still uses requestId: unchanged apps/core/src/application/interactions/pending-interaction-idempotency.ts:11\u201316 contains no invocation or authenticated-run identity, and pending-interaction-permission-envelope.ts:17\u201339 does not persist invocationId. Two gate requests for the same engine invocation can therefore still create separate waiting records and asks. The Tasks table assigns durable record deduplication to T6; it must consume the authenticated invocation identity and prove alias deduplication while keeping two legitimate calls independent. This is nonblocking for T1.",
+        "file": "apps/core/src/domain/permission-approval-request.ts",
+        "line": 40,
+        "priority": "P2",
+        "title": "Later: consume the pinned invocation id in durable waiting records in T6"
+      }
+    ],
+    "id": "8e47ecba-9658-4411-83f5-6f77c02ccab3",
+    "status": "clean"
+  },
+  "round": 3,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-09T04:59:17+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-09T10:12:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T13:51:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T14:58:44+00:00",
+      "step": "review"
+    }
+  ],
+  "worker": "codex"
+}

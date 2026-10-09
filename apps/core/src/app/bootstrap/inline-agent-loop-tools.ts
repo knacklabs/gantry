@@ -5,7 +5,6 @@ import {
   type CallableAgentToolManifestEntry,
 } from '../../application/core-tools/callable-agent-tools.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
-import { decisionForMode } from '../../domain/permission-decision.js';
 import { executionAdmissionForAgent } from '../../application/agents/agent-execution-admission.js';
 import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
 import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
@@ -36,12 +35,6 @@ import {
   type PermissionClassifierRuntimeConfig,
 } from '../../runtime/permission-classifier.js';
 import {
-  isJudgeUnavailable,
-  judgeOutageReason,
-  observeJudgeAvailabilityForRequest,
-  sendJudgeOfflineNoticeForRequest,
-} from '../../runtime/permission-judge-outage.js';
-import {
   loadAgentAccessSnapshot,
   resolveTurnSemanticCapabilitiesFromSnapshot,
   resolveTurnSelectedMcpServerIdsFromSnapshot,
@@ -56,7 +49,12 @@ import {
   permissionTelemetryContext,
 } from '../../runtime/ipc-permission-telemetry.js';
 import { sanitizeIpcToolInput } from '../../runtime/ipc-tool-input-sanitization.js';
-import { coordinatePermissionDecision } from '../../runtime/permission-decision-coordinator.js';
+import {
+  coordinatePermissionDecision,
+  findPermissionRoute,
+  missingPermissionRouteReason,
+} from '../../runtime/permission-decision-coordinator.js';
+import type { CorePermissionGate } from '../../runtime/core-tools/core-tool-permission-coordinator.js';
 import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
@@ -158,6 +156,69 @@ export function createInlineCoreTools(
   const callableAgentTaskLifecycleBackend = projectedCallableAgents.length
     ? deps.createTaskLifecycleBackend(laneInput, 'AgentDelegation')
     : undefined;
+  // The host gate's route check and safety judge, shared by remote MCP calls
+  // and core tools so both lanes get the same answer as the IPC path.
+  const consultInlineClassifier = (
+    request: PermissionApprovalRequest,
+    toolInput: unknown,
+    signal?: AbortSignal,
+  ) => {
+    const classifierInput = sanitizeIpcToolInput(toolInput, CLASSIFIER_MAX);
+    const promotionRepository = deps.getPermissionPromotionRepository();
+    return consultPermissionClassifierBeforePrompt({
+      permissionMode: run.permissionMode,
+      requestFamily: 'tool',
+      appId: run.appId,
+      agentId: run.agentId,
+      agentFolder: laneInput.group.folder,
+      runId: activeRunId,
+      jobId: run.jobId,
+      conversationId: run.chatJid,
+      threadId: run.threadId,
+      correlationId: request.requestId,
+      actor: { kind: 'system', source: 'permission' },
+      intentSource: 'operator_message',
+      turnIntentSummary: run.prompt,
+      canonicalToolName: request.toolName,
+      toolInput: classifierInput.toolInput,
+      toolInputRedactedPaths: classifierInput.redactedPaths,
+      toolInputTruncatedPaths: classifierInput.truncatedPaths,
+      policyDecisionReason:
+        request.decisionReason ?? 'Human approval is required.',
+      approvedCapabilityIds,
+      workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
+      reviewedMcpReadBindings,
+      yoloMode: permissionSettings.permissions.yoloMode,
+      suggestions: request.suggestions,
+      ...(promotionRepository
+        ? { promotion: { repository: promotionRepository } }
+        : {}),
+      classifierConfig: permissionRuntimeConfig,
+      signal,
+      publishRuntimeEvent: deps.publishRuntimeEvent,
+      classifierConsult: deps.classifierConsult,
+    });
+  };
+  const permissionGate: CorePermissionGate = {
+    routeRefusal: (toolName) =>
+      findPermissionRoute({
+        routes: deps.getConversationRoutes(),
+        targetJid: run.chatJid,
+        agentId:
+          run.agentId ??
+          memoryAgentIdForWorkspaceFolder(laneInput.group.folder),
+        threadId: run.threadId ?? undefined,
+        providerAccountId: laneInput.group.providerAccountId,
+      })
+        ? undefined
+        : missingPermissionRouteReason(toolName),
+    ...(run.permissionMode !== 'ask'
+      ? {
+          consultClassifier: (request: PermissionApprovalRequest) =>
+            consultInlineClassifier(request, request.toolInput),
+        }
+      : {}),
+  };
   const registry = createCoreToolRegistry({
     context: {
       sourceAgentFolder: laneInput.group.folder,
@@ -190,6 +251,7 @@ export function createInlineCoreTools(
       : {}),
     requestUserAnswer: deps.requestUserAnswer,
     requestPermissionApproval: deps.requestPermissionApproval,
+    permissionGate,
     publishRuntimeEvent: deps.publishRuntimeEvent,
     emitAgentOutput: laneInput.emitOutput,
     onPermissionPromptStarted: (request) =>
@@ -324,7 +386,13 @@ export function createInlineCoreTools(
       const permissionRequestId = `permission-${randomUUID()}`;
       const suggestions = synthesizeHostPermissionSuggestions(name, toolInput);
       const displayToolInput = sanitizeIpcToolInput(toolInput);
-      const request: PermissionApprovalRequest = {
+      // The same full view the IPC request carries, so the rails and the
+      // judge see the whole action rather than the trimmed display copy.
+      const classifierView = sanitizeIpcToolInput(toolInput, CLASSIFIER_MAX);
+      const request: PermissionApprovalRequest & {
+        toolInputRedactedPaths?: string[];
+        toolInputTruncatedPaths?: string[];
+      } = {
         requestId: permissionRequestId,
         requestFamily: 'tool',
         sourceAgentFolder: laneInput.group.folder,
@@ -348,11 +416,19 @@ export function createInlineCoreTools(
         toolInput: toolInput as Record<string, unknown>,
         toolInputSanitized: displayToolInput.altered,
         toolInputSanitizedPaths: displayToolInput.alteredPaths,
+        classifierToolInput: classifierView.toolInput,
+        ...(classifierView.redactedPaths.length > 0
+          ? { toolInputRedactedPaths: classifierView.redactedPaths }
+          : {}),
+        ...(classifierView.truncatedPaths.length > 0
+          ? { toolInputTruncatedPaths: classifierView.truncatedPaths }
+          : {}),
         suggestions,
       };
       const promotionRepository = deps.getPermissionPromotionRepository();
       const coordinatedDecision = await coordinatePermissionDecision({
         request,
+        routeRefusal: () => permissionGate.routeRefusal(name),
         hardDenyReason: precheck?.reason,
         accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
         fixedImageRestricted: run.hideAuthorityTools === true,
@@ -362,104 +438,29 @@ export function createInlineCoreTools(
         // prettier-ignore
         humanDecisionProjection: remember.inlineScheduledProjection({ run, deps }),
         skipClassifierVerdictCache: true,
-        tail: async (permissionTailContext) => {
-          const promotion = promotionRepository
-            ? { repository: promotionRepository }
-            : undefined;
-          let classifierDecision:
-            | Awaited<
-                ReturnType<typeof consultPermissionClassifierBeforePrompt>
-              >
-            | undefined;
-          const classifierInput = sanitizeIpcToolInput(
-            toolInput,
-            CLASSIFIER_MAX,
-          );
-          const classifierEligible =
-            run.permissionMode === 'auto' ||
-            run.permissionMode === 'auto_strict';
-          if (classifierEligible) {
-            classifierDecision = await consultPermissionClassifierBeforePrompt({
-              permissionMode: run.permissionMode,
-              requestFamily: 'tool',
-              appId: run.appId,
-              agentId: run.agentId,
-              agentFolder: laneInput.group.folder,
-              runId: activeRunId,
-              jobId: run.jobId,
-              conversationId: run.chatJid,
-              threadId: run.threadId,
-              correlationId: permissionRequestId,
-              actor: { kind: 'system', source: 'permission' },
-              intentSource: 'operator_message',
-              turnIntentSummary: run.prompt,
-              canonicalToolName: name,
-              toolInput: classifierInput.toolInput,
-              toolInputRedactedPaths: classifierInput.redactedPaths,
-              toolInputTruncatedPaths: classifierInput.truncatedPaths,
-              policyDecisionReason: decision.reason,
-              approvedCapabilityIds,
-              workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
-              reviewedMcpReadBindings,
-              yoloMode: permissionSettings.permissions.yoloMode,
-              suggestions: request.suggestions,
-              ...(promotion ? { promotion } : {}),
-              classifierConfig: permissionRuntimeConfig,
-              signal: context?.signal,
-              publishRuntimeEvent: deps.publishRuntimeEvent,
-              classifierConsult: deps.classifierConsult,
-            });
-            if (
-              classifierDecision?.decision === 'allow' &&
-              !request.decisionOptions?.length
-            ) {
-              observeJudgeAvailabilityForRequest(classifierDecision, request);
-              // prettier-ignore
-              return decisionForMode(request, 'allow_once', 'auto_classifier', 'machine');
+        ...(run.permissionMode !== 'ask'
+          ? {
+              consultClassifier: () =>
+                consultInlineClassifier(request, toolInput, context?.signal),
             }
-          }
-          if (classifierDecision && isJudgeUnavailable(classifierDecision)) {
-            request.decisionReason = judgeOutageReason(classifierDecision);
-          } else {
-            observeJudgeAvailabilityForRequest(classifierDecision, request);
-          }
-          if (
-            !request.decisionOptions?.length &&
-            run.permissionMode !== 'ask' &&
-            run.isScheduledJob === true
-          ) {
-            await sendJudgeOfflineNoticeForRequest(
-              classifierDecision,
-              deps.sendMessage,
-              request,
-            );
-            return {
-              ...decisionForMode(request, 'cancel', 'runtime', 'machine'),
-              reason:
-                classifierDecision && isJudgeUnavailable(classifierDecision)
-                  ? judgeOutageReason(classifierDecision)
-                  : classifierDecision
-                    ? `Classifier requested human approval: ${classifierDecision.reason}`
-                    : 'This tool is not eligible for unattended auto-permission.',
-            };
-          }
-          const effectiveSuggestions = classifierDecision?.denylistHit
-            ? undefined
-            : request.suggestions;
+          : {}),
+        tail: async (permissionTailContext) => {
+          const classifierDecision = permissionTailContext.classifierDecision;
           const promotionHintCount = classifierDecision?.denylistHit
             ? undefined
             : (classifierDecision?.promotionHintCount ??
               (await permissionPromotionHintCount({
-                promotion,
+                promotion: promotionRepository
+                  ? { repository: promotionRepository }
+                  : undefined,
                 appId: run.appId,
                 agentFolder: laneInput.group.folder,
                 canonicalToolName: name,
                 toolInput,
-                suggestions: effectiveSuggestions,
+                suggestions: request.suggestions,
               })));
-          request.suggestions = effectiveSuggestions;
           request.promotionHintCount = promotionHintCount;
-          request.decisionOptions ??= effectiveSuggestions
+          request.decisionOptions ??= request.suggestions
             ? promotionHintCount
               ? ['allow_persistent_rule', 'allow_once', 'cancel']
               : ['allow_once', 'allow_persistent_rule', 'cancel']
@@ -469,13 +470,8 @@ export function createInlineCoreTools(
             request,
             sourceAgentFolder: laneInput.group.folder,
             // prettier-ignore
-            rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps, canonicalRoot: permissionTailContext?.canonicalRoot }),
+            rememberContext: await remember.inlinePermissionRememberContext({ run, laneInput, request, deps, canonicalRoot: permissionTailContext.canonicalRoot }),
             beforePrompt: async () => {
-              await sendJudgeOfflineNoticeForRequest(
-                classifierDecision,
-                deps.sendMessage,
-                request,
-              );
               laneInput.jobActivity.beginPermissionRequest(
                 request.requestId,
                 request.toolName,

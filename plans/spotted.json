@@ -45,6 +45,50 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/runtime/ipc-permission-classifier-decision.ts\tNot done: route checks precede persisted approvals\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+      "line": 130,
+      "text": "Not done: route checks precede persisted approvals",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-decision-coordinator.ts\tNot done: admin actions offer only Allow once and Deny\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-decision-coordinator.ts",
+      "line": 453,
+      "text": "Not done: admin actions offer only Allow once and Deny",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-decision-coordinator.ts\tNot done: functional check\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-decision-coordinator.ts",
+      "line": 442,
+      "text": "Not done: functional check",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-invocation-id.ts\tNot done: invocation ids are scoped to the authenticated run\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-invocation-id.ts",
+      "line": 48,
+      "text": "Not done: invocation ids are scoped to the authenticated run",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/shared/gantry-mcp-tool-surface.ts\tNot done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
@@ -74,6 +118,17 @@
       "text": "Not done: Each unavailable capability's reason in the run's instructions is derived from the runner's real mount decision (for example the\u30d6\u30e9",
       "from": "blocking",
       "item": "the-agent-s-unavailable-reasons-come-fro",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tThe Control API run stays running at the completion assertion on both this branch and origin/main.",
+      "kind": "bug",
+      "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+      "line": 1326,
+      "text": "The Control API run stays running at the completion assertion on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
       "status": "open",
       "closed_by": null
     },
@@ -199,17 +254,6 @@
       "closed_by": null
     },
     {
-      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
-      "kind": "bug",
-      "path": "docs/specs/job-background-work-saves.md",
-      "line": 50,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "background-work-started-by-a-job-can-t-b",
-      "status": "open",
-      "closed_by": null
-    },
-    {
       "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
       "kind": "bug",
       "path": "docs/specs/subagents-end-to-end.md",
@@ -265,6 +309,50 @@
       "closed_by": null
     },
     {
+      "key": "edge\tapps/core/src/runtime/permission-invocation-id.ts\tPreserve invocation bindings for live runs when the map fills",
+      "kind": "edge",
+      "path": "apps/core/src/runtime/permission-invocation-id.ts",
+      "line": 59,
+      "text": "Preserve invocation bindings for live runs when the map fills",
+      "from": "review",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-delegation-detachment.test.ts\tThe cleanup hook times out on both this branch and origin/main.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-delegation-detachment.test.ts",
+      "line": 42,
+      "text": "The cleanup hook times out on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-message-delivery.test.ts\tCleanup times out for failed delivery on both branches and for successful delivery only in the full suite.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-message-delivery.test.ts",
+      "line": 93,
+      "text": "Cleanup times out for failed delivery on both branches and for successful delivery only in the full suite.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-operational-error-counters.test.ts\tThe cleanup hook times out on both this branch and origin/main.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-operational-error-counters.test.ts",
+      "line": 28,
+      "text": "The cleanup hook times out on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "edge\tdocs/context/subagent-research-2026-10-02.md\tRepair the remaining broken research citations",
       "kind": "edge",
       "path": "docs/context/subagent-research-2026-10-02.md",
@@ -283,6 +371,17 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
+      "kind": "bug",
+      "path": "docs/specs/job-background-work-saves.md",
+      "line": 50,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "background-work-started-by-a-job-can-t-b",
       "status": "open",
       "closed_by": null
     },
