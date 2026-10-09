@@ -263,6 +263,17 @@
       "item": "TURN-1/T6",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
+      "kind": "bug",
+      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+      "line": 2357,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "discord-thread-messages-are-dropped-when",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }
