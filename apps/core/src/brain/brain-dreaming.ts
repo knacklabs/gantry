@@ -7,6 +7,7 @@ import {
   type BrainDreamProposalPort,
 } from './brain-dream-proposer.js';
 import {
+  markdownWithFrontmatter,
   normalizeBrainSlug,
   normalizeEntityName,
 } from './brain-page-ingest.js';
@@ -530,7 +531,7 @@ async function writeDreamPage(
       evidence_page_ids: evidencePageIds,
       dreamed_at: nowIso(),
     },
-    page.markdown,
+    page.markdown.trim(),
   );
   const parsedBody = page.markdown.trim();
   const unchanged =
@@ -665,22 +666,4 @@ function stringArray(value: unknown): string[] {
         (entry): entry is string => typeof entry === 'string' && !!entry.trim(),
       )
     : [];
-}
-
-function markdownWithFrontmatter(
-  frontmatter: Record<string, string | string[]>,
-  body: string,
-): string {
-  const lines = ['---'];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (Array.isArray(value)) {
-      lines.push(
-        `${key}: [${value.map((entry) => JSON.stringify(entry)).join(', ')}]`,
-      );
-    } else {
-      lines.push(`${key}: ${JSON.stringify(value)}`);
-    }
-  }
-  lines.push('---', body.trim());
-  return lines.join('\n');
 }

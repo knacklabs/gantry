@@ -12,9 +12,9 @@ vi.mock('@core/runtime/ipc.js', () => ({
 import { DATA_DIR } from '@core/config/index.js';
 import { createChannelMessageActionRouter } from '@core/app/bootstrap/channel-message-action-router.js';
 import {
-  registerLiveStopMessageAction,
-  registerRuntimeLiveStopMessageAction,
-} from '@core/app/bootstrap/runtime-live-stop-message-action.js';
+  registerMessageActions,
+  registerRuntimeMessageActions,
+} from '@core/app/bootstrap/runtime-message-actions.js';
 import { writeTaskIpcResponse } from '@core/jobs/ipc-shared.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
@@ -25,37 +25,6 @@ describe('createChannelMessageActionRouter', () => {
       recursive: true,
       force: true,
     });
-  });
-
-  it('routes live stop callbacks to the registered handler', async () => {
-    const router = createChannelMessageActionRouter();
-    const handler = vi.fn();
-    router.set(handler);
-    const actionToken = '67ad9359-9a43-4fb7-a782-c21a5ef9442a';
-    expect(`lt:stop:${actionToken}`.length).toBeLessThanOrEqual(64);
-
-    await router.handle({
-      kind: 'live_turn_stop',
-      conversationJid: 'tg:chat',
-      threadId: 'topic',
-      actionToken,
-    });
-
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects malformed live stop callback tokens', async () => {
-    const router = createChannelMessageActionRouter();
-    const handler = vi.fn();
-    router.set(handler);
-
-    await router.handle({
-      kind: 'live_turn_stop',
-      conversationJid: 'sl:C123',
-      actionToken: 'token-1',
-    });
-
-    expect(handler).not.toHaveBeenCalled();
   });
 
   it('routes scheduler run-now callbacks to the registered handler', async () => {
@@ -98,9 +67,9 @@ describe('createChannelMessageActionRouter', () => {
     const router = createChannelMessageActionRouter();
     const handler = vi.fn();
     await router.handle({
-      kind: 'live_turn_stop',
+      kind: 'scheduler_run_now',
       conversationJid: 'sl:C123',
-      actionToken: 'token-1',
+      jobId: 'job-1',
     });
 
     expect(handler).not.toHaveBeenCalled();
@@ -335,13 +304,12 @@ describe('createChannelMessageActionRouter', () => {
       isControlApproverAllowed: vi.fn(async () => true),
       sendMessage,
     };
-    registerLiveStopMessageAction({
+    registerMessageActions({
       channelWiring: channelWiring as any,
       sourceAgentFolderFor: () => 'main_agent',
       conversationBindings: () => ({
         'sl:C123': { folder: 'main_agent' },
       }),
-      stopGroup: vi.fn(),
       runSchedulerNow,
     });
 
@@ -384,7 +352,7 @@ describe('createChannelMessageActionRouter', () => {
       isControlApproverAllowed: vi.fn(async () => true),
       sendMessage,
     };
-    registerRuntimeLiveStopMessageAction(
+    registerRuntimeMessageActions(
       channelWiring as any,
       {
         getConversationRoutes: () => ({
@@ -393,7 +361,6 @@ describe('createChannelMessageActionRouter', () => {
           [triageRouteKey]: { folder: 'triage' },
         }),
       },
-      { stopGroup: vi.fn() },
       { runNow: runSchedulerNow },
     );
 
@@ -426,7 +393,7 @@ describe('createChannelMessageActionRouter', () => {
       isControlApproverAllowed: vi.fn(async () => true),
       sendMessage,
     };
-    registerRuntimeLiveStopMessageAction(
+    registerRuntimeMessageActions(
       channelWiring as any,
       {
         getConversationRoutes: () => ({
@@ -434,7 +401,6 @@ describe('createChannelMessageActionRouter', () => {
           [triageRouteKey]: { folder: 'triage' },
         }),
       },
-      { stopGroup: vi.fn() },
       { runNow: runSchedulerNow },
     );
 
@@ -463,75 +429,6 @@ describe('createChannelMessageActionRouter', () => {
       sourceAgentFolder: 'alpha',
       decisionPolicy: 'same_channel',
     });
-  });
-
-  it('does not stop live runs when the action source route is ambiguous', async () => {
-    const actionToken = '67ad9359-9a43-4fb7-a782-c21a5ef9442a';
-    const stopGroup = vi.fn(async () => false);
-    const sendMessage = vi.fn(async () => {});
-    let handler: any;
-    const channelWiring = {
-      setMessageActionHandler: vi.fn((next) => {
-        handler = next;
-      }),
-      isControlApproverAllowed: vi.fn(async () => true),
-      sendMessage,
-    };
-    registerRuntimeLiveStopMessageAction(
-      channelWiring as any,
-      {
-        getConversationRoutes: () => ({
-          [makeAgentThreadQueueKey('sl:C123', 'agent:beta')]: {
-            folder: 'beta',
-          },
-          [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: {
-            folder: 'alpha',
-          },
-        }),
-      },
-      { stopGroup },
-    );
-
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'sl:C123',
-      userId: 'U123',
-      actionToken,
-    });
-
-    expect(stopGroup).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('does not fall back to the active thread queue when a live stop action token misses', async () => {
-    const actionToken = '67ad9359-9a43-4fb7-a782-c21a5ef9442a';
-    const sendMessage = vi.fn(async () => {});
-    const stopGroup = vi.fn(async () => false);
-    let handler: any;
-    const channelWiring = {
-      setMessageActionHandler: vi.fn((next) => {
-        handler = next;
-      }),
-      isControlApproverAllowed: vi.fn(async () => true),
-      sendMessage,
-    };
-    registerLiveStopMessageAction({
-      channelWiring: channelWiring as any,
-      sourceAgentFolderFor: () => 'main_agent',
-      stopGroup,
-    });
-
-    await handler?.({
-      kind: 'live_turn_stop',
-      conversationJid: 'sl:C123',
-      threadId: 'thread-1',
-      userId: 'U123',
-      actionToken,
-    });
-
-    expect(stopGroup).toHaveBeenNthCalledWith(1, actionToken);
-    expect(stopGroup).toHaveBeenCalledTimes(1);
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('reports scheduler run-now IPC rejection instead of a blind success', async () => {
@@ -568,15 +465,11 @@ describe('createChannelMessageActionRouter', () => {
       sendMessage,
     };
 
-    registerRuntimeLiveStopMessageAction(
-      channelWiring as any,
-      {
-        getConversationRoutes: () => ({
-          'sl:C123': { folder: 'main_agent' },
-        }),
-      },
-      { stopGroup: vi.fn() },
-    );
+    registerRuntimeMessageActions(channelWiring as any, {
+      getConversationRoutes: () => ({
+        'sl:C123': { folder: 'main_agent' },
+      }),
+    });
 
     await handler?.({
       kind: 'scheduler_run_now',

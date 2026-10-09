@@ -182,10 +182,12 @@ export async function postDiscordMessageParts(input: {
         input.files?.some((file) => file.sizeBytes <= DISCORD_FILE_MAX_BYTES) &&
         input.apiRoot &&
         input.botToken;
-      const posted = canUploadFiles
+      const posted: { id?: string; warningMessageId?: string } = canUploadFiles
         ? await postDiscordFilesOrTextFallback(input, body)
         : await input.post(input.channelId, body);
       if (posted.id) externalMessageIds.push(posted.id);
+      if (posted.warningMessageId)
+        externalMessageIds.push(posted.warningMessageId);
       deliveredParts += 1;
     } catch (err) {
       if (deliveredParts > 0) {
@@ -256,7 +258,7 @@ async function postDiscordFilesOrTextFallback(
     post: DiscordMessagePoster;
   },
   body: Record<string, unknown>,
-): Promise<{ id?: string }> {
+): Promise<{ id?: string; warningMessageId?: string }> {
   try {
     return await postDiscordFiles(
       input.apiRoot!,
@@ -267,13 +269,13 @@ async function postDiscordFilesOrTextFallback(
     );
   } catch {
     const posted = await input.post(input.channelId, body);
-    await input
+    const warning = await input
       .post(input.channelId, {
         content: 'Attachment unavailable in Discord: file upload failed.',
         allowed_mentions: { parse: [] },
       })
       .catch(() => undefined);
-    return posted;
+    return { ...posted, warningMessageId: warning?.id };
   }
 }
 

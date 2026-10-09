@@ -35,6 +35,11 @@ export const PROACTIVE_RECOMMENDATION_GUIDANCE = [
   'Phrase these suggestions to the user outcome-first, not by tool name. For example: "I can ask to keep this access for next time so you do not have to approve it each run.", "I can turn this into a scheduled job so it happens automatically.", "I can package these repeated steps as a reusable skill.", "This needs a secret. Please add it in Credential Center; do not paste it here.", "This needs a signed-in browser session. I can ask for Browser access and guide setup.", or "I noticed access that may no longer be needed. I can show a cleanup suggestion."',
 ].join('\n');
 
+export const DELEGATION_GUIDANCE = [
+  'Never use raw harness subagents. Delegation is available through Gantry delegate_task when mounted in this run.',
+  'If delegate_task is not mounted, name the actual gate using the run’s access information: AgentDelegation has not been granted, the agent has a locked access preset, or delegation tools are hidden. Tell the owner to grant AgentDelegation to this agent, use the full access preset, or enable the hidden tools, respectively, then start a fresh run. Do not guess which gate applies when the run does not expose it; ask the owner to check those settings.',
+].join('\n');
+
 export function renderDefaultCapabilityRules(options?: {
   includeSettingsTools?: boolean;
 }): string {

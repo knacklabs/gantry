@@ -200,7 +200,7 @@ describe('DiscordChannel', () => {
     expect(channel).toBeInstanceOf(DiscordChannel);
   });
 
-  it('sends messages through Discord REST with Stop buttons', async () => {
+  it('sends messages through Discord REST with scheduler actions', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
@@ -209,7 +209,7 @@ describe('DiscordChannel', () => {
     await expect(
       channel.sendMessage('dc:channel-1', 'Working', {
         actionAffordances: [
-          { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+          { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
         ],
       }),
     ).resolves.toMatchObject({ externalMessageId: 'message-1' });
@@ -227,9 +227,9 @@ describe('DiscordChannel', () => {
               components: [
                 {
                   type: 2,
-                  style: 4,
-                  label: 'Stop',
-                  custom_id: 'gantry:live_stop:token-1',
+                  style: 2,
+                  label: 'Pause',
+                  custom_id: 'gantry:scheduler_pause_job:job-1',
                 },
               ],
             },
@@ -791,7 +791,10 @@ describe('DiscordChannel', () => {
           },
         ],
       }),
-    ).resolves.toMatchObject({ externalMessageId: 'text-message-1' });
+    ).resolves.toMatchObject({
+      externalMessageId: 'text-message-1',
+      externalMessageIds: ['text-message-1', 'warning-message-1'],
+    });
 
     const textBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(textBody.content).toBe('Report attached');
@@ -836,7 +839,7 @@ describe('DiscordChannel', () => {
     fetchMock.mockRestore();
   });
 
-  it('renders todo messages in place with Stop buttons', async () => {
+  it('renders todo messages in place', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'todo-1' }))
@@ -846,19 +849,17 @@ describe('DiscordChannel', () => {
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Searching the web',
       status: 'running',
-      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('dc:channel-1', {
       headline: 'Done',
       status: 'done',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
     const posted = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(posted.content).toContain('⏳ Searching the web');
-    expect(JSON.stringify(posted.components)).toContain('stop-token-1');
+    expect(posted.components).toEqual([]);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       'https://discord.com/api/v10/channels/channel-1/messages/todo-1',
     );
@@ -867,7 +868,7 @@ describe('DiscordChannel', () => {
     expect(updated.components).toEqual([]);
   });
 
-  it('omits broken Stop buttons on threaded todo messages', async () => {
+  it('renders todo messages in the originating thread', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ id: 'todo-1' }));
@@ -877,7 +878,6 @@ describe('DiscordChannel', () => {
       headline: 'Searching the web',
       status: 'running',
       threadId: 'thread-1',
-      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
 
@@ -896,7 +896,7 @@ describe('DiscordChannel', () => {
     await expect(
       channel.sendMessage('dc:channel-1', 'x'.repeat(2001), {
         actionAffordances: [
-          { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+          { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
         ],
       }),
     ).resolves.toMatchObject({
@@ -921,9 +921,9 @@ describe('DiscordChannel', () => {
         components: [
           {
             type: 2,
-            style: 4,
-            label: 'Stop',
-            custom_id: 'gantry:live_stop:token-1',
+            style: 2,
+            label: 'Pause',
+            custom_id: 'gantry:scheduler_pause_job:job-1',
           },
         ],
       },
@@ -967,7 +967,7 @@ describe('DiscordChannel', () => {
     await channel.sendProgressUpdate('dc:channel-1', 'Working', {
       generation: 1,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
     await channel.sendProgressUpdate('dc:channel-1', '**Completed** in text', {
@@ -1047,14 +1047,14 @@ describe('DiscordChannel', () => {
     await channel.sendProgressUpdate('dc:channel-1', 'Working', {
       generation: 1,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
     await channel.sendProgressUpdate('dc:channel-1', 'Still working', {
       generation: 1,
       replaceOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
     await channel.sendProgressUpdate('dc:channel-1', 'Done', {
@@ -1256,24 +1256,24 @@ describe('DiscordChannel', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({}));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const stopOptions = {
+    const progressOptions = {
       generation: 1,
       actionOnly: true,
       actionAffordances: [
         {
-          kind: 'live_turn_stop' as const,
-          label: 'Stop',
-          actionToken: 'token-1',
+          kind: 'scheduler_pause_job' as const,
+          label: 'Pause',
+          jobId: 'job-1',
         },
       ],
     };
     const currentIdentity = channel.progressCardIdentity(
       'dc:channel-1',
-      stopOptions,
+      progressOptions,
     );
 
     await expect(
-      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+      channel.sendProgressUpdate('dc:channel-1', '', progressOptions),
     ).resolves.toBe(true);
     await expect(
       channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
@@ -1295,24 +1295,24 @@ describe('DiscordChannel', () => {
       .spyOn(globalThis, 'fetch')
       .mockRejectedValueOnce(new Error('response lost after POST'));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const stopOptions = {
+    const progressOptions = {
       generation: 1,
       actionOnly: true,
       actionAffordances: [
         {
-          kind: 'live_turn_stop' as const,
-          label: 'Stop',
-          actionToken: 'token-1',
+          kind: 'scheduler_pause_job' as const,
+          label: 'Pause',
+          jobId: 'job-1',
         },
       ],
     };
     const currentIdentity = channel.progressCardIdentity(
       'dc:channel-1',
-      stopOptions,
+      progressOptions,
     );
 
     await expect(
-      channel.sendProgressUpdate('dc:channel-1', '', stopOptions),
+      channel.sendProgressUpdate('dc:channel-1', '', progressOptions),
     ).rejects.toThrow('response lost after POST');
     await expect(
       channel.sendProgressUpdate('dc:channel-1', 'I hit an issue.', {
@@ -1322,87 +1322,6 @@ describe('DiscordChannel', () => {
       }),
     ).resolves.toBe(false);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    fetchMock.mockRestore();
-  });
-
-  it('settles the Discord Stop progress message across generation rollover', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ id: 'progress-1' }))
-      .mockResolvedValue(new Response('{}', { status: 200 }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const stopOptions = {
-      generation: 1,
-      actionOnly: true,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop' as const,
-          label: 'Stop',
-          actionToken: 'token-1',
-        },
-      ],
-    };
-    const controlIdentity = channel.progressCardIdentity(
-      'dc:channel-1',
-      stopOptions,
-    );
-
-    expect(
-      channel.progressCardIdentity('dc:channel-1', { generation: 1 }),
-    ).not.toBe(channel.progressCardIdentity('dc:channel-1', { generation: 2 }));
-
-    await channel.sendProgressUpdate('dc:channel-1', '', stopOptions);
-    expect(
-      channel.progressCardIdentity('dc:channel-1', {
-        generation: 2,
-        done: true,
-      }),
-    ).toBe(controlIdentity);
-    await channel.sendProgressUpdate('dc:channel-1', 'Done', {
-      generation: 2,
-      done: true,
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'https://discord.com/api/v10/channels/channel-1/messages/progress-1',
-      expect.objectContaining({ method: 'PATCH' }),
-    );
-    const doneBody = JSON.parse(
-      String(fetchMock.mock.calls[1]?.[1]?.body || '{}'),
-    );
-    expect(doneBody).toMatchObject({ content: 'Done', components: [] });
-    fetchMock.mockRestore();
-  });
-
-  it('honors a queued terminal identity after a newer control card appears', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ id: 'control-progress' }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const oldGenerationIdentity = channel.progressCardIdentity('dc:channel-1', {
-      generation: 1,
-    });
-
-    await channel.sendProgressUpdate('dc:channel-1', 'Working generation 2', {
-      generation: 2,
-      actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-2' },
-      ],
-    });
-    const landed = await channel.sendProgressUpdate(
-      'dc:channel-1',
-      'Done generation 1',
-      {
-        generation: 1,
-        done: true,
-        progressCardIdentity: oldGenerationIdentity,
-      },
-    );
-
-    expect(landed).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     fetchMock.mockRestore();
   });
@@ -1419,14 +1338,14 @@ describe('DiscordChannel', () => {
     await channel.sendProgressUpdate('dc:channel-1', 'Working', {
       generation: 1,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
     await channel.sendProgressUpdate('dc:channel-1', `${'a'.repeat(2000)}b`, {
       generation: 1,
       replaceOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
 
@@ -1455,8 +1374,12 @@ describe('DiscordChannel', () => {
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     try {
-      await channel.sendStreamingChunk('dc:channel-1', 'Hello');
-      await channel.sendStreamingChunk('dc:channel-1', ' world');
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', 'Hello'),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', ' world'),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(1200);
@@ -1487,31 +1410,6 @@ describe('DiscordChannel', () => {
       vi.useRealTimers();
       fetchMock.mockRestore();
     }
-  });
-
-  it('drops stale Discord streaming chunks after reset seals the generation', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockImplementation(async () => jsonResponse({ id: 'stream-1' }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'old', { generation: 1 }),
-    ).resolves.toBe(true);
-    channel.resetStreaming('dc:channel-1');
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'stale', { generation: 1 }),
-    ).resolves.toBe(false);
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', 'new', { generation: 2 }),
-    ).resolves.toBe(true);
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const bodies = fetchMock.mock.calls.map((call) =>
-      JSON.parse(String((call[1] as RequestInit).body)),
-    );
-    expect(bodies.map((body) => body.content)).toEqual(['old', 'new']);
-    fetchMock.mockRestore();
   });
 
   it('resets only the targeted Discord thread stream', async () => {
@@ -1571,7 +1469,9 @@ describe('DiscordChannel', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     channel.resetStreaming('dc:channel-1', { threadId: 'thread-a' });
     resolveFirstSend(jsonResponse({ id: 'stream-old' }));
-    await inFlight;
+    await expect(inFlight).resolves.toEqual({
+      externalMessageIds: ['stream-old'],
+    });
 
     await channel.sendStreamingChunk('dc:channel-1', 'new', {
       threadId: 'thread-a',
@@ -1585,7 +1485,6 @@ describe('DiscordChannel', () => {
   });
 
   it('stops Discord overflow sends when the stream resets between parts', async () => {
-    let channel!: DiscordChannel;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => {
@@ -1593,13 +1492,13 @@ describe('DiscordChannel', () => {
           channel.resetStreaming('dc:channel-1');
         return jsonResponse({ id: `stream-${fetchMock.mock.calls.length}` });
       });
-    channel = new DiscordChannel('bot-token', 'app-id', opts());
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
     await expect(
       channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(8000), {
         done: true,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ externalMessageIds: ['stream-1', 'stream-2'] });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
@@ -1608,24 +1507,44 @@ describe('DiscordChannel', () => {
     ]);
   });
 
-  it('reports final Discord streaming overflow failure for retry', async () => {
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ id: 'stream-1' }))
-      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
-      .mockResolvedValueOnce(new Response('{}', { status: 500 }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+  it.each([-1, 0, 1])(
+    'retains Discord stream receipts when part %i fails (-1 is the final edit)',
+    async (failedPart) => {
+      const deliveredOverflow = Math.max(0, failedPart);
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(jsonResponse({ id: 'stream-1' }));
+      if (failedPart >= 0)
+        fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+      if (deliveredOverflow)
+        fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'overflow-1' }));
+      fetchMock.mockResolvedValueOnce(new Response('{}', { status: 500 }));
+      const channel = new DiscordChannel('bot-token', 'app-id', opts());
 
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', `${'a'.repeat(2000)}b`),
-    ).resolves.toBe(true);
-    await expect(
-      channel.sendStreamingChunk('dc:channel-1', '', { done: true }),
-    ).resolves.toBe(false);
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', 'a'.repeat(4001)),
+      ).resolves.toEqual({ externalMessageIds: ['stream-1'] });
+      await expect(
+        channel.sendStreamingChunk('dc:channel-1', '', { done: true }),
+      ).rejects.toMatchObject({
+        partialMessageDelivery: true,
+        deliveredChunks: 1 + deliveredOverflow,
+        externalMessageIds: deliveredOverflow
+          ? ['stream-1', 'overflow-1']
+          : ['stream-1'],
+        ...(failedPart >= 0
+          ? {
+              retryTail: {
+                canonicalText: 'a'.repeat(deliveredOverflow ? 1 : 2001),
+              },
+            }
+          : {}),
+      });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    fetchMock.mockRestore();
-  });
+      expect(fetchMock).toHaveBeenCalledTimes(2 + Math.max(0, failedPart + 1));
+      fetchMock.mockRestore();
+    },
+  );
 
   it('retries Discord REST calls after rate-limit headers', async () => {
     vi.useFakeTimers();
@@ -2347,7 +2266,6 @@ describe('DiscordChannel', () => {
         }
         return new Response('{}', { status: 404 });
       });
-    let channel!: DiscordChannel;
     const onMessage = vi.fn(
       async (
         jid: string,
@@ -2361,7 +2279,7 @@ describe('DiscordChannel', () => {
       },
     );
     const onChatMetadata = vi.fn();
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ onMessage, onChatMetadata }),
@@ -2733,7 +2651,7 @@ describe('DiscordChannel', () => {
   });
 
   it('drops ephemeral Discord messages and attachments from hydrated context', async () => {
-    const fetchMock = vi
+    const _fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (input) => {
         const url = String(input);
@@ -3985,7 +3903,7 @@ describe('DiscordChannel', () => {
     },
   );
 
-  it('routes /gantry slash interactions and live Stop button interactions', async () => {
+  it('routes slash commands and memory actions', async () => {
     let socket!: FakeWebSocket;
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
@@ -4034,7 +3952,7 @@ describe('DiscordChannel', () => {
         token: 'token-2',
         type: 3,
         channel_id: 'channel-1',
-        data: { custom_id: 'gantry:live_stop:stop-token' },
+        data: { custom_id: 'gantry:memory_forget:memory-1:agent-1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -4057,10 +3975,11 @@ describe('DiscordChannel', () => {
       expect.objectContaining({ content: '/gantry model opus' }),
     );
     expect(onMessageAction).toHaveBeenCalledWith({
-      kind: 'live_turn_stop',
+      kind: 'memory_forget',
       conversationJid: 'dc:channel-1',
       userId: 'user-1',
-      actionToken: 'stop-token',
+      recordId: 'memory-1',
+      agentRouteKey: 'agent-1',
     });
     expect(onMessageAction).toHaveBeenCalledWith({
       kind: 'scheduler_run_now',
@@ -4074,7 +3993,7 @@ describe('DiscordChannel', () => {
         body: JSON.stringify({
           type: 4,
           data: {
-            content: 'Checking stop request.',
+            content: 'Processing.',
             flags: 64,
             allowed_mentions: { parse: [] },
           },
@@ -4204,7 +4123,7 @@ describe('DiscordChannel', () => {
         token: 'token-1',
         type: 3,
         channel_id: 'thread-1',
-        data: { custom_id: 'gantry:live_stop:stop-token' },
+        data: { custom_id: 'gantry:memory_forget:memory-1:agent-1' },
         member: { user: { id: 'user-1', username: 'Ravi' } },
       },
     });
@@ -4215,11 +4134,12 @@ describe('DiscordChannel', () => {
       expect.objectContaining({ method: 'GET' }),
     );
     expect(onMessageAction).toHaveBeenCalledWith({
-      kind: 'live_turn_stop',
+      kind: 'memory_forget',
       conversationJid: 'dc:parent-1',
       threadId: 'thread-1',
       userId: 'user-1',
-      actionToken: 'stop-token',
+      recordId: 'memory-1',
+      agentRouteKey: 'agent-1',
     });
     await channel.disconnect();
     vi.restoreAllMocks();
@@ -6102,7 +6022,6 @@ describe('DiscordChannel', () => {
       if (interactionId) events.push(`ack:${interactionId}`);
       return jsonResponse({ id: 'message-1' });
     });
-    let channel!: DiscordChannel;
     durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockImplementation(
       async (input: { optionIndex?: number }) => {
         const pending = [
@@ -6113,7 +6032,7 @@ describe('DiscordChannel', () => {
         return true;
       },
     );
-    channel = new DiscordChannel(
+    const channel = new DiscordChannel(
       'bot-token',
       'app-id',
       opts({ isControlApproverAllowed: vi.fn(async () => true) }),
