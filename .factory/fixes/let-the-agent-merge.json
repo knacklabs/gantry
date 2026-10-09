@@ -2,12 +2,27 @@
   "base": "4072403e37ab9560a56fbaed342942a0b6736cec",
   "branch": "fix/let-the-agent-merge",
   "done_when": "The default branch's forge.toml sets merge = \"agent\".",
+  "flagged": [],
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "branch_diff": "485e0ac8e14826097b7773a8f3ae876c942d2c740e675f1f67c33fd4bbcfe81a",
+    "changed": "f70d948061ae1665355e47d53f9abc25f7d479fecd3f12e2defe25f8f9e20a5f",
+    "commit": "d4e606392f5cacdeeb0d96abfabd6e65f54c480a",
+    "dismissals": [],
+    "findings": [],
+    "id": "6e511494-0367-4337-9f2d-fed08d28e40f",
+    "mechanical": true,
+    "status": "clean"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-02T15:14:59+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-09T08:16:09+00:00",
+      "step": "review"
     }
   ],
   "why": "Let the agent merge this repo's ready pull requests."
