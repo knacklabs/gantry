@@ -155,6 +155,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/architecture/areas/11-deploy-scaling.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/11-deploy-scaling.md",
+      "line": 283,
+      "text": "Not done: docs/architecture/areas/ guides checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/architecture/areas/13-security-boundaries.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
       "kind": "bug",
       "path": "docs/architecture/areas/13-security-boundaries.md",
