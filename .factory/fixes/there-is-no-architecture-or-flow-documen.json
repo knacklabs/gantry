@@ -30,7 +30,7 @@
     "status": "blocked"
   },
   "round": 5,
-  "status": "hotspot",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T17:01:12+00:00",
@@ -50,7 +50,9 @@
     }
   ],
   "stop": {
+    "choice": "narrow",
     "file": "docs/architecture/areas/11-deploy-scaling.md",
+    "reason": "Owner chose narrow: correct only the guides' descriptions of where scheduler outcomes are stored (agent_runs, not job_runs)",
     "round": 4
   },
   "why": "There is no architecture or flow documentation per app area for explaining the system",
