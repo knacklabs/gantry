@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/domain/ports/inbound-events.ts",
+      "line": 153,
+      "text": "Not done: shared inbox lifecycle signatures",
+      "from": "blocking",
+      "item": "MSG-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/runtime/agent-spawn-prompt.ts\tNot done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/src/runtime/agent-spawn-prompt.ts",
@@ -19,6 +30,50 @@
       "text": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual",
       "from": "blocking",
       "item": "the-agent-can-t-tell-which-gantry-tools",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/group-output-buffer.ts",
+      "line": 84,
+      "text": "Not done: Mention-required groups follow the conversation",
+      "from": "blocking",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-decision-coordinator.ts\tNot done: admin actions offer only Allow once and Deny\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-decision-coordinator.ts",
+      "line": 453,
+      "text": "Not done: admin actions offer only Allow once and Deny",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-decision-coordinator.ts\tNot done: functional check\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-decision-coordinator.ts",
+      "line": 442,
+      "text": "Not done: functional check",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/permission-invocation-id.ts\tNot done: invocation ids are scoped to the authenticated run\tPERMFLOW-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/permission-invocation-id.ts",
+      "line": 48,
+      "text": "Not done: invocation ids are scoped to the authenticated run",
+      "from": "blocking",
+      "item": "PERMFLOW-1/T1",
       "status": "open",
       "closed_by": null
     },
@@ -56,6 +111,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tThe Control API run stays running at the completion assertion on both this branch and origin/main.",
+      "kind": "bug",
+      "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+      "line": 1326,
+      "text": "The Control API run stays running at the completion assertion on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
@@ -89,28 +155,6 @@
       "closed_by": "dismissed"
     },
     {
-      "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
-      "kind": "bug",
-      "path": "forge.toml",
-      "line": 2,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "upgrade-forge-to-v1-2-7",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
-      "kind": "bug",
-      "path": "apps/core/src/runtime/group-output-buffer.ts",
-      "line": 84,
-      "text": "Not done: Mention-required groups follow the conversation",
-      "from": "blocking",
-      "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
       "key": "bug\tapps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts\tThe user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts",
@@ -118,6 +162,17 @@
       "text": "The user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
       "from": "worker",
       "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
+      "kind": "bug",
+      "path": "forge.toml",
+      "line": 2,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "upgrade-forge-to-v1-2-7",
       "status": "open",
       "closed_by": null
     },
@@ -155,6 +210,50 @@
       "closed_by": null
     },
     {
+      "key": "edge\tapps/core/src/runtime/permission-invocation-id.ts\tPreserve invocation bindings for live runs when the map fills",
+      "kind": "edge",
+      "path": "apps/core/src/runtime/permission-invocation-id.ts",
+      "line": 59,
+      "text": "Preserve invocation bindings for live runs when the map fills",
+      "from": "review",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-delegation-detachment.test.ts\tThe cleanup hook times out on both this branch and origin/main.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-delegation-detachment.test.ts",
+      "line": 42,
+      "text": "The cleanup hook times out on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-message-delivery.test.ts\tCleanup times out for failed delivery on both branches and for successful delivery only in the full suite.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-message-delivery.test.ts",
+      "line": 93,
+      "text": "Cleanup times out for failed delivery on both branches and for successful delivery only in the full suite.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/test/unit/runtime/ipc-operational-error-counters.test.ts\tThe cleanup hook times out on both this branch and origin/main.",
+      "kind": "edge",
+      "path": "apps/core/test/unit/runtime/ipc-operational-error-counters.test.ts",
+      "line": 28,
+      "text": "The cleanup hook times out on both this branch and origin/main.",
+      "from": "worker",
+      "item": "PERMFLOW-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "improve\tapps/core/src/channels/app.ts\tCompleted App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "kind": "improve",
       "path": "apps/core/src/channels/app.ts",
@@ -162,17 +261,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
-      "kind": "bug",
-      "path": "apps/core/src/domain/ports/inbound-events.ts",
-      "line": 153,
-      "text": "Not done: shared inbox lifecycle signatures",
-      "from": "blocking",
-      "item": "MSG-1/T1",
       "status": "open",
       "closed_by": null
     }
