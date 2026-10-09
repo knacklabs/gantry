@@ -1,9 +1,7 @@
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
-import { agentTodoStopActions } from '../agent-todo-render.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { telegramThreadOptionsFromString } from './channel-shared.js';
 import { renderAgentTodoHtml } from './html-render.js';
-import { telegramActionReplyMarkup } from './message-action-affordances.js';
 
 export async function renderTelegramAgentTodo(input: {
   api: {
@@ -19,9 +17,6 @@ export async function renderTelegramAgentTodo(input: {
   const chatId = input.jid.replace(/^tg:/, '');
   if (!chatId) return false;
   const html = renderAgentTodoHtml(input.render);
-  const reply_markup = telegramActionReplyMarkup(
-    agentTodoStopActions(input.render),
-  );
   const threadId = input.render.threadId ?? undefined;
   const threadOpts = telegramThreadOptionsFromString(threadId);
   const existing = input.pendingTodos.get(input.todoKey);
@@ -34,7 +29,7 @@ export async function renderTelegramAgentTodo(input: {
         {
           parse_mode: 'HTML',
           link_preview_options: { is_disabled: true },
-          reply_markup: reply_markup ?? { inline_keyboard: [] },
+          reply_markup: { inline_keyboard: [] },
         },
       );
       return true;
@@ -50,7 +45,6 @@ export async function renderTelegramAgentTodo(input: {
     const sent = await input.api.sendMessage(chatId, html, {
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
-      ...(reply_markup ? { reply_markup } : {}),
       ...threadOpts,
     });
     input.pendingTodos.set(input.todoKey, {

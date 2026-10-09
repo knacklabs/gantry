@@ -79,6 +79,8 @@ function processRichInteractionFiles(
     RICH_INTERACTION_LANE,
   );
   for (const file of richInteractionFiles) {
+    // Over the quota: leave this and later files for the next pass.
+    if (!canProcessIpcFile(sourceAgentFolder, 'rich-interaction')) break;
     processRichInteractionFile(input, file);
   }
 }
@@ -96,9 +98,6 @@ function processRichInteractionFile(
     file,
   );
   try {
-    if (!canProcessIpcFile(sourceAgentFolder, 'rich-interaction')) {
-      throw new Error('Rich interaction IPC rate limit exceeded');
-    }
     const claimed = runnerControlPort.claimRequest(
       sourceAgentFolder,
       RICH_INTERACTION_LANE,

@@ -15,9 +15,10 @@ import {
   gantryMcpFullToolName,
   gantryMcpToolNameFromFullName,
   selectedGantryMcpToolNames,
+  selectedAdminMcpToolNames,
   selectedMemoryIpcActions,
-} from '../../../runner/gantry-mcp-tool-surface.js';
-import { applyProviderAffinity } from '../../../runner/mcp/tool-provider-affinity.js';
+} from '../../../shared/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '../../../shared/gantry-tool-provider-affinity.js';
 import {
   isBrowserActionMcpToolRule,
   isCanonicalBrowserCapabilityRule,
@@ -53,7 +54,6 @@ export interface AgentCapabilityContext {
   callableAgentManifest?: readonly CallableAgentToolManifestEntry[];
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
-  liveStopActionToken?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
@@ -145,6 +145,7 @@ function gantryMcpAllowedTools(input: {
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
+      accessPreset: input.accessPreset === 'locked' ? 'locked' : 'full',
       excludeAuthorityTools: input.hideAuthorityTools === true,
       // Fixed-image hiding must not strip the birthright recovery proposals
       // (0123); the locked preset routes through the locked base set instead.
@@ -285,7 +286,11 @@ const gantryMcpProvider: AgentCapabilityProvider = {
     const callableAgentManifest = projectedCallableAgentManifest(ctx);
     const registeredToolNames = [
       ...selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
+        accessPreset: ctx.accessPreset,
+        browserIpcEnabled: Boolean(ctx.browserIpcAuthToken?.trim()),
         excludeAuthorityTools: ctx.hideAuthorityTools === true,
+        keepRecoveryProposals:
+          ctx.hideAuthorityTools === true && ctx.accessPreset !== 'locked',
         asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
         memoryReviewerIsControlApprover:
           ctx.memoryReviewerIsControlApprover === true,
@@ -322,14 +327,13 @@ const gantryMcpProvider: AgentCapabilityProvider = {
             ),
           }
         : {}),
-      ...(ctx.liveStopActionToken
-        ? { GANTRY_LIVE_STOP_ACTION_TOKEN: ctx.liveStopActionToken }
-        : {}),
       GANTRY_MEMORY_USER_ID: ctx.memoryUserId || '',
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
       GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER:
         ctx.memoryReviewerIsControlApprover ? '1' : '',
       GANTRY_NO_PERMISSION_TOOLS: ctx.hideAuthorityTools ? '1' : '',
+      GANTRY_AGENT_ACCESS_PRESET:
+        ctx.accessPreset === 'locked' ? 'locked' : 'full',
       ...(ctx.asyncTaskToolsEnabled && ctx.memoryBlock
         ? { GANTRY_MEMORY_CONTEXT_BLOCK: ctx.memoryBlock }
         : {}),
@@ -398,6 +402,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           command: 'node',
           args: [ctx.mcpServerPath],
           timeout: 300_000,
+          // Gantry delegation and task controls must be discoverable on turn one.
           alwaysLoad: true,
           env,
         },
@@ -420,17 +425,6 @@ function projectedCallableAgentManifest(
 
 function isPublicExternalMcpServerName(name: string): boolean {
   return !isHostPrivateBrowserMcpServerName(name);
-}
-
-function selectedAdminMcpToolNames(
-  configuredTools: readonly string[],
-): string[] {
-  const names = new Set<string>();
-  for (const configuredTool of configuredTools) {
-    const name = adminMcpToolNameFromFullName(configuredTool.trim());
-    if (name) names.add(name);
-  }
-  return [...names].sort();
 }
 
 function isPublicExternalMcpServerConfig(

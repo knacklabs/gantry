@@ -246,7 +246,7 @@ export class DiscordInteractionHandler {
         );
         if (!bound)
           throw new Error('Discord permission message binding failed');
-      } catch {
+      } catch (_err) {
         // Post-send persistence = delivered:'unknown' (0128, R7): the
         // card may be live; never retry into a duplicate.
         clearTimeout(timeout);
@@ -281,11 +281,7 @@ export class DiscordInteractionHandler {
       const userId = interaction.member?.user?.id || interaction.user?.id;
       const directAction = parseDiscordDirectMessageAction(customId);
       if (directAction) {
-        if (directAction.kind === 'live_turn_stop') {
-          await this.ackInteraction(interaction, 'Checking stop request.');
-        } else {
-          await this.ackInteraction(interaction, 'Processing.');
-        }
+        await this.ackInteraction(interaction, 'Processing.');
         const context = await this.input.resolveInteractionConversationContext(
           interaction.channel_id,
         );

@@ -399,8 +399,8 @@ const testExecutionAdapter: AgentExecutionAdapter = {
           `Model ${input.effectiveModelEntry.displayName} requires Gantry Model Gateway credentials from Model Access.`,
         );
       }
-      const anthropicApiKey = ['ANTHROPIC', 'API_KEY'].join('_');
-      const anthropicAuthToken = ['ANTHROPIC', 'AUTH_TOKEN'].join('_');
+      const _anthropicApiKey = ['ANTHROPIC', 'API_KEY'].join('_');
+      const _anthropicAuthToken = ['ANTHROPIC', 'AUTH_TOKEN'].join('_');
       const claudeCodeOAuthToken = ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join(
         '_',
       );
@@ -1667,7 +1667,10 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput).toEqual(
       expect.objectContaining({
         prompt: 'Hello',
-        compiledSystemPrompt: 'compiled profile prompt',
+        // The host preserves the profile and appends trusted run availability.
+        compiledSystemPrompt: expect.stringMatching(
+          /^compiled profile prompt\n\n## Gantry tools in this run\n/,
+        ),
       }),
     );
   });
@@ -1816,7 +1819,10 @@ describe('agent-spawn timeout behavior', () => {
     await resultPromise;
 
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
-    expect(runnerInput.compiledSystemPrompt).toBe('static profile only');
+    // Only host-derived availability joins the profile; memory stays untrusted.
+    expect(runnerInput.compiledSystemPrompt).toMatch(
+      /^static profile only\n\n## Gantry tools in this run\n/,
+    );
     expect(runnerInput.compiledSystemPrompt).not.toContain(
       'ignore previous instructions',
     );

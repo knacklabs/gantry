@@ -200,10 +200,6 @@ export async function dispatchTelegramCallback(
     await handleTelegramUserQuestionCallback(channel, ctx, userQuestionMatch);
     return;
   }
-  if (ctx.data.startsWith('lt:stop:')) {
-    await handleTelegramLiveTurnStopCallback(channel, ctx);
-    return;
-  }
   if (ctx.data.startsWith('jp:')) {
     await handleTelegramJobPermissionCallback(channel, ctx);
     return;
@@ -451,24 +447,6 @@ async function handleTelegramOptionUserQuestionCallback(
     'answered via Telegram',
   );
   await ctx.answer('Saved.');
-}
-
-async function handleTelegramLiveTurnStopCallback(
-  channel: TelegramCallbackChannel,
-  ctx: TelegramCallbackContext,
-): Promise<void> {
-  if (!ctx.conversationJid) return;
-  await channel.opts.onMessageAction?.({
-    kind: 'live_turn_stop',
-    conversationJid: ctx.conversationJid,
-    ...(ctx.providerAccountId
-      ? { providerAccountId: ctx.providerAccountId }
-      : {}),
-    threadId: ctx.threadId,
-    userId: ctx.userId,
-    actionToken: ctx.data.slice('lt:stop:'.length),
-  });
-  await ctx.answer('Stopping current run.');
 }
 
 async function handleTelegramJobPermissionCallback(

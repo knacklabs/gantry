@@ -1,3 +1,4 @@
+import { updateReactionCache } from '../reaction-cache.js';
 import {
   discordHeaders,
   discordReactionEmoji,
@@ -27,23 +28,17 @@ export async function addDiscordReaction(input: {
   requestJson: RequestJson;
 }): Promise<void> {
   if (!input.channelId || !input.messageRef.trim()) return;
+  const channelId = input.channelId;
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
-  if (!input.reconcile && input.reactionKeys.has(key)) return;
-  if (input.reconcile) input.reactionKeys.delete(key);
-  const invalidate = () => input.reactionKeys.delete(key);
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
+  await updateReactionCache({ ...input, key, operation: 'add' }, async () => {
     await input.requestJson<void>(
-      reactionPath(input.channelId, input.messageRef, reaction),
+      reactionPath(channelId, input.messageRef, reaction),
       { method: 'PUT', headers: discordHeaders(input.botToken) },
       'Discord reaction update failed',
       false,
     );
-    if (!input.signal?.aborted) input.reactionKeys.add(key);
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  });
 }
 
 export async function removeDiscordReaction(input: {
@@ -58,26 +53,25 @@ export async function removeDiscordReaction(input: {
   requestJson: RequestJson;
 }): Promise<void> {
   if (!input.channelId || !input.messageRef.trim()) return;
+  const channelId = input.channelId;
   const reaction = discordReactionEmoji(input.emoji);
   const key = `${input.channelId}:${input.messageRef}:${reaction}`;
-  if (input.reconcile) input.reactionKeys.delete(key);
-  const invalidate = () => input.reactionKeys.delete(key);
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
-    await input.requestJson<void>(
-      reactionPath(input.channelId, input.messageRef, reaction),
-      { method: 'DELETE', headers: discordHeaders(input.botToken) },
-      'Discord reaction removal failed',
-      false,
-    );
-    if (!input.signal?.aborted) input.reactionKeys.delete(key);
-  } catch (err) {
-    if (err instanceof DiscordRestError && err.status === 404) {
-      if (!input.signal?.aborted) input.reactionKeys.delete(key);
-      return;
-    }
-    throw err;
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  await updateReactionCache(
+    { ...input, key, operation: 'remove' },
+    async () => {
+      try {
+        await input.requestJson<void>(
+          reactionPath(channelId, input.messageRef, reaction),
+          { method: 'DELETE', headers: discordHeaders(input.botToken) },
+          'Discord reaction removal failed',
+          false,
+        );
+      } catch (err) {
+        if (err instanceof DiscordRestError && err.status === 404) {
+          return;
+        }
+        throw err;
+      }
+    },
+  );
 }

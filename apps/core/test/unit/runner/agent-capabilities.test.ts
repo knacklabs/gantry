@@ -9,13 +9,12 @@ import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   BASELINE_GANTRY_MCP_TOOL_NAMES,
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
-  DEFAULT_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
-} from '@agent-runner-src/gantry-mcp-tool-surface.js';
-import { applyProviderAffinity } from '@core/runner/mcp/tool-provider-affinity.js';
+} from '@core/shared/gantry-mcp-tool-surface.js';
+import { applyProviderAffinity } from '@core/shared/gantry-tool-provider-affinity.js';
 import {
   callableAgentToolName,
   projectCallableAgentTools,
@@ -96,13 +95,6 @@ const UNAVAILABLE_DEFAULT_TOOLS = [
   'ExitWorktree',
   'mcp__gantry__list_models',
   'mcp__gantry__*',
-] as const;
-
-const DEFAULT_AVAILABLE_TOOLS = [
-  'WebSearch',
-  'WebFetch',
-  'ToolSearch',
-  'Skill',
 ] as const;
 
 const DEVELOPER_AVAILABLE_TOOLS = [
@@ -232,7 +224,6 @@ describe('agent capability composition', () => {
       memoryIpcAuthToken: 'memory-token',
       ipcResponseVerifyKey: 'verify-key',
       ipcResponseKeyId: 'verify-key-id',
-      liveStopActionToken: 'stop-token-1',
       persona: 'generalist',
     });
 
@@ -304,6 +295,7 @@ describe('agent capability composition', () => {
       timeout: 300_000,
       alwaysLoad: true,
       env: {
+        GANTRY_AGENT_ACCESS_PRESET: 'full',
         GANTRY_APP_ID: 'app-main',
         GANTRY_AGENT_ID: 'agent:telegram_team',
         GANTRY_PROVIDER_ACCOUNT_ID: 'provider-account:telegram:main',
@@ -335,7 +327,6 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_IPC_AUTH_TOKEN: 'memory-token',
         GANTRY_IPC_RESPONSE_VERIFY_KEY: 'verify-key',
         GANTRY_IPC_RESPONSE_KEY_ID: 'verify-key-id',
-        GANTRY_LIVE_STOP_ACTION_TOKEN: 'stop-token-1',
         NO_PROXY:
           '127.0.0.1,localhost,::1,github.com,.github.com,api.github.com,raw.githubusercontent.com,objects.githubusercontent.com,codeload.github.com',
         no_proxy:
@@ -1063,7 +1054,8 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__gantry__continuity_summary');
     expect(profile.allowedTools).toContain('mcp__gantry__agent_profile_read');
 
-    // Env projection: selected admin env is separate; tool list excludes authority.
+    // Mounted inventory includes recovery proposals and selected admin tools;
+    // other authority tools remain hidden.
     expect(profile.mcpServers.gantry?.env?.GANTRY_ADMIN_MCP_TOOLS_JSON).toBe(
       JSON.stringify([
         'register_agent',
@@ -1076,7 +1068,18 @@ describe('agent capability composition', () => {
       String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
     ) as string[];
     for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
-      expect(projectedToolNames).not.toContain(toolName);
+      if (
+        recoveryProposals.has(toolName) ||
+        [
+          'register_agent',
+          'request_settings_update',
+          'service_restart',
+        ].includes(toolName)
+      ) {
+        expect(projectedToolNames).toContain(toolName);
+      } else {
+        expect(projectedToolNames).not.toContain(toolName);
+      }
     }
     expect(projectedToolNames).toContain('send_message');
     expect(projectedToolNames).toContain('agent_profile_read');

@@ -129,7 +129,7 @@ Key runner inputs:
 
 - `allowedTools` rendered by the Anthropic adapter from Gantry
   `toolPolicyRules`, backed by the Gantry MCP surface in
-  `apps/core/src/runner/gantry-mcp-tool-surface.ts`
+  `apps/core/src/shared/gantry-mcp-tool-surface.ts`
 - Gantry MCP server config from `apps/core/src/runner/mcp/server.ts`
 - provider-session projection: live interactive turns may pass adapter resume
   metadata from `ProviderSession`; scheduled jobs keep provider persistence

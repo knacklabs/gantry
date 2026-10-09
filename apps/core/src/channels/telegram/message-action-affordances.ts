@@ -29,7 +29,6 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
   scheduler_retry_ask: 'ask',
-  live_turn_stop: '',
   job_permission_decision: '',
   memory_forget: '',
   // ponytail: memory_review_decision rendering lands in Task 6 (Telegram codec).

@@ -42,6 +42,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
   deps: GroupProcessingDeps;
   queueJid: string;
   missedMessages: NewMessage[];
+  cancelWaitingInput: SessionCommandDeps['cancelWaitingInput'];
   runAgent: Parameters<typeof createSessionCommandAgentRunners>[0]['runAgent'];
   processOptions: GroupProcessOptions;
   commandOverrideRouteKey: string;
@@ -168,6 +169,7 @@ export function createGroupProcessingSessionCommandHandlers(input: {
         memoryUserId: await resolveMemoryUserId(),
       }),
     stopCurrentRun: () => deps.queue.stopGroup?.(input.queueJid) ?? false,
+    cancelWaitingInput: input.cancelWaitingInput,
     runMemoryDreaming: async () =>
       runDreamingForGroup({
         folder: group.folder,
