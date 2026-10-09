@@ -323,11 +323,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
     ).map(([name, schema]) =>
       define(name, taskDescription(name), schema, async (args) => {
         if (!deps.taskLifecycleBackend) {
-          return errorResult(
-            'Async task runtime is unavailable.',
-            'transient',
-            true,
-          );
+          return errorResult('Async task runtime is unavailable.');
         }
         return coreTaskLifecycleMcpResult(
           await deps.taskLifecycleBackend[name]({ ...args }),
