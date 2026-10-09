@@ -10,6 +10,7 @@ import {
 } from '../../session/session-commands.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
+import { senderMayTrigger } from '../../runtime/group-trigger-policy.js';
 import {
   liveTurnScopeForQueue,
   type LiveTurnScopeRepository,
@@ -21,6 +22,7 @@ const activeCompactReceipts = new Set<string>();
 export type ActiveControlRoute = {
   folder: string;
   trigger?: string;
+  requiresTrigger?: boolean;
   conversationKind?: 'dm' | 'channel';
   providerAccountId?: string;
   agentConfig?: { model?: string };
@@ -105,6 +107,7 @@ export function createActiveCompactRouteHandlers(input: {
   route: {
     folder: string;
     trigger?: string;
+    requiresTrigger?: boolean;
     conversationKind?: 'dm' | 'channel';
     providerAccountId?: string;
   };
@@ -118,6 +121,8 @@ export function createActiveCompactRouteHandlers(input: {
       isActiveCompactRouteMessage({ ...input, message }),
     handleActiveControlMessage: (message: NewMessage) =>
       handleActiveCompactRouteMessage({ ...input, message }),
+    senderMayTrigger: (message: NewMessage) =>
+      senderMayTrigger(input.route, input.chatJid, message),
   };
 }
 
