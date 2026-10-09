@@ -2,25 +2,36 @@
   "base": "9d85bed2f5bd9082610e1da4f9d553430c28b91d",
   "branch": "fix/subagents-refuse-hang-lose-results-and-i",
   "done_when": "A confirmed spec for subagents that work end to end, with its stories on the roadmap after current work",
+  "flagged": [
+    "docs/specs/subagents-end-to-end.md"
+  ],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "ce9fa316601df0304cff26f055b1bc09444e9664ae2e5a026d256f29e16b1210",
-    "commit": "098f5429167fdd93e4f376640cebb037159b31ea",
+    "branch_diff": "57d9a2b07d58eda25e52731c40de324cd7a809b6d14cf42e874660b0443d1871",
+    "changed": "2a0e4faa8c36d5c57f130adba12c8d7ed64ad40bd6a01a97584b3259226f7dff",
+    "commit": "3cb8256feddadfc5c45fd31bd411018e3109e723",
     "dismissals": [],
     "findings": [
       {
-        "body": "The result-accumulation link, like most source links in this note, points into the author's absolute `/Users/.../Workdir/myclaw/` checkout. Readers on GitHub or another checkout cannot follow these references to verify the research or implement the planned stories. The cited implementation exists at `apps/core/src/jobs/ipc-delegated-agent-execution.ts:109`, which I read and which contains the described assignment. Replace checkout-specific source links with repository-relative links.",
+        "body": "The supplied proof list is explicitly missing. Add the required list to the worker commit, covering both the confirmed spec and placement of all three stories after current work, with named checks for each. This documentation-only change needs no runtime test, but it still needs the required proof list.",
+        "file": "docs/specs/subagents-end-to-end.md",
+        "line": 99,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      },
+      {
+        "body": "The previous checkout-specific links have been corrected, but additional evidence links remain unusable. The selection link targets a nonexistent runner file; the current implementation is at `apps/core/src/shared/gantry-mcp-tool-surface.ts:119\u2013137`, which I read. All installed-source links on lines 60\u201368 target `node_modules`, excluded by `.gitignore:2\u20133`, so GitHub readers cannot follow them. Update the selection citation and replace dependency links with version-pinned published source or retained excerpts so readers can verify the research behind the planned stories.",
         "file": "docs/context/subagent-research-2026-10-02.md",
-        "line": 29,
+        "line": 14,
         "priority": "P2",
-        "title": "Use repository-relative links for the research evidence"
+        "title": "Repair the remaining broken research citations"
       }
     ],
-    "status": "clean",
-    "tree": "394652c8a3c2b10bf9304689c5157f72d38fb0c35e7d0666a194d293f50b85e5"
+    "id": "b5abdb18-af52-423e-99d8-7c899ec2da9f",
+    "status": "blocked"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T14:18:29+00:00",
@@ -28,6 +39,10 @@
     },
     {
       "at": "2026-10-02T21:55:57+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T09:26:32+00:00",
       "step": "review"
     }
   ],
