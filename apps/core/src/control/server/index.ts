@@ -23,6 +23,7 @@ import {
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
+  getTriggerPattern,
   patchRuntimeModelDefaults,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
@@ -366,6 +367,7 @@ export function startControlServer(input: {
     get getConfiguredAgentRuntime() {
       return getConfiguredAgentRuntime;
     },
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
@@ -373,6 +375,7 @@ export function startControlServer(input: {
   const ctx: ControlRouteContext = {
     app: input.app,
     sessionInteraction,
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     jobManagement: createJobManagementService({
       app: input.app,
       getBrowserStatus: input.getBrowserStatus,
@@ -518,10 +521,11 @@ export function startControlServer(input: {
     logger.info({ socketPath }, 'Control server listening on unix socket');
   }
 
+  let webhookFlush: Promise<void> | undefined;
   const triggerWebhookFlush = () => {
     if (webhookFlushInFlight) return;
     webhookFlushInFlight = true;
-    void flushWebhookDeliveries()
+    webhookFlush = flushWebhookDeliveries()
       .catch(logWebhookFlushFailure)
       .finally(() => {
         webhookFlushInFlight = false;
@@ -531,10 +535,11 @@ export function startControlServer(input: {
     subscribeWebhookDeliveryReady(triggerWebhookFlush);
   const deliveryInterval = setInterval(triggerWebhookFlush, 1000);
   let ingressMaintenanceInFlight = false;
+  let ingressMaintenance: Promise<unknown> | undefined;
   const ingressMaintenanceInterval = setInterval(() => {
     if (ingressMaintenanceInFlight) return;
     ingressMaintenanceInFlight = true;
-    void getRuntimeControlRepository()
+    ingressMaintenance = getRuntimeControlRepository()
       .sweepExpiredExternalIngressState({
         now: nowIso(),
       })
@@ -554,6 +559,8 @@ export function startControlServer(input: {
       clearInterval(deliveryInterval);
       clearInterval(ingressMaintenanceInterval);
       unsubscribeWebhookDeliveryReady();
+      // Let in-flight background work finish so callers can drop storage.
+      await Promise.all([webhookFlush, ingressMaintenance]);
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {

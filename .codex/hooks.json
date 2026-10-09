@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'forge hook context || exit 2' || exit 2"
+            "command": "sh -c '. \"$(git rev-parse --show-toplevel)/.forge/hooks.sh\" && forge hook context || exit 2' || exit 2"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'forge hook handoff || exit 2' || exit 2"
+            "command": "sh -c '. \"$(git rev-parse --show-toplevel)/.forge/hooks.sh\" && forge hook handoff || exit 2' || exit 2"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'forge hook deny || exit 2' || exit 2"
+            "command": "sh -c '. \"$(git rev-parse --show-toplevel)/.forge/hooks.sh\" && forge hook deny || exit 2' || exit 2"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh -c 'forge hook approval || exit 2' || exit 2"
+            "command": "sh -c '. \"$(git rev-parse --show-toplevel)/.forge/hooks.sh\" && forge hook approval || exit 2' || exit 2"
           }
         ]
       }

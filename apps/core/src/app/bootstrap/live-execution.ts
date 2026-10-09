@@ -41,27 +41,16 @@ import {
   startLiveAdmissionWorkLoop as defaultStartLiveAdmissionWorkLoop,
   type LiveAdmissionWorkLoopHandle,
 } from '../../runtime/live-admission-work-loop.js';
-import { routeScopeActiveLiveTurnAdmissionFromCursor } from './live-recovery-coordinator.js';
+import { routeScopeActiveLiveTurnAdmissionFromInput } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
-import { type SessionCommand } from '../../session/session-commands.js';
-import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
+import {
+  createActiveCompactRouteHandlers,
+  type ActiveControlCommandHandler,
+  type ActiveControlRoute,
+} from './runtime-services-active-compact.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
-export type ActiveControlRoute = {
-  folder: string;
-  trigger?: string;
-  conversationKind?: 'dm' | 'channel';
-  providerAccountId?: string;
-  agentConfig?: { model?: string };
-};
-export type ActiveControlCommandHandler = (args: {
-  chatJid: string;
-  queueJid: string;
-  group: ActiveControlRoute;
-  message: NewMessage;
-  command: SessionCommand;
-}) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
@@ -109,9 +98,6 @@ interface AdmissionApp {
     queueJid: string,
     options: GroupProcessOptions & { queued: boolean },
   ) => Promise<boolean>;
-  getOrRecoverCursor: (queueJid: string) => Promise<string>;
-  setAgentCursor: (queueJid: string, cursor: string) => void;
-  saveState: () => Promise<void> | void;
 }
 
 export function buildLiveAdmissionProcessor(input: {
@@ -152,6 +138,8 @@ export function buildLiveAdmissionProcessor(input: {
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
   handleActiveControlCommand?: ActiveControlCommandHandler;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
@@ -168,7 +156,7 @@ export function buildLiveAdmissionProcessor(input: {
     (async () => {
       const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
       if (!owner?.runId) return false;
-      return routeScopeActiveLiveTurnAdmissionFromCursor({
+      return routeScopeActiveLiveTurnAdmissionFromInput({
         scope,
         queueJid,
         liveRunId,
@@ -180,14 +168,13 @@ export function buildLiveAdmissionProcessor(input: {
         timezone,
         inputRepository: input.inputRepository!,
         getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
-        setAgentCursor: app.setAgentCursor,
-        saveState: app.saveState,
         enqueueMessageCheck: input.enqueueMessageCheck,
         ...createActiveCompactRouteHandlers({
           route,
           chatJid,
           queueJid,
           handleActiveControlCommand: input.handleActiveControlCommand,
+          getTriggerPattern: input.getTriggerPattern,
         }),
         routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
         completeSessionAgentRun:
@@ -288,11 +275,7 @@ export function buildLiveAdmissionProcessor(input: {
         scope,
         turnId: `live-turn:${randomUUID()}`,
         runId: liveRunId,
-        pendingMessage: {
-          kind: 'message_cursor',
-          queueJid,
-          cursorBefore: '',
-        },
+        pendingMessage: { queueJid },
       });
       if (admission.outcome !== 'claimed') {
         if (admission.outcome === 'scope_active') {
@@ -308,9 +291,9 @@ export function buildLiveAdmissionProcessor(input: {
             route,
           );
         }
-        // no_capacity / lease_unavailable: terminal-mark the orphan run. The
-        // message cursor is NOT advanced, so the deferred message is re-polled
-        // and a worker with free capacity admits it next tick.
+        // no_capacity / lease_unavailable: terminal-mark the orphan run. No
+        // input was taken, so the deferred message is re-polled and a worker
+        // with free capacity admits it next tick.
         await opsRepository.completeSessionAgentRun?.({
           runId: liveRunId,
           status:
@@ -341,9 +324,6 @@ export function buildLiveAdmissionProcessor(input: {
         onFirstProgress: reactionLifecycle.onFirstProgress,
         onFirstVisibleOutput: reactionLifecycle.onFirstVisibleOutput,
         onTurnTerminal: reactionLifecycle.onTerminal,
-        onLiveStopActionToken: async (token) => {
-          await liveTurnAuthority.registerStopAliases(queueJid, [token]);
-        },
       });
       const terminalSuccess =
         success && (liveRunResult === 'success' || liveRunResult === null);

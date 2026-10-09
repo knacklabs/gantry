@@ -18,7 +18,6 @@ import {
   MODEL_RUNTIME_CREDENTIAL_NAME,
 } from '../../domain/models/credentials.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
-import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../../domain/types.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
@@ -38,7 +37,6 @@ import { GroupQueue } from '../../runtime/group-queue.js';
 import { conversationRouteKeysForRemoval } from '../../runtime/conversation-route-removal.js';
 import {
   makeAgentThreadQueueKey,
-  makeThreadQueueKey,
   parseAgentThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
 import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
@@ -51,7 +49,6 @@ import type {
   RuntimeChatMetadataRepository,
   RuntimeConversationRouteRepository,
   RuntimeMessageRepository,
-  RuntimeRouterStateRepository,
 } from '../../domain/repositories/ops-repo.js';
 import {
   getConfiguredModelProvidersForApp,
@@ -75,8 +72,7 @@ import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 import { spawnAgent, type AvailableGroup } from '../../runtime/agent-spawn.js';
 import { createJobSetupRequiredNotificationPort } from '../../jobs/execution-readiness.js';
 import { createRuntimeGroupProcessor } from './group-processor-deps.js';
-export type RuntimeAppRepository = RuntimeRouterStateRepository &
-  RuntimeMessageRepository &
+export type RuntimeAppRepository = RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
   RuntimeChatMetadataRepository &
   RuntimeAgentSessionRepository;
@@ -87,8 +83,6 @@ export interface RuntimeApp {
   runnerSandboxProvider: RunnerSandboxProvider;
   queue: GroupQueue;
   loadState: () => Promise<void>;
-  saveState: () => Promise<void>;
-  getOrRecoverCursor: (chatJid: string) => Promise<string>;
   registerGroup: (jid: string, group: ConversationRoute) => Promise<void>;
   projectConversationRoute(
     jid: string,
@@ -121,7 +115,6 @@ export interface RuntimeApp {
     route: Pick<ConversationRoute, 'agentConfig' | 'folder'>,
     chatJid: string,
   ) => Promise<ExecutionProviderId>;
-  setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
   setProviderIdNormalizer?: (normalize: (providerId: string) => string) => void;
   setHistoryCoverageDistrustEpochReader?: (
@@ -155,10 +148,7 @@ export function createRuntimeApp(
   options: RuntimeAppOptions = { runAgent: spawnAgent },
 ): RuntimeApp {
   let conversationRoutes: Record<string, ConversationRoute> = {};
-  let lastAgentTimestamp: Record<string, string> = {};
   let normalizeProviderId: GroupProcessingDeps['normalizeProviderId'];
-  let stateSaveInFlight: Promise<void> | undefined;
-  let stateSaveDirty = false;
   const queue =
     options.queue ??
     new GroupQueue(
@@ -344,18 +334,7 @@ export function createRuntimeApp(
   }
 
   async function loadState(): Promise<void> {
-    const repository = ops();
-    const [agentTs, loadedRoutes] = await Promise.all([
-      repository.getRouterState('last_agent_timestamp'),
-      repository.getAllConversationRoutes(),
-    ]);
-    try {
-      lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
-    } catch {
-      logger.warn('Corrupted last_agent_timestamp in DB, resetting');
-      lastAgentTimestamp = {};
-    }
-    conversationRoutes = loadedRoutes;
+    conversationRoutes = await ops().getAllConversationRoutes();
     const seededCount = await ensureRouteProfileDefaults(
       Object.values(conversationRoutes),
       { getFileArtifactStore: () => getRuntimeStorage().fileArtifacts },
@@ -370,72 +349,6 @@ export function createRuntimeApp(
       { groupCount: Object.keys(conversationRoutes).length },
       'State loaded',
     );
-  }
-
-  async function saveState(): Promise<void> {
-    stateSaveDirty = true;
-    if (stateSaveInFlight) return stateSaveInFlight;
-
-    stateSaveInFlight = (async () => {
-      do {
-        stateSaveDirty = false;
-        const agentTimestampJson = JSON.stringify(lastAgentTimestamp);
-        await ops().setRouterState('last_agent_timestamp', agentTimestampJson);
-      } while (stateSaveDirty);
-    })().finally(() => {
-      stateSaveInFlight = undefined;
-    });
-
-    return stateSaveInFlight;
-  }
-
-  async function getOrRecoverCursor(chatJid: string): Promise<string> {
-    const existing = lastAgentTimestamp[chatJid];
-    if (existing) return existing;
-    const parsed = parseAgentThreadQueueKey(chatJid);
-    const providerScopedBaseKey = parsed.providerAccountId
-      ? makeAgentThreadQueueKey(
-          parsed.chatJid,
-          undefined,
-          parsed.threadId,
-          parsed.providerAccountId,
-        )
-      : undefined;
-    if (parsed.threadId) {
-      const baseExisting =
-        (providerScopedBaseKey && lastAgentTimestamp[providerScopedBaseKey]) ||
-        (!parsed.providerAccountId &&
-          lastAgentTimestamp[
-            makeThreadQueueKey(parsed.chatJid, parsed.threadId)
-          ]);
-      return baseExisting ? (lastAgentTimestamp[chatJid] = baseExisting) : '';
-    }
-    const baseExisting =
-      parsed.agentId &&
-      (providerScopedBaseKey
-        ? lastAgentTimestamp[providerScopedBaseKey]
-        : lastAgentTimestamp[parsed.chatJid]);
-    if (baseExisting) return (lastAgentTimestamp[chatJid] = baseExisting);
-
-    const baseChatJid = parsed.chatJid;
-    const botCursor = await ops().getLastBotMessageCursor(baseChatJid, {
-      providerAccountId: parsed.providerAccountId,
-    });
-    if (botCursor) {
-      const encoded = encodeGroupMessageCursor(botCursor);
-      logger.info(
-        {
-          chatJid: baseChatJid,
-          recoveredFrom: botCursor.timestamp,
-          recoveredFromId: botCursor.id,
-        },
-        'Recovered message cursor from last bot reply',
-      );
-      lastAgentTimestamp[chatJid] = encoded;
-      await saveState();
-      return encoded;
-    }
-    return '';
   }
 
   async function registerGroup(
@@ -583,11 +496,6 @@ export function createRuntimeApp(
     clearSession: async (workspaceFolder, threadId, metadata) => {
       await ops().deleteSession(workspaceFolder, threadId, metadata);
     },
-    getCursor: getOrRecoverCursor,
-    setCursor: (chatJid, timestamp) => {
-      lastAgentTimestamp[chatJid] = timestamp;
-    },
-    saveState,
     setGroupModelOverride,
     setGroupThinkingOverride,
     setGroupPermissionModeOverride,
@@ -649,8 +557,6 @@ export function createRuntimeApp(
     runnerSandboxProvider,
     queue,
     loadState,
-    saveState,
-    getOrRecoverCursor,
     registerGroup,
     projectConversationRoute,
     unregisterConversationRoute,
@@ -666,9 +572,6 @@ export function createRuntimeApp(
       groupProcessor.processGroupMessages(chatJid, options),
     getConversationRoutes: () => conversationRoutes,
     resolveExecutionProviderId,
-    setAgentCursor: (chatJid, timestamp) => {
-      lastAgentTimestamp[chatJid] = timestamp;
-    },
     setChannelRuntime: (runtime) => {
       channelRuntime.set(runtime);
     },

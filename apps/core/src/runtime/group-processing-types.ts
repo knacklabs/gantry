@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 import type { ChildProcess } from 'child_process';
 
 import type {
@@ -88,7 +89,6 @@ export type GroupProcessOptions = {
   }) => Promise<void> | void;
   onFirstVisibleOutput?: () => Promise<void> | void;
   onTurnTerminal?: () => Promise<void> | void;
-  onLiveStopActionToken?: (token: string) => Promise<void> | void;
 };
 
 export interface GroupProcessor {
@@ -130,10 +130,10 @@ export interface GroupProcessingDeps {
       chatJid: string,
       rawText: string,
       options?: StreamingChunkOptions,
-    ) => Promise<boolean>;
+    ) => Promise<StreamingChunkResult>;
     resetStreaming: (
       chatJid: string,
-      options?: { providerAccountId?: string },
+      options?: { providerAccountId?: string; threadId?: string },
     ) => void;
     setTyping: (
       chatJid: string,
@@ -182,9 +182,6 @@ export interface GroupProcessingDeps {
       memoryUserId?: string;
     },
   ) => Promise<void> | void;
-  getCursor: (chatJid: string) => Promise<string> | string;
-  setCursor: (chatJid: string, timestamp: string) => void;
-  saveState: () => Promise<void> | void;
   setGroupModelOverride: (
     chatJid: string,
     model: string | undefined,

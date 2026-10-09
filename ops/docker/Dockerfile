@@ -68,7 +68,7 @@ FROM ${NODE_IMAGE} AS runtime
 
 # Bump this value when Debian publishes a security update. It deliberately
 # invalidates the cached apt layer while keeping the Node base digest pinned.
-ARG APT_SECURITY_REFRESH=2026-09-18
+ARG APT_SECURITY_REFRESH=2026-10-08
 
 ENV NODE_ENV=production \
     GANTRY_HOME=/var/lib/gantry \

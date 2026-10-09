@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createProgressChannelSender,
-  progressCardIdentityCacheSize,
   progressOrderingRegistrySize,
 } from '@core/runtime/group-progress-channel-sender.js';
 
@@ -690,181 +689,9 @@ describe('createProgressChannelSender', () => {
     ]);
   });
 
-  it('serializes stop-card generations by provider identity and never reposts a missing terminal card', async () => {
-    const oldStop = deferred<boolean>();
-    const calls: Array<{
-      text: string;
-      generation?: number;
-      replaceOnly?: boolean;
-    }> = [];
-    const providerDispatches: string[] = [];
-    let controlHandleExists = false;
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) => {
-          const hasStop = options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          );
-          return hasStop || (options?.done && controlHandleExists)
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`;
-        },
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            replaceOnly?: boolean;
-          },
-        ) => {
-          calls.push({
-            text,
-            generation: options?.generation,
-            replaceOnly: options?.replaceOnly,
-          });
-          if (options?.replaceOnly && !controlHandleExists) return false;
-          providerDispatches.push(text);
-          if (text === 'Working generation 70.') {
-            controlHandleExists = true;
-            return oldStop.promise;
-          }
-          controlHandleExists = options?.done !== true;
-          return true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:control-generation',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    const stopAction = [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: 'stop-token',
-      },
-    ];
-
-    const stale = sender('Working generation 70.', {
-      threadId: 'thread',
-      generation: 70,
-      actionAffordances: stopAction,
-    });
-    const retry = sender('retrying 1/3', {
-      threadId: 'thread',
-      generation: 71,
-      actionAffordances: stopAction,
-    });
-    await flushMicrotasks();
-    expect(providerDispatches).toEqual(['Working generation 70.']);
-
-    await vi.advanceTimersByTimeAsync(2_000);
-    await expect(retry).resolves.toBe(true);
-    expect(providerDispatches).toEqual([
-      'Working generation 70.',
-      'retrying 1/3',
-    ]);
-
-    await expect(
-      sender('Done.', {
-        threadId: 'thread',
-        generation: 71,
-        done: true,
-      }),
-    ).resolves.toBe(true);
-    expect(providerDispatches).toEqual([
-      'Working generation 70.',
-      'retrying 1/3',
-      'Done.',
-    ]);
-
-    oldStop.resolve(true);
-    await expect(stale).resolves.toBe(true);
-    await flushMicrotasks();
-
-    expect(providerDispatches).toEqual([
-      'Working generation 70.',
-      'retrying 1/3',
-      'Done.',
-    ]);
-    expect(calls.at(-1)).toEqual({
-      text: 'Done.',
-      generation: 71,
-      replaceOnly: true,
-    });
-  });
-
-  it('serializes generationless stop and done updates on one control-card key', async () => {
-    const first = deferred<boolean>();
-    const calls: string[] = [];
-    const sender = createProgressChannelSender({
-      channelRuntime: {
-        progressCardIdentity: vi.fn(
-          (
-            _jid: string,
-            options?: {
-              done?: boolean;
-              actionAffordances?: Array<{ kind: string }>;
-            },
-          ) =>
-            options?.actionAffordances?.some(
-              (action) => action.kind === 'live_turn_stop',
-            )
-              ? 'discord-control'
-              : 'discord-generationless',
-        ),
-        sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-          calls.push(text);
-          if (text === 'Generationless stop') return first.promise;
-          return true;
-        }),
-      } as never,
-      chatJid: 'discord:shared-control',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    const stopAction = [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: 'stop-token',
-      },
-    ];
-
-    const stop = sender('Generationless stop', {
-      threadId: 'thread',
-      actionAffordances: stopAction,
-    });
-    const done = sender('Generationless done', {
-      threadId: 'thread',
-      done: true,
-    });
-    await flushMicrotasks();
-    expect(calls).toEqual(['Generationless stop']);
-
-    first.resolve(true);
-    await expect(stop).resolves.toBe(true);
-    await expect(done).resolves.toBe(true);
-    expect(calls).toEqual(['Generationless stop', 'Generationless done']);
-  });
-
   it('keeps equal generation numbers independent across provider routes', async () => {
-    const routeAStop = deferred<boolean>();
-    const routeBStop = deferred<boolean>();
+    const routeAProgress = deferred<boolean>();
+    const routeBProgress = deferred<boolean>();
     const calls: string[] = [];
     const sender = createProgressChannelSender({
       channelRuntime: {
@@ -874,19 +701,13 @@ describe('createProgressChannelSender', () => {
             options?: {
               providerAccountId?: string;
               threadId?: string;
-              actionAffordances?: Array<{ kind: string }>;
             },
-          ) =>
-            options?.actionAffordances?.some(
-              (action) => action.kind === 'live_turn_stop',
-            )
-              ? `control:${options.providerAccountId}:${options.threadId}`
-              : `generation:${options.providerAccountId}:${options.threadId}`,
+          ) => `progress:${options?.providerAccountId}:${options?.threadId}`,
         ),
         sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
           calls.push(text);
-          if (text === 'Route A stop') return routeAStop.promise;
-          if (text === 'Route B stop') return routeBStop.promise;
+          if (text === 'Route A progress') return routeAProgress.promise;
+          if (text === 'Route B progress') return routeBProgress.promise;
           return true;
         }),
       } as never,
@@ -895,13 +716,6 @@ describe('createProgressChannelSender', () => {
       finalizingGenerations: new Set<number>(),
       log: { warn: vi.fn() },
     });
-    const stopAction = [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: 'stop-token',
-      },
-    ];
     const routeA = {
       providerAccountId: 'account-a',
       threadId: 'thread-a',
@@ -913,60 +727,49 @@ describe('createProgressChannelSender', () => {
       generation: 1,
     };
 
-    const stopA = sender('Route A stop', {
+    const progressA = sender('Route A progress', {
       ...routeA,
-      actionAffordances: stopAction,
     });
-    const stopB = sender('Route B stop', {
+    const progressB = sender('Route B progress', {
       ...routeB,
-      actionAffordances: stopAction,
     });
     const doneA = sender('Route A done', { ...routeA, done: true });
     await flushMicrotasks();
-    expect(calls).toEqual(['Route A stop', 'Route B stop']);
+    expect(calls).toEqual(['Route A progress', 'Route B progress']);
 
-    routeAStop.resolve(true);
-    await expect(stopA).resolves.toBe(true);
+    routeAProgress.resolve(true);
+    await expect(progressA).resolves.toBe(true);
     await expect(doneA).resolves.toBe(true);
-    expect(calls).toEqual(['Route A stop', 'Route B stop', 'Route A done']);
+    expect(calls).toEqual([
+      'Route A progress',
+      'Route B progress',
+      'Route A done',
+    ]);
 
-    routeBStop.resolve(true);
-    await expect(stopB).resolves.toBe(true);
+    routeBProgress.resolve(true);
+    await expect(progressB).resolves.toBe(true);
   });
 
   it('keeps equal generations independent across non-threaded chats', async () => {
-    const chatAStop = deferred<boolean>();
-    const chatBStop = deferred<boolean>();
+    const chatAProgress = deferred<boolean>();
+    const chatBProgress = deferred<boolean>();
     const calls: Array<{ jid: string; text: string }> = [];
     const channelRuntime = {
       progressCardIdentity: vi.fn(
         (
           jid: string,
-          options?: {
+          _options?: {
             generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
           },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? `control:${jid}`
-            : `generation:${jid}:${options?.generation ?? ''}`,
+        ) => `progress:${jid}`,
       ),
       sendProgressUpdate: vi.fn(async (jid: string, text: string) => {
         calls.push({ jid, text });
-        if (text === 'Chat A stop') return chatAStop.promise;
-        if (text === 'Chat B stop') return chatBStop.promise;
+        if (text === 'Chat A progress') return chatAProgress.promise;
+        if (text === 'Chat B progress') return chatBProgress.promise;
         return true;
       }),
     } as never;
-    const stopAction = [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: 'stop-token',
-      },
-    ];
     const senderA = createProgressChannelSender({
       channelRuntime,
       chatJid: 'discord:chat-a',
@@ -984,34 +787,32 @@ describe('createProgressChannelSender', () => {
       log: { warn: vi.fn() },
     });
 
-    const stopA = senderA('Chat A stop', {
+    const progressA = senderA('Chat A progress', {
       generation: 1,
-      actionAffordances: stopAction,
     });
-    const stopB = senderB('Chat B stop', {
+    const progressB = senderB('Chat B progress', {
       generation: 1,
-      actionAffordances: stopAction,
     });
     const doneA = senderA('Chat A done', { generation: 1, done: true });
     const doneB = senderB('Chat B done', { generation: 1, done: true });
     await flushMicrotasks();
 
     expect(calls).toEqual([
-      { jid: 'discord:chat-a', text: 'Chat A stop' },
-      { jid: 'discord:chat-b', text: 'Chat B stop' },
+      { jid: 'discord:chat-a', text: 'Chat A progress' },
+      { jid: 'discord:chat-b', text: 'Chat B progress' },
     ]);
 
-    chatAStop.resolve(true);
-    await expect(stopA).resolves.toBe(true);
+    chatAProgress.resolve(true);
+    await expect(progressA).resolves.toBe(true);
     await expect(doneA).resolves.toBe(true);
     expect(calls).toEqual([
-      { jid: 'discord:chat-a', text: 'Chat A stop' },
-      { jid: 'discord:chat-b', text: 'Chat B stop' },
+      { jid: 'discord:chat-a', text: 'Chat A progress' },
+      { jid: 'discord:chat-b', text: 'Chat B progress' },
       { jid: 'discord:chat-a', text: 'Chat A done' },
     ]);
 
-    chatBStop.resolve(true);
-    await expect(stopB).resolves.toBe(true);
+    chatBProgress.resolve(true);
+    await expect(progressB).resolves.toBe(true);
     await expect(doneB).resolves.toBe(true);
   });
 
@@ -1083,865 +884,6 @@ describe('createProgressChannelSender', () => {
     );
   });
 
-  it.each([
-    ['cached', 0, 1],
-    ['live after cache expiry', 10 * 60_000, 0],
-  ] as const)(
-    'targets the %s stop card for nonterminal stall and retry edits',
-    async (_source, cacheAgeMs, expectedCacheSize) => {
-      const calls: Array<{ text: string; identity?: string }> = [];
-      let controlHandleExists = false;
-      const channelRuntime = {
-        progressCardIdentity: vi.fn(
-          (
-            _jid: string,
-            options?: {
-              done?: boolean;
-              generation?: number;
-              actionAffordances?: Array<{ kind: string }>;
-            },
-          ) => {
-            const hasStop = options?.actionAffordances?.some(
-              (action) => action.kind === 'live_turn_stop',
-            );
-            return hasStop || (options?.done && controlHandleExists)
-              ? 'discord-control'
-              : `discord-generation-${options?.generation ?? ''}`;
-          },
-        ),
-        sendProgressUpdate: vi.fn(
-          async (
-            _jid: string,
-            text: string,
-            options?: {
-              progressCardIdentity?: string;
-              replaceOnly?: boolean;
-            },
-          ) => {
-            calls.push({ text, identity: options?.progressCardIdentity });
-            if (text === 'Stop') controlHandleExists = true;
-            return (
-              !options?.replaceOnly ||
-              options.progressCardIdentity === 'discord-control'
-            );
-          },
-        ),
-      } as never;
-      const sender = createProgressChannelSender({
-        channelRuntime,
-        chatJid: `discord:nonterminal-control-${cacheAgeMs}`,
-        groupName: 'thread',
-        finalizingGenerations: new Set<number>(),
-        log: { warn: vi.fn() },
-      });
-
-      await sender('Stop', {
-        generation: 1,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'stop-token',
-          },
-        ],
-      });
-      if (cacheAgeMs) await vi.advanceTimersByTimeAsync(cacheAgeMs);
-      expect(progressCardIdentityCacheSize(channelRuntime)).toBe(
-        expectedCacheSize,
-      );
-
-      await expect(
-        sender('Still working', { generation: 1, replaceOnly: true }),
-      ).resolves.toBe(true);
-      await expect(
-        sender('retrying 1/3', { generation: 1, replaceOnly: true }),
-      ).resolves.toBe(true);
-      expect(calls).toEqual([
-        { text: 'Stop', identity: 'discord-control' },
-        { text: 'Still working', identity: 'discord-control' },
-        { text: 'retrying 1/3', identity: 'discord-control' },
-      ]);
-    },
-  );
-
-  it('keeps an older nonterminal edit off a newer cached control card', async () => {
-    const calls: Array<{ text: string; identity?: string }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          ) || options?.done
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { progressCardIdentity?: string; replaceOnly?: boolean },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          return options?.replaceOnly !== true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:older-nonterminal',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    await sender('Stop generation 2', {
-      generation: 2,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token-2',
-        },
-      ],
-    });
-    await expect(
-      sender('Still working generation 1', {
-        generation: 1,
-        replaceOnly: true,
-      }),
-    ).resolves.toBe(false);
-
-    expect(calls.slice(1)).toEqual(
-      calls.slice(1).map(() => ({
-        text: 'Still working generation 1',
-        identity: 'discord-generation-1',
-      })),
-    );
-  });
-
-  it('retains a landed stop identity after chain quiescence until a later terminal lands', async () => {
-    const calls: Array<{ text: string; identity?: string }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: { actionAffordances?: Array<{ kind: string }> },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : 'discord-generation',
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { progressCardIdentity?: string },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          return true;
-        },
-      ),
-    } as never;
-    const stopSender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:cache-gc',
-      groupName: 'stop owner',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    await expect(
-      stopSender('Stop', {
-        generation: 1,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'stop-token',
-          },
-        ],
-      }),
-    ).resolves.toBe(true);
-    await flushMicrotasks();
-
-    expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-
-    const terminalSender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:cache-gc',
-      groupName: 'terminal owner',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    await expect(
-      terminalSender('Done', { generation: 1, done: true }),
-    ).resolves.toBe(true);
-    await flushMicrotasks();
-
-    expect(calls).toEqual([
-      { text: 'Stop', identity: 'discord-control' },
-      { text: 'Done', identity: 'discord-control' },
-    ]);
-    expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-  });
-
-  it('retires a borrowed control identity after visible terminal delivery', async () => {
-    const stopDispatch = deferred<boolean>();
-    const calls: Array<{ text: string; identity?: string }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { progressCardIdentity?: string },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          return text === 'Stop' ? stopDispatch.promise : true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:visible-terminal-cache',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const stop = sender('Stop', {
-      generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
-    });
-    await flushMicrotasks();
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-
-    sender.recordVisibleDelivery('Done.', { generation: 1, done: true });
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-
-    stopDispatch.resolve(true);
-    await expect(stop).resolves.toBe(true);
-    await flushMicrotasks();
-    await sender('Later done', { generation: 2, done: true });
-    expect(calls).toEqual([
-      { text: 'Stop', identity: 'discord-control' },
-      { text: 'Done.', identity: 'discord-control' },
-      { text: 'Later done', identity: 'discord-generation-2' },
-    ]);
-  });
-
-  it('retains the control identity when a stop card lands through repair', async () => {
-    let stopAttempts = 0;
-    const calls: Array<{ text: string; identity?: string }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: { actionAffordances?: Array<{ kind: string }> },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : 'discord-generation',
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { progressCardIdentity?: string },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          if (text === 'Stop') return ++stopAttempts > 1;
-          return true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:cache-repair',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    await expect(
-      sender('Stop', {
-        generation: 1,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'stop-token',
-          },
-        ],
-      }),
-    ).resolves.toBe(false);
-    await flushMicrotasks();
-
-    expect(calls).toEqual([
-      { text: 'Stop', identity: 'discord-control' },
-      { text: 'Stop', identity: 'discord-control' },
-    ]);
-    expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-
-    await expect(sender('Done', { generation: 1, done: true })).resolves.toBe(
-      true,
-    );
-    await flushMicrotasks();
-    expect(calls.at(-1)).toEqual({
-      text: 'Done',
-      identity: 'discord-control',
-    });
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-  });
-
-  it('expires a landed stop identity at the independent retention cap', async () => {
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: { actionAffordances?: Array<{ kind: string }> },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : 'discord-generation',
-      ),
-      sendProgressUpdate: vi.fn(async () => true),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:cache-retention',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    await sender('Stop', {
-      generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
-    });
-    await flushMicrotasks();
-
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-    await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
-
-    expect(progressOrderingRegistrySize(channelRuntime)).toBe(0);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-  });
-
-  it('falls back to the live provider control card after identity retention expires', async () => {
-    const calls: Array<{ text: string; identity?: string }> = [];
-    let liveControlHandle = false;
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) => {
-          const hasStop = options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          );
-          return hasStop || (options?.done && liveControlHandle)
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`;
-        },
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { done?: boolean; progressCardIdentity?: string },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          if (text === 'Stop') liveControlHandle = true;
-          if (
-            options?.done &&
-            options.progressCardIdentity === 'discord-control'
-          ) {
-            liveControlHandle = false;
-          }
-          return true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:long-running-turn',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    await sender('Stop', {
-      generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
-    });
-    await flushMicrotasks();
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-
-    await expect(sender('Done', { generation: 1, done: true })).resolves.toBe(
-      true,
-    );
-    expect(calls).toEqual([
-      { text: 'Stop', identity: 'discord-control' },
-      { text: 'Done', identity: 'discord-control' },
-    ]);
-    expect(liveControlHandle).toBe(false);
-  });
-
-  it('starts a fresh retention window when a delayed stop card lands', async () => {
-    const stopDispatch = deferred<boolean>();
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(() => 'discord-control'),
-      sendProgressUpdate: vi.fn(async () => stopDispatch.promise),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:delayed-stop-retention',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const stop = sender('Stop', {
-      generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
-    });
-    await vi.advanceTimersByTimeAsync(9 * 60_000);
-    stopDispatch.resolve(true);
-    await expect(stop).resolves.toBe(true);
-    await flushMicrotasks();
-
-    await vi.advanceTimersByTimeAsync(10 * 60_000 - 1);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(0);
-  });
-
-  it('shares pending control-card identity across sender ownership transfer', async () => {
-    const first = deferred<boolean>();
-    const calls: string[] = [];
-    let controlHandleExists = false;
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) => {
-          const hasStop = options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          );
-          return hasStop || (options?.done && controlHandleExists)
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`;
-        },
-      ),
-      sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-        calls.push(text);
-        if (text === 'Stop generation 1') {
-          const landed = await first.promise;
-          controlHandleExists = landed;
-          return landed;
-        }
-        if (text === 'Done generation 1') controlHandleExists = false;
-        return true;
-      }),
-    } as never;
-    const route = { threadId: 'thread', generation: 1 };
-    const stopAction = [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: 'stop-token',
-      },
-    ];
-    const senderA = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:owner-transfer',
-      groupName: 'first owner',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const stop = senderA('Stop generation 1', {
-      ...route,
-      actionAffordances: stopAction,
-    });
-    const senderB = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:owner-transfer',
-      groupName: 'successor owner',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    const done = senderB('Done generation 1', { ...route, done: true });
-    await flushMicrotasks();
-
-    expect(calls).toEqual(['Stop generation 1']);
-
-    first.resolve(true);
-    await expect(stop).resolves.toBe(true);
-    await expect(done).resolves.toBe(true);
-    expect(calls).toEqual(['Stop generation 1', 'Done generation 1']);
-  });
-
-  it('routes a newer-generation terminal through a pending control chain', async () => {
-    const stopDispatch = deferred<boolean>();
-    const calls: string[] = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            done?: boolean;
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-        calls.push(text);
-        return text === 'Stop generation 1' ? stopDispatch.promise : true;
-      }),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:cross-generation-pending',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const stop = sender('Stop generation 1', {
-      generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token-1',
-        },
-      ],
-    });
-    const done = sender('Done generation 2', { generation: 2, done: true });
-    await flushMicrotasks();
-
-    expect(calls).toEqual(['Stop generation 1']);
-    stopDispatch.resolve(true);
-    await expect(stop).resolves.toBe(true);
-    await expect(done).resolves.toBe(true);
-    expect(calls).toEqual(['Stop generation 1', 'Done generation 2']);
-  });
-
-  it('keeps an older terminal off a newer pending control chain', async () => {
-    const stopDispatch = deferred<boolean>();
-    const calls: Array<{
-      text: string;
-      identity?: string;
-      replaceOnly?: boolean;
-    }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: {
-            progressCardIdentity?: string;
-            replaceOnly?: boolean;
-          },
-        ) => {
-          calls.push({
-            text,
-            identity: options?.progressCardIdentity,
-            replaceOnly: options?.replaceOnly,
-          });
-          return text === 'Stop generation 2' ? stopDispatch.promise : false;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:older-terminal',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const stop = sender('Stop generation 2', {
-      generation: 2,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token-2',
-        },
-      ],
-    });
-    const done = sender('Done generation 1', { generation: 1, done: true });
-    await flushMicrotasks();
-
-    await expect(done).resolves.toBe(false);
-    expect(calls[0]).toEqual({
-      text: 'Stop generation 2',
-      identity: 'discord-control',
-      replaceOnly: undefined,
-    });
-    expect(calls.slice(1)).toHaveLength(2);
-    expect(calls.slice(1)).toEqual(
-      calls.slice(1).map(() => ({
-        text: 'Done generation 1',
-        identity: 'discord-generation-1',
-        replaceOnly: true,
-      })),
-    );
-
-    stopDispatch.resolve(true);
-    await expect(stop).resolves.toBe(true);
-  });
-
-  it('freezes a queued terminal identity before a newer control is registered', async () => {
-    const oldProgressDispatch = deferred<boolean>();
-    const calls: Array<{ text: string; identity?: string }> = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(
-        async (
-          _jid: string,
-          text: string,
-          options?: { progressCardIdentity?: string },
-        ) => {
-          calls.push({ text, identity: options?.progressCardIdentity });
-          return text === 'Generation 1 progress'
-            ? oldProgressDispatch.promise
-            : true;
-        },
-      ),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:frozen-terminal',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-
-    const oldProgress = sender('Generation 1 progress', { generation: 1 });
-    const oldDone = sender('Done generation 1', {
-      generation: 1,
-      done: true,
-    });
-    const newStop = sender('Stop generation 2', {
-      generation: 2,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token-2',
-        },
-      ],
-    });
-    await flushMicrotasks();
-    expect(calls).toEqual([
-      {
-        text: 'Generation 1 progress',
-        identity: 'discord-generation-1',
-      },
-      { text: 'Stop generation 2', identity: 'discord-control' },
-    ]);
-
-    await expect(newStop).resolves.toBe(true);
-    await vi.advanceTimersByTimeAsync(2_000);
-    await expect(oldDone).resolves.toBe(true);
-    expect(calls.at(-1)).toEqual({
-      text: 'Done generation 1',
-      identity: 'discord-generation-1',
-    });
-
-    oldProgressDispatch.resolve(true);
-    await expect(oldProgress).resolves.toBe(true);
-  });
-
-  it('preserves a queued newer stop identity across an older terminal', async () => {
-    const stopOneDispatch = deferred<boolean>();
-    const doneOneDispatch = deferred<boolean>();
-    const stopTwoDispatch = deferred<boolean>();
-    const calls: string[] = [];
-    const channelRuntime = {
-      progressCardIdentity: vi.fn(
-        (
-          _jid: string,
-          options?: {
-            generation?: number;
-            actionAffordances?: Array<{ kind: string }>;
-          },
-        ) =>
-          options?.actionAffordances?.some(
-            (action) => action.kind === 'live_turn_stop',
-          )
-            ? 'discord-control'
-            : `discord-generation-${options?.generation ?? ''}`,
-      ),
-      sendProgressUpdate: vi.fn(async (_jid: string, text: string) => {
-        calls.push(text);
-        if (text === 'Stop generation 1') return stopOneDispatch.promise;
-        if (text === 'Done generation 1') return doneOneDispatch.promise;
-        if (text === 'Stop generation 2') return stopTwoDispatch.promise;
-        return true;
-      }),
-    } as never;
-    const sender = createProgressChannelSender({
-      channelRuntime,
-      chatJid: 'discord:queued-newer-stop',
-      groupName: 'thread',
-      finalizingGenerations: new Set<number>(),
-      log: { warn: vi.fn() },
-    });
-    const stopAction = (generation: number) => [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: `stop-token-${generation}`,
-      },
-    ];
-
-    const stopOne = sender('Stop generation 1', {
-      generation: 1,
-      actionAffordances: stopAction(1),
-    });
-    const doneOne = sender('Done generation 1', {
-      generation: 1,
-      done: true,
-    });
-    stopOneDispatch.resolve(true);
-    await expect(stopOne).resolves.toBe(true);
-    await flushMicrotasks();
-    expect(calls).toEqual(['Stop generation 1', 'Done generation 1']);
-
-    const stopTwo = sender('Stop generation 2', {
-      generation: 2,
-      actionAffordances: stopAction(2),
-    });
-    doneOneDispatch.resolve(true);
-    await expect(doneOne).resolves.toBe(true);
-    await flushMicrotasks();
-    expect(calls).toEqual([
-      'Stop generation 1',
-      'Done generation 1',
-      'Stop generation 2',
-    ]);
-    expect(progressCardIdentityCacheSize(channelRuntime)).toBe(1);
-
-    const doneTwo = sender('Done generation 2', {
-      generation: 2,
-      done: true,
-    });
-    await flushMicrotasks();
-    expect(calls).toHaveLength(3);
-
-    stopTwoDispatch.resolve(true);
-    await expect(stopTwo).resolves.toBe(true);
-    await expect(doneTwo).resolves.toBe(true);
-    expect(calls).toEqual([
-      'Stop generation 1',
-      'Done generation 1',
-      'Stop generation 2',
-      'Done generation 2',
-    ]);
-  });
-
   it('forces replace-only when reconciling an optionless update after owner timeout', async () => {
     const oldUpdate = deferred<boolean>();
     const calls: Array<{ text: string; replaceOnly?: boolean }> = [];
@@ -1988,10 +930,10 @@ describe('createProgressChannelSender', () => {
     ]);
   });
 
-  it('lets repair create a missing stop card after the original send returned false', async () => {
+  it('lets repair create a missing progress card after the original send returned false', async () => {
     const calls: Array<{ replaceOnly?: boolean }> = [];
     const channelRuntime = {
-      progressCardIdentity: vi.fn(() => 'discord-control'),
+      progressCardIdentity: vi.fn(() => 'discord-progress'),
       sendProgressUpdate: vi.fn(
         async (
           _jid: string,
@@ -2006,21 +948,14 @@ describe('createProgressChannelSender', () => {
     } as never;
     const sender = createProgressChannelSender({
       channelRuntime,
-      chatJid: 'discord:definitive-stop-false',
+      chatJid: 'discord:definitive-progress-false',
       groupName: 'thread',
       finalizingGenerations: new Set<number>(),
       log: { warn: vi.fn() },
     });
 
-    const send = sender('Stop', {
+    const send = sender('Progress', {
       generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
     });
 
     await expect(send).resolves.toBe(false);
@@ -2035,7 +970,7 @@ describe('createProgressChannelSender', () => {
   it('keeps repair replace-only after the original send rejects ambiguously', async () => {
     const calls: Array<{ replaceOnly?: boolean }> = [];
     const channelRuntime = {
-      progressCardIdentity: vi.fn(() => 'discord-control'),
+      progressCardIdentity: vi.fn(() => 'discord-progress'),
       sendProgressUpdate: vi.fn(
         async (
           _jid: string,
@@ -2050,22 +985,15 @@ describe('createProgressChannelSender', () => {
     } as never;
     const sender = createProgressChannelSender({
       channelRuntime,
-      chatJid: 'discord:ambiguous-rejected-stop',
+      chatJid: 'discord:ambiguous-rejected-progress',
       groupName: 'thread',
       finalizingGenerations: new Set<number>(),
       log: { warn: vi.fn() },
     });
 
     await expect(
-      sender('Stop', {
+      sender('Progress', {
         generation: 1,
-        actionAffordances: [
-          {
-            kind: 'live_turn_stop',
-            label: 'Stop',
-            actionToken: 'stop-token',
-          },
-        ],
       }),
     ).rejects.toThrow('response lost');
     await flushMicrotasks();
@@ -2074,10 +1002,10 @@ describe('createProgressChannelSender', () => {
   });
 
   it('forces a successor original replace-only while an earlier chain attempt is unsettled', async () => {
-    const firstStop = deferred<boolean>();
+    const firstProgress = deferred<boolean>();
     const calls: Array<{ text: string; replaceOnly?: boolean }> = [];
     const channelRuntime = {
-      progressCardIdentity: vi.fn(() => 'discord-control'),
+      progressCardIdentity: vi.fn(() => 'discord-progress'),
       sendProgressUpdate: vi.fn(
         async (
           _jid: string,
@@ -2085,7 +1013,7 @@ describe('createProgressChannelSender', () => {
           options?: { replaceOnly?: boolean },
         ) => {
           calls.push({ text, replaceOnly: options?.replaceOnly });
-          if (text === 'Stop generation 1') return firstStop.promise;
+          if (text === 'Progress generation 1') return firstProgress.promise;
           return false;
         },
       ),
@@ -2097,47 +1025,38 @@ describe('createProgressChannelSender', () => {
       finalizingGenerations: new Set<number>(),
       log: { warn: vi.fn() },
     });
-    const stopAction = (generation: number) => [
-      {
-        kind: 'live_turn_stop' as const,
-        label: 'Stop',
-        actionToken: `stop-token-${generation}`,
-      },
-    ];
 
-    const first = sender('Stop generation 1', {
+    const first = sender('Progress generation 1', {
       generation: 1,
-      actionAffordances: stopAction(1),
     });
-    const successor = sender('Stop generation 2', {
+    const successor = sender('Progress generation 2', {
       generation: 2,
-      actionAffordances: stopAction(2),
     });
 
     await vi.advanceTimersByTimeAsync(2_000);
     await expect(successor).resolves.toBe(false);
     expect(calls[0]).toEqual({
-      text: 'Stop generation 1',
+      text: 'Progress generation 1',
       replaceOnly: undefined,
     });
     expect(calls.slice(1)).not.toHaveLength(0);
     expect(calls.slice(1)).toEqual(
       calls.slice(1).map(() => ({
-        text: 'Stop generation 2',
+        text: 'Progress generation 2',
         replaceOnly: true,
       })),
     );
 
-    firstStop.resolve(true);
+    firstProgress.resolve(true);
     await expect(first).resolves.toBe(true);
   });
 
-  it('keeps repair replace-only while the original stop outcome is ambiguous', async () => {
+  it('keeps repair replace-only while the original progress outcome is ambiguous', async () => {
     const stale = deferred<boolean>();
-    const stop = deferred<boolean>();
+    const progress = deferred<boolean>();
     const calls: Array<{ text: string; replaceOnly?: boolean }> = [];
     const channelRuntime = {
-      progressCardIdentity: vi.fn(() => 'discord-control'),
+      progressCardIdentity: vi.fn(() => 'discord-progress'),
       sendProgressUpdate: vi.fn(
         async (
           _jid: string,
@@ -2146,8 +1065,8 @@ describe('createProgressChannelSender', () => {
         ) => {
           calls.push({ text, replaceOnly: options?.replaceOnly });
           if (text === 'Old state') return stale.promise;
-          if (calls.filter((call) => call.text === 'Stop').length === 1) {
-            return stop.promise;
+          if (calls.filter((call) => call.text === 'Progress').length === 1) {
+            return progress.promise;
           }
           return true;
         },
@@ -2155,22 +1074,15 @@ describe('createProgressChannelSender', () => {
     } as never;
     const sender = createProgressChannelSender({
       channelRuntime,
-      chatJid: 'discord:ambiguous-stop',
+      chatJid: 'discord:ambiguous-progress',
       groupName: 'thread',
       finalizingGenerations: new Set<number>(),
       log: { warn: vi.fn() },
     });
 
     const old = sender('Old state', { generation: 1 });
-    const pendingStop = sender('Stop', {
+    const pendingProgress = sender('Progress', {
       generation: 1,
-      actionAffordances: [
-        {
-          kind: 'live_turn_stop',
-          label: 'Stop',
-          actionToken: 'stop-token',
-        },
-      ],
     });
     await vi.advanceTimersByTimeAsync(4_000);
     stale.resolve(true);
@@ -2180,12 +1092,12 @@ describe('createProgressChannelSender', () => {
 
     expect(calls).toEqual([
       { text: 'Old state', replaceOnly: undefined },
-      { text: 'Stop', replaceOnly: true },
-      { text: 'Stop', replaceOnly: true },
+      { text: 'Progress', replaceOnly: true },
+      { text: 'Progress', replaceOnly: true },
     ]);
 
-    stop.resolve(false);
-    await expect(pendingStop).resolves.toBe(false);
+    progress.resolve(false);
+    await expect(pendingProgress).resolves.toBe(false);
   });
 
   it('keeps terminal state repairable after its sender retires', async () => {

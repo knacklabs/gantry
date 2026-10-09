@@ -2,10 +2,6 @@ import type { NewMessage } from '../../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../../domain/repositories/ops-repo.js';
 import type { RetiredProviderSessionReference } from '../../domain/sessions/provider-session-measurement.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../../shared/message-cursor.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import { resolveCanonicalMemoryPersonId } from '../../runtime/group-person-identity.js';
@@ -32,8 +28,6 @@ export async function handleActiveNewSessionCommand(input: {
       threadId?: string | null,
       metadata?: { memoryUserId?: string; providerAccountId?: string | null },
     ): Promise<readonly RetiredProviderSessionReference[]>;
-    setAgentCursor(queueKey: string, cursor: string): void;
-    saveState(): Promise<void>;
   };
   channelWiring: Pick<ChannelWiring, 'sendMessage'>;
   opsRepository: RuntimeAgentSessionRepository;
@@ -148,11 +142,6 @@ export async function handleActiveNewSessionCommand(input: {
       );
     });
   }
-  app.setAgentCursor(
-    queueJid,
-    encodeGroupMessageCursor(toGroupMessageCursor(message)),
-  );
-  await app.saveState();
   await channelWiring.sendMessage(chatJid, 'Started a fresh session.', {
     durability: 'required',
     ...(messageOptions ? { messageOptions } : {}),

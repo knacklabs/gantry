@@ -7,6 +7,7 @@ import {
   getDeploymentMode,
   getRuntimeSettingsForConfig,
   getSelectedAgentPermissionMode,
+  getTriggerPattern,
 } from '../../config/index.js';
 import { liveUxReactionSinks } from './live-ux-reaction-sinks.js';
 import path from 'node:path';
@@ -16,10 +17,6 @@ import {
   createAgentToolRuleSettingsMirror,
   type AgentToolRuleSettingsRepositories,
 } from '../../config/settings/agent-tool-rule-settings-mirror.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
@@ -87,6 +84,7 @@ import { handleActiveNewSessionCommand } from './runtime-services-active-new.js'
 import {
   queueActiveCompactionForRuntime,
   sendActiveControlReceipt,
+  type ActiveControlCommandHandler,
   sendActiveCompactionQueuedReceipt,
 } from './runtime-services-active-compact.js';
 import { registerRuntimeMemoryReviewMessageAction } from './runtime-memory-review-message-action.js';
@@ -98,7 +96,7 @@ import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
 import * as setupPause from './setup-pause-permission-wiring.js';
 import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
 // prettier-ignore
-import { buildLiveAdmissionProcessor, startLiveExecutionServices, type ActiveControlCommandHandler, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
+import { buildLiveAdmissionProcessor, startLiveExecutionServices, type LiveExecutionServicesHandle, type RecoveryCoordinatorPort } from './live-execution.js';
 import { buildLiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { startWaitingStatusMonitor } from './live-execution-waiting-status.js';
 import type { ProcessRole } from './roles/process-role.js';
@@ -511,6 +509,7 @@ export async function startRuntimeServices(
       warn: (context, message) => resolved.logger.warn(context, message),
       ...liveUxReactionSinks(channelWiring),
       handleActiveControlCommand,
+      getTriggerPattern: (trigger) => getTriggerPattern(trigger),
       finalizeAgentTodo: (jid, render, options) =>
         channelWiring.finalizeAgentTodo(jid, render, options),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
@@ -529,7 +528,6 @@ export async function startRuntimeServices(
         threadId?: string | null;
         senderUserIds?: readonly string[] | null;
         idempotencyKey?: string;
-        cursorAfter?: string;
       },
     ): Promise<boolean> => {
       if (!liveTurnAuthority)
@@ -547,7 +545,6 @@ export async function startRuntimeServices(
           idempotencyKey:
             options?.idempotencyKey ?? `continuation:${randomUUID()}`,
           senderUserIds: options?.senderUserIds,
-          cursorAfter: options?.cursorAfter,
         })) === 'queued_to_owner'
       );
     },
@@ -587,12 +584,7 @@ export async function startRuntimeServices(
       });
     },
   };
-  wireJobPermissionActions(
-    channelWiring,
-    app,
-    liveMessageQueue,
-    jobPermissionDurability,
-  );
+  wireJobPermissionActions(channelWiring, app, jobPermissionDurability);
   const decisionMemory = resolved.getPermissionDecisionMemoryRepository?.();
   const permissionRepository = resolved.getPermissionRepository?.();
   const readJobs = (jobIds: string[]) =>
@@ -721,11 +713,6 @@ export async function startRuntimeServices(
     if (!stopped) {
       return false;
     }
-    app.setAgentCursor(
-      queueJid,
-      encodeGroupMessageCursor(toGroupMessageCursor(message)),
-    );
-    await app.saveState();
     await sendActiveControlReceipt({
       sendMessage: (text, options) =>
         channelWiring.sendMessage(chatJid, text, options),
@@ -1132,10 +1119,7 @@ export async function startRuntimeServices(
     appId: channelWiring.getRuntimeAppId(),
     inputRepository: liveTurns,
     getConversationRoutes: () => app.getConversationRoutes(),
-    getOrRecoverCursor: app.getOrRecoverCursor,
-    setAgentCursor: (chatJid, timestamp) =>
-      app.setAgentCursor(chatJid, timestamp),
-    saveState: app.saveState,
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     hasChannel: (chatJid, options) =>
       channelWiring.hasChannel(chatJid, options),
     setTyping: (chatJid, isTyping, options) =>

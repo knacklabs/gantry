@@ -1,27 +1,9 @@
 # Standards
 
-Forge puts this page in every worker's brief, and reviewers judge each change against it. It opens
-with the principles Forge itself follows, then the principles for the apps Forge builds, then the
-engineering rules for client code. Each rule gives its reason, so you can apply it with judgement.
+Forge puts this page in every worker's brief, and reviewers judge each change against it. It carries
+the principles for the apps Forge builds and the engineering rules for client code. Each rule gives
+its reason, so you can apply it with judgement.
 If a rule here and the approved story doc disagree, follow the story doc and say so in your handoff.
-
-## Forge's 13 principles
-
-These govern Forge itself. Each has a check: an acceptance criterion, a CI check or a review instruction.
-
-1. Every artifact serves a client-visible change or is cut. Check: every story doc starts with "What changes for you".
-2. One home per fact: history in git, review and tests in the PR, current state in `.factory`. Check: no command writes a fact git or GitHub already holds.
-3. Gates check outcomes, never rituals: refuse only on real problems — a red test, a P0/P1 finding, a missing approval, or input Forge cannot act on (a malformed doc, the wrong version, a branch outside the lanes). Check: every refusal names the real problem and the next action.
-4. Fail loud, early, once: enforce at the command or commit, never silently. Check: a behaviour test for every refusal message.
-5. No rule without a test; no test without a rule. Check: the suite maps one test to one rule and tests no internal record format.
-6. Forge shrinks over time: every story removes at least as much process as it adds. Check: no module over 1,200 lines, a fixed ceiling on `forge` commands, refactor ratchet in CI.
-7. Adapt to third parties, never mirror them (Autoreview, Codex, Claude, GitHub): read only used fields, tolerate new ones, pin versions. Check: one boundary contract test per external tool.
-8. The agent does the work; the human decides (approve a story, choose between options, merge). Check: human touches per story are counted; target three or fewer.
-9. Same result from any agent: logic in `forge` commands and git, thin host adapters. Check: the same behaviour tests run through both adapters.
-10. Slow is a bug: close in minutes, CI under 5 minutes. Check: time per step is recorded and shown on the board; over-budget steps get fixes.
-11. Plain English wherever a human looks: no IDs, hashes or jargon on the board, in PR summaries or in questions. Check: reviewed on board and PR text.
-12. Reversible by default: every change and every migration is one PR; rollback is a revert. Check: no command changes a client repo outside a branch and PR.
-13. Measure the factory: task cycle time, human touches per story, share of PRs fixing Forge instead of the product. Check: these three are the rebuild's success measure.
 
 ## The 11 client-app principles
 
@@ -67,13 +49,16 @@ known limit with a `ponytail: <limit>, <upgrade path>` comment, so it reads as i
 - **Think before you code.** State your assumptions, and never pick silently. If the brief can be
   read two ways and both readings can be undone, pick the one closer to Done-when and write
   `Ruling: <what> - <why>` in the commit body, so the reviewer sees it. Stop and say so only for a
-  one-way step, a security question, a path outside your Scope or a new moving part.
+  one-way step, a security question or a new moving part. A file outside your Scope that the
+  change needs you may change; name it and why in your handoff.
 - **Touch only what the task needs.** Match the existing style, don't tidy neighbouring code, and
   mention unrelated dead code instead of deleting it. Remove what your own change left unused.
   Every changed line should trace to the task, so the reviewer can judge it against the story.
 - Joining lines or removing blank lines never counts as a reduction.
-- **Turn the task into checks first.** A Done-when item becomes a test at the boundary the user
-  touches; a bug becomes a test that fails before the fix. Then make them pass.
+- **Turn the task into checks first.** A Done-when item that changes runtime behaviour becomes one
+  end-to-end test at the boundary the user touches, and a settings, docs, deletion or test-only item
+  is proven by the check the item names; a bug becomes a test that fails before the fix. Then make
+  them pass.
 - **Compatibility is a requirement, not a reflex.** Unless the story names live users, API
   consumers or production data, a replacement deletes the old path: no shims, aliases, fallbacks
   or versioned migrations for data nobody has. When consumers are live, the story says so.
@@ -226,15 +211,26 @@ default-stack conventions, which apply only to a repo on the default stack.
 
 ## Tests
 
+Windows checklist:
+- A path written into a file or compared as text goes through `json.dumps` or `as_posix`.
+- Tests never assume a drive letter or a '/' separator.
+- File operations in tests use the repo's lock-safe helpers where it has them.
+
 - Documentation-only changes need no new behaviour test; check claims, commands and links.
-- Every Done-when item needs an end-to-end test through the real entry point: Forge's own command;
-  for client apps, the running API with a real database and user flows in a browser through
-  Playwright. Each bug fix adds a test that fails without the fix. Fake only third-party services
+- Every Done-when item needs an end-to-end test through the real entry point when it changes
+  runtime behaviour: Forge's own command; for client apps, the running API with a real database
+  and user flows in a browser through Playwright. Settings, docs, deletions and test-only items
+  are proven by the check the item names. Each bug fix adds a test that fails without the fix. Fake only third-party services
   at their edge.
-- Each user-facing Done-when item gets one Playwright browser test; an item with no UI gets an HTTP
-  test against the running app and a real database.
+- Each user-facing Done-when item gets one Playwright browser test when it changes runtime
+  behaviour; such an item with no UI gets an HTTP test against the running app and a real database.
 - Unit tests are only for pure logic with many cases, never an item's only proof. Review reports
   an item proven only by unit tests as a P1 `Not done` and never asks for unit tests of helpers.
+- Tests own and clean up every process they start, even after a crash; detect and fail on leftover
+  processes when a test worker crashes. Isolate host-side configuration so tests never use or
+  change the developer's settings.
+- Only setup and cleanup file operations retry briefly on Windows file locks, with bounded retries;
+  persistent failures still fail; never retry assertions or whole tests.
 - Tests build their own data with factories, own that data, don't depend on order, and never sleep.
   A skipped test names the reason next to it.
 - Client tests create their data through the app's API on a fresh database per run, with no shared

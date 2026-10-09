@@ -2396,45 +2396,6 @@
       "completed_at": "2026-09-10T06:26:24+00:00"
     },
     {
-      "key": "CARDSIMPLE-2",
-      "title": "One canonical card: fold the setup-pause prompt into the job permission card",
-      "story": "CARDSIMPLE-2",
-      "acceptance_criteria": [
-        "one canonical permission card is the only surface for every reachable blocked-need combination on all four providers; no Setup-needed prose; approver-route-only",
-        "0124's machinery stays the delivery authority; no reconciler loop; no second terminal surface",
-        "prose send and pause-affordance layer deleted; 0144 Reconsider and 0134 row semantics preserved",
-        "suites, tsc and architecture green"
-      ],
-      "order": 117,
-      "status": "pending",
-      "epic": "permission-engine",
-      "skill": "backend",
-      "kind": "feature",
-      "depends_on": [],
-      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
-    },
-    {
-      "key": "CARDSIMPLE-3",
-      "title": "Late tap: zero-fanout, one opId receipt and Run now",
-      "story": "CARDSIMPLE-3",
-      "acceptance_criteria": [
-        "late Allow records the decision with one idempotent receipt plus Run now; zero barriers and zero automatic triggers",
-        "Run now creates at most one deterministic settled-on-failure trigger; late Deny keeps Reconsider with no Run now",
-        "stale states mutate nothing; nothing auto-runs",
-        "suites, tsc and architecture green"
-      ],
-      "order": 118,
-      "status": "pending",
-      "epic": "permission-engine",
-      "skill": "backend",
-      "kind": "feature",
-      "depends_on": [
-        "CARDSIMPLE-1",
-        "CARDSIMPLE-2"
-      ],
-      "spec": "docs/specs/cardsimple-1-one-permission-surface.md"
-    },
-    {
       "key": "WEB-PROVIDERS-2",
       "title": "Correct registry-driven credential setup",
       "story": "As a Gantry administrator, I can choose and safely update every supported model-provider authentication method so that provider credentials are configured without hidden defaults or secret exposure.",
@@ -2514,6 +2475,97 @@
       "spec": "docs/specs/steer-running-answer.md",
       "status": "pending",
       "order": 125
+    },
+    {
+      "key": "PERMFLOW-1",
+      "title": "One permission gate on the host that asks only when needed",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 126
+    },
+    {
+      "key": "PERMFLOW-2",
+      "title": "Saved approvals by capability or program, per conversation, in one store",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 127
+    },
+    {
+      "key": "PERMFLOW-3",
+      "title": "Jobs run as unattended turns on the chat prompt and run loop",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 128
+    },
+    {
+      "key": "PERMFLOW-4",
+      "title": "Remove the old job, card and setup machinery and keep records bounded",
+      "spec": "docs/specs/one-permission-flow.md",
+      "status": "pending",
+      "order": 129
+    },
+    {
+      "key": "MSG-1",
+      "title": "Every incoming message is saved before anything can fail",
+      "spec": "docs/specs/one-messaging-pipeline.md",
+      "status": "pending",
+      "order": 130
+    },
+    {
+      "key": "MSG-2",
+      "title": "Everything the agent sends goes through one outbox, only to addresses the host chose",
+      "spec": "docs/specs/one-messaging-pipeline.md",
+      "status": "pending",
+      "order": 131
+    },
+    {
+      "key": "MSG-3",
+      "title": "Approvals can be answered from another chat",
+      "spec": "docs/specs/one-messaging-pipeline.md",
+      "status": "pending",
+      "order": 132
+    },
+    {
+      "key": "MSG-4",
+      "title": "Several hosts run with nothing in memory that matters",
+      "spec": "docs/specs/one-messaging-pipeline.md",
+      "status": "pending",
+      "order": 133
+    },
+    {
+      "key": "UX-1",
+      "title": "One way to do each thing, and nothing said twice",
+      "spec": "docs/specs/one-way-to-do-each-thing.md",
+      "status": "pending",
+      "order": 150
+    },
+    {
+      "key": "PROV-1",
+      "title": "Slack and Discord stay within their limits and reconnect cleanly",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 140
+    },
+    {
+      "key": "PROV-2",
+      "title": "Telegram direct messages stream the reply as it is written",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 141
+    },
+    {
+      "key": "PROV-3",
+      "title": "Permission prompts use each provider's own button styles",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 142
+    },
+    {
+      "key": "PROV-4",
+      "title": "Slack replies use agent sessions and native progress steps",
+      "spec": "docs/specs/provider-native-features.md",
+      "status": "pending",
+      "order": 143
     }
   ],
   "epics": [

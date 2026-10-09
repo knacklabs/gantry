@@ -29,7 +29,7 @@ import {
   jobRunLeaseToken,
   jobRunLeaseFencingVersion,
 } from '../context.js';
-import { writeIpcFile } from '../ipc.js';
+import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../../../shared/ipc-signing.js';
 import {
   ipcInteractionAuthEnvelopeOptions,
@@ -44,6 +44,7 @@ import {
 } from './user-question-response-wait.js';
 
 const INTERACTION_BOUNDARY_WAIT_MS = 2_000;
+const SEND_MESSAGE_RESPONSE_WAIT_MS = 30_000;
 
 const fallbackTextSchema = z
   .string()
@@ -443,8 +444,10 @@ export function registerMessagingTools(
           ],
         };
       }
+      const taskId = makeIpcId('send-message');
       const data: Record<string, unknown> = {
         type: 'message',
+        taskId,
         chatJid,
         text: args.text,
         sender: args.sender || undefined,
@@ -454,7 +457,36 @@ export function registerMessagingTools(
         files: args.files,
       };
       writeIpcFile(MESSAGES_DIR, data);
-      return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
+      const response = await waitForTaskResponse(
+        taskId,
+        SEND_MESSAGE_RESPONSE_WAIT_MS,
+      );
+      if (!response) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Message queued, but delivery is not confirmed yet. Do not assume the user has seen it.',
+            },
+          ],
+        };
+      }
+      if (!response.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Delivery not confirmed: ${response.error || 'delivery failed.'}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          { type: 'text' as const, text: response.message || 'Message sent.' },
+        ],
+      };
     },
   );
   registerRichInteractionTools(server);

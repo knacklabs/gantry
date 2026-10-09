@@ -1,9 +1,10 @@
 # Forge's settings. Your coding agent keeps this file: ask it to change a setting or upgrade Forge.
-version = "v1.2.1"
+version = "v1.2.7"
 repo = "client"
 signoff = "docs/decisions/0034-client-signoff.md"
 workers = "codex"
 test = "npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck && npm test'"
+fast_test = "npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck'"
 checks = ["ci", "tests", "forge-pr-check"]
 interfaces = ["**/routes/**", "**/*.controller.*", "**/migrations/**", "**/schema.*", "**/*.schema.*", "**/cli.*"]
 
@@ -32,5 +33,5 @@ model = "opus"
 effort = "high"
 
 [models.review]
-model = "gpt-6-sol"
+model = "gpt-6.1-sol"
 effort = "high"

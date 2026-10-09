@@ -1,0 +1,27 @@
+{
+  "base": "4a2c2aa5622378c8a350aa1f3ce790e21ddcf058",
+  "branch": "fix/code-reviews-still-use-the-older-gpt-6-s",
+  "done_when": "forge.toml sets the review model to gpt-6.1-sol at high effort",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "3f40a2cfc74e2a98ff2785cdb8962436976d4d0c2dc03eb8593e262930fecf44",
+    "commit": "0d770f4e900319e965d5a895fb919428bf0cc525",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "ebd9dd9450077ab1c9fdd992f4c6b88365fe053d50bc75c33cc3fa44c7865c70"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-30T11:52:26+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-30T12:01:25+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Code reviews still use the older gpt-6-sol model after the owner moved reviews to gpt-6.1-sol"
+}

@@ -192,14 +192,11 @@ export async function sendSlackMessage(input: {
         });
         if (fallback) {
           warnings.push('slack.snippet_fallback');
-          if (fallback.externalMessageId) {
-            externalMessageIds.push(fallback.externalMessageId);
-          }
+          externalMessageIds.push(...fallback.externalMessageIds);
           await postActionsFollowUpNonFatal(oversizedCtx, warnings);
-          const ids = [...externalMessageIds];
           return {
-            ...(ids[0] ? { externalMessageId: ids[0] } : {}),
-            ...(ids.length > 0 ? { externalMessageIds: ids } : {}),
+            externalMessageId: externalMessageIds[0],
+            externalMessageIds,
             deliveredParts: parts.length,
             totalParts: parts.length,
             warnings,
@@ -255,23 +252,28 @@ export async function sendSlackMessage(input: {
     }
   }
 
-  await uploadSlackAttachments({
-    app: input.app,
-    jid: input.jid,
-    channelId: input.channelId,
-    threadTs,
-    files: input.options.files,
-    warnings,
-    externalMessageIds,
-    log: input.log,
-    postSlackMessageWithRetry,
-  });
+  try {
+    await uploadSlackAttachments({
+      ...oversizedCtx,
+      files: input.options.files,
+      postSlackMessageWithRetry,
+    });
+  } catch (cause) {
+    throw buildPartialSlackDelivery({
+      cause,
+      deliveredParts,
+      totalParts: parts.length + (input.options.files?.length ?? 0),
+      externalMessageIds,
+      unsentTail: '',
+      channelId: input.channelId,
+      threadTs,
+      warnings,
+    });
+  }
 
   return {
-    ...(externalMessageIds[0]
-      ? { externalMessageId: externalMessageIds[0] }
-      : {}),
-    ...(externalMessageIds.length > 0 ? { externalMessageIds } : {}),
+    externalMessageId: externalMessageIds[0],
+    externalMessageIds,
     deliveredParts,
     totalParts: parts.length,
     ...(warnings.length > 0 ? { warnings } : {}),
@@ -290,7 +292,13 @@ export async function sendSlackFallbackStreamParts(input: {
   const threadTs = slackThreadTsFromThreadId(input.state.threadId);
   let deliveredParts = 0;
   const visibleFallbackMessageIds = () =>
-    input.state.fallbackMessageTs.filter(Boolean);
+    [
+      ...new Set([
+        input.state.nativeStreamTs,
+        input.state.messageTs,
+        ...input.state.fallbackMessageTs,
+      ]),
+    ].filter((id): id is string => Boolean(id));
   const retryTailFromFallbackParts = () => {
     const tail = input.fallbackParts.slice(deliveredParts).join('');
     if (deliveredParts > 0 || !tail) return tail;
@@ -702,8 +710,6 @@ export function resolveSlackDisconnectQuestions(input: {
 export async function disconnectSlackDelivery(input: {
   app: App | null;
   activeStreams: Map<string, ActiveStreamState>;
-  streamGenerationByJid: Map<string, number>;
-  sealedStreamGenerationByJid: Map<string, number>;
   activeProgress: Map<string, ActiveProgressState>;
   pendingUserQuestions: Map<string, PendingUserQuestionState>;
   stopNativeStream: (channelId: string, streamTs: string) => Promise<boolean>;
@@ -718,8 +724,6 @@ export async function disconnectSlackDelivery(input: {
     }
   }
   input.activeStreams.clear();
-  input.streamGenerationByJid.clear();
-  input.sealedStreamGenerationByJid.clear();
   input.activeProgress.clear();
 
   if (input.app) await input.app.stop();

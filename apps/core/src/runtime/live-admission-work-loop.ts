@@ -41,6 +41,9 @@ const DEFAULT_CLAIM_TTL_MS = 30_000;
 const DEFAULT_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_BATCHES_PER_WAKE = 10;
 const DEFAULT_MAX_RETRY_COUNT = 5;
+// Floor for an early wake, so rows still locked by another worker's claim
+// don't turn the wait into a busy loop.
+const MIN_WAKE_DELAY_MS = 25;
 
 function deferReasonForResult(
   result: Exclude<MessageAdmissionProcessingResult, 'completed'>,
@@ -70,6 +73,8 @@ export function startLiveAdmissionWorkLoop(
     input.maxBatchesPerWake ?? DEFAULT_MAX_BATCHES_PER_WAKE;
   const maxRetryCount = input.maxRetryCount ?? DEFAULT_MAX_RETRY_COUNT;
   let stopped = false;
+  // A wakeup that lands while the loop is busy, so it isn't slept through.
+  let wakeRequested = false;
   let cancelDelay: (() => void) | undefined;
   const inFlightClaims = new Map<string, { claimToken: string }>();
 
@@ -216,6 +221,23 @@ export function startLiveAdmissionWorkLoop(
     return { result, claimLost };
   };
 
+  // Wake when the earliest deferred item (a quiet window or a retry) is due,
+  // instead of up to a poll later; the poll interval stays the fallback.
+  const nextWakeDelayMs = async (): Promise<number> => {
+    try {
+      const dueAt = await input.liveAdmissions.nextLiveAdmissionDueAt({
+        appId: input.appId,
+      });
+      if (dueAt === null) return intervalMs;
+      // +1: the database keeps microseconds that Date.parse drops.
+      const untilDue = Date.parse(dueAt) + 1 - nowMs();
+      return Math.min(intervalMs, Math.max(MIN_WAKE_DELAY_MS, untilDue));
+    } catch (err) {
+      input.warn({ err }, 'Failed to read the next live admission due time');
+      return intervalMs;
+    }
+  };
+
   const drainOnce = async (): Promise<void> => {
     for (let batch = 0; batch < maxBatchesPerWake && !stopped; batch++) {
       const claimToken = `live-admission:${input.workerInstanceId}:${randomUUID()}`;
@@ -292,6 +314,7 @@ export function startLiveAdmissionWorkLoop(
 
   const done = (async () => {
     while (!stopped) {
+      wakeRequested = false;
       try {
         await drainOnce();
       } catch (err) {
@@ -301,11 +324,14 @@ export function startLiveAdmissionWorkLoop(
         );
       }
       if (stopped) break;
+      const delayMs = await nextWakeDelayMs();
+      if (stopped) break;
+      if (wakeRequested) continue;
       await new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
           cancelDelay = undefined;
           resolve();
-        }, intervalMs);
+        }, delayMs);
         cancelDelay = () => {
           cancelDelay = undefined;
           clearTimeout(timer);
@@ -348,6 +374,7 @@ export function startLiveAdmissionWorkLoop(
   return {
     stop,
     trigger: () => {
+      wakeRequested = true;
       cancelDelay?.();
     },
     done,

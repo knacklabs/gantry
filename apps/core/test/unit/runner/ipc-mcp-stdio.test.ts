@@ -1680,6 +1680,12 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'Tool "AgentDelegation" is already selected for this run.',
     );
+    // A selected grant is not evidence that the executor is missing; report
+    // the access-preset/tool-visibility recovery instead of guessing that gate.
+    expect(record.result.content[0].text).toContain(
+      'use the full access preset',
+    );
+    expect(record.result.content[0].text).toContain('enable the hidden tools');
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
   });

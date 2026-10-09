@@ -4,6 +4,7 @@ import {
   triggerForRoute,
 } from '../../shared/trigger-pattern.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
+import { telegramInboundEnvelope } from './text-message-handler.js';
 
 type TelegramMediaQueue = {
   enqueue(task: () => Promise<void>): boolean;
@@ -23,6 +24,7 @@ export function registerTelegramMediaHandlers(input: {
       options?: { providerAccountId?: string },
     ) => Promise<void>;
     providerAccountId?: string;
+    inboundProviderAccountIds?: string[];
     onMessage: (jid: string, message: any) => Promise<unknown>;
     ensureMessageRoute?: (jid: string, message: any) => Promise<unknown>;
     conversationRoutes: () => Record<
@@ -59,49 +61,32 @@ export function registerTelegramMediaHandlers(input: {
     const threadId = ctx.message.message_thread_id
       ? ctx.message.message_thread_id.toString()
       : undefined;
-    let groups = routeGroups();
-    if (
-      !isGroup &&
-      findConversationRoutesForChat(
-        groups,
-        chatJid,
-        threadId,
-        input.opts.providerAccountId,
-      ).length < 1
-    ) {
+    // Accounts sharing this bot all receive its media, exactly like text.
+    const accountIds = input.opts.inboundProviderAccountIds?.length
+      ? input.opts.inboundProviderAccountIds
+      : [input.opts.providerAccountId];
+    const routesForChat = () =>
+      accountIds.flatMap((accountId) =>
+        findConversationRoutesForChat(
+          routeGroups(),
+          chatJid,
+          threadId,
+          accountId,
+        ),
+      );
+    if (!isGroup && routesForChat().length < 1) {
       await input.opts.ensureMessageRoute?.(chatJid, {
-        id: ctx.message.message_id.toString(),
+        ...telegramInboundEnvelope(ctx),
         chat_jid: chatJid,
         provider: 'telegram',
         providerAccountId: input.opts.providerAccountId,
-        sender: ctx.from?.id?.toString() || '',
-        sender_name:
-          ctx.from?.first_name ||
-          ctx.from?.username ||
-          ctx.from?.id?.toString() ||
-          'Unknown',
         content: placeholder,
-        timestamp,
-        is_from_me: false,
-        external_message_id: ctx.message.message_id.toString(),
-        thread_id: threadId,
       });
-      groups = routeGroups();
     }
 
-    const matchingGroups = findConversationRoutesForChat(
-      groups,
-      chatJid,
-      threadId,
-      input.opts.providerAccountId,
-    );
+    const matchingGroups = routesForChat();
     if (matchingGroups.length < 1 && isGroup) return;
 
-    const senderName =
-      ctx.from?.first_name ||
-      ctx.from?.username ||
-      ctx.from?.id?.toString() ||
-      'Unknown';
     const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
     const triggeredGroups =
       matchingGroups.length > 1 && ctx.message.caption
@@ -123,17 +108,12 @@ export function registerTelegramMediaHandlers(input: {
     ) => {
       const msgId = ctx.message.message_id.toString();
       await input.opts.onMessage(chatJid, {
-        id: msgId,
+        ...telegramInboundEnvelope(ctx),
         chat_jid: chatJid,
         provider: 'telegram',
-        providerAccountId: input.opts.providerAccountId,
-        sender: ctx.from?.id?.toString() || '',
-        sender_name: senderName,
+        // No providerAccountId: the account wrapper fans out to every
+        // account sharing this bot, as it does for text.
         content,
-        timestamp,
-        is_from_me: false,
-        external_message_id: msgId,
-        thread_id: threadId,
         attachments: attachment
           ? [
               {

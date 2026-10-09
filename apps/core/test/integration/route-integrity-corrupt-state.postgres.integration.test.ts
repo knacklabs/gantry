@@ -172,10 +172,15 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       item: {
         queueJid: fullyQualifiedRouteKey,
         conversationId: chatJid,
-        state: 'queued',
+        state: 'deferred',
       },
     });
     if (!admission) throw new Error('Expected a live admission work item.');
+    // End its quiet window now rather than waiting it out.
+    await runtime.service.pool.query(
+      `UPDATE ${table('live_admission_work_items')} SET defer_until = now() WHERE id = $1`,
+      [admission.item.id],
+    );
 
     await runtime.repositories.workerCoordination.registerWorker({
       id: workerInstanceId,
@@ -198,15 +203,11 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       baseRetryMs: 1,
     });
     const processGroupMessages = vi.fn(async () => true);
-    const getOrRecoverCursor = async () => '';
     const processor = buildLiveAdmissionProcessor({
       liveTurnAuthority,
       app: {
         getConversationRoutes: () => routes,
         processGroupMessages,
-        getOrRecoverCursor,
-        setAgentCursor: () => undefined,
-        saveState: () => undefined,
       },
       opsRepository: runtime.ops,
       executionAdapter: { id: 'anthropic:claude-agent-sdk' },
@@ -223,9 +224,6 @@ maybeDescribe('route integrity corrupt-state recovery (Postgres)', () => {
       workerInstanceId,
       messageLoopDeps: {
         getConversationRoutes: () => routes,
-        getOrRecoverCursor,
-        setAgentCursor: () => undefined,
-        saveState: () => undefined,
         hasChannel: (_jid, options) =>
           options?.providerAccountId === providerAccountId,
         setTyping: async () => undefined,
