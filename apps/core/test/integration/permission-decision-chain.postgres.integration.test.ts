@@ -4,7 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { createGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
@@ -206,23 +215,29 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       appId: APP_ID,
       agentId: AGENT_ID,
     });
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('exercise the production polling fallback');
+    });
+  }, 60_000);
+
+  beforeEach(() => {
     registerPermissionRunRestriction({
       sourceAgentFolder: AGENT_FOLDER,
       responseKeyId: ipcAuth.responseKeyId,
       hideAuthorityTools: false,
       runKind: 'interactive',
     });
-    vi.spyOn(fs, 'watch').mockImplementation(() => {
-      throw new Error('exercise the production polling fallback');
-    });
-  }, 60_000);
+  });
 
-  afterAll(async () => {
+  afterEach(() => {
     if (ipcAuth)
       unregisterPermissionRunRestriction({
         sourceAgentFolder: AGENT_FOLDER,
         responseKeyId: ipcAuth.responseKeyId,
       });
+  });
+
+  afterAll(async () => {
     configurePendingInteractionDurability(null);
     configurePendingInteractionPermissionPersistence(null);
     if (originalSettingsYaml !== undefined) {
