@@ -1,0 +1,14 @@
+{
+  "base": "e5aafb2fe3ab0e8acbb6cfd7aed5a24d57cd0a27",
+  "branch": "fix/upgrade-forge-to-v1-2-8",
+  "done_when": "This repo pins and runs Forge v1.2.8.",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-09T07:38:18+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Upgrade Forge to v1.2.8."
+}
