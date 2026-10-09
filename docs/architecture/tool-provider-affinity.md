@@ -1,6 +1,6 @@
 # Tool provider affinity
 
-Gantry classifies its 75 built-in MCP tools by whether provider identity changes availability or presentation. The canonical inventory is `ALL_GANTRY_MCP_TOOL_NAMES` in `apps/core/src/shared/admin-mcp-tools.ts`; the availability rule is `TOOL_PROVIDER_AFFINITY_BY_JID_PREFIX` in `apps/core/src/runner/mcp/tool-provider-affinity.ts`.
+Gantry classifies its 75 built-in MCP tools by whether provider identity changes availability or presentation. The canonical inventory is `ALL_GANTRY_MCP_TOOL_NAMES` in `apps/core/src/shared/admin-mcp-tools.ts`; the availability rule is `TOOL_PROVIDER_AFFINITY_BY_JID_PREFIX` in `apps/core/src/shared/gantry-tool-provider-affinity.ts`.
 
 ## Classification
 
