@@ -424,6 +424,10 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!message) throw new Error('Taken input has no scoped message row');
       if (
         !input.isActiveControlMessage?.(message) &&
+        !(
+          item.triggerDecision?.source === 'callable_agent_follow_up' &&
+          item.triggerDecision.requiresTrigger === false
+        ) &&
         input.senderMayTrigger?.(message) === false
       ) {
         await input.inputRepository.consumeInputItem({

@@ -1,0 +1,74 @@
+{
+  "allow_large": "Owner OK 2026-10-02: merging main's turn changes and keeping the thread test working spread the sender check across the follow-up routing files",
+  "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
+  "branch": "fix/anyone-can-get-a-reply-in-a-thread-an-al",
+  "done_when": "A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the root sender is allowed and another person's follow-up gets no reply",
+  "flagged": [
+    "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "bbc655add0c197c91ae66791e87266aca038f60e529691ea9f9c8075cccea173",
+    "changed": "fabbf178d8ceb59ce4a276a795836939ee480f7dfa16d4c0869ec313932d20b5",
+    "commit": "92e5236f5477e0fd1d5b6d0fcd56bb3ee49de976",
+    "dismissals": [],
+    "findings": [],
+    "id": "a3dc7d57-fa8b-455b-9619-378e9ceaaf90",
+    "status": "clean"
+  },
+  "round": 5,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-01T10:04:20+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-01T11:38:57+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T12:45:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T14:03:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T15:52:23+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T06:02:29+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T09:47:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T13:31:10+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T15:36:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T19:44:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T13:47:20+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T14:07:44+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Anyone can get a reply in a thread an allowed person started, because the thread check never looks at who sent the new message",
+  "worker": "codex"
+}

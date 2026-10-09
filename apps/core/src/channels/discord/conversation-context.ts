@@ -301,6 +301,8 @@ async function fetchDiscordThreadRootMessage(input: {
   }
 }
 
+const DISCORD_PARENT_LOOKUP_ATTEMPTS = 3;
+
 export async function resolveDiscordConversationContext(input: {
   channelId: string;
   botToken: string;
@@ -314,32 +316,40 @@ export async function resolveDiscordConversationContext(input: {
   const fallback = {
     conversationJid: `${DISCORD_JID_PREFIX}${input.channelId}`,
   };
-  try {
-    const info = await input.requestJson<DiscordChannelInfo>(
-      `/channels/${encodeURIComponent(input.channelId)}`,
-      { method: 'GET', headers: input.headers(input.botToken) },
-      'Discord channel lookup failed',
-    );
-    const context =
-      info.parent_id && DISCORD_PUBLIC_THREAD_TYPES.has(info.type ?? -1)
-        ? {
-            conversationJid: `${DISCORD_JID_PREFIX}${info.parent_id}`,
-            threadId: input.channelId,
-          }
-        : fallback;
-    input.cache.set(input.channelId, context);
-    return context;
-  } catch (err) {
-    logger.debug(
-      {
-        providerId: 'discord',
-        channelId: input.channelId,
-        errorName: err instanceof Error ? err.name : typeof err,
-      },
-      'Discord thread parent lookup failed',
-    );
-    if (input.failClosed) throw err;
-    return fallback;
+  // ponytail: quick back-to-back attempts ride out a blip; a longer outage
+  // fails the inbound event, which distrusts history coverage so the next
+  // turn re-reads provider history.
+  const attempts = input.failClosed ? DISCORD_PARENT_LOOKUP_ATTEMPTS : 1;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const info = await input.requestJson<DiscordChannelInfo>(
+        `/channels/${encodeURIComponent(input.channelId)}`,
+        { method: 'GET', headers: input.headers(input.botToken) },
+        'Discord channel lookup failed',
+      );
+      const context =
+        info.parent_id && DISCORD_PUBLIC_THREAD_TYPES.has(info.type ?? -1)
+          ? {
+              conversationJid: `${DISCORD_JID_PREFIX}${info.parent_id}`,
+              threadId: input.channelId,
+            }
+          : fallback;
+      input.cache.set(input.channelId, context);
+      return context;
+    } catch (err) {
+      if (attempt < attempts) continue;
+      logger[input.failClosed ? 'warn' : 'debug'](
+        {
+          providerId: 'discord',
+          channelId: input.channelId,
+          attempts,
+          errorName: err instanceof Error ? err.name : typeof err,
+        },
+        'Discord thread parent lookup failed',
+      );
+      if (input.failClosed) throw err;
+      return fallback;
+    }
   }
 }
 
