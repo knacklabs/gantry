@@ -263,6 +263,105 @@
       "item": "TURN-1/T6",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/README.md\tNot done: proof list\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/README.md",
+      "line": 5,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/06-storage.md\tNot done: docs/architecture/areas/ checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/06-storage.md",
+      "line": 87,
+      "text": "Not done: docs/architecture/areas/ checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/10-shared-domain.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/10-shared-domain.md",
+      "line": 295,
+      "text": "Not done: docs/architecture/areas/ guides checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/11-deploy-scaling.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/11-deploy-scaling.md",
+      "line": 283,
+      "text": "Not done: docs/architecture/areas/ guides checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/13-security-boundaries.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/13-security-boundaries.md",
+      "line": 271,
+      "text": "Not done: docs/architecture/areas/ guides checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/README.md\tNot done: proof list\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/README.md",
+      "line": 5,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
+      "kind": "bug",
+      "path": "docs/specs/subagents-end-to-end.md",
+      "line": 99,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "subagents-refuse-hang-lose-results-and-i",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tdocs/context/subagent-research-2026-10-02.md\tRepair the remaining broken research citations",
+      "kind": "edge",
+      "path": "docs/context/subagent-research-2026-10-02.md",
+      "line": 14,
+      "text": "Repair the remaining broken research citations",
+      "from": "review",
+      "item": "subagents-refuse-hang-lose-results-and-i",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
+      "kind": "bug",
+      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+      "line": 2357,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "discord-thread-messages-are-dropped-when",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }

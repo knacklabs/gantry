@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import { isIP } from 'node:net';
 import path from 'node:path';
 
 import { tool } from '@langchain/core/tools';
@@ -33,6 +32,10 @@ import {
 import { runnableToolInvocationId } from './tool-invocation-id.js';
 import { evaluateAgentDelegationAsyncBridge } from './agent-delegation-async-bridge.js';
 import { DEEPAGENTS_ASYNC_DELEGATION_UNAVAILABLE_MESSAGE } from './async-subagent-sentinel.js';
+import {
+  isIpAddress,
+  isPrivateNetworkAddress,
+} from '../../../../shared/public-address-policy.js';
 
 export const DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES =
   GANTRY_FACADE_EXACT_TOOL_NAMES;
@@ -619,10 +622,14 @@ function webReadTargetBlocker(rawUrl: string): string | null {
     .toLowerCase()
     .replace(/^\[|\]$/g, '')
     .replace(/\.+$/g, '');
+  const isIpLiteral = isIpAddress(hostname);
+  // WebRead retains its stricter policy of refusing even public IPv6 literals.
+  const unsupportedIpv6Literal = isIpLiteral && hostname.includes(':');
   if (
     hostname === 'localhost' ||
     hostname.endsWith('.localhost') ||
-    isBlockedIpLiteral(hostname)
+    (isIpLiteral && isPrivateNetworkAddress(hostname)) ||
+    unsupportedIpv6Literal
   ) {
     return 'WebRead cannot read loopback or private network URLs.';
   }
@@ -641,24 +648,6 @@ function isLoopbackHttpProxy(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function isBlockedIpLiteral(hostname: string): boolean {
-  const ipVersion = isIP(hostname);
-  if (ipVersion === 0) return false;
-  if (ipVersion === 6) return true;
-  const octets = hostname.split('.').map((part) => Number(part));
-  const [a, b] = octets as [number, number, number, number];
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a >= 224
-  );
 }
 
 function facadeDescription(toolName: DeepAgentsFacadeToolName): string {
