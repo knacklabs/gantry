@@ -1,17 +1,13 @@
 import {
-  GATED_GANTRY_MCP_TOOL_NAMES,
   selectedGantryMcpToolNames,
+  selectedAdminMcpToolNames,
   selectedMemoryIpcActions,
-} from '../../../../runner/gantry-mcp-tool-surface.js';
+} from '../../../../shared/gantry-mcp-tool-surface.js';
 import { isCanonicalBrowserCapabilityRule } from '../../../../shared/agent-tool-references.js';
 import {
   callableAgentToolName,
   type CallableAgentToolManifestEntry,
 } from '../../../../application/core-tools/callable-agent-tools.js';
-
-const BROWSER_GATEWAY_TOOL_NAME_SET = new Set<string>(
-  GATED_GANTRY_MCP_TOOL_NAMES,
-);
 
 // Builds the environment block the DeepAgents runner passes to the Gantry facade
 // MCP stdio server (apps/core/src/runner/mcp/stdio.js) when it spawns it through
@@ -64,6 +60,9 @@ export function buildGantryMcpProjection(
   const selectedToolNamesBase = selectedGantryMcpToolNames(
     input.configuredAllowedTools,
     {
+      accessPreset:
+        env.GANTRY_AGENT_ACCESS_PRESET === 'locked' ? 'locked' : 'full',
+      browserIpcEnabled,
       excludeAuthorityTools: input.hideAuthorityTools,
       // 0123: birthright recovery proposals stay visible to no-permission
       // workers; locked agents never see them.
@@ -79,22 +78,13 @@ export function buildGantryMcpProjection(
           : 'autonomous',
     },
   );
-  // Browser gateway tools (browser_*) are reachable only when the host enabled
-  // browser IPC AND the agent selected the canonical Browser capability. The
-  // tool-surface selection adds them whenever Browser is selected, so strip them
-  // back out here when the host did not provide the browser IPC token — this
-  // mirrors the anthropic lane, which only mounts those tools under that token.
   const callableAgentToolNames = callableAgentManifest.map(
     callableAgentToolName,
   );
-  const selectedToolNames = browserIpcEnabled
-    ? [...selectedToolNamesBase, ...callableAgentToolNames]
-    : [
-        ...selectedToolNamesBase.filter(
-          (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
-        ),
-        ...callableAgentToolNames,
-      ];
+  const selectedToolNames = [
+    ...selectedToolNamesBase,
+    ...callableAgentToolNames,
+  ];
 
   const memoryIpcActions = selectedMemoryIpcActions(
     input.configuredAllowedTools,
@@ -164,7 +154,9 @@ export function buildGantryMcpProjection(
       env.GANTRY_SELECTED_MCP_SERVERS_JSON ?? '[]',
     GANTRY_SEMANTIC_CAPABILITIES_JSON:
       env.GANTRY_SEMANTIC_CAPABILITIES_JSON ?? '[]',
-    GANTRY_ADMIN_MCP_TOOLS_JSON: env.GANTRY_ADMIN_MCP_TOOLS_JSON ?? '[]',
+    GANTRY_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
+      selectedAdminMcpToolNames(input.configuredAllowedTools),
+    ),
   };
 
   // Browser gateway tools are reachable only when the host enabled browser IPC

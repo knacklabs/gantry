@@ -16,7 +16,7 @@ vi.mock('@core/runner/mcp/ipc.js', () => ipc);
 
 import { resolveAgentPromptCapabilityCatalog } from '@core/application/agents/agent-prompt-capability-catalog.js';
 import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
-import { selectedGantryMcpFullToolNames } from '@core/runner/gantry-mcp-tool-surface.js';
+import { selectedGantryMcpFullToolNames } from '@core/shared/gantry-mcp-tool-surface.js';
 import { registerCapabilityRunTool } from '@core/runner/mcp/tools/capability-run.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
