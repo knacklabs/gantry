@@ -382,6 +382,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   enqueueMessageCheck?: (queueJid: string) => void;
   isActiveControlMessage?: (message: NewMessage) => boolean;
   handleActiveControlMessage?: (message: NewMessage) => Promise<boolean>;
+  /** False keeps a sender's message as history instead of forwarding it. */
+  senderMayTrigger?: (message: NewMessage) => boolean;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -420,6 +422,24 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
+      if (
+        !input.isActiveControlMessage?.(message) &&
+        input.senderMayTrigger?.(message) === false
+      ) {
+        await input.inputRepository.consumeInputItem({
+          id: item.id,
+          consumedBy: 'history',
+          expectedConsumedBy: consumer,
+        });
+        if (input.liveRunId)
+          await input.completeSessionAgentRun?.({
+            runId: input.liveRunId,
+            status: 'canceled',
+            errorSummary: 'Live-turn admission kept the message as history.',
+          });
+        input.enqueueMessageCheck?.(input.queueJid);
+        return true;
+      }
       batch.push({ message, itemId: item.id });
       if (input.isActiveControlMessage?.(message)) break;
     }

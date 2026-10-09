@@ -3107,7 +3107,16 @@ describe('createChannelWiring', () => {
       'Recovered outbound',
       { threadId: '171.000' },
     );
-    expect(storeMessage).not.toHaveBeenCalled();
+    // Recovery skips the pending projection, but its visible replies still
+    // have to be recognizable as bot messages.
+    expect(storeMessage).toHaveBeenCalledOnce();
+    expect(storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delivery_status: 'sent',
+        external_message_ids: ['171.123'],
+        thread_id: '171.000',
+      }),
+    );
   });
 
   it('fails closed before provider send when durable outbound delivery storage is unavailable', async () => {
@@ -3442,7 +3451,14 @@ describe('createChannelWiring', () => {
         error: expect.stringContaining('cannot be blindly retried'),
       }),
     );
-    expect(storeMessage).toHaveBeenCalledTimes(1);
+    // The acknowledged provider receipt is saved before durable settlement.
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+    expect(storeMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        delivery_status: 'sent',
+        external_message_ids: ['171.123'],
+      }),
+    );
   });
 
   it('raises ambiguous outcome when partial retry-tail durable settlement cannot be persisted', async () => {

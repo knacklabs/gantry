@@ -32,6 +32,72 @@
       "item": "upgrade-forge-to-v1-2-7",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/group-output-buffer.ts",
+      "line": 84,
+      "text": "Not done: Mention-required groups follow the conversation",
+      "from": "blocking",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts\tThe user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
+      "kind": "bug",
+      "path": "apps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts",
+      "line": 156,
+      "text": "The user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
+      "from": "worker",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts\tPreserve bot reply references across the remaining delivery paths",
+      "kind": "edge",
+      "path": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
+      "line": 610,
+      "text": "Preserve bot reply references across the remaining delivery paths",
+      "from": "review",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/channels/slack/channel-state.ts\tInclude successful Slack snippet receipts in completed stream results",
+      "kind": "edge",
+      "path": "apps/core/src/channels/slack/channel-state.ts",
+      "line": 85,
+      "text": "Include successful Slack snippet receipts in completed stream results",
+      "from": "review",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/runtime/group-trigger-policy.ts\tHandle brackets in document names when matching caption triggers",
+      "kind": "edge",
+      "path": "apps/core/src/runtime/group-trigger-policy.ts",
+      "line": 23,
+      "text": "Handle brackets in document names when matching caption triggers",
+      "from": "review",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "improve\tapps/core/src/channels/app.ts\tCompleted App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
+      "kind": "improve",
+      "path": "apps/core/src/channels/app.ts",
+      "line": 173,
+      "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
+      "from": "worker",
+      "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }

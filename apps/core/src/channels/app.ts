@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 
 import { logger } from '../infrastructure/logging/logger.js';
 import type {
@@ -174,7 +175,7 @@ export async function createAppChannel(
       jid: string,
       text: string,
       options?: StreamingChunkOptions,
-    ): Promise<boolean> {
+    ): Promise<StreamingChunkResult> {
       const result = await emitSessionEvent(
         jid,
         RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
@@ -187,7 +188,9 @@ export async function createAppChannel(
           canonicalText: canonicalTextMetadata(text),
         },
       );
-      return result.emitted;
+      return result.eventId !== undefined
+        ? { externalMessageIds: [String(result.eventId)] }
+        : result.emitted;
     },
     resetStreaming(_jid: string, _options?: { threadId?: string }) {},
     async setTyping(
