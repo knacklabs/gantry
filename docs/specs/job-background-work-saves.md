@@ -1,8 +1,10 @@
 ---
 slug: job-background-work-saves
 title: Background work started by a job is saved and finishes
-status: draft
+status: confirmed
 saved: 2026-10-09T12:37:08+00:00
+confirmed_by: "Ravi"
+confirmed_hash: 4eb71f3b2fbb8e412fa80ead8c7cac408a2cf3dcdf0a35ae7d45f85bc387befc
 ---
 
 # Background work started by a job is saved and finishes
