@@ -270,7 +270,7 @@ The worker route exception is the actual `/webhooks/<id>` and optional `/wait` s
 
 ### (a) Existing audit findings
 
-These links cite the supplied external audit's titles without reproducing its findings. This owner-supplied artifact is outside the repository; its embedded source links refer to another checkout.
+These links cite the checked-in area audit's original titles without reproducing its findings.
 
 - [Bootstrap captures settings before restoring authoritative settings — over-complicated / UX][audit]
 - [Settings recovery requires the broken settings to parse — UX / duplicate][audit]

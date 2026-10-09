@@ -277,7 +277,7 @@ These beats follow the four source-backed flows above and the gateway, policy an
 
 ### (a) Existing audit findings
 
-The owner-supplied [Agents and engines audit][audit] is an external scratchpad report. Its titles are linked below without repeating its findings or treating this documentation pass as a new runtime verification:
+The checked-in [Agents and engines audit][audit] is linked by its original titles below without repeating its findings or treating this documentation pass as a new runtime verification:
 
 - [Inline agents cannot use the attachment reader their prompt requires][audit]
 - [The second memory-save definition advertises unusable scopes][audit]

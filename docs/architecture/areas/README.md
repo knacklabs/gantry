@@ -2,6 +2,15 @@
 
 One document per area of the app. Each has a plain-English overview, an architecture diagram, the key flows as sequence diagrams with step-by-step walkthroughs, the data it owns, how it scales and fails, a short video script outline, and duplication and simplification notes. They were written on 2026-10-02 by tracing the code, alongside the [area audit](../audits/2026-10-02-area-audit/README.md).
 
+The area inventory, local links and cited source paths were checked again on
+2026-10-09. The main code paths were also inspected: provider registration and
+message persistence, turn ownership and context hydration, job execution, engine
+registration, memory storage, repository construction, settings revisions, console
+queries and SDK acceptance, API authentication, shared model routing, process
+roles, logging, signed IPC and the Postgres test harness. These are code-reading
+checks, not proof that every failure or recovery scenario has been run. The audit
+reports capture findings from their dated review; they are not a completion list.
+
 | Area                                                | Document                                              |
 | --------------------------------------------------- | ----------------------------------------------------- |
 | Channel and provider adapters                       | [01-channels](./01-channels.md)                       |

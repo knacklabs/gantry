@@ -85,17 +85,17 @@ From **area 11**, distinguished from additional architecture work:
 
 The reports assign **PERMFLOW-1–4** permission gates, command interpretation, scheduled execution and setup/cards; **MSG-1–4** ingress persistence, delivery/retries, interaction state and transport; **UX-1** forms, reviews and progress; **PROV-1–4** native provider streaming; **TURN-1/T8** durable retries/commit; and the **Stop-button deletion** its callbacks/tests. These are scope assignments, not completion claims; several referenced plan documents are absent here.
 
-[01]: ../audits/2026-10-02-area-audit/01-channels.md
-[02]: ../audits/2026-10-02-area-audit/02-runtime.md
-[03]: ../audits/2026-10-02-area-audit/03-jobs.md
-[04]: ../audits/2026-10-02-area-audit/04-agents-engines.md
-[05]: ../audits/2026-10-02-area-audit/05-memory-brain.md
-[06]: ../audits/2026-10-02-area-audit/06-storage.md
-[07]: ../audits/2026-10-02-area-audit/07-control-cli-config.md
-[08]: ../audits/2026-10-02-area-audit/08-web-sdk.md
-[09]: ../audits/2026-10-02-area-audit/09-identity-access.md
-[10]: ../audits/2026-10-02-area-audit/10-shared-domain.md
-[11]: ../audits/2026-10-02-area-audit/11-deploy-scaling.md
-[12]: ../audits/2026-10-02-area-audit/12-observability-ops.md
-[13]: ../audits/2026-10-02-area-audit/13-security-boundaries.md
-[14]: ../audits/2026-10-02-area-audit/14-tests-harness.md
+[01]: ./01-channels.md
+[02]: ./02-runtime.md
+[03]: ./03-jobs.md
+[04]: ./04-agents-engines.md
+[05]: ./05-memory-brain.md
+[06]: ./06-storage.md
+[07]: ./07-control-cli-config.md
+[08]: ./08-web-sdk.md
+[09]: ./09-identity-access.md
+[10]: ./10-shared-domain.md
+[11]: ./11-deploy-scaling.md
+[12]: ./12-observability-ops.md
+[13]: ./13-security-boundaries.md
+[14]: ./14-tests-harness.md

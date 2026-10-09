@@ -321,7 +321,7 @@ These beats narrate the code-backed flows above, in order, for a 60–90 second 
 
 ### (a) Existing audit findings
 
-The links below point to the supplied external audit artifact; its original source links refer to another checkout. Titles are cited without reproducing the findings.
+The links below point to the checked-in area audit. Titles are cited without reproducing the findings.
 
 - [Enabling Observer removes the brain review path — parallel](../audits/2026-10-02-area-audit/05-memory-brain.md)
 - [Brain rewrite reviews hide the actual change — UX](../audits/2026-10-02-area-audit/05-memory-brain.md)

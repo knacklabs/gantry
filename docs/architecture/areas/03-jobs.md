@@ -260,7 +260,7 @@ These seven beats follow the code paths above and fit a 60–90 second explanati
 
 ### (a) Existing audit findings
 
-The owner supplied an external audit artifact; the links below intentionally point to that artifact and cite its titles without reproducing the findings.
+The links below cite the checked-in area audit's original titles without reproducing the findings.
 
 - [API and chat calculate schedules differently — parallel / UX](../audits/2026-10-02-area-audit/03-jobs.md)
 - [Failed-run inspection can hide the caller’s failures — UX / over-complicated](../audits/2026-10-02-area-audit/03-jobs.md)

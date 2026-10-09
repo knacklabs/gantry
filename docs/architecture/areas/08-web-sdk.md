@@ -298,7 +298,7 @@ The role capability map selects these responsibilities, and app startup passes t
 
 ### (a) Existing audit findings
 
-The supplied audit is an external review artifact, not a repo document; these links cite its existing finding titles rather than duplicating the findings:
+These links cite the checked-in area audit's existing finding titles rather than duplicating the findings:
 
 - [Connected console still serves demo data — UX / parallel][audit]
 - [The shell blocks every console page on phones — UX][audit]

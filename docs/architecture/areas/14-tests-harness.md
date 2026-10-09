@@ -280,7 +280,7 @@ These seven beats target a 60–90 second explainer; their code anchors are the 
 
 ### (a) Existing audit findings
 
-The owner-supplied [tests and harnesses audit][audit] is an external working artifact. Its existing finding titles are linked here without repeating the findings:
+The checked-in [tests and harnesses audit][audit] has these existing finding titles, linked here without repeating the findings:
 
 - [Database tests stranded outside PR checks][audit].
 - [“Hermetic” selection strands a real-model scenario][audit].

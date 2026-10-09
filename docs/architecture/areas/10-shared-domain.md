@@ -279,7 +279,7 @@ For local installation, launchd uses `KeepAlive` and systemd uses `Restart=alway
 
 ### (a) Existing audit findings
 
-The supplied area audit contains these eight findings; the links preserve its original titles rather than repeating its analysis. The audit is an external scratchpad artifact, not a repo file.
+The checked-in area audit contains these eight findings; the links preserve its original titles rather than repeating its analysis.
 
 1. [Five canonical JSON implementations — duplicate / parallel][audit]
 2. [Artifact files have three identical types and duplicated hashing — duplicate][audit]

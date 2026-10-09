@@ -274,7 +274,7 @@ These seven beats target a 60–90 second explainer; the numbered flows above pr
 
 ### (a) Existing audit findings
 
-The owner-supplied [observability and operations audit][audit] is an external working artifact, not a repository document. Its existing finding titles are:
+The checked-in [observability and operations audit][audit] has these existing finding titles:
 
 - [API doctor reports success without checking — parallel / UX][audit].
 - [Status discards doctor failures on its normal path — parallel / UX][audit].

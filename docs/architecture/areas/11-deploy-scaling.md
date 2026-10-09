@@ -312,7 +312,7 @@ These seven beats target a 60–90 second explanation; their code anchors are th
 
 ### (a) Existing audit findings
 
-The owner-supplied [deployment and scaling audit](../audits/2026-10-02-area-audit/11-deploy-scaling.md) is an external working artifact, not a repository file. Its existing finding titles are:
+The checked-in [deployment and scaling audit](../audits/2026-10-02-area-audit/11-deploy-scaling.md) has these existing finding titles:
 
 - [Encryption-key loading diverges between credentials and background tasks — duplicate / UX](../audits/2026-10-02-area-audit/11-deploy-scaling.md).
 - [Two fallback service launchers have different process-safety rules — parallel / UX](../audits/2026-10-02-area-audit/11-deploy-scaling.md).

@@ -290,7 +290,7 @@ These seven beats use the code-backed flows above for a 60–90 second explainer
 
 ### (a) Existing audit findings
 
-The owner-supplied audit is an external working artifact. Its requested links use the supplied filesystem location; it is not a repository dependency. Existing titles, without repeating their findings:
+The checked-in area audit has these existing titles, linked without repeating their findings:
 
 - [Sandbox errors use a weaker redaction fork — duplicate](../audits/2026-10-02-area-audit/13-security-boundaries.md).
 - [Completed runs retain sandbox policies indefinitely — over-complicated](../audits/2026-10-02-area-audit/13-security-boundaries.md).

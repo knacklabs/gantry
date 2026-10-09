@@ -411,7 +411,7 @@ Role evidence: [`apps/core/src/app/bootstrap/roles/role-capabilities.ts`][roles]
 
 ### (a) Existing audit findings
 
-The owner's supplied external audit is linked by its original finding titles below; its descriptions are not reproduced here. This external report lives outside the repository and is not a shipped documentation dependency.
+The checked-in storage audit is linked by its original finding titles below; its descriptions are not reproduced here.
 
 - [Unused embedding copies — parallel][storage-audit].
 - [Sandbox persistence API has no production callers — dead][storage-audit].
