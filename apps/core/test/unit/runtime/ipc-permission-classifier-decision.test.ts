@@ -641,7 +641,7 @@ describe('IPC permission classifier decision', () => {
       mode: 'cancel',
       decidedBy: 'route',
       reason:
-        "Permission approval is unavailable: mcp__crm__update_record has no deliverable approver route, because this conversation's route or agent binding is gone.",
+        "Permission approval is unavailable: mcp__crm__update_record has no deliverable approver route, because this conversation's route or agent binding is gone. Reconnect this conversation's agent, then retry.",
     };
 
     registerWorkerPermissionRunRestriction({
