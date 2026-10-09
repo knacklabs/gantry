@@ -2,17 +2,19 @@
   "base": "ca1a63abce51dc864aca7debad53d3794aba95fa",
   "branch": "fix/delegated-follow-up-test-readiness",
   "done_when": "The existing delegated parent wake-up test waits for actual queue readiness within a bounded timeout, keeps all answer, routing, and receipt assertions, passes against real Postgres, and leaves production batching unchanged",
+  "flagged": [],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "412452d9a428a034402215383b79f624649fe89b3c5f6d76aecc40f55a18c758",
-    "commit": "eae1ca0fcb11b4538f5553fe18f92a632aba352b",
+    "branch_diff": "1c600f90f3b3f0e1054d93f75a2830bb1f2562ac66b4edd4518ccd4f179292cb",
+    "changed": "61aabd029e92689d80d5be430064ae674f01ff7de939d9102a80e851a1b7b796",
+    "commit": "7892ad10d1c37e73bded7c8ed9075071cef6fc80",
     "dismissals": [],
     "findings": [],
-    "status": "clean",
-    "tree": "e88e514864dc47add91820df51e12ec25014a94b858755ff69fad275fb2e606e"
+    "id": "5700e2f1-7a88-48a3-a0e8-3b9d17a387e8",
+    "status": "clean"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-07T08:02:53+00:00",
@@ -20,6 +22,10 @@
     },
     {
       "at": "2026-10-08T10:39:09+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T06:52:43+00:00",
       "step": "review"
     }
   ],
