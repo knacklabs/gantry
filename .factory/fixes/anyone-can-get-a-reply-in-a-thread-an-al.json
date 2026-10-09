@@ -3,18 +3,30 @@
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/anyone-can-get-a-reply-in-a-thread-an-al",
   "done_when": "A thread follow-up starts a turn only when the new batch has a message from an allowed sender, proven by a test where only the root sender is allowed and another person's follow-up gets no reply",
+  "flagged": [
+    "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts"
+  ],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "f64478634bc69bd46fbc06d831faea620ecec4a92569dfb59fa6f6712cc3fae4",
-    "commit": "ad82882528778e5fe6804811dd2483673f1c0ef8",
+    "branch_diff": "2a4d7924e2c81beed76d4356a388faa514d8e33b6e4dda8598e55f92bd729d0c",
+    "changed": "fabbf178d8ceb59ce4a276a795836939ee480f7dfa16d4c0869ec313932d20b5",
+    "commit": "e379b6aa26ded9032272a0ba11aeb04d0d30a904",
     "dismissals": [],
-    "findings": [],
-    "status": "clean",
-    "tree": "992b1cfb7be8d0f53c21e1bd42215288334c7008399364e92bffd1297c599184"
+    "findings": [
+      {
+        "body": "The supplied proof list is missing. The added boundary tests do not replace the required latest-commit proof entry that Forge copies into the PR. Record the complete Done-when requirement, including the root-sender-only allowlist and another sender receiving no reply, alongside its named test and validation result.",
+        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+        "line": 1482,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "4ed9f4b3-7824-478e-bf0e-67a0dfe9dade",
+    "status": "blocked"
   },
   "round": 4,
-  "status": "working",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:04:20+00:00",
@@ -54,6 +66,10 @@
     },
     {
       "at": "2026-10-02T19:44:39+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T13:47:20+00:00",
       "step": "review"
     }
   ],
