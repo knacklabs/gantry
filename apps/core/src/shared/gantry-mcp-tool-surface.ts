@@ -202,6 +202,9 @@ export function renderGantryMcpToolAvailability(
     ...callableToolNames,
   ]);
   const unavailable = new Map<string, string[]>();
+  const selectedAdminNames = new Set(
+    selectedAdminMcpToolNames(configuredTools),
+  );
   for (const name of new Set([
     ...ALL_GANTRY_MCP_TOOL_NAMES,
     ...GANTRY_FACADE_EXACT_TOOL_NAMES,
@@ -223,7 +226,9 @@ export function renderGantryMcpToolAvailability(
     );
     let reason =
       facadeUnavailableReasons[name] ?? 'not selected for this agent';
-    if (options.accessPreset === 'locked' && hidden) {
+    if (ADMIN_MCP_TOOL_NAME_SET.has(name) && !selectedAdminNames.has(name)) {
+      reason = 'not selected for this agent';
+    } else if (options.accessPreset === 'locked' && hidden) {
       reason = 'locked access preset';
     } else if (options.excludeAuthorityTools && hidden) {
       reason = 'tools are hidden for this run';

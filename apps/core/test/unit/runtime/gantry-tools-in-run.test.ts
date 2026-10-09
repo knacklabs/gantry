@@ -268,22 +268,21 @@ function expectedUnavailableTools(
       hiddenReason ?? 'not selected for this agent',
     );
   }
-  add(
-    [
-      'settings_desired_state',
-      'request_settings_update',
-      'guided_action_preview',
-      'admin_permission_list',
-      'admin_permission_revoke',
-      'service_restart',
-      'register_agent',
-    ].filter(
-      (name) =>
-        scenario.accessPreset === 'locked' ||
-        !scenario.tools.includes(`mcp__gantry__${name}`),
-    ),
-    hiddenReason ?? 'not selected for this agent',
-  );
+  for (const name of [
+    'settings_desired_state',
+    'request_settings_update',
+    'guided_action_preview',
+    'admin_permission_list',
+    'admin_permission_revoke',
+    'service_restart',
+    'register_agent',
+  ]) {
+    if (!scenario.tools.includes(`mcp__gantry__${name}`)) {
+      add([name], 'not selected for this agent');
+    } else if (scenario.accessPreset === 'locked') {
+      add([name], 'locked access preset');
+    }
+  }
   if (hiddenReason) {
     add(['request_agent_profile_update'], hiddenReason);
     if (scenario.accessPreset === 'locked') {
@@ -393,6 +392,24 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
       tools: ['AgentDelegation'],
       accessPreset: 'full' as const,
       hidden: false,
+      asyncEnabled: false,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'unselected admin tools have hidden authority and no executor',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: true,
+      asyncEnabled: false,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'unselected admin tools have locked access and no executor',
+      tools: [],
+      accessPreset: 'locked' as const,
+      hidden: true,
       asyncEnabled: false,
       autonomous: false,
       delegation: false,
@@ -610,7 +627,9 @@ describe('the-agent-can-t-tell-which-gantry-tools', () => {
         expect(mounted.has('service_restart')).toBe(false);
       } else if (scenario.hidden) {
         expect(mounted.has('request_access')).toBe(true);
-        expect(mounted.has('service_restart')).toBe(true);
+        expect(mounted.has('service_restart')).toBe(
+          scenario.tools.includes('mcp__gantry__service_restart'),
+        );
       }
       if (scenario.autonomous) {
         expect(mounted.has('scheduler_run_now')).toBe(false);
