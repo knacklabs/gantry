@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 import type { ChildProcess } from 'child_process';
 
 import type {
@@ -129,7 +130,7 @@ export interface GroupProcessingDeps {
       chatJid: string,
       rawText: string,
       options?: StreamingChunkOptions,
-    ) => Promise<boolean>;
+    ) => Promise<StreamingChunkResult>;
     resetStreaming: (
       chatJid: string,
       options?: { providerAccountId?: string; threadId?: string },

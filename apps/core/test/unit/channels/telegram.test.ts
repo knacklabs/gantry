@@ -1740,84 +1740,57 @@ describe('TelegramChannel', () => {
     });
   });
 
-  // --- @mention translation ---
+  // --- Bot mentions ---
 
-  describe('@mention translation', () => {
-    it('translates @bot_username mention to trigger format', async () => {
-      const opts = createTestOpts();
+  describe('bot mentions', () => {
+    const customTriggerOpts = () =>
+      createTestOpts({
+        conversationRoutes: vi.fn(() => ({
+          'tg:100200300': {
+            name: 'Helper Group',
+            folder: 'test-group',
+            trigger: '@Helper',
+            added_at: '2024-01-01T00:00:00.000Z',
+            providerAccountId: 'telegram_default',
+          },
+        })),
+      });
+
+    it('flags a native bot mention for a route with its own trigger and keeps the text as typed', async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: '@andy_ai_bot what time is it?',
-        entities: [{ type: 'mention', offset: 0, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
+      await triggerTextMessage(
+        createTextCtx({
+          text: 'hey @andy_ai_bot check this',
+          entities: [{ type: 'mention', offset: 4, length: 12 }],
+        }),
+      );
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '@Andy @andy_ai_bot what time is it?',
+          content: 'hey @andy_ai_bot check this',
+          mentionsBot: true,
         }),
       );
     });
 
-    it('does not translate if message already matches trigger', async () => {
-      const opts = createTestOpts();
+    it('does not flag mentions of other bots', async () => {
+      const opts = customTriggerOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createTextCtx({
-        text: '@Andy @andy_ai_bot hello',
-        entities: [{ type: 'mention', offset: 6, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
-
-      // Should NOT double-prepend — already starts with @Andy
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({
-          content: '@Andy @andy_ai_bot hello',
+      await triggerTextMessage(
+        createTextCtx({
+          text: '@some_other_bot hi',
+          entities: [{ type: 'mention', offset: 0, length: 15 }],
         }),
       );
-    });
 
-    it('does not translate mentions of other bots', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      const ctx = createTextCtx({
-        text: '@some_other_bot hi',
-        entities: [{ type: 'mention', offset: 0, length: 15 }],
-      });
-      await triggerTextMessage(ctx);
-
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({
-          content: '@some_other_bot hi', // No translation
-        }),
-      );
-    });
-
-    it('handles mention in middle of message', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      const ctx = createTextCtx({
-        text: 'hey @andy_ai_bot check this',
-        entities: [{ type: 'mention', offset: 4, length: 12 }],
-      });
-      await triggerTextMessage(ctx);
-
-      // Bot is mentioned, message doesn't match trigger → prepend trigger
-      expect(opts.onMessage).toHaveBeenCalledWith(
-        'tg:100200300',
-        expect.objectContaining({
-          content: '@Andy hey @andy_ai_bot check this',
-        }),
+      expect(opts.onMessage.mock.calls[0]![1]).not.toHaveProperty(
+        'mentionsBot',
       );
     });
 
@@ -3946,7 +3919,9 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      await channel.sendStreamingChunk('tg:-1001234567890', 'group update');
+      await expect(
+        channel.sendStreamingChunk('tg:-1001234567890', 'group update'),
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       await channel.sendStreamingChunk('tg:-1001234567890', '', { done: true });
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
@@ -4093,6 +4068,61 @@ describe('TelegramChannel', () => {
       });
     });
 
+    it.each([
+      ['successful edit', false, 0],
+      ['successful edit', false, 1],
+      ['unchanged edit', true, 0],
+      ['unchanged edit', true, 1],
+    ] as const)(
+      'retains the Telegram head after %s and overflow failure (%s, %i delivered)',
+      async (_label, unchanged, deliveredOverflow) => {
+        const channel = new TelegramChannel('test-token', createTestOpts());
+        await channel.connect();
+        currentBot()
+          .api.sendMessage.mockReset()
+          .mockResolvedValueOnce({ message_id: 701 });
+        if (deliveredOverflow)
+          currentBot().api.sendMessage.mockResolvedValueOnce({
+            message_id: 702,
+          });
+        currentBot().api.sendMessage.mockRejectedValue(
+          new Error('overflow send failed'),
+        );
+        if (unchanged)
+          currentBot().api.editMessageText.mockRejectedValue(
+            new Error('Bad Request: message is not modified'),
+          );
+        await channel.sendStreamingChunk('tg:-1001234567890', 'x'.repeat(8000));
+        await expect(
+          channel.sendStreamingChunk('tg:-1001234567890', '', { done: true }),
+        ).rejects.toMatchObject({
+          partialMessageDelivery: true,
+          deliveredChunks: 1 + deliveredOverflow,
+          externalMessageIds: deliveredOverflow ? ['701', '702'] : ['701'],
+          retryTail: {
+            canonicalText: 'x'.repeat(deliveredOverflow ? 1000 : 4500),
+          },
+        });
+      },
+    );
+
+    it('reports every message a long finished group answer spans', async () => {
+      const channel = new TelegramChannel('test-token', createTestOpts());
+      await channel.connect();
+      const jid = 'tg:-1001234567890';
+      currentBot()
+        .api.sendMessage.mockResolvedValueOnce({ message_id: 701 })
+        .mockResolvedValueOnce({ message_id: 702 })
+        .mockResolvedValueOnce({ message_id: 703 });
+
+      await channel.sendStreamingChunk(jid, 'x'.repeat(8000), {
+        generation: 1,
+      });
+      await expect(
+        channel.sendStreamingChunk(jid, '', { generation: 1, done: true }),
+      ).resolves.toEqual({ externalMessageIds: ['701', '702', '703'] });
+    });
+
     it('stops Telegram overflow parts when the stream guard changes mid-send', async () => {
       const channel = new TelegramChannel('test-token', createTestOpts());
       await channel.connect();
@@ -4173,7 +4203,7 @@ describe('TelegramChannel', () => {
           threadId: '11',
           done: true,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['501'] });
 
       expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
         '-1001234567890',
@@ -4208,7 +4238,7 @@ describe('TelegramChannel', () => {
       channel.resetStreaming(jid, { threadId: stream.threadId });
       await expect(
         channel.sendStreamingChunk(jid, 'new', stream),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       finishOldEdit();
       await oldCompletion;
 
@@ -4217,7 +4247,7 @@ describe('TelegramChannel', () => {
           ...stream,
           done: true,
         }),
-      ).resolves.toBe(true);
+      ).resolves.toEqual({ externalMessageIds: ['987'] });
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
       expect(currentBot().api.editMessageText).toHaveBeenCalledTimes(2);
       expect(currentBot().api.editMessageText).toHaveBeenLastCalledWith(
