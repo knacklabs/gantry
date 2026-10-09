@@ -122,6 +122,50 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/architecture/README.md\tNot done: proof list\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/README.md",
+      "line": 5,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/06-storage.md\tNot done: docs/architecture/areas/ checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/06-storage.md",
+      "line": 87,
+      "text": "Not done: docs/architecture/areas/ checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/10-shared-domain.md\tNot done: docs/architecture/areas/ guides checked against the code\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/10-shared-domain.md",
+      "line": 295,
+      "text": "Not done: docs/architecture/areas/ guides checked against the code",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/architecture/areas/README.md\tNot done: proof list\tthere-is-no-architecture-or-flow-documen",
+      "kind": "bug",
+      "path": "docs/architecture/areas/README.md",
+      "line": 5,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "there-is-no-architecture-or-flow-documen",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
       "kind": "bug",
       "path": "docs/specs/subagents-end-to-end.md",

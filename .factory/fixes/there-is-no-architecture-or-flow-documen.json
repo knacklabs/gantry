@@ -2,12 +2,61 @@
   "base": "c2047e791012ed4c6ceb2cd96b3a901173d2d0fe",
   "branch": "fix/there-is-no-architecture-or-flow-documen",
   "done_when": "docs/architecture/areas/ has one doc per audit area with architecture and flow diagrams and a plain-English walkthrough, checked against the code",
+  "flagged": [
+    "docs/architecture/README.md",
+    "docs/architecture/areas/06-storage.md",
+    "docs/architecture/areas/10-shared-domain.md",
+    "docs/architecture/areas/README.md"
+  ],
   "kind": "fix",
-  "status": "working",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "4fdf2f442e48c0af12e41e0531e1a04a38c7924cc5dbf44e12db750b0e4992ec",
+    "changed": "b1b7d7252c521027b3e81a607da01747fda87513e471ff25c7ae1dd9921aef59",
+    "commit": "034e2842d45dffd500d6bc4634c9faf55d53fcd8",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "chunk 1/2:\n\nThe supplied worker proof list is missing. Add the required commit proof list covering all fourteen audit areas, their architecture and flow diagrams, their walkthroughs, and the named checks/results used to verify claims and source links. The documentation itself does not replace this explicitly required proof list.",
+        "file": "docs/architecture/README.md",
+        "line": 5,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      },
+      {
+        "body": "chunk 1/2:\n\nThe guides contain concrete mismatches with this checkout, so the Done-when requirement's code verification remains incomplete. New evidence beyond the ruling to retain the guides: (1) 06-storage.md:81,87,362,389,480 and 09-identity-access.md:292,381 describe/link a remote-first skill wrapper and cache warming, but that module is absent and apps/core/src/adapters/storage/postgres/factory.ts:249 constructs S3SkillArtifactStore directly. Its getSkillArtifact implementation at apps/core/src/adapters/artifacts/skills/s3-skill-artifact-store.ts:113 reads S3 without warming that cache. (2) 06-storage.md:125 says unrouted messages use storeMessage, but apps/core/src/app/bootstrap/channel-persistence-handlers.ts:166\u2013167 drops them before persistence. (3) 06-storage.md:158 describes GroupQueue as the scheduler execution admission queue, while apps/core/src/infrastructure/pgboss/scheduler-engine.ts:495\u2013515 acquires durable slots and invokes runJob directly; apps/core/src/app/bootstrap/runtime-scheduler-start.ts:67 uses GroupQueue for process registration. (4) 02-runtime.md:203 cites the nonexistent src/session/session-command-parse.ts; the parser is in apps/core/src/application/sessions/session-command-parse.ts:8. Correct these current-system descriptions and references, then repeat the code/link check. Retaining the fourteen guides does not require retaining these inaccuracies.",
+        "file": "docs/architecture/areas/06-storage.md",
+        "line": 87,
+        "priority": "P1",
+        "title": "Not done: docs/architecture/areas/ checked against the code"
+      },
+      {
+        "body": "chunk 2/2:\n\nThe required code verification is incomplete. New evidence beyond the ruling to retain the guides: 10-shared-domain.md:295 describes two copied public-address classifiers, but apps/core/src/shared/network-host-declaration.ts:1\u201311 and apps/core/src/domain/network/public-address-policy.ts:1\u20136 both import/re-export the single shared implementation. Also, 09-identity-access.md:292 describes an S3 cache-warming wrapper and its reference at line 381 targets a nonexistent file; apps/core/src/adapters/storage/postgres/factory.ts:249 returns S3SkillArtifactStore directly. Update these current descriptions and references against this checkout. The dated audits can remain historical records.",
+        "file": "docs/architecture/areas/10-shared-domain.md",
+        "line": 295,
+        "priority": "P1",
+        "title": "Not done: docs/architecture/areas/ guides checked against the code"
+      },
+      {
+        "body": "chunk 2/2:\n\nThe supplied worker proof list is explicitly missing. The README's general code-reading statement does not provide the required item-to-proof inventory covering all fourteen audit areas, their architecture diagrams, flow diagrams, walkthroughs and source verification. Supply that list with the actual documentation checks and results; this documentation-only task does not require new runtime tests.",
+        "file": "docs/architecture/areas/README.md",
+        "line": 5,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "ec00639f-46f0-4eb3-9ae2-84cd293d7a60",
+    "status": "blocked"
+  },
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-02T17:01:12+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-09T10:29:17+00:00",
+      "step": "review"
     }
   ],
   "why": "There is no architecture or flow documentation per app area for explaining the system"
