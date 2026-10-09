@@ -9,24 +9,16 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "2a4d7924e2c81beed76d4356a388faa514d8e33b6e4dda8598e55f92bd729d0c",
+    "branch_diff": "bbc655add0c197c91ae66791e87266aca038f60e529691ea9f9c8075cccea173",
     "changed": "fabbf178d8ceb59ce4a276a795836939ee480f7dfa16d4c0869ec313932d20b5",
-    "commit": "e379b6aa26ded9032272a0ba11aeb04d0d30a904",
+    "commit": "92e5236f5477e0fd1d5b6d0fcd56bb3ee49de976",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The supplied proof list is missing. The added boundary tests do not replace the required latest-commit proof entry that Forge copies into the PR. Record the complete Done-when requirement, including the root-sender-only allowlist and another sender receiving no reply, alongside its named test and validation result.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 1482,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      }
-    ],
-    "id": "4ed9f4b3-7824-478e-bf0e-67a0dfe9dade",
-    "status": "blocked"
+    "findings": [],
+    "id": "a3dc7d57-fa8b-455b-9619-378e9ceaaf90",
+    "status": "clean"
   },
   "round": 5,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-01T10:04:20+00:00",
@@ -70,6 +62,10 @@
     },
     {
       "at": "2026-10-09T13:47:20+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T14:07:44+00:00",
       "step": "review"
     }
   ],
