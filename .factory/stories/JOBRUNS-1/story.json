@@ -1,10 +1,22 @@
 {
   "doc": "plans/JOBRUNS-1.md",
-  "status": "planning",
+  "status": "read",
   "steps": [
     {
       "at": "2026-10-09T15:29:52+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-09T15:36:10+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-09T15:42:24+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-09T15:45:27+00:00",
+      "step": "read"
     }
   ],
   "title": "Background work started by a job is saved and finishes",
