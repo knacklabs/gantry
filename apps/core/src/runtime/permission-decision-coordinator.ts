@@ -86,18 +86,27 @@ export function isAdminPermissionAction(toolName: string): boolean {
 }
 
 /**
- * A rail ask that only a person may answer: real danger (destructive, secret
- * or credential paths, privilege, upload, missing or redacted input). An
- * out-of-root path, which saved folder grants exist to cover, and a command
- * shape the parser can't model go on to saved approvals and the classifier.
+ * A rail ask that only a person may answer: real danger (a hard-floor delete,
+ * secret or credential paths, privilege, upload, missing or redacted input).
+ * An out-of-root path, which saved folder grants exist to cover, a single
+ * in-workspace delete, and a read-only find the parser can't model go on to
+ * saved approvals and the classifier. Any other unparsed command stays here:
+ * it can hide download-then-run or privilege until the rails name those.
  */
 function isHardRuleAsk(
   rail: Extract<PermissionDeterministicRailDecision, { railOutcome: 'ask' }>,
+  analysis: AutoLaneAnalysis | undefined,
 ): boolean {
-  return (
-    rail.railSignal !== RailSignal.OutOfTrustedRoot &&
-    rail.railSignal !== RailSignal.UnsupportedMetaExecutor
-  );
+  switch (rail.railSignal) {
+    case RailSignal.OutOfTrustedRoot:
+      return false;
+    case RailSignal.UnsupportedMetaExecutor:
+      return analysis?.readOnlyMetaExecutor !== true;
+    case RailSignal.Destructive:
+      return rail.hardFloor === true;
+    default:
+      return true;
+  }
 }
 
 export interface PermissionDecisionTailContext {
@@ -216,7 +225,7 @@ export async function coordinatePermissionDecision(
   }
   const railAsk =
     railDecision?.railOutcome === 'ask' ? railDecision : undefined;
-  if (railAsk && isHardRuleAsk(railAsk)) {
+  if (railAsk && isHardRuleAsk(railAsk, input.analysis)) {
     return askPersonOnly(input, railAsk, railAsk.reason);
   }
 
@@ -249,7 +258,10 @@ export async function coordinatePermissionDecision(
         reason: reviewedRuleDecision.reason,
       };
     }
+    // Saving the same family again would not cover it either.
     request.decisionReason = familyGap;
+    request.suggestions = [];
+    request.decisionOptions = ['allow_once', 'cancel'];
   } else if (reviewedRuleDecision) {
     request.decisionReason = reviewedRuleDecision.reason;
     request.closestRule = reviewedRuleDecision.closestRule;
@@ -266,12 +278,9 @@ export async function coordinatePermissionDecision(
     if (trustedRoot?.kind === 'learning') trustedRootLearning = trustedRoot;
     else request.decisionReason = railAsk.reason;
   }
-  // Remembered person approvals cover a soft rail ask only where they always
-  // have: outside the workspace, or a read-only find the parser can't model.
-  const rememberedAllowsApply =
-    !railAsk ||
-    railAsk.railSignal === RailSignal.OutOfTrustedRoot ||
-    input.analysis?.readOnlyMetaExecutor === true;
+  // Remembered person approvals cover an out-of-root path or a read-only
+  // find, never a delete: the classifier judges that one.
+  const rememberedAllowsApply = railAsk?.railSignal !== RailSignal.Destructive;
   if (
     rememberedAllowsApply &&
     railAsk?.hardFloor !== true &&

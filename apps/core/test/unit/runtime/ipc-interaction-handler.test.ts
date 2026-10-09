@@ -59,6 +59,18 @@ import {
   rememberingPermissionApprovalRequester,
 } from '@core/runtime/permission-remember-settlement.js';
 
+/** The live route binding an agent to a conversation, set to always ask. */
+function askingRoutes(targetJid: string, folder = 'main_agent') {
+  return {
+    [targetJid]: {
+      name: 'test',
+      folder,
+      trigger: '@gantry',
+      added_at: '2026-09-04',
+      agentConfig: { permissionMode: 'ask' as const },
+    },
+  } as never;
+}
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
 }
@@ -441,22 +453,20 @@ describe('ipc-interaction-handler', () => {
           request,
           sourceAgentFolder: 'main_agent',
           deps: {
-            conversationRoutes: () =>
-              options.group || options.scheduledJob
-                ? {
-                    [makeAgentThreadQueueKey(
-                      targetJid,
-                      agentIdForFolder('main_agent'),
-                    )]: {
-                      name: 'Permission route',
-                      folder: 'main_agent',
-                      trigger: '',
-                      added_at: new Date(0).toISOString(),
-                      agentId: agentIdForFolder('main_agent'),
-                      conversationKind: 'channel',
-                    },
-                  }
-                : {},
+            conversationRoutes: () => ({
+              [makeAgentThreadQueueKey(
+                targetJid,
+                agentIdForFolder('main_agent'),
+              )]: {
+                name: 'Permission route',
+                folder: 'main_agent',
+                trigger: '',
+                added_at: new Date(0).toISOString(),
+                agentId: agentIdForFolder('main_agent'),
+                conversationKind:
+                  options.group || options.scheduledJob ? 'channel' : 'dm',
+              },
+            }),
             requestPermissionApproval,
             classifierConsult: vi.fn(async () => ({
               risk_level: 'high' as const,
@@ -927,6 +937,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -1039,6 +1050,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -1222,6 +1234,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -1310,6 +1323,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -1388,6 +1402,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -1684,10 +1699,18 @@ describe('ipc-interaction-handler', () => {
       expectedRiskCategory: 'destructive' as const,
     },
   ])(
-    'routes an unattended mutation ASK rail through the classifier tail $label',
+    // Contract change (PERMFLOW-1): an unattended request the judge asks
+    // about used to be cancelled; it now asks a person like chat.
+    'asks a person for an unattended single-file delete the judge asks about $label',
     async ({ classifierDecision, expectedRiskCategory }) => {
       const classifierConsult = vi.fn(async () => classifierDecision);
-      const requestPermissionApproval = vi.fn();
+      const requestPermissionApproval = vi.fn(async () =>
+        permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+        }),
+      );
       const publishRuntimeEvent = vi.fn(async () => undefined);
 
       const decision = await resolvePermissionIpcDecision({
@@ -1725,22 +1748,18 @@ describe('ipc-interaction-handler', () => {
       });
 
       expect(classifierConsult).toHaveBeenCalledOnce();
-      expect(requestPermissionApproval).not.toHaveBeenCalled();
-      expect(decision).toEqual({
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
+        decisionReason: classifierDecision.reason,
+        risk_level: 'high',
+        risk_category: expectedRiskCategory,
+      });
+      expect(decision).toMatchObject({
         approved: false,
         mode: 'cancel',
-        decidedBy: 'runtime',
-        reason: `Classifier requested human approval: ${classifierDecision.reason}`,
+        decidedBy: 'owner',
         risk_level: 'high',
-        ...(expectedRiskCategory
-          ? { risk_category: expectedRiskCategory }
-          : {}),
-        decisionClassification: 'user_reject',
-        // 'runtime' is a free-form decider: the provenance map is
-        // deliberately conservative for unknown strings (human_once);
-        // denials never feed the recurring-job pause predicate.
-        source: 'human_once',
-        repeatableForFutureRuns: false,
+        risk_category: expectedRiskCategory,
       });
       expect(publishRuntimeEvent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1766,7 +1785,7 @@ describe('ipc-interaction-handler', () => {
         sourceAgentFolder: 'main_agent',
         targetJid: 'tg:attended',
         toolName: 'RunCommand',
-        toolInput: { command: 'rm report.txt' },
+        toolInput: { command: 'mkdir build' },
       },
       sourceAgentFolder: 'main_agent',
       deps: {
@@ -1787,7 +1806,11 @@ describe('ipc-interaction-handler', () => {
         }),
         getPermissionRuntimeSettings: () => ({
           agents: {},
-          permissions: { autoMode: {} },
+          // The workspace is trusted, so no rail asks about the command.
+          permissions: {
+            autoMode: {},
+            trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+          },
           memory: { llm: { models: { extractor: 'sonnet' } } },
         }),
       } as never,
@@ -1827,12 +1850,13 @@ describe('ipc-interaction-handler', () => {
         requestId: 'perm-human-allow-once',
         appId: 'app:test',
         sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:attended',
         toolName: 'RunCommand',
-        toolInput: { command: 'rm report.txt' },
+        toolInput: { command: 'mkdir build' },
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        conversationRoutes: () => ({}),
+        conversationRoutes: () => askingRoutes('tg:attended'),
         requestPermissionApproval,
         getPermissionDecisionMemoryRepository: () => ({
           list: async () => [],
@@ -1867,7 +1891,7 @@ describe('ipc-interaction-handler', () => {
         sourceAgentFolder: 'main_agent',
         targetJid: 'tg:attended',
         toolName: 'RunCommand',
-        toolInput: { command: 'rm report.txt' },
+        toolInput: { command: 'mkdir build' },
         toolInputSanitized: true,
       },
       sourceAgentFolder: 'main_agent',
@@ -1889,16 +1913,19 @@ describe('ipc-interaction-handler', () => {
         }),
         getPermissionRuntimeSettings: () => ({
           agents: {},
-          permissions: { autoMode: {} },
+          // The workspace is trusted, so no rail asks about the command.
+          permissions: {
+            autoMode: {},
+            trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+          },
           memory: { llm: { models: { extractor: 'sonnet' } } },
         }),
       } as never,
     });
 
     expect(decision).toMatchObject({ decidedBy: 'auto_classifier' });
-    // The destructive ASK rail bypasses cache reads, but the intact command is
-    // still cacheable for the classifier writeback path.
-    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    // Display sanitization alone leaves the full command cacheable.
+    expect(getClassifierVerdict).toHaveBeenCalledOnce();
     expect(putClassifierVerdict).toHaveBeenCalledOnce();
   });
 
@@ -1984,6 +2011,7 @@ describe('ipc-interaction-handler', () => {
         requestId: 'perm-ask-hint',
         appId: 'app:test',
         sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:team',
         toolName: 'RunCommand',
         toolInput: { command: 'git status' },
         suggestions: [
@@ -1996,7 +2024,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
-        conversationRoutes: () => ({}),
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval,
         getPermissionPromotionRepository: () => ({
           incrementAndGet: vi.fn(),
@@ -2123,7 +2151,9 @@ describe('ipc-interaction-handler', () => {
     );
   });
 
-  it('fails closed in the unattended tail for secret-redacted auto input', async () => {
+  // Contract change (PERMFLOW-1): redacted input on an unattended request
+  // used to be cancelled; it is a hard-rule ask, so a person answers it.
+  it('attaches secret-redacted job input to the job ask without consulting the judge', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-unattended-ask.json');
     fs.writeFileSync(claimedPath, '{}');
@@ -2132,8 +2162,16 @@ describe('ipc-interaction-handler', () => {
       reason: 'Would allow if consulted.',
       latencyMs: 1,
     }));
-    const requestPermissionApproval = vi.fn();
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'owner',
+        decisionClassification: 'user_reject',
+      }),
+    );
     const publishRuntimeEvent = vi.fn(async () => undefined);
+    const attachRequest = vi.fn(async () => true);
 
     await processPermissionInteractionIpc({
       request: {
@@ -2167,6 +2205,7 @@ describe('ipc-interaction-handler', () => {
         requestPermissionApproval,
         classifierConsult,
         publishRuntimeEvent,
+        jobPermissionDurability: { attachRequest },
         getPermissionRuntimeSettings: () => ({
           agents: {},
           permissions: { autoMode: {} },
@@ -2180,41 +2219,13 @@ describe('ipc-interaction-handler', () => {
     });
 
     expect(classifierConsult).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(
-      JSON.parse(
-        fs.readFileSync(
-          path.join(
-            tempDir,
-            'main_agent',
-            'permission-responses',
-            'perm-unattended-ask.json',
-          ),
-          'utf-8',
-        ),
-      ),
-    ).toMatchObject({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'runtime',
-      reason:
-        'Classifier requested human approval: Classifier skipped because its tool input view was incomplete; ask the user.',
-      decisionClassification: 'user_reject',
+    expect(attachRequest).toHaveBeenCalledOnce();
+    expect(attachRequest.mock.calls[0]![0]).toMatchObject({
+      request: expect.objectContaining({
+        decisionOptions: ['allow_once', 'cancel'],
+      }),
     });
-    const response = JSON.parse(
-      fs.readFileSync(
-        path.join(
-          tempDir,
-          'main_agent',
-          'permission-responses',
-          'perm-unattended-ask.json',
-        ),
-        'utf-8',
-      ),
-    );
-    expect(response.mode).toBe('cancel');
-    expect(response.decisionClassification).toBe('user_reject');
-    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+    expect(publishRuntimeEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'permission.classifier_decision' }),
     );
   });
@@ -2349,6 +2360,7 @@ describe('ipc-interaction-handler', () => {
         },
         sourceAgentFolder: 'main_agent',
         deps: {
+          conversationRoutes: () => askingRoutes('tg:team'),
           requestPermissionApproval: vi.fn(async () =>
             permissionDecisionResult({
               approved: true,
@@ -2460,6 +2472,7 @@ describe('ipc-interaction-handler', () => {
 
     await processPermissionInteractionIpc({
       request: {
+        targetJid: 'tg:team',
         requestId: 'perm-failed-grant',
         appId: 'app:test',
         agentId: 'agent:test',
@@ -2469,6 +2482,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -2684,6 +2698,7 @@ describe('ipc-interaction-handler', () => {
 
     await processPermissionInteractionIpc({
       request: {
+        targetJid: 'tg:team',
         requestId: 'perm-thrown-decision',
         appId: 'app:test',
         agentId: 'agent:test',
@@ -2692,6 +2707,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -2751,6 +2767,7 @@ describe('ipc-interaction-handler', () => {
 
     await processPermissionInteractionIpc({
       request: {
+        targetJid: 'tg:team',
         requestId: 'perm-stale-after-decision',
         appId: 'app:test',
         agentId: 'agent:test',
@@ -2765,6 +2782,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: false,
@@ -2831,6 +2849,7 @@ describe('ipc-interaction-handler', () => {
 
     await processPermissionInteractionIpc({
       request: {
+        targetJid: 'tg:team',
         requestId: 'perm-stale-after-settle',
         appId: 'app:test',
         agentId: 'agent:test',
@@ -2845,6 +2864,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: false,
@@ -2917,6 +2937,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval,
       },
       ipcBaseDir: tempDir,
@@ -3438,6 +3459,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: false,
@@ -3537,6 +3559,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,
@@ -3862,6 +3885,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval,
         getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
       },
@@ -3966,6 +3990,7 @@ describe('ipc-interaction-handler', () => {
       },
       sourceAgentFolder: 'main_agent',
       deps: {
+        conversationRoutes: () => askingRoutes('tg:team'),
         requestPermissionApproval: vi.fn(async () =>
           permissionDecisionResult({
             approved: true,

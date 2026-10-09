@@ -119,11 +119,8 @@ export async function replayPermissionRequest(
     decision = await resolvePermissionIpcDecision({
       request: {
         requestId: `tap-budget-${fixture.command ?? fixture.toolName}`,
-        ...(responseKeyId
-          ? { responseKeyId, targetJid }
-          : fixture.targetJid
-            ? { targetJid }
-            : {}),
+        ...(responseKeyId ? { responseKeyId } : {}),
+        targetJid,
         sourceAgentFolder: 'main_agent',
         toolName: fixture.toolName ?? 'RunCommand',
         toolInput: fixture.toolInput ?? { command: fixture.command },
@@ -134,17 +131,15 @@ export async function replayPermissionRequest(
       sourceAgentFolder: 'main_agent',
       deps: {
         conversationRoutes: () =>
-          responseKeyId
-            ? ({
-                [targetJid]: {
-                  name: 'tap budget',
-                  folder: 'main_agent',
-                  trigger: '@gantry',
-                  added_at: '2026-09-04',
-                  agentConfig: { permissionMode: fixture.permissionMode },
-                },
-              } as never)
-            : {},
+          ({
+            [targetJid]: {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: fixture.permissionMode },
+            },
+          }) as never,
         requestPermissionApproval: async (request) => {
           taps += 1;
           decisionReason = request.decisionReason;
@@ -256,7 +251,15 @@ async function replayExactMemorySequence(
         },
         sourceAgentFolder: 'main_agent',
         deps: {
-          conversationRoutes: () => ({}),
+          conversationRoutes: () => ({
+            'tap-budget:conversation': {
+              name: 'tap budget',
+              folder: 'main_agent',
+              trigger: '@gantry',
+              added_at: '2026-09-04',
+              agentConfig: { permissionMode: 'auto' },
+            },
+          }),
           requestPermissionApproval: async (
             request,
             facts?: PermissionRememberPromptFacts,

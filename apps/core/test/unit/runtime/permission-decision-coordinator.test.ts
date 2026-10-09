@@ -650,6 +650,7 @@ describe('coordinatePermissionDecision', () => {
       railOutcome: 'ask' as const,
       railSignal: RailSignal.Destructive,
       reason: 'destructive rail asks',
+      hardFloor: true as const,
     };
     const railTail = vi.fn(async (context?: PermissionDecisionTailContext) => {
       expect(context?.railDecision).toBe(nonOverridableRail);

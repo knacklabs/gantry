@@ -290,6 +290,21 @@ describe('withControls', () => {
     expect(result).not.toHaveProperty('toolRules');
   });
 
+  it('lets the safety judge decide for chat and scheduled runs with no mode set, and keeps an explicit agent or conversation mode', () => {
+    for (const isScheduledJob of [false, true]) {
+      const run = { ...input, isScheduledJob };
+      expect(withControls(run, {}).permissionMode).toBe('auto');
+      expect(withControls(run, undefined).permissionMode).toBe('auto');
+      expect(withControls(run, { permissionMode: 'ask' }).permissionMode).toBe(
+        'ask',
+      );
+      expect(
+        withControls(run, { permissionMode: 'auto_strict' }).permissionMode,
+      ).toBe('auto_strict');
+      expect(withControls(run, {}, 'ask').permissionMode).toBe('ask');
+    }
+  });
+
   it('uses the host-resolved permission mode instead of incoming input', () => {
     expect(
       withControls(
@@ -303,8 +318,11 @@ describe('withControls', () => {
 describe('resolveEffectivePermissionMode', () => {
   it.each([
     ['auto', 'ask', 'auto'],
+    ['ask', 'auto', 'ask'],
     [undefined, 'auto', 'auto'],
-    [undefined, undefined, 'ask'],
+    [undefined, 'ask', 'ask'],
+    [undefined, 'auto_strict', 'auto_strict'],
+    [undefined, undefined, 'auto'],
   ] as const)(
     'resolves conversation %s over agent %s to %s',
     (conversationMode, agentMode, expected) => {

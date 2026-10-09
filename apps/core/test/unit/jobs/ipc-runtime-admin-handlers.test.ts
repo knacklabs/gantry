@@ -636,6 +636,8 @@ describe('runtime admin IPC handlers', () => {
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
       accessPreset: 'full',
+      // Explicitly set to ask: an unset mode is already auto.
+      permissionMode: 'ask',
     };
     saveRuntimeSettings(runtimeHome, initial);
     const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
@@ -894,6 +896,8 @@ describe('runtime admin IPC handlers', () => {
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
       accessPreset: 'full',
+      // Explicitly set to ask: an unset mode is already auto.
+      permissionMode: 'ask',
     };
     initial.providers.telegram.enabled = true;
     initial.providerAccounts.telegram_default = {

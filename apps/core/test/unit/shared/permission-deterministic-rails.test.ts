@@ -52,10 +52,17 @@ async function resolveWithLowBenignClassifier(command: string) {
   }));
 
   const decision = await resolvePermissionIpcDecision({
-    request: request(command),
+    request: request(command, { targetJid: 'tg:rails' }),
     sourceAgentFolder: 'main_agent',
     deps: {
-      conversationRoutes: () => ({}),
+      conversationRoutes: () => ({
+        'tg:rails': {
+          name: 'rails',
+          folder: 'main_agent',
+          trigger: '@gantry',
+          added_at: '2026-09-04',
+        },
+      }),
       requestPermissionApproval,
       classifierConsult,
       publishRuntimeEvent: vi.fn(async () => undefined),
@@ -363,11 +370,11 @@ describe('permission deterministic rails', () => {
     ['python interpreter string', 'python -c "print(1)"'],
     ['shell interpreter string', 'sh -c "echo hidden"'],
   ])(
-    'escalates %s despite a low benign classifier verdict and does not cache the allow',
+    'asks a person for %s without consulting the judge or the cache',
     async (_label, command) => {
       const result = await resolveWithLowBenignClassifier(command);
 
-      expect(result.classifierConsult).toHaveBeenCalledOnce();
+      expect(result.classifierConsult).not.toHaveBeenCalled();
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
       expect(result.getClassifierVerdict).not.toHaveBeenCalled();
       expect(result.putClassifierVerdict).not.toHaveBeenCalled();
@@ -411,11 +418,11 @@ describe('permission deterministic rails', () => {
     ['an SSH private key', 'rm ~/.ssh/id_rsa'],
     ['settings', 'rm settings.yaml'],
   ])(
-    'hard-floors deleting protected %s despite a low benign classifier verdict',
+    'asks a person for deleting protected %s without consulting the judge',
     async (_label, command) => {
       const result = await resolveWithLowBenignClassifier(command);
 
-      expect(result.classifierConsult).toHaveBeenCalledOnce();
+      expect(result.classifierConsult).not.toHaveBeenCalled();
       expect(result.requestPermissionApproval).toHaveBeenCalledOnce();
       expect(result.getClassifierVerdict).not.toHaveBeenCalled();
       expect(result.putClassifierVerdict).not.toHaveBeenCalled();
@@ -433,13 +440,13 @@ describe('permission deterministic rails', () => {
     },
   );
 
-  it('keeps an ordinary single-file delete eligible for classifier allow and caching', async () => {
+  it('lets the judge allow an ordinary single-file delete; a rail ask neither reads nor writes the verdict cache', async () => {
     const result = await resolveWithLowBenignClassifier('rm report.txt');
 
     expect(result.classifierConsult).toHaveBeenCalledOnce();
     expect(result.requestPermissionApproval).not.toHaveBeenCalled();
     expect(result.getClassifierVerdict).not.toHaveBeenCalled();
-    expect(result.putClassifierVerdict).toHaveBeenCalledOnce();
+    expect(result.putClassifierVerdict).not.toHaveBeenCalled();
     expect(result.decision).toMatchObject({
       approved: true,
       decidedBy: 'auto_classifier',
