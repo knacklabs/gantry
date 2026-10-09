@@ -268,7 +268,7 @@ The role contract is [role-capabilities.ts](../../../apps/core/src/app/bootstrap
 
 ### Restart and failure behavior
 
-- Normal run finalization closes proxy sockets/listeners, revokes model/browser/response credentials and deletes temporary configs. The async-command policy registry currently retains completed-run entries until process exit; that is existing audit finding 2 below. See [agent-spawn.ts](../../../apps/core/src/runtime/agent-spawn.ts), [egress-gateway.ts](../../../apps/core/src/runtime/egress-gateway.ts) and [async-command-sandbox-policy.ts](../../../apps/core/src/runtime/async-command-sandbox-policy.ts).
+- Normal run finalization closes proxy sockets/listeners, revokes model/browser/response credentials and deletes temporary configs. The runner's `finally` block also releases its async-command sandbox policy, deleting the registry entry keyed by agent folder and run handle. See [agent-spawn.ts](../../../apps/core/src/runtime/agent-spawn.ts), [egress-gateway.ts](../../../apps/core/src/runtime/egress-gateway.ts) and [async-command-sandbox-policy.ts](../../../apps/core/src/runtime/async-command-sandbox-policy.ts).
 - Watcher shutdown clears in-memory rate/replay state while retaining disk replay markers, stops wakeups and releases its root lock. Startup recovers a lock only after its recorded PID is no longer running; an invalid/missing PID or a live holder prevents recovery. See [ipc.ts](../../../apps/core/src/runtime/ipc.ts), [ipc-root-lock-acquisition.ts](../../../apps/core/src/runtime/ipc-root-lock-acquisition.ts) and [ipc-filesystem.ts](../../../apps/core/src/runtime/ipc-filesystem.ts).
 - A crash loses active browser grants, response-key maps and gateway tokens. A runner cannot use a lost turn token to recover a browser binding. Claimed files use a processing prefix excluded from ordinary pending scans, so local IPC does not promise automatic replay of interrupted actions or exactly-once external effects. See [ipc-auth.ts](../../../apps/core/src/runtime/ipc-auth.ts), [ipc-browser-requests.ts](../../../apps/core/src/runtime/ipc-browser-requests.ts), [ipc-filesystem.ts](../../../apps/core/src/runtime/ipc-filesystem.ts) and [gantry-model-gateway.ts](../../../apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts).
 - Local development without an IPC secret generates an ephemeral secret, invalidating old derived tokens and sealed callback keys after restart. Production/remote startup requires a persistent secret. Missing signature keys prevent signed browser responses from being written; the runner rejects invalid replies or times out. See [ipc-auth.ts](../../../apps/core/src/runtime/ipc-auth.ts), [security-posture.ts](../../../apps/core/src/shared/security-posture.ts), [ipc-browser-handler.ts](../../../apps/core/src/runtime/ipc-browser-handler.ts) and [runner/mcp/ipc.ts](../../../apps/core/src/runner/mcp/ipc.ts).
@@ -290,7 +290,7 @@ These seven beats use the code-backed flows above for a 60–90 second explainer
 
 ### (a) Existing audit findings
 
-The checked-in area audit has these existing titles, linked without repeating their findings:
+The dated area audit records these historical titles, linked without repeating their findings. Completed-run policy retention has since been fixed as described above:
 
 - [Sandbox errors use a weaker redaction fork — duplicate](../audits/2026-10-02-area-audit/13-security-boundaries.md).
 - [Completed runs retain sandbox policies indefinitely — over-complicated](../audits/2026-10-02-area-audit/13-security-boundaries.md).
