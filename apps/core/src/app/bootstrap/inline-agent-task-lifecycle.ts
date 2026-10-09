@@ -86,9 +86,7 @@ export function createInlineAgentTaskLifecycle(input: {
     service,
     owner,
     authorityToolName: input.authorityToolName,
-    enableDelegatedAsyncFollowUp: Boolean(
-      input.authorityToolName === 'AgentDelegation' && !run.jobId,
-    ),
+    enableDelegatedAsyncFollowUp: !run.jobId,
     parentTaskId: run.parentTaskId,
     parentRunId: run.jobId
       ? null
@@ -213,7 +211,7 @@ export function createInlineAgentTaskLifecycle(input: {
                 },
                 async (agentOutput: AgentOutput) => {
                   if (!agentOutput.result) return;
-                  latestResult = agentOutput.result;
+                  latestResult = (latestResult ?? '') + agentOutput.result;
                   await delegated.onProgress?.(agentOutput.result);
                 },
                 {

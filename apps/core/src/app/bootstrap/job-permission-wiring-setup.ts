@@ -16,7 +16,7 @@ import { enqueueJobTrigger } from '../../jobs/scheduler.js';
 import { configureJobPermissionLeaseExtensionReader } from '../../jobs/execution-lease.js';
 import { createJobPermissionDurabilityWiring } from './job-permission-durability-wiring.js';
 import { startRuntimePermissionCardReconciliation } from './runtime-services-permission-card.js';
-import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
+import { registerRuntimeMessageActions } from './runtime-message-actions.js';
 import type { RuntimeApp } from './runtime-app.js';
 import {
   canonicalThreadIdFor,
@@ -254,7 +254,7 @@ export function jobPermissionCardActionDeps(
   type Action = Parameters<
     NonNullable<
       NonNullable<
-        Parameters<typeof registerRuntimeLiveStopMessageAction>[3]
+        Parameters<typeof registerRuntimeMessageActions>[2]
       >['decideJobPermission']
     >
   >[0];
@@ -282,15 +282,13 @@ export function startJobPermCards(
 }
 
 export function wireJobPermissionActions(
-  channelWiring: Parameters<typeof registerRuntimeLiveStopMessageAction>[0],
+  channelWiring: Parameters<typeof registerRuntimeMessageActions>[0],
   app: RuntimeApp,
-  liveMessageQueue: Parameters<typeof registerRuntimeLiveStopMessageAction>[2],
   service: ReturnType<typeof setupJobPermissionDurability>,
 ): void {
-  registerRuntimeLiveStopMessageAction(
+  registerRuntimeMessageActions(
     channelWiring,
     app,
-    liveMessageQueue,
     jobPermissionCardActionDeps(service),
   );
 }

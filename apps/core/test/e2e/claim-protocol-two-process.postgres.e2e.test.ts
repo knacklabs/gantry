@@ -16,13 +16,46 @@ import type { ConversationRoute } from '@core/domain/types.js';
 import { processBrowserIpcRequest } from '@core/runtime/ipc-browser-handler.js';
 import { validateAgentToolRuntimeRules } from '@core/application/agents/agent-tool-runtime-rules.js';
 import { nowIso } from '@core/shared/time/datetime.js';
-
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
+import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
+import {
+  buildLiveAdmissionProcessor,
+  startLiveExecutionServices,
+} from '@core/app/bootstrap/live-execution.js';
+import { GroupQueue } from '@core/runtime/group-queue.js';
+import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
+import type { MessageLoopDeps } from '@core/runtime/message-loop.js';
+import type { ChildProcess } from 'node:child_process';
+import { agentIdForFolder } from '@core/domain/agent/agent-folder-id.js';
+import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
+import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
+import {
+  PostgresLiveAdmissionNotifier,
+  PostgresLiveAdmissionWakeupSource,
+} from '@core/adapters/storage/postgres/live-admission-notify.postgres.js';
+import { PostgresRuntimeRepositoryBundle } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
+import { _setRuntimeStorageForTest as setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
+import { TeamsChannel } from '@core/channels/teams/index.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
 import {
   createPostgresIntegrationRuntime,
   hasPostgresIntegrationDatabase,
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
+
+// The quiet-window test's sender may use session commands.
+vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
+  return {
+    ...actual,
+    isSenderControlAllowed: (
+      ...args: Parameters<typeof actual.isSenderControlAllowed>
+    ) => args[1] === 'quiet-admin' || actual.isSenderControlAllowed(...args),
+  };
+});
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
@@ -203,6 +236,533 @@ maybeDescribe('two-process worker claim protocol (Postgres)', () => {
     60_000,
   );
 });
+
+maybeDescribe(
+  'no message is lost or given twice across two workers (Postgres)',
+  () => {
+    let runtime: PostgresIntegrationRuntime;
+    const chatJid = 'tg:two-process-input';
+    const appId = 'default';
+
+    beforeAll(async () => {
+      runtime = await createPostgresIntegrationRuntime({
+        schemaPrefix: 'two_proc_input',
+      });
+    }, 60_000);
+
+    afterAll(async () => {
+      await runtime?.cleanup();
+    });
+
+    it('delivers each saved message once in receive order, including one saved after the first take', async () => {
+      // Real admission supplies the canonical message ID and provider account used by the reader.
+      const save = async (id: string, conversationId = chatJid) => {
+        const result = await runtime.ops.storeMessageWithLiveAdmission(
+          {
+            id,
+            chat_jid: conversationId,
+            provider: 'telegram',
+            sender: 'user-two-process',
+            sender_name: 'User',
+            content: id,
+            timestamp: nowIso(),
+            is_from_me: false,
+            is_bot_message: false,
+            external_message_id: id,
+          },
+          { appId },
+        );
+        expect(result?.outcome).toBe('enqueued');
+        if (!result || result.outcome === 'overloaded')
+          throw new Error('Expected a saved admission item');
+        return result.item;
+      };
+      const firstSaved = await save('message:first');
+      const secondSaved = await save('message:second');
+      const scope = {
+        appId: firstSaved.appId,
+        conversationId: firstSaved.conversationId,
+        threadId: firstSaved.threadId,
+        agentId: firstSaved.agentId,
+        providerAccountId: firstSaved.providerAccountId,
+      };
+
+      const script = `
+      (async () => {
+        const { PostgresStorageService } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/storage-service.ts'))});
+        const { PostgresLiveTurnRepository } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts'))});
+        const { PostgresCanonicalMessageRepository } = await import(${JSON.stringify(path.join(repoRoot, 'apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts'))});
+        const service = new PostgresStorageService(process.env.GANTRY_TEST_DATABASE_URL, process.env.INPUT_SCHEMA);
+        try {
+          const scope = ${JSON.stringify(scope)};
+          const items = await new PostgresLiveTurnRepository(service.db).takeInput({ scope, limit: 2, consumedBy: process.env.INPUT_CONSUMER });
+          const messages = await new PostgresCanonicalMessageRepository(service.db).getMessagesByIds(scope, items.map(item => item.messageId));
+          process.stdout.write(JSON.stringify({ items: items.map(item => item.id), messages: messages.map(message => message.id) }) + '\\n');
+        } finally {
+          await service.close();
+        }
+      })().catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
+    `;
+      const runWorker = (
+        consumer: string,
+      ): Promise<{ items: string[]; messages: string[] }> =>
+        new Promise((resolve, reject) => {
+          const child = spawn(tsxBin, ['-e', script], {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              INPUT_SCHEMA: runtime.schemaName,
+              INPUT_CONSUMER: consumer,
+            },
+          });
+          let stdout = '';
+          let stderr = '';
+          child.stdout.on('data', (chunk) => {
+            stdout += String(chunk);
+          });
+          child.stderr.on('data', (chunk) => {
+            stderr += String(chunk);
+          });
+          child.on('error', reject);
+          child.on('close', (code) => {
+            if (code !== 0) return reject(new Error(stderr));
+            try {
+              resolve(
+                JSON.parse(stdout.trim()) as {
+                  items: string[];
+                  messages: string[];
+                },
+              );
+            } catch {
+              reject(new Error(`Invalid worker result: ${stdout} ${stderr}`));
+            }
+          });
+        });
+
+      const [first, second] = await Promise.all([
+        runWorker('turn:first-worker'),
+        runWorker('turn:second-worker'),
+      ]);
+      expect([...first.items, ...second.items].sort()).toEqual(
+        [firstSaved.id, secondSaved.id].sort(),
+      );
+      expect([...first.messages, ...second.messages].sort()).toEqual(
+        [firstSaved.messageId, secondSaved.messageId].sort(),
+      );
+
+      const lateSaved = await save('message:late');
+      expect(await runWorker('turn:late-worker')).toEqual({
+        items: [lateSaved.id],
+        messages: [lateSaved.messageId],
+      });
+      expect(await runWorker('turn:empty-worker')).toEqual({
+        items: [],
+        messages: [],
+      });
+      expect(
+        (
+          await runtime.ops.getMessagesByIds(scope, [
+            secondSaved.messageId,
+            firstSaved.messageId,
+          ])
+        ).map(({ id }) => id),
+      ).toEqual(['message:second', 'message:first']);
+      const foreignSaved = await save(
+        'message:foreign',
+        'tg:another-conversation',
+      );
+      expect(
+        await runtime.ops.getMessagesByIds(scope, [foreignSaved.messageId]),
+      ).toEqual([]);
+      await runtime.repositories.liveTurns.consumeInputItem({
+        id: foreignSaved.id,
+        consumedBy: 'history',
+      });
+    }, 60_000);
+
+    it('delivers an active turn follow-up once across two admission workers', async () => {
+      const { _setRuntimeStorageForTest } =
+        await import('@core/adapters/storage/postgres/runtime-store.js');
+      _setRuntimeStorageForTest(runtime.storageRuntime);
+      const appId = 'two-worker-follow-up';
+      const jid = `app:${appId}:conversation`;
+      const folder = 'two_worker_follow_up';
+      const providerAccountId = `control:${appId}`;
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: 'conversation',
+        chatJid: jid,
+        workspaceFolder: folder,
+      });
+      const scope = {
+        appId,
+        conversationId: jid,
+        threadId: null,
+        agentId: agentIdForFolder(folder),
+        providerAccountId,
+      };
+      const route: ConversationRoute = {
+        name: 'Two worker follow-up',
+        folder,
+        providerAccountId,
+        trigger: 'Andy',
+        added_at: nowIso(),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      };
+      let startedFirst: () => void = () => undefined;
+      let releaseFirst: () => void = () => undefined;
+      const firstStarted = new Promise<void>((resolve) => {
+        startedFirst = resolve;
+      });
+      const firstCanFinish = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const presented: string[] = [];
+      const continued: string[] = [];
+      const channel = createFakeChannelRuntime(
+        (candidate) => candidate === jid,
+      );
+      const workers = await Promise.all(
+        ['a', 'b'].map(async (label) => {
+          const workerInstanceId = `runtime-worker-${label}`;
+          await runtime.repositories.workerCoordination.registerWorker({
+            id: workerInstanceId,
+            bootNonce: workerInstanceId,
+          });
+          const queue = new GroupQueue({
+            maxMessageRuns: 1,
+            maxJobRuns: 1,
+            maxRetries: 1,
+            baseRetryMs: 25,
+            runnerControlPort: {
+              writeContinuationInput: ({ text }) => {
+                continued.push(text);
+                releaseFirst();
+              },
+              writeCloseSignal: () => undefined,
+            },
+          });
+          const app = createRuntimeApp({
+            queue,
+            opsRepository: runtime.ops,
+            ensureCredentialBinding: async () => ({ created: false }),
+            runAgent: async (_group, input, onProcess, onOutput) => {
+              presented.push(input.prompt);
+              onProcess(
+                {
+                  pid: 0,
+                  kill: () => true,
+                  stdin: { end: () => undefined },
+                } as unknown as ChildProcess,
+                'run',
+              );
+              if (presented.length === 1) {
+                startedFirst();
+                await firstCanFinish;
+                return { status: 'error', error: 'runner failed before reply' };
+              }
+              const result = {
+                status: 'success' as const,
+                result: 'The turn completed.',
+              };
+              await onOutput?.(result);
+              return result;
+            },
+          });
+          app.setChannelRuntime(channel.runtime);
+          const leaseDeps = {
+            liveTurns: runtime.repositories.liveTurns,
+            coordination: runtime.repositories.workerCoordination,
+            workerInstanceId,
+          };
+          const authority = new LiveTurnAuthority({
+            leaseDeps,
+            slotCapacity: () => 1,
+            ownerPollMs: 25,
+          });
+          queue.setLiveTurnRunnerRegistrar((queueJid, hooks, routing) =>
+            authority.registerLocalRunner(queueJid, hooks, routing),
+          );
+          const processor = buildLiveAdmissionProcessor({
+            getTriggerPattern,
+            inputRepository: runtime.repositories.liveTurns,
+            liveTurnAuthority: authority,
+            app,
+            opsRepository: runtime.ops,
+            executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+            messageFetchPageSize: 50,
+            timezone: 'UTC',
+            enqueueMessageCheck: (queueJid) => {
+              queue.enqueueMessageCheck(queueJid);
+            },
+            warn: () => undefined,
+          });
+          queue.setProcessMessagesFn((queueJid, context) =>
+            processor(queueJid, context),
+          );
+          const messageLoopDeps: MessageLoopDeps = {
+            appId,
+            inputRepository: runtime.repositories.liveTurns,
+            getConversationRoutes: app.getConversationRoutes,
+            hasChannel: channel.runtime.hasChannel,
+            setTyping: channel.runtime.setTyping,
+            sendProgressUpdate: channel.runtime.sendProgressUpdate,
+            queue,
+            opsRepository: runtime.ops,
+          };
+          return { app, queue, authority, leaseDeps, messageLoopDeps };
+        }),
+      );
+      const handles: Array<ReturnType<typeof startLiveExecutionServices>> = [];
+      const start = (worker: (typeof workers)[number]) => {
+        handles.push(
+          startLiveExecutionServices({
+            appId,
+            app: worker.app,
+            liveTurnAuthority: worker.authority,
+            liveTurnLeaseDeps: worker.leaseDeps,
+            messageLoopDeps: worker.messageLoopDeps,
+            recoveryCoordinator: undefined,
+            isEligibleToRecoverLiveTurn: () => true,
+            alertNoEligibleLiveTurnRecoverer: undefined,
+            registerActiveAdmissionLoop: () => undefined,
+            registerActiveRecoveryLoop: () => undefined,
+            onPollingCrash: (error) => {
+              throw error;
+            },
+            info: () => undefined,
+            warn: () => undefined,
+          }),
+        );
+      };
+      try {
+        await workers[0]!.app.registerGroup(jid, route);
+        await workers[1]!.app.registerGroup(jid, route);
+        start(workers[0]!);
+        const save = async (id: string, content: string) => {
+          const admitted = await runtime.ops.storeMessageWithLiveAdmission(
+            {
+              id,
+              chat_jid: jid,
+              provider: 'app',
+              providerAccountId,
+              sender: 'person',
+              content,
+              timestamp: nowIso(),
+              is_from_me: false,
+              is_bot_message: false,
+            },
+            { appId, agentId: scope.agentId },
+          );
+          expect(admitted?.outcome).toBe('enqueued');
+          if (!admitted || admitted.outcome === 'overloaded')
+            throw new Error('Admission failed');
+          return admitted.item;
+        };
+        const first = await save(
+          'message:worker-active-first',
+          'first request',
+        );
+        await waitForLiveE2e(
+          () => presented.length === 1,
+          'first runner input',
+        );
+        await firstStarted;
+        handles[0]!.stopAdmission();
+        await handles[0]!.admissionLoop?.done;
+        start(workers[1]!);
+        const followUp = await save(
+          'message:worker-active-follow-up',
+          'follow-up request',
+        );
+        await waitForLiveE2e(
+          () => continued.length === 1,
+          'follow-up runner input',
+        );
+        const table = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
+        await waitForLiveE2e(async () => {
+          const { rows } = await runtime.service.pool.query<{
+            consumed_at: Date | null;
+          }>(`SELECT consumed_at FROM ${table} WHERE id = ANY($1)`, [
+            [first.id, followUp.id],
+          ]);
+          return (
+            rows.length === 2 && rows.every((row) => row.consumed_at === null)
+          );
+        }, 'unanswered input released after failure');
+        workers[1]!.queue.enqueueMessageCheck(first.queueJid);
+        // Both workers race for the next turn. It may take both messages, or the
+        // other worker may route one to it as a follow-up; a follow-up still
+        // pending when that turn ends is left for the turn after.
+        const retried = () => [...presented.slice(1), ...continued.slice(1)];
+        const takenByTurns = async () => {
+          const { rows } = await runtime.service.pool.query<{
+            consumed_by: string | null;
+          }>(`SELECT consumed_by FROM ${table} WHERE id = ANY($1)`, [
+            [first.id, followUp.id],
+          ]);
+          return (
+            rows.length === 2 &&
+            rows.every((row) => row.consumed_by?.startsWith('turn:'))
+          );
+        };
+        await waitForLiveE2e(
+          async () =>
+            retried().some((text) => text.includes('follow-up request')) &&
+            channel.outbound.length === presented.length - 1 &&
+            (await takenByTurns()),
+          'reply after follow-up',
+        );
+        expect(presented[0]).toContain('first request');
+        expect(
+          presented.slice(1).some((prompt) => prompt.includes('first request')),
+        ).toBe(true);
+        expect(
+          retried().filter((text) => text.includes('follow-up request')),
+        ).toHaveLength(1);
+        expect(continued[0]).toContain('follow-up request');
+      } finally {
+        releaseFirst();
+        for (const handle of handles) {
+          handle.stopAdmission();
+          handle.stopRecovery();
+        }
+        await Promise.all(
+          workers.map(async (worker) => {
+            await worker.queue.shutdown(500);
+            await worker.authority.shutdown();
+          }),
+        );
+      }
+    }, 60_000);
+
+    it('delivers complete replies to two threads of one chat answering at once', async () => {
+      const { _setRuntimeStorageForTest } =
+        await import('@core/adapters/storage/postgres/runtime-store.js');
+      _setRuntimeStorageForTest(runtime.storageRuntime);
+      const jid = 'teams:19:two-threads@thread.v2';
+      const folder = 'two_thread_replies';
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId: 'two-threads',
+        chatJid: jid,
+        workspaceFolder: folder,
+      });
+      // A real channel streaming path: its stream guard decides what reaches the chat.
+      const cards = new Map<string, string>();
+      const cardText = (card: unknown) =>
+        (card as { body: Array<{ text: string }> }).body[0]!.text;
+      const teams = new TeamsChannel(
+        { clientId: 'client', clientSecret: 'secret', tenantId: 'tenant' },
+        {} as never,
+        {
+          start: async () => undefined,
+          stop: async () => undefined,
+          sendMessage: async () => ({ externalMessageId: 'unused' }),
+          sendAdaptiveCard: async ({ card }) => {
+            const id = `card-${cards.size + 1}`;
+            cards.set(id, cardText(card));
+            return { externalMessageId: id };
+          },
+          updateAdaptiveCard: async ({ messageId, card }) => {
+            cards.set(messageId, cardText(card));
+            return {};
+          },
+        },
+      );
+      await teams.connect();
+      let alphaStreamed: () => void = () => undefined;
+      let betaStreamed: () => void = () => undefined;
+      const alphaStarted = new Promise<void>((resolve) => {
+        alphaStreamed = resolve;
+      });
+      const betaFinished = new Promise<void>((resolve) => {
+        betaStreamed = resolve;
+      });
+      const app = createRuntimeApp({
+        opsRepository: runtime.ops,
+        ensureCredentialBinding: async () => ({ created: false }),
+        runAgent: async (_group, input, _onProcess, onOutput) => {
+          if (input.prompt.includes('beta question')) {
+            await onOutput?.({ status: 'success', result: 'Beta reply.' });
+            betaStreamed();
+            return { status: 'success', result: null };
+          }
+          await onOutput?.({ status: 'success', result: 'Alpha part one.' });
+          alphaStreamed();
+          await betaFinished;
+          await onOutput?.({ status: 'success', result: ' Alpha part two.' });
+          return { status: 'success', result: null };
+        },
+      });
+      app.setChannelRuntime({
+        ...createFakeChannelRuntime((candidate) => candidate === jid).runtime,
+        supportsStreaming: () => true,
+        sendStreamingChunk: (chatJid, text, options) =>
+          teams.sendStreamingChunk(chatJid, text, options),
+        resetStreaming: (chatJid, options) =>
+          teams.resetStreaming(chatJid, options),
+      });
+      await app.registerGroup(jid, {
+        name: 'Two thread replies',
+        folder,
+        providerAccountId: 'channel-providerAccount:default:teams',
+        trigger: 'Andy',
+        added_at: nowIso(),
+        requiresTrigger: false,
+        conversationKind: 'group',
+        agentConfig: { model: 'opus' },
+      });
+      const save = async (threadId: string, content: string) => {
+        const result = await runtime.ops.storeMessageWithLiveAdmission(
+          {
+            id: `message:${threadId}`,
+            chat_jid: jid,
+            provider: 'teams',
+            sender: 'user-two-threads',
+            sender_name: 'User',
+            content,
+            thread_id: threadId,
+            timestamp: nowIso(),
+            is_from_me: false,
+            is_bot_message: false,
+          },
+          { appId, agentId: agentIdForFolder(folder) },
+        );
+        if (!result || result.outcome === 'overloaded')
+          throw new Error('Expected a saved admission item');
+        return result.item;
+      };
+      const alpha = await save('thread-alpha', 'alpha question');
+      const beta = await save('thread-beta', 'beta question');
+      // End both quiet windows through the database clock, so each thread's
+      // turn takes its message now.
+      await runtime.service.pool.query(
+        `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+         SET defer_until = clock_timestamp() WHERE id = ANY($1)`,
+        [[alpha.id, beta.id]],
+      );
+
+      const alphaTurn = app.processGroupMessages(alpha.queueJid, {
+        existingRunId: 'run:thread-alpha',
+      });
+      await alphaStarted;
+      await expect(
+        app.processGroupMessages(beta.queueJid, {
+          existingRunId: 'run:thread-beta',
+        }),
+      ).resolves.toBe(true);
+      await expect(alphaTurn).resolves.toBe(true);
+
+      expect([...cards.values()].sort()).toEqual([
+        'Alpha part one. Alpha part two.',
+        'Beta reply.',
+      ]);
+    }, 60_000);
+  },
+);
 
 interface LiveTempRuntime {
   root: string;
@@ -488,6 +1048,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         exceeded: false,
         enforce: (output: unknown) => output,
       }),
+      getConfiguredProviderSessionMaxInputTokens: () => 150_000,
     }));
     vi.doMock('@core/application/agents/prompt-profile-service.js', () => {
       class MockPromptProfileService {
@@ -569,8 +1130,7 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       conversationKind: 'dm',
       agentConfig: { model: 'opus', timeout: 5_000 },
     };
-    await app.registerGroup(chatJid, route);
-    await runtime.ops.storeMessage({
+    const inbound = {
       id: 'msg-live-e2e-real-runner',
       chat_jid: chatJid,
       provider: 'telegram',
@@ -581,9 +1141,28 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       is_from_me: false,
       is_bot_message: false,
       external_message_id: 'telegram-live-e2e-real-runner-1',
+    };
+    // End a saved message's quiet window through the database clock.
+    const endQuietWindow = (id: string) =>
+      runtime.service.pool.query(
+        `UPDATE ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items
+         SET defer_until = clock_timestamp() WHERE id = $1`,
+        [id],
+      );
+    const admitted = await runtime.ops.storeMessageWithLiveAdmission(inbound, {
+      appId: 'default',
+      agentId: agentIdForFolder(folder),
     });
+    expect(admitted?.outcome).toBe('enqueued');
+    if (!admitted || admitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    await app.registerGroup(chatJid, {
+      ...route,
+      providerAccountId: admitted.item.providerAccountId ?? undefined,
+    });
+    await endQuietWindow(admitted.item.id);
 
-    expect(messageQueue.enqueueMessageCheck(chatJid)).toBe(true);
+    expect(messageQueue.enqueueMessageCheck(admitted.item.queueJid)).toBe(true);
 
     await waitForLiveE2e(
       () =>
@@ -598,6 +1177,13 @@ maybeDescribe('live turn real runner (Postgres)', () => {
       .join('\n');
     expect(finalText).toContain('live e2e child saw:');
     expect(finalText).toContain(inboundText);
+    expect(
+      await runtime.repositories.liveTurns.takeInput({
+        scope: admitted.item,
+        limit: 10,
+        consumedBy: 'history',
+      }),
+    ).toEqual([]);
 
     const childRecord = JSON.parse(
       fs.readFileSync(temp.recordPath, 'utf-8'),
@@ -635,13 +1221,6 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         trigger: route.trigger,
       }),
     );
-    const cursorState = JSON.parse(
-      (await runtime.ops.getRouterState('last_agent_timestamp')) ?? '{}',
-    ) as Record<string, string>;
-    expect(JSON.parse(cursorState[chatJid] ?? '{}')).toEqual(
-      expect.objectContaining({ id: 'msg-live-e2e-real-runner' }),
-    );
-
     const runs = await runtime.service.db
       .select({
         id: pgSchema.agentRunsPostgres.id,
@@ -685,6 +1264,121 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         RUNTIME_EVENT_TYPES.RUN_COMPLETED,
       ]),
     );
+
+    // After a settings reload, a later saved item still reaches the same user
+    // once.
+    const {
+      createDefaultRuntimeSettings,
+      ensureConfiguredConversationBinding,
+      saveRuntimeSettings,
+    } = await import('@core/config/settings/runtime-settings.js');
+    const { startSettingsReloadWatcher } =
+      await import('@core/runtime/settings-reload-watcher.js');
+    const providerAccountId = admitted.item.providerAccountId;
+    if (!providerAccountId) throw new Error('Missing provider account');
+    const reloadSettings = createDefaultRuntimeSettings();
+    reloadSettings.storage.postgres.urlEnv = 'GANTRY_TEST_DATABASE_URL';
+    reloadSettings.storage.postgres.schema = runtime.schemaName;
+    reloadSettings.credentialBroker.mode = 'none';
+    reloadSettings.agent.defaultModel = 'opus';
+    reloadSettings.providerAccounts[providerAccountId] = {
+      agentId: folder,
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    ensureConfiguredConversationBinding(reloadSettings, {
+      agentId: folder,
+      agentName: route.name,
+      agentFolder: folder,
+      jid: chatJid,
+      displayName: route.name,
+      trigger: route.trigger,
+      requiresTrigger: route.requiresTrigger,
+    });
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', 'live-e2e-token');
+    saveRuntimeSettings(temp.runtimeHome, reloadSettings);
+    const loadState = vi.spyOn(app, 'loadState');
+    const watcher = startSettingsReloadWatcher({
+      runtimeHome: temp.runtimeHome,
+      app,
+      ops: runtime.ops,
+      repositories: runtime.repositories,
+      pollIntervalMs: 20,
+    });
+    try {
+      const changedSettings = structuredClone(reloadSettings);
+      changedSettings.agent.defaultModel = 'sonnet';
+      saveRuntimeSettings(temp.runtimeHome, changedSettings);
+      await waitForLiveE2e(
+        () => loadState.mock.calls.length === 1,
+        'settings reload applied',
+      );
+      await loadState.mock.results[0]?.value;
+    } finally {
+      watcher.close();
+      loadState.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    const lateMessage = {
+      ...inbound,
+      id: 'msg-live-e2e-after-reload',
+      content: 'after settings reload',
+      timestamp: nowIso(),
+      external_message_id: 'telegram-live-e2e-after-reload',
+    };
+    const lateAdmitted = await runtime.ops.storeMessageWithLiveAdmission(
+      lateMessage,
+      {
+        appId: 'default',
+        agentId: agentIdForFolder(folder),
+      },
+    );
+    expect(lateAdmitted?.outcome).toBe('enqueued');
+    if (!lateAdmitted || lateAdmitted.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    await endQuietWindow(lateAdmitted.item.id);
+    expect(messageQueue.enqueueMessageCheck(lateAdmitted.item.queueJid)).toBe(
+      true,
+    );
+    await waitForLiveE2e(
+      () =>
+        fakeChannel.outbound.some((message) =>
+          message.text.includes('after settings reload'),
+        ),
+      'reply after settings reload',
+    );
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.includes('after settings reload'),
+      ),
+    ).toHaveLength(1);
+    messageQueue.enqueueMessageCheck(lateAdmitted.item.queueJid);
+    const itemTable = `${quotePostgresIdentifier(runtime.schemaName)}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await waitForLiveE2e(async () => {
+      const { rows } = await runtime.service.pool.query<{
+        consumed_at: Date | null;
+        consumed_by: string | null;
+      }>(`SELECT consumed_at, consumed_by FROM ${itemTable} WHERE id = $1`, [
+        lateAdmitted.item.id,
+      ]);
+      return (
+        rows[0]?.consumed_at !== null &&
+        rows[0]?.consumed_by?.startsWith('turn:') === true
+      );
+    }, 'reloaded input consumed by runtime');
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.includes('after settings reload'),
+      ),
+    ).toHaveLength(1);
+    // The child echoes its prompt, and later prompts quote the first message
+    // as recent context; count only replies to it as the current message.
+    expect(
+      fakeChannel.outbound.filter((message) =>
+        message.text.split('<current_message')[1]?.includes(inboundText),
+      ),
+    ).toHaveLength(1);
   }, 60_000);
 });
 
@@ -1105,4 +1799,230 @@ maybeDescribe('agent capability boundary slices (Postgres)', () => {
       }),
     ).resolves.toBe(true);
   });
+});
+
+maybeDescribe('quiet window before a turn starts (Postgres)', () => {
+  let runtime: PostgresIntegrationRuntime;
+
+  beforeAll(async () => {
+    runtime = await createPostgresIntegrationRuntime({
+      schemaPrefix: 'quiet_window_e2e',
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await runtime?.cleanup();
+  });
+
+  it('answers three quick messages with one turn after the window, and answers /stop at once', async () => {
+    // The statically imported runtime reads this module, which an earlier
+    // test's module reset would otherwise leave pointing at a closed pool.
+    setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'quiet-window-e2e';
+    const jid = `app:${appId}:conversation`;
+    const folder = 'quiet_window_e2e';
+    const providerAccountId = `control:${appId}`;
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'conversation',
+      chatJid: jid,
+      workspaceFolder: folder,
+    });
+    const route: ConversationRoute = {
+      name: 'Quiet window',
+      folder,
+      providerAccountId,
+      trigger: 'Andy',
+      added_at: nowIso(),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    };
+    const turns: Array<{ prompt: string; at: number }> = [];
+    const replies: Array<{ text: string; at: number }> = [];
+    const channel = createFakeChannelRuntime((candidate) => candidate === jid, {
+      sendMessage: (_jid, text) => {
+        replies.push({ text, at: Date.now() });
+      },
+    });
+    const workerInstanceId = 'quiet-window-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerInstanceId,
+      bootNonce: workerInstanceId,
+    });
+    const queue = new GroupQueue({
+      maxMessageRuns: 1,
+      maxJobRuns: 1,
+      maxRetries: 1,
+      baseRetryMs: 25,
+    });
+    const app = createRuntimeApp({
+      queue,
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, input, onProcess, onOutput) => {
+        turns.push({ prompt: input.prompt, at: Date.now() });
+        onProcess(
+          {
+            pid: 0,
+            kill: () => true,
+            stdin: { end: () => undefined },
+          } as unknown as ChildProcess,
+          'run',
+        );
+        const result = {
+          status: 'success' as const,
+          result: `Answered turn ${turns.length}.`,
+        };
+        await onOutput?.(result);
+        return result;
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    const leaseDeps = {
+      liveTurns: runtime.repositories.liveTurns,
+      coordination: runtime.repositories.workerCoordination,
+      workerInstanceId,
+    };
+    const authority = new LiveTurnAuthority({
+      leaseDeps,
+      slotCapacity: () => 1,
+      ownerPollMs: 25,
+    });
+    queue.setLiveTurnRunnerRegistrar((queueJid, hooks, routing) =>
+      authority.registerLocalRunner(queueJid, hooks, routing),
+    );
+    const processor = buildLiveAdmissionProcessor({
+      getTriggerPattern,
+      inputRepository: runtime.repositories.liveTurns,
+      liveTurnAuthority: authority,
+      app,
+      opsRepository: runtime.ops,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: (queueJid) => {
+        queue.enqueueMessageCheck(queueJid);
+      },
+      warn: () => undefined,
+    });
+    queue.setProcessMessagesFn((queueJid, context) =>
+      processor(queueJid, context),
+    );
+    const wakeups = new PostgresLiveAdmissionWakeupSource(runtime.service.pool);
+    const handle = startLiveExecutionServices({
+      appId,
+      app,
+      liveTurnAuthority: authority,
+      liveTurnLeaseDeps: leaseDeps,
+      liveAdmissionWakeupSource: wakeups,
+      messageLoopDeps: {
+        appId,
+        inputRepository: runtime.repositories.liveTurns,
+        getConversationRoutes: app.getConversationRoutes,
+        hasChannel: channel.runtime.hasChannel,
+        setTyping: channel.runtime.setTyping,
+        sendProgressUpdate: channel.runtime.sendProgressUpdate,
+        queue,
+        opsRepository: runtime.ops,
+      },
+      recoveryCoordinator: undefined,
+      isEligibleToRecoverLiveTurn: () => true,
+      alertNoEligibleLiveTurnRecoverer: undefined,
+      registerActiveAdmissionLoop: () => undefined,
+      registerActiveRecoveryLoop: () => undefined,
+      onPollingCrash: (error) => {
+        throw error;
+      },
+      info: () => undefined,
+      warn: () => undefined,
+    });
+    // The real inbound handler decides session commands from the route, and
+    // saving wakes the admission worker as in production.
+    const inboundOps = new PostgresRuntimeRepositoryBundle(
+      runtime.service.pool,
+      runtime.service.db,
+      {
+        runtimeEvents: runtime.storageRuntime.runtimeEvents,
+        liveAdmissionNotifier: new PostgresLiveAdmissionNotifier(
+          runtime.service.pool,
+        ),
+      },
+    );
+    const inbound = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        appId,
+        logger: { info: () => undefined, warn: () => undefined },
+        getTriggerPattern,
+      } as unknown as ChannelWiringDeps,
+      ops: () => inboundOps,
+      persistenceQueue: new AsyncTaskQueue(1, 4),
+      runtimeSettings: () => ({}) as never,
+    });
+    let sent = 0;
+    const send = async (content: string): Promise<number> => {
+      sent += 1;
+      await inbound.onMessage(jid, {
+        id: `quiet-e2e-${sent}`,
+        chat_jid: jid,
+        provider: 'app',
+        providerAccountId,
+        sender: 'quiet-admin',
+        sender_name: 'Admin',
+        content,
+        timestamp: nowIso(),
+        is_from_me: false,
+        is_bot_message: false,
+      });
+      return Date.now();
+    };
+    try {
+      await app.registerGroup(jid, route);
+
+      await send('book the room');
+      await send('for Tuesday');
+      const lastQuickMessageAt = await send('at 3pm');
+      await waitForLiveE2e(
+        () => replies.some(({ text }) => text === 'Answered turn 1.'),
+        'one reply to the quick messages',
+      );
+      expect(turns).toHaveLength(1);
+      for (const part of ['book the room', 'for Tuesday', 'at 3pm']) {
+        expect(turns[0]!.prompt).toContain(part);
+      }
+      // The turn waited out the quiet window after the newest message.
+      expect(turns[0]!.at - lastQuickMessageAt).toBeGreaterThanOrEqual(1_000);
+
+      await send('cancel my 4pm');
+      await send('and email Sam');
+      const stopAt = await send('/stop');
+      await send('what is on today?');
+      await waitForLiveE2e(
+        () => replies.some(({ text }) => text === 'No active run to stop.'),
+        '/stop reply',
+      );
+      const stopReply = replies.find(
+        ({ text }) => text === 'No active run to stop.',
+      )!;
+      // /stop skips the window that the messages around it wait out.
+      expect(stopReply.at - stopAt).toBeLessThan(1_000);
+      await waitForLiveE2e(() => turns.length === 2, 'turn after /stop');
+      // The cancelled batch is history: context, never the turn's input.
+      const current = turns[1]!.prompt.split('<current_message')[1];
+      expect(current).toContain('what is on today?');
+      expect(current).not.toContain('cancel my 4pm');
+      expect(current).not.toContain('and email Sam');
+      // The batch /stop cancelled never starts a turn of its own.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      expect(turns).toHaveLength(2);
+    } finally {
+      handle.stopAdmission();
+      handle.stopRecovery();
+      await handle.admissionLoop?.done;
+      await queue.shutdown(500);
+      await authority.shutdown();
+      await wakeups.close();
+    }
+  }, 60_000);
 });

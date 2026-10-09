@@ -34,6 +34,7 @@ import {
   getDeploymentMode,
   getRuntimeQueueConfig,
   getRuntimeSettingsForConfig,
+  getTriggerPattern,
   loadRuntimeSettings,
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
@@ -43,6 +44,7 @@ import {
   registerBrowserProfileLockLeasePort,
 } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
+import { startEventLoopDelayMonitor } from '../infrastructure/logging/event-loop-delay-monitor.js';
 import {
   createControlAgentSettingsPort,
   createControlSettingsImportPort,
@@ -100,6 +102,7 @@ export async function startGantryRuntime(
   // value already threw above.
   const roleCaps = roleCapabilities(processRole);
   logger.info({ processRole, capabilities: roleCaps }, 'Resolved process role');
+  startEventLoopDelayMonitor();
 
   const app = getDefaultRuntimeApp({
     processRole,
@@ -109,6 +112,7 @@ export async function startGantryRuntime(
     },
   });
   const channelWiring = createChannelWiring(app, {
+    getTriggerPattern: (trigger) => getTriggerPattern(trigger),
     brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
     groupJoinOnboarding: createGroupJoinOnboardingCoordinator({
       runtimeHome: GANTRY_HOME,

@@ -1051,6 +1051,27 @@
       "when": 1790662570803,
       "tag": "20260929061610_scope_live_admission_input",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1790669405005,
+      "tag": "20260929081005_backfill_live_admission_consumption",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1790844246970,
+      "tag": "20261001084406_delete_last_agent_timestamp",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1790878744548,
+      "tag": "20261001181904_shrink_job_permission_card_history",
+      "breakpoints": true
     }
   ]
 }

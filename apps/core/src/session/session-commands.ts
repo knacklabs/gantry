@@ -10,13 +10,15 @@ import {
   extractSessionCommand,
   isSessionCommandAllowed,
   type AgentResult,
-  type SessionCommand,
-} from './session-command-parse.js';
+} from '../application/sessions/session-command-parse.js';
 export {
   extractSessionCommand,
   isSessionCommandAllowed,
-} from './session-command-parse.js';
-export type { AgentResult, SessionCommand } from './session-command-parse.js';
+} from '../application/sessions/session-command-parse.js';
+export type {
+  AgentResult,
+  SessionCommand,
+} from '../application/sessions/session-command-parse.js';
 import {
   findModelByRunnerModel,
   type ModelDefaultAliases,
@@ -109,7 +111,6 @@ export interface SessionCommandDeps {
     'provider_compaction' | 'fresh_checkpoint'
   >;
   closeStdin: () => void;
-  advanceCursor: (message: Pick<NewMessage, 'timestamp' | 'id'>) => void;
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
   getDefaultModel: () => string | undefined;
   getJobModelDefaults?: () => ModelDefaultAliases;
@@ -175,6 +176,8 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   clearCurrentSession: () => Promise<void> | void;
   stopCurrentRun?: () => boolean;
+  /** Makes the batch waiting before /stop history, so it starts no turn. */
+  cancelWaitingInput?: () => Promise<void>;
   runMemoryDreaming?: () => Promise<unknown>;
   getMemoryStatus?: () => Promise<MemoryStatusSnapshot>;
   getSessionCompactionStatus?: () =>
@@ -244,7 +247,8 @@ function normalizeBodyForComparison(value: string): string {
  * Handle session command interception in processGroupMessages.
  * Scans messages for a session command, handles auth + execution.
  * Returns { handled: true, success } if a command was found; { handled: false } otherwise.
- * success=false means the caller should retry (cursor was not advanced).
+ * success=false means nothing was answered and the caller should retry the batch;
+ * a command that told the user its outcome, even a failure, returns success=true.
  */
 export async function handleSessionCommand(opts: {
   missedMessages: NewMessage[];
@@ -264,43 +268,33 @@ export async function handleSessionCommand(opts: {
 
   if (!command || !cmdMsg) return { handled: false };
 
-  if (
-    !isSessionCommandAllowed(
-      cmdMsg.is_from_me === true,
-      deps.isSenderControlAllowlisted(cmdMsg),
-    )
-  ) {
-    // DENIED: send denial if the sender would normally be allowed to interact,
-    // then silently consume the command by advancing the cursor past it.
-    // Trade-off: other messages in the same batch are also consumed (cursor is
-    // a high-water mark). Acceptable for this narrow edge case.
+  const allowed = isSessionCommandAllowed(
+    cmdMsg.is_from_me === true,
+    deps.isSenderControlAllowlisted(cmdMsg),
+  );
+
+  const cmdIndex = missedMessages.indexOf(cmdMsg);
+  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
+
+  if (!allowed) {
     if (deps.canSenderInteract(cmdMsg)) {
       await deps.sendMessage('Session commands require admin access.');
     }
-    deps.advanceCursor(cmdMsg);
+    // Earlier messages still get a normal, trigger-checked turn.
+    if (preCommandMsgs.length > 0) return { handled: false };
     return { handled: true, success: true };
   }
 
-  // AUTHORIZED: process pre-command messages first, then run the command
   logger.info({ group: groupName, command: command.raw }, 'Session command');
 
   if (command.kind === 'stop') {
+    await deps.cancelWaitingInput?.();
     const stopped = deps.stopCurrentRun ? deps.stopCurrentRun() : false;
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       stopped ? 'Stopping current run.' : 'No active run to stop.',
     );
     return { handled: true, success: true };
   }
-
-  if (command.kind === 'commands') {
-    deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(formatSessionCommandsHelp());
-    return { handled: true, success: true };
-  }
-
-  const cmdIndex = missedMessages.indexOf(cmdMsg);
-  const preCommandMsgs = missedMessages.slice(0, cmdIndex);
 
   // /new is the recovery path when the persisted provider session is bad.
   // Do not try to run older queued messages before clearing the session.
@@ -320,7 +314,7 @@ export async function handleSessionCommand(opts: {
         'Failed to reset session for /new',
       );
       await deps.sendMessage('/new failed. The session is unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
     runNewSessionArchiveFinalizer({
@@ -330,7 +324,6 @@ export async function handleSessionCommand(opts: {
       onSessionArchived: deps.onSessionArchived,
     });
 
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage('Started a fresh session.');
     return { handled: true, success: true };
   }
@@ -364,18 +357,21 @@ export async function handleSessionCommand(opts: {
         `Failed to process messages before ${command.raw}. Try again.`,
       );
       if (preOutputSent) {
-        // Output was already sent — don't retry or it will duplicate.
-        // Advance cursor past pre-command messages, leave command pending.
-        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
+        // Output was already sent, so a retry would duplicate it. The user was
+        // told to try again, so the command is consumed with its batch.
         return { handled: true, success: true };
       }
       return { handled: true, success: false };
     }
   }
 
+  if (command.kind === 'commands') {
+    await deps.sendMessage(formatSessionCommandsHelp());
+    return { handled: true, success: true };
+  }
+
   // Forward the literal slash command as the prompt (no XML formatting)
   if (command.kind === 'dream') {
-    deps.advanceCursor(cmdMsg);
     if (!deps.runMemoryDreaming) {
       await deps.sendMessage('/dream is unavailable in this runtime.');
       return { handled: true, success: true };
@@ -411,7 +407,6 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'compact') {
-    deps.advanceCursor(cmdMsg);
     const queueResult = await queueSessionCompaction(
       groupName,
       deps,
@@ -426,7 +421,6 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'memory_status') {
-    deps.advanceCursor(cmdMsg);
     if (!deps.getMemoryStatus) {
       await deps.sendMessage('/memory-status is unavailable in this runtime.');
       return { handled: true, success: true };
@@ -445,7 +439,6 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'save_procedure') {
-    deps.advanceCursor(cmdMsg);
     if (!deps.saveProcedure) {
       await deps.sendMessage('/save-procedure is unavailable in this runtime.');
       return { handled: true, success: true };
@@ -509,7 +502,6 @@ export async function handleSessionCommand(opts: {
   const groupPermissionModeOverride = deps.getGroupPermissionModeOverride();
 
   if (command.kind === 'model_show') {
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       formatCurrentModel(defaultModel, groupOverrideModel),
     );
@@ -517,7 +509,6 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'models_list') {
-    deps.advanceCursor(cmdMsg);
     const configuredProviders = await readConfiguredProviders(deps);
     await deps.sendMessage(
       formatModelsList({
@@ -533,7 +524,6 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'model_why') {
-    deps.advanceCursor(cmdMsg);
     const configuredProviders = await readConfiguredProviders(deps);
     await deps.sendMessage(
       formatModelWhy({
@@ -545,7 +535,6 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
   if (command.kind === 'status') {
-    deps.advanceCursor(cmdMsg);
     const modelStatusText = formatModelStatus(deps.getModelStatus?.(), {
       currentModel: groupOverrideModel,
       defaultModel,
@@ -574,7 +563,6 @@ export async function handleSessionCommand(opts: {
     const message = groupThinkingOverride
       ? `Current thinking: ${describeThinking(groupThinkingOverride)} (group override).`
       : 'Current thinking: adaptive (effort medium) (default).';
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
@@ -583,7 +571,6 @@ export async function handleSessionCommand(opts: {
     command.kind === 'permissions_all' ||
     command.kind === 'permissions_forget'
   ) {
-    deps.advanceCursor(cmdMsg);
     const response = deps.remembered
       ? await permissionMemoryCommandResponse({
           command,
@@ -609,7 +596,6 @@ export async function handleSessionCommand(opts: {
       deps.getModelFamilyOrder?.(),
     );
     if (!resolved.ok) {
-      deps.advanceCursor(cmdMsg);
       await deps.sendMessage(resolved.message);
       return { handled: true, success: true };
     }
@@ -628,9 +614,8 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         `Failed to set model to ${resolved.alias}. Override unchanged.`,
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
-    deps.advanceCursor(cmdMsg);
     const family = getModelFamily(resolved.alias);
     const selectionLabel = family
       ? `${family.displayName} (provider auto-selected by configured key)`
@@ -653,9 +638,8 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear model override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
-    deps.advanceCursor(cmdMsg);
     if (defaultModel) {
       const defaultEntry = findModelByRunnerModel(defaultModel);
       await deps.sendMessage(
@@ -677,10 +661,9 @@ export async function handleSessionCommand(opts: {
         'Failed to persist /thinking override',
       );
       await deps.sendMessage('Failed to set thinking. Override unchanged.');
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       `Thinking set to ${describeThinking(command.value)} for this group.`,
     );
@@ -697,10 +680,9 @@ export async function handleSessionCommand(opts: {
       await deps.sendMessage(
         'Failed to clear thinking override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
 
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       'Thinking override cleared. Using default thinking: adaptive (effort medium).',
     );
@@ -725,9 +707,8 @@ export async function handleSessionCommand(opts: {
           ? 'Failed to set permission mode. Override unchanged.'
           : 'Failed to clear permission mode override. Override unchanged.',
       );
-      return { handled: true, success: false };
+      return { handled: true, success: true };
     }
-    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       value
         ? `Permission mode set to ${value} for this conversation.`

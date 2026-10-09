@@ -3,13 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleActiveNewSessionCommand } from '@core/app/bootstrap/runtime-services-active-new.js';
 
 describe('handleActiveNewSessionCommand', () => {
-  it('preserves the agent-qualified queue key when advancing the cursor', async () => {
+  it('clears the agent-qualified session and confirms the fresh session', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const app = {
       queue: { stopGroup: vi.fn(() => true) },
       clearSessionForChatJid: vi.fn(async () => undefined),
-      setAgentCursor: vi.fn(),
-      saveState: vi.fn(async () => undefined),
     };
     const message = {
       id: 'msg-1',
@@ -46,10 +44,6 @@ describe('handleActiveNewSessionCommand', () => {
       'T1',
       { memoryUserId: undefined, providerAccountId: 'slack_alpha' },
     );
-    expect(app.setAgentCursor).toHaveBeenCalledWith(
-      'sl:C123::thread:T1::agent:agent%3Aalpha',
-      expect.any(String),
-    );
     expect(sendMessage).toHaveBeenCalledWith(
       'sl:C123',
       'Started a fresh session.',
@@ -64,8 +58,6 @@ describe('handleActiveNewSessionCommand', () => {
     const app = {
       queue: { stopGroup: vi.fn(() => true) },
       clearSessionForChatJid: vi.fn(async () => undefined),
-      setAgentCursor: vi.fn(),
-      saveState: vi.fn(async () => undefined),
     };
     const getAgentTurnContext = vi.fn(async () => ({
       agentSessionId: 'session-1',

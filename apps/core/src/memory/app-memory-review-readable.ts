@@ -189,9 +189,6 @@ export function withProposedChanges(
   reviews: MemoryReviewRecord[],
 ): MemoryReviewRecord[] {
   return reviews.map((review) => {
-    if (!review.reviewSnapshot) {
-      throw new Error('memory review snapshot is missing or malformed');
-    }
     return {
       ...review,
       proposedChange: buildMemoryReviewProposedChange(
@@ -217,9 +214,6 @@ export function toMemoryReviewDisplayPage(input: {
       const change =
         review.proposedChange ||
         buildMemoryReviewProposedChange(review.proposal, new Map());
-      if (!review.reviewSnapshot) {
-        throw new Error('memory review snapshot is missing or malformed');
-      }
       const evidenceById = evidenceSnippetsFromSnapshot(review.reviewSnapshot);
       return {
         number: index + 1,

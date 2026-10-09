@@ -53,6 +53,7 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import { getTriggerPattern } from '@core/config/index.js';
 import { createChannelAttachmentDeletionHandler } from '@core/app/bootstrap/channel-wiring-attachment-deletion.js';
 import {
   createAgentTodoRenderer,
@@ -76,11 +77,6 @@ function makeRuntimeSettings(enabled: {
   telegram: boolean;
   slack: boolean;
 }): RuntimeSettings {
-  const allowlist = {
-    default: { allow: '*', mode: 'trigger' as const },
-    agents: {},
-    logDenied: true,
-  };
   return {
     providers: {
       telegram: { enabled: enabled.telegram },
@@ -164,8 +160,6 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
   return {
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(),
-    saveState: vi.fn(),
-    getOrRecoverCursor: vi.fn(),
     registerGroup: vi.fn(async (jid: string, group: any) => {
       conversationRoutes[jid] = group;
     }),
@@ -182,7 +176,6 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     ensureCredentialBindingsForConversationRoutes: vi.fn(),
     processGroupMessages: vi.fn(),
     getConversationRoutes: vi.fn(() => conversationRoutes),
-    setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
     setHistoryCoverageDistrustEpochReader: vi.fn(),
     setConversationHistoryCoverageRepository: vi.fn(),
@@ -341,7 +334,7 @@ describe('createChannelWiring', () => {
       const requestPermissionApproval = vi.fn(
         async (
           _jid: string,
-          request: PermissionApprovalRequest,
+          _request: PermissionApprovalRequest,
           onPromptDelivered?: (messageId: string) => void,
         ) => {
           onPromptDelivered?.('batch-prompt-1');
@@ -543,7 +536,7 @@ describe('createChannelWiring', () => {
     const requestUserAnswer = vi.fn(
       async (
         _jid: string,
-        request: UserQuestionRequest,
+        _request: UserQuestionRequest,
         onPromptDelivered?: (messageId: string, questionIndex?: number) => void,
       ) => {
         onPromptDelivered?.('question-prompt-1');
@@ -725,7 +718,7 @@ describe('createChannelWiring', () => {
     const responder = createUserQuestionResponder({
       findBoundChannel: () => ({}),
       asUserQuestionSurface: () => ({
-        requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
+        requestUserAnswer: vi.fn(async (_jid, _request, onPromptDelivered) => {
           onPromptDelivered?.('question-prompt-retry');
           return new Promise<{
             requestId: string;
@@ -798,15 +791,17 @@ describe('createChannelWiring', () => {
       const responder = createUserQuestionResponder({
         findBoundChannel: () => ({}),
         asUserQuestionSurface: () => ({
-          requestUserAnswer: vi.fn(async (_jid, request, onPromptDelivered) => {
-            onPromptDelivered?.('question-prompt');
-            return new Promise<{
-              requestId: string;
-              answers: Record<string, string | string[]>;
-            }>((resolve) => {
-              resolveAnswer = resolve;
-            });
-          }),
+          requestUserAnswer: vi.fn(
+            async (_jid, _request, onPromptDelivered) => {
+              onPromptDelivered?.('question-prompt');
+              return new Promise<{
+                requestId: string;
+                answers: Record<string, string | string[]>;
+              }>((resolve) => {
+                resolveAnswer = resolve;
+              });
+            },
+          ),
           cancelPendingQuestion,
         }),
         interactionLifecycle: {
@@ -1585,6 +1580,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -1629,6 +1625,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     );
   });
@@ -1728,6 +1725,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -1769,6 +1767,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: false,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
       {
         appId: 'app-one',
@@ -1779,6 +1778,7 @@ describe('createChannelWiring', () => {
           requiresTrigger: true,
           conversationKind: 'channel',
         },
+        sessionCommand: false,
       },
     ]);
   });
@@ -1824,6 +1824,7 @@ describe('createChannelWiring', () => {
       },
     };
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('slack', (opts: any) => {
@@ -2009,6 +2010,7 @@ describe('createChannelWiring', () => {
     const handlers = createChannelPersistenceHandlers({
       app,
       resolved: {
+        getTriggerPattern,
         providerIds: [],
         loadSenderAllowlist: vi.fn(() => ({}) as any),
         loadSenderControlAllowlist: vi.fn(() => ({}) as any),
@@ -2623,6 +2625,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -2685,6 +2688,7 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
 
     const wiring = createChannelWiring(app, {
+      getTriggerPattern,
       appId: 'app-one' as never,
       providerIds: [
         makeProvider('telegram', (opts: any) => {
@@ -3103,7 +3107,16 @@ describe('createChannelWiring', () => {
       'Recovered outbound',
       { threadId: '171.000' },
     );
-    expect(storeMessage).not.toHaveBeenCalled();
+    // Recovery skips the pending projection, but its visible replies still
+    // have to be recognizable as bot messages.
+    expect(storeMessage).toHaveBeenCalledOnce();
+    expect(storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delivery_status: 'sent',
+        external_message_ids: ['171.123'],
+        thread_id: '171.000',
+      }),
+    );
   });
 
   it('fails closed before provider send when durable outbound delivery storage is unavailable', async () => {
@@ -3438,7 +3451,14 @@ describe('createChannelWiring', () => {
         error: expect.stringContaining('cannot be blindly retried'),
       }),
     );
-    expect(storeMessage).toHaveBeenCalledTimes(1);
+    // The acknowledged provider receipt is saved before durable settlement.
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+    expect(storeMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        delivery_status: 'sent',
+        external_message_ids: ['171.123'],
+      }),
+    );
   });
 
   it('raises ambiguous outcome when partial retry-tail durable settlement cannot be persisted', async () => {
@@ -3582,7 +3602,7 @@ describe('createChannelWiring', () => {
     expect(wiring.supportsStreaming('tg:-123')).toBe(true);
   });
 
-  it('does not advertise Telegram private draft streaming', async () => {
+  it('limits Telegram streaming to group chats', async () => {
     const app = makeApp();
     const outbound = makeChannel({
       ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
@@ -4194,7 +4214,6 @@ describe('createChannelWiring', () => {
       summary: 'Plan done',
       status: 'done',
       threadId: 'thread-1',
-      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'Work', status: 'completed' }],
     });
 
@@ -4210,7 +4229,6 @@ describe('createChannelWiring', () => {
       expect.objectContaining({
         summary: 'Plan done',
         status: 'failed',
-        stop: undefined,
         flush: true,
         items: [{ id: '1', title: 'Work', status: 'completed' }],
       }),

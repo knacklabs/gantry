@@ -95,18 +95,6 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
 
 function formatJobRequestIssue(issue: ZodIssue): string {
   if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
-    if (issue.keys.includes('groupScope')) {
-      return 'groupScope is no longer accepted. Use workspaceKey.';
-    }
-    if (issue.keys.includes('group_scope')) {
-      return 'group_scope is no longer accepted. Use workspace_key.';
-    }
-    const oldToolField = issue.keys.find(
-      (key) => key === 'requiredTools' || key === 'required_tools',
-    );
-    if (oldToolField) {
-      return `${oldToolField} is no longer accepted. Use accessRequirements for access preflight checks.`;
-    }
     return `Unsupported job request field "${issue.keys[0]}".`;
   }
   const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
@@ -444,10 +432,7 @@ export async function handleJobRoutes(
       const result = await ctx.jobManagement.listJobEvents({
         appId: auth.appId,
         jobId: jobRoute.jobId,
-        runId:
-          url.searchParams.get('run') ||
-          url.searchParams.get('runId') ||
-          undefined,
+        runId: url.searchParams.get('run') || undefined,
         eventType: url.searchParams.get('eventType') || undefined,
         sinceId: parsePositiveInt(url.searchParams.get('sinceId')),
         since: url.searchParams.get('since') || undefined,

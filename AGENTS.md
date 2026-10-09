@@ -15,19 +15,30 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 ### The flow
 
 1. A story starts as one short doc: `forge story new <KEY> "<title>"`.
-2. It gets one cold read (`forge read <KEY>`) and one approval from the human.
+2. It gets rounds of cold read (`forge read <KEY>`) until one finds nothing, then one approval
+   from the human.
 3. Each task runs in its own branch and worktree: `forge task start <KEY>/<TASK>`, then
    `forge work <KEY>/<TASK>`.
 4. `forge close <item>` closes it when the tests pass and the review finds no serious problem.
 5. The human merges unless the default branch's `forge.toml` has `merge = "agent"`.
-   Then, once close says Ready, the agent runs `forge merge <item>`. After the story's last merge,
-   `forge story done <KEY> "<outcome>"`.
+   Then, once close says Ready, the agent runs `forge merge <item>`. The story's last task merge
+   records it done, using `--outcome "<outcome>"` or its title. Use `forge story done` on an
+   existing work branch only to change that outcome later; it opens no separate pull request.
 
 ### The lanes
 
 - **Story:** anything that changes an interface or needs more than five code files.
 - **Fix:** a small change, started with `forge fix start "<why>" --done "<done when>"`.
   Specs, decisions, the roadmap and discovery notes ship as fixes.
+
+### Who builds
+
+`forge.toml`'s `workers` picks who builds; `forge work` and `forge next` name the worker for
+each item:
+
+- `codex`: every task and fix on Codex, user-facing ones with the design model's codex entry.
+- `claude`: every task and fix on Claude.
+- `split`: user-facing story tasks on Claude, everything else on Codex.
 
 ### Rules
 
@@ -42,8 +53,26 @@ and the Rules below, and leave the flow and the approval steps to the agent coor
 - Write for humans in plain English: no IDs, hashes or jargon in questions, pull request
   summaries or the board.
 - A story is approved through Plan Mode: exit Plan Mode with the text of the story doc that
-  `forge next` names, unchanged, as the plan. The approval matches its "What changes for you" and
-  "Done when" sections exactly, so a summary or a rewrite records nothing. There is no other
-  approval step.
+  `forge next` names, unchanged, as the plan: from its title down to `## For the builders`, or the
+  whole doc when it has no such heading. The approval matches its "What changes for you" and
+  "Done when" sections exactly, so a summary or a rewrite records nothing, and an edit below
+  `## For the builders` needs no new approval. There is no other approval step.
 - Run long `forge work` runs in the background and keep watching them.
+- Put the rules every review of this repo must follow under `## Review rules`, outside the
+  forge:begin and forge:end lines. Forge's review reads them from the default branch.
 <!-- forge:end -->
+
+## Review rules
+
+The owner's rules for reviewing changes in this repo (details: `apps/core/AGENTS.md` testing section, `docs/review-instructions.md`).
+
+- **Test levels.** Unit tests for pure rules; Postgres integration tests as the main proof for storage, consumption, migration and recovery contracts. A story proves each user-visible Done-when item with one automated end-to-end test, not one per function.
+- **Small fixes don't need end-to-end tests.** A fix is proven by a test at its real boundary: a Postgres integration test, or a channel or runner test with only the external platform or model faked. Don't ask a fix for an end-to-end test.
+- **No end-to-end tests for deletions, config or docs.** A pure removal of legacy or dead code, a settings change, or a docs change is proven by the check the item names. Don't report missing end-to-end tests for them.
+- **No legacy in tests.** Tests must not name removed fields, flags, spellings or shapes, even to prove they stay gone. Current-behaviour tests use neutral, behaviour-based names.
+- **No legacy support.** The product is early stage; don't ask for back-compat, fallbacks or dual reads.
+- **One owner test per behaviour,** at the strongest level that can observe it; don't ask to replay the same scenario at every layer.
+- **Forge records are never findings.** Files under `.factory/` are Forge's own records, committed by Forge with every item. Never report them as out of scope, unrelated or as evidence gaps; agents never edit them.
+- **Live Slack or Telegram checks** are only run when the owner asks; don't require them.
+- **End-to-end tests run nightly, not at close or in PR CI.** A named end-to-end test that exists in `apps/core/test/e2e/` counts as the proof for review; don't report it as unproven because close didn't run it. Postgres integration tests run in PR CI.
+- **Minor advice isn't a blocker.** Report only what would make the change wrong or risky; skip style and nice-to-have suggestions.

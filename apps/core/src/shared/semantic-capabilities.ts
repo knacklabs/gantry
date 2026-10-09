@@ -24,9 +24,6 @@ export type SemanticCapabilityCredentialSource =
   | 'none';
 export type SemanticCapabilityImplementationKind =
   | 'tool_rule'
-  // Retained only so stored legacy definitions fail validation with a clear
-  // cutover error instead of becoming untyped input.
-  | 'mcp_tool'
   | 'mcp_pattern'
   | 'adapter'
   | 'local_cli';
@@ -34,7 +31,6 @@ export type SemanticCapabilityImplementationKind =
 export interface SemanticCapabilityImplementationBinding {
   kind: SemanticCapabilityImplementationKind;
   rule?: string;
-  mcpTool?: string;
   // Reviewed MCP pattern binding: the third-party server name plus the
   // reviewed tool-name patterns (exact names or trailing-star globs such as
   // "list_*"). The pattern is the single action authority; source inventory
@@ -461,15 +457,13 @@ function validateMcpPatternBinding(
 function validateSemanticCapabilityBinding(
   binding: SemanticCapabilityImplementationBinding,
 ): { ok: true } | { ok: false; reason: string } {
+  if (
+    !['tool_rule', 'mcp_pattern', 'adapter', 'local_cli'].includes(binding.kind)
+  ) {
+    return { ok: false, reason: 'Unsupported implementation binding kind.' };
+  }
   if (binding.kind === 'tool_rule' && !binding.rule?.trim()) {
     return { ok: false, reason: 'tool_rule bindings require a rule.' };
-  }
-  if (binding.kind === 'mcp_tool') {
-    return {
-      ok: false,
-      reason:
-        'mcp_tool bindings are no longer supported; use an exact mcp_pattern binding.',
-    };
   }
   if (binding.kind === 'mcp_pattern') {
     const validation = validateMcpPatternBinding(binding);

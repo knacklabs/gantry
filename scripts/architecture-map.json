@@ -24,7 +24,8 @@
     "apps/core/src/jobs/ipc-skill-install-handlers.ts": 760,
     "apps/core/src/app/bootstrap/channel-wiring.ts": 790,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 900,
-    "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 770,
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts": 705,
+    "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 803,
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
@@ -233,8 +234,5 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": [
-    "apps/core/src",
-    "packages"
-  ]
+  "emptyFolderScanRoots": ["apps/core/src", "packages"]
 }

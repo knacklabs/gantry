@@ -129,3 +129,14 @@ Risk that this decision is wrong: if production later shows this query
 contended, or configuration changes so the replay pages more than once, the
 measured premise here expires. The regression test pins the operation count
 precisely so that change is loud rather than silent.
+
+## TURN-1 amendment (2026-09-29)
+
+The authoritative read at turn start now consumes the oldest unconsumed
+admission work items in receive order, then loads those message rows by ID.
+Admission only wakes the queue; it does not provide a reusable message batch.
+The old queue marker is still written during this switch for compatibility, but
+it no longer decides which messages enter a turn. The earlier description of a
+live turn carrying a replay cursor is superseded by the work item's consumption
+record. A message saved after the turn-start take remains waiting for a later
+take, so the original reason for an authoritative later read still holds.

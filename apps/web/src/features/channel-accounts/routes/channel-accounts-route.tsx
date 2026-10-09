@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Link2, RefreshCw } from 'lucide-react';
 
@@ -7,28 +7,30 @@ import { PageState } from '../../../ui/compositions/page-state';
 import { Panel } from '../../../ui/compositions/panel';
 import { StatusBadge } from '../../../ui/compositions/status-badge';
 import { Button } from '../../../ui/primitives/button';
-import { agentDirectoryQuery } from '../../agents/agents-queries';
+import { agentDetailQuery } from '../../agents/agents-queries';
 import {
   channelAccountsQuery,
   channelProvidersQuery,
 } from '../channel-account-queries';
 
-const agentSearch = {
-  page: 1,
-  pageSize: 100,
-  search: '',
-  status: 'all',
-  role: 'all',
-  sort: 'name',
-  direction: 'asc' as const,
-};
-
 export function ChannelAccountsRoute() {
   const accounts = useQuery(channelAccountsQuery());
   const providers = useQuery(channelProvidersQuery());
-  const agents = useQuery(agentDirectoryQuery(agentSearch));
-  const failed = accounts.isError || providers.isError || agents.isError;
-  const loading = !accounts.data || !providers.data || !agents.data;
+  const agents = useQueries({
+    queries: [
+      ...new Set(
+        (accounts.data?.accounts ?? []).map((account) => account.agentId),
+      ),
+    ].map(agentDetailQuery),
+  });
+  const failed =
+    accounts.isError ||
+    providers.isError ||
+    agents.some((agent) => agent.isError);
+  const loading =
+    !accounts.data ||
+    !providers.data ||
+    agents.some((agent) => agent.isPending);
   const providerById = new Map(
     (providers.data?.providers ?? []).map((provider) => [
       provider.id,
@@ -36,7 +38,9 @@ export function ChannelAccountsRoute() {
     ]),
   );
   const agentById = new Map(
-    (agents.data?.data ?? []).map((agent) => [agent.id, agent]),
+    agents.flatMap((query) =>
+      query.data ? [[query.data.agent.id, query.data.agent] as const] : [],
+    ),
   );
 
   return (
@@ -46,21 +50,14 @@ export function ChannelAccountsRoute() {
         title="Channel accounts"
         description="Bot identities owned by AI employees. An account can connect its owner to several conversations."
       />
-      {loading ? (
-        <PageState
-          description="Loading configured channel accounts."
-          icon={<Link2 size={18} aria-hidden="true" />}
-          kind="loading"
-          title="Loading channel accounts"
-        />
-      ) : failed ? (
+      {failed ? (
         <PageState
           action={
             <Button
               onClick={() => {
                 void accounts.refetch();
                 void providers.refetch();
-                void agents.refetch();
+                for (const agent of agents) void agent.refetch();
               }}
             >
               <RefreshCw size={15} aria-hidden="true" /> Retry
@@ -70,6 +67,13 @@ export function ChannelAccountsRoute() {
           icon={<Link2 size={18} aria-hidden="true" />}
           kind="error"
           title="Channel accounts could not be loaded"
+        />
+      ) : loading ? (
+        <PageState
+          description="Loading configured channel accounts."
+          icon={<Link2 size={18} aria-hidden="true" />}
+          kind="loading"
+          title="Loading channel accounts"
         />
       ) : (
         <>

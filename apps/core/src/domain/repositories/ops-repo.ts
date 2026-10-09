@@ -10,7 +10,10 @@ import type { RuntimeEventType } from '../events/runtime-event-types.js';
 import type { ExecutionProviderId } from '../sessions/sessions.js';
 import type { RetiredProviderSessionReference } from '../sessions/provider-session-measurement.js';
 import type { RunLease } from '../ports/worker-coordination.js';
-import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
+import type {
+  LiveAdmissionInputScope,
+  LiveAdmissionWorkItemEnqueueResult,
+} from '../ports/live-turns.js';
 
 export interface JobUpsertInput {
   id: string;
@@ -159,6 +162,10 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]>;
   storeMessage(msg: NewMessage): Promise<void>;
   storeMessageWithLiveAdmission?(
     msg: NewMessage,
@@ -168,6 +175,7 @@ export interface RuntimeMessageRepository {
       providerAccountId?: string | null;
       agentSessionId?: string | null;
       triggerDecision?: Record<string, unknown>;
+      sessionCommand?: boolean;
       now?: string;
     },
   ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined>;
@@ -186,6 +194,15 @@ export interface RuntimeMessageRepository {
     limit?: number,
     options?: { threadId?: string | null; providerAccountId?: string | null },
   ): Promise<NewMessage[]>;
+  /** One-row check that the bot sent a message in a thread, as its root, or with an id. */
+  hasSentBotMessage?(
+    conversationJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean>;
   getRecentTopLevelMessagesBefore(
     conversationJid: string,
     before: Pick<NewMessage, 'timestamp' | 'id'>,
@@ -209,10 +226,6 @@ export interface RuntimeMessageRepository {
     conversationJid: string,
     options?: { providerAccountId?: string | null },
   ): Promise<Array<string | null>>;
-  getLastBotMessageCursor(
-    conversationJid: string,
-    options?: { providerAccountId?: string | null },
-  ): Promise<{ timestamp: string; id: string } | undefined>;
   getLastBotMessageTimestamp(
     conversationJid: string,
     options?: { providerAccountId?: string | null },

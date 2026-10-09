@@ -1,6 +1,4 @@
 import type { Api, Context } from 'grammy';
-import type { StreamFlavor } from '@grammyjs/stream';
-import { streamApi } from '@grammyjs/stream';
 
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -95,17 +93,7 @@ export function sanitizeTelegramErrorMessage(
   return message.split(botToken).join('[REDACTED_BOT_TOKEN]');
 }
 
-export type TelegramContext = StreamFlavor<Context>;
-export type TelegramStreamApi = ReturnType<typeof streamApi>;
-export type ActiveDraftStreamState = {
-  chatId: number;
-  threadId?: number;
-  generation?: number;
-  rawBuffer: string;
-  pushChunk: (chunk: string) => void;
-  closeStream: () => void;
-  streamPromise: Promise<void>;
-};
+export type TelegramContext = Context;
 export type ActiveGroupStreamState = {
   chatId: string;
   threadId?: number;

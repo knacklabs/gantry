@@ -1,0 +1,68 @@
+{
+  "allow_large": "Owner-approved 2026-09-29 for legacy clean-ups: pure removal of legacy/compat code, may exceed the fix file limit or touch interface paths",
+  "base": "8ce1a4127af83eb9a4a82949ea8ce1b9663fcc8f",
+  "branch": "fix/small-api-aliases-keep-old-spellings-ali",
+  "done_when": "The three aliases are removed, the OpenAPI schema and generated SDK are regenerated, and no code or test mentions the old spellings",
+  "kind": "fix",
+  "review": {
+    "commit": "f1fc0f377ed564d967ca04592717b48a395d4c4c",
+    "dismissals": [
+      {
+        "because": "apps/core/src/channels/slack/channel-message-action-handler.ts:58 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/unit/control/memory-review-routes.test.ts:169 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 2,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/src/control/server/routes/jobs.ts:435 owner's standing rule (2026-09-29): no tests may name removed spellings, and end-to-end tests of a pure legacy deletion are dismissed",
+        "finding": 3,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "No test sends an indexed button action through the registered Slack receiver and verifies that the bare ID is no longer dispatched. The existing Postgres flow calls the captured handler directly at apps/core/test/integration/memory-review-card-decisions.postgres.integration.test.ts:203, bypassing the changed matcher. An end-to-end receiver test is needed to catch a restored optional suffix.",
+        "file": "apps/core/src/channels/slack/channel-message-action-handler.ts",
+        "line": 58,
+        "priority": "P1",
+        "title": "Not done: end-to-end test for the Slack button ID"
+      },
+      {
+        "body": "The new test submits `extra`, so it would pass if approve or reject again accepted and ignored `editedValue`. It also mocks the memory service and decision IPC at apps/core/test/unit/control/memory-review-routes.test.ts:27. A running-API test with a real pending review should submit `editedValue` with each decision and verify rejection.",
+        "file": "apps/core/test/unit/control/memory-review-routes.test.ts",
+        "line": 169,
+        "priority": "P1",
+        "title": "Not done: end-to-end test for editedValue on approve and reject"
+      },
+      {
+        "body": "No test verifies that the former `runId` query parameter no longer filters job events. The existing HTTP test sends only `run` and uses mocked events at apps/core/test/unit/control/job-trigger.test.ts:1227; the job lifecycle test reads events without a filter at apps/core/test/agent-e2e/scenarios/job-lifecycle.agent-e2e.test.ts:462. A running-API test against persisted events should distinguish `runId` from the supported `run` parameter.",
+        "file": "apps/core/src/control/server/routes/jobs.ts",
+        "line": 435,
+        "priority": "P1",
+        "title": "Not done: end-to-end test for the runId query alias"
+      }
+    ],
+    "status": "clean",
+    "tree": "4abefe97ea94e3ce5d22446f0e89061d779761564b7c0dfafbe6d13780cf77ee"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T16:36:56+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T17:08:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T17:30:13+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Small API aliases keep old spellings alive: a Slack button id without its numeric suffix, an ignored editedValue on memory approve/reject, and a runId query alias for run"
+}

@@ -1,8 +1,8 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalCancellation,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
   ProgressUpdateOptions,
@@ -12,7 +12,10 @@ import {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
-import { isPartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
+import {
+  isPartialMessageDeliveryError,
+  PartialMessageDeliveryError,
+} from '../../domain/messages/partial-delivery.js';
 import type { LiveUxOperationOptions } from '../../domain/channel-live-ux.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -40,16 +43,11 @@ import {
   DiscordGatewayConnection,
   websocketFactory,
 } from './gateway.js';
-import { agentTodoStopActions } from '../agent-todo-render.js';
 import { CHANNEL_STREAM_UPDATE_INTERVAL_MS } from '../channel-provider.js';
 import { getProviderRuntimeSecret } from '../provider-runtime-secrets.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
-import type {
-  DiscordMessageCreate,
-  WebSocketFactory,
-  WebSocketLike,
-} from './types.js';
+import type { DiscordMessageCreate, WebSocketFactory } from './types.js';
 import {
   discordMessageAttachments,
   discordMessageContent,
@@ -69,7 +67,10 @@ import {
 import { DiscordLiveUxOperations } from './live-ux.js';
 import { DiscordMessageChannelCache } from './message-channel-cache.js';
 import { createDiscordHistoricalAttachmentFetcher } from './historical-attachment-fetcher.js';
-import { StreamResetEpochs } from '../stream-reset-epochs.js';
+import {
+  StreamGenerationFence,
+  StreamResetEpochs,
+} from '../stream-reset-epochs.js';
 import { resolveInboundConversationIdentity } from '../inbound-conversation-identity.js';
 import { singleMessageDeliveryResult } from '../job-permission-card-settlement.js';
 import { routeDiscordGatewayDispatch } from './gateway-dispatch.js';
@@ -95,8 +96,7 @@ export class DiscordChannel implements ChannelAdapter {
       lastFlushAt: number;
     }
   >();
-  private readonly streamGenerationByJid = new Map<string, number>();
-  private readonly sealedStreamGenerationByJid = new Map<string, number>();
+  private readonly streamGenerations = new StreamGenerationFence();
   private readonly streamResetEpochs = new StreamResetEpochs();
   private pendingTodos = new Map<
     string,
@@ -299,37 +299,37 @@ export class DiscordChannel implements ChannelAdapter {
     jid: string,
     options: ProgressUpdateOptions = {},
   ): string {
-    const generationKey = `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
-    const controlKey = `${jid}\n${options.threadId ?? ''}\ncontrol`;
-    const hasStopAction = options.actionAffordances?.some(
-      (action) => action.kind === 'live_turn_stop',
-    );
-    return hasStopAction ||
-      (options.done && this.activeProgressMessages.has(controlKey))
-      ? controlKey
-      : generationKey;
+    return `${jid}\n${options.threadId ?? ''}\n${options.generation ?? ''}`;
   }
 
   async sendStreamingChunk(
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<boolean> {
+  ): Promise<StreamingChunkResult> {
     const channelId =
       options.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
     const key = `${jid}\n${options.threadId ?? ''}`;
+    const accepted = this.streamGenerations.accept(
+      key,
+      options.generation,
+      () => this.resetStreaming(jid, { threadId: options.threadId }),
+    );
+    if (!accepted) return false;
     const streamEpoch = this.streamResetEpochs.current(key);
     let state = this.activeStreams.get(key);
     if (!state) {
       state = { channelId, rawBuffer: '', lastFlushAt: 0 };
       this.activeStreams.set(key, state);
     }
+    const stream = state;
+    const receipt = (): StreamingChunkResult =>
+      stream.messageId ? { externalMessageIds: [stream.messageId] } : false;
     if (text) state.rawBuffer += text;
     if (!state.rawBuffer.trim() && options.done) {
       this.streamResetEpochs.deleteState(key, this.activeStreams);
-      this.markStreamingGenerationDone(jid, options.generation);
+      this.streamGenerations.markDone(key, options.generation);
       return false;
     }
     const now = currentTimeMs();
@@ -337,10 +337,11 @@ export class DiscordChannel implements ChannelAdapter {
       options.done ||
       !state.messageId ||
       now - state.lastFlushAt >= CHANNEL_STREAM_UPDATE_INTERVAL_MS.discord;
-    if (!shouldFlush) return Boolean(state.messageId);
+    if (!shouldFlush) return receipt();
 
     const parts = splitDiscordText(state.rawBuffer);
     const headText = parts[0] ?? ' ';
+    let sendingOverflow = false;
     try {
       const body = {
         content: headText,
@@ -357,90 +358,82 @@ export class DiscordChannel implements ChannelAdapter {
         const posted = await this.postMessage(state.channelId, body);
         state.messageId = posted.id;
       }
-      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+      if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return receipt();
       state.lastFlushAt = now;
       if (options.done) {
         const overflowParts = parts.slice(1).filter((part) => part.length > 0);
-        if (overflowParts.length > 0)
-          await postDiscordMessageParts({
-            channelId: state.channelId,
-            parts: overflowParts,
-            post: (target, body) => this.postMessage(target, body),
-            shouldContinue: () =>
-              this.streamResetEpochs.isCurrent(key, streamEpoch),
-          });
-        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
-        this.streamResetEpochs.deleteState(key, this.activeStreams);
-        this.markStreamingGenerationDone(jid, options.generation);
+        sendingOverflow = overflowParts.length > 0;
+        const overflow =
+          overflowParts.length > 0
+            ? await postDiscordMessageParts({
+                channelId: state.channelId,
+                parts: overflowParts,
+                post: (target, body) => this.postMessage(target, body),
+                shouldContinue: () =>
+                  this.streamResetEpochs.isCurrent(key, streamEpoch),
+              })
+            : {};
+        const externalMessageIds = [
+          ...(state.messageId ? [state.messageId] : []),
+          ...(overflow.externalMessageIds ?? []),
+        ];
+        if (this.streamResetEpochs.isCurrent(key, streamEpoch)) {
+          this.streamResetEpochs.deleteState(key, this.activeStreams);
+          this.streamGenerations.markDone(key, options.generation);
+        }
+        return externalMessageIds.length > 0 ? { externalMessageIds } : true;
       } else {
-        if (!this.streamResetEpochs.isCurrent(key, streamEpoch)) return true;
+        if (!this.streamResetEpochs.isCurrent(key, streamEpoch))
+          return receipt();
         this.activeStreams.set(key, state);
       }
-      return true;
+      return receipt();
     } catch (err) {
+      if (options.done && state.messageId) {
+        const tail = isPartialMessageDeliveryError(err) ? err : undefined;
+        const partial = new PartialMessageDeliveryError({
+          cause: err,
+          deliveredChunks: 1 + (tail?.deliveredChunks ?? 0),
+          name: 'PartialDiscordStreamDeliveryError',
+          message: 'Discord stream partially delivered',
+          totalChunks: tail ? 1 + tail.totalChunks : Math.max(2, parts.length),
+        });
+        Object.assign(partial, {
+          provider: 'discord',
+          externalMessageIds: [
+            state.messageId,
+            ...(tail?.externalMessageIds ?? []),
+          ],
+          ...(tail?.retryTail
+            ? { retryTail: tail.retryTail }
+            : sendingOverflow
+              ? {
+                  retryTail: {
+                    canonicalText: parts.slice(1).join(''),
+                    providerPayload: {
+                      provider: 'discord',
+                      channelId: state.channelId,
+                    },
+                  },
+                }
+              : {}),
+        });
+        throw partial;
+      }
       if (isPartialMessageDeliveryError(err)) throw err;
       logger.warn(
         { jid, err },
         'Discord streaming update failed; preserving current stream state',
       );
       if (options.done) return false;
-      return Boolean(state.messageId);
+      return receipt();
     }
   }
 
   resetStreaming(jid: string, options?: { threadId?: string }): void {
-    if (options) {
-      const key = `${jid}\n${options.threadId ?? ''}`;
-      this.streamResetEpochs.bump(key);
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-      return;
-    }
-    this.streamResetEpochs.bumpMatching(this.activeStreams.keys(), `${jid}\n`);
-    this.sealStreamingGenerationOnReset(jid);
-    this.clearStreamingStateForJid(jid);
-  }
-
-  private clearStreamingStateForJid(jid: string): void {
-    for (const key of this.activeStreams.keys()) {
-      if (!key.startsWith(`${jid}\n`)) continue;
-      this.streamResetEpochs.deleteState(key, this.activeStreams);
-    }
-  }
-  private shouldAcceptStreamingChunk(
-    jid: string,
-    generation?: number,
-  ): boolean {
-    if (generation === undefined) return true;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed !== undefined && generation <= sealed) return false;
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) {
-      this.streamGenerationByJid.set(jid, generation);
-      return true;
-    }
-    if (generation < latest) return false;
-    if (generation > latest) {
-      this.clearStreamingStateForJid(jid);
-      this.streamGenerationByJid.set(jid, generation);
-    }
-    return true;
-  }
-
-  private markStreamingGenerationDone(jid: string, generation?: number): void {
-    if (generation === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || generation > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, generation);
-    }
-  }
-
-  private sealStreamingGenerationOnReset(jid: string): void {
-    const latest = this.streamGenerationByJid.get(jid);
-    if (latest === undefined) return;
-    const sealed = this.sealedStreamGenerationByJid.get(jid);
-    if (sealed === undefined || latest > sealed) {
-      this.sealedStreamGenerationByJid.set(jid, latest);
-    }
+    const key = `${jid}\n${options?.threadId ?? ''}`;
+    this.streamResetEpochs.bump(key);
+    this.streamResetEpochs.deleteState(key, this.activeStreams);
   }
 
   async renderAgentTodo(
@@ -451,12 +444,7 @@ export class DiscordChannel implements ChannelAdapter {
       render.threadId || discordExtractedHelpers.discordChannelIdFromJid(jid);
     if (!channelId) return false;
     const todoKey = `${jid}:${render.cardKind ?? 'todo'}:${render.threadId || ''}`;
-    const components =
-      discordActionComponents({
-        actionAffordances: render.threadId
-          ? undefined
-          : agentTodoStopActions(render),
-      }) ?? [];
+    const components: unknown[] = [];
     const body = {
       content: formatDiscordAgentTodo(render),
       allowed_mentions: { parse: [] },

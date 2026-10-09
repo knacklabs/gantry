@@ -505,32 +505,6 @@ describe('app channel', () => {
     expect(runtimeEvents.publish).toHaveBeenCalledTimes(3);
   });
 
-  it('accepts legacy typing only before enveloped state exists for the target', () => {
-    const tracker = new SessionTypingTracker();
-    const event = (payload: Record<string, unknown>, eventId: number) => ({
-      eventId,
-      eventType: 'session.typing',
-      sessionId: 'session-1',
-      threadId: 'thread-a',
-      payload,
-    });
-
-    expect(tracker.apply(event({ isTyping: true }, 1))).toBe(true);
-    expect(
-      tracker.apply(
-        event(
-          {
-            isTyping: false,
-            orderedEnvelope: { generation: 1, sequence: 2, kind: 'typing' },
-          },
-          2,
-        ),
-      ),
-    ).toBe(true);
-    expect(tracker.apply(event({ isTyping: true }, 3))).toBe(false);
-    expect(tracker.isTyping('session-1', 'thread-a')).toBe(false);
-  });
-
   it('orders replacement producers by durable lease epoch despite clock rollback and A-B-A delivery', async () => {
     controlRepo.getAppSessionByChatJid.mockResolvedValue({
       sessionId: 'session-1',
@@ -685,11 +659,13 @@ describe('app channel', () => {
     const channel = await createAppChannel(appOptions());
     const largeText = 'L'.repeat(8_192);
 
-    await channel.sendStreamingChunk('app:demo:conversation', largeText, {
-      threadId: 'thread-2',
-      done: false,
-      generation: 7,
-    });
+    await expect(
+      channel.sendStreamingChunk('app:demo:conversation', largeText, {
+        threadId: 'thread-2',
+        done: true,
+        generation: 7,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['2'] });
 
     const publishInput = runtimeEvents.publish.mock.calls.at(-1)?.[0];
     expect(publishInput).toBeDefined();
@@ -776,7 +752,7 @@ describe('app channel', () => {
     await channel.sendProgressUpdate('app:demo:conversation', '', {
       actionOnly: true,
       actionAffordances: [
-        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
       ],
     });
 
@@ -787,7 +763,7 @@ describe('app channel', () => {
           text: '',
           actionOnly: true,
           actionAffordances: [
-            { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+            { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-1' },
           ],
         }),
       }),

@@ -7,7 +7,7 @@ Use these checks before approving large architecture or runtime changes:
 3. Review `scripts/architecture-map.json` when a change introduces a new owned layer, adapter family, provider boundary, or package surface.
 4. Keep `scripts/architecture-exceptions.json` empty unless a waiver is both deliberate and narrower than changing the map. File line-budget violations are never waived.
 5. Provider-specific SDKs, channel SDKs, browser automation, Docker, and direct process execution must stay in approved adapter paths. Core domain and application files should not gain exceptions for these.
-6. Legacy group/workspace-era identifiers (the workspace-rename token list pinned in `apps/core/test/unit/architecture/job-notification-cleanup.test.ts`) and Claude-only assumptions should trend down. New files should not introduce them.
+6. Legacy group/workspace-era identifiers and Claude-only assumptions should trend down. New files should not introduce them.
 
 When removing debt, delete the matching exception in the same change. If the checker reports that an exception is stale or over-capped, prefer fixing the exception rather than weakening the rule.
 
@@ -19,10 +19,22 @@ When removing debt, delete the matching exception in the same change. If the che
   checks, so `--auto` merges instantly); gate on literal green and an
   explicit human go.
 - No session links in PR bodies or commit trailers.
-- Every PR that changes runtime behavior adds or extends hermetic agent-e2e
-  coverage for it; matrix rows in `docs/architecture/agent-e2e-test-matrix.md`
+- Every PR that changes user-visible runtime behavior named in Done-when adds or
+  extends hermetic agent-e2e coverage for it; matrix rows in
+  `docs/architecture/agent-e2e-test-matrix.md`
   flip with test-file citations. A PR with no e2e delta states why in its
   body. The agent-e2e gate is the merge bar.
+
+## Test expectations (owner balance, adopted 2026-09-30)
+
+Judge pure rules and decisions by unit tests; storage, consumption, migration,
+and recovery by Postgres integration tests; and each user-visible runtime
+behavior named in Done-when by one automated end-to-end test through the real
+runtime and Postgres with a fake channel and runner. Ask for one owner test per
+behavior at the strongest observable level, not the same scenario at every
+layer or one end-to-end test per function. Pure deletions, config, and docs
+changes need no end-to-end test. Ask for live Slack or Telegram checks only
+when the owner requests them.
 
 ## PR description clarity (client directive 2026-07-23)
 

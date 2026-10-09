@@ -2,6 +2,7 @@ import type { NewMessage } from '../../../../domain/repositories/domain-types.js
 import type {
   LiveAdmissionWorkItemEnqueueResult,
   LiveAdmissionWorkItemNotifier,
+  LiveAdmissionInputScope,
 } from '../../../../domain/ports/live-turns.js';
 import { decodeGroupMessageCursor } from '../../../../shared/message-cursor.js';
 import type {
@@ -229,6 +230,14 @@ export class CanonicalMessageOpsService {
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
   }
 
+  async getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]> {
+    const rows = await this.repository.getMessagesByIds(scope, ids);
+    return rows.map((row) => this.mapMessage(row));
+  }
+
   async getContextMessagesSince(
     chatJid: string,
     sinceCursor: string,
@@ -254,6 +263,17 @@ export class CanonicalMessageOpsService {
       limit,
     });
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
+  }
+
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.repository.hasSentBotMessage(chatJid, input);
   }
 
   async getRecentTopLevelMessagesBefore(
@@ -327,20 +347,12 @@ export class CanonicalMessageOpsService {
     return this.repository.listThreadIds(chatJid, options);
   }
 
-  async getLastBotMessageCursor(
-    chatJid: string,
-    options: { providerAccountId?: string | null } = {},
-  ): Promise<{ timestamp: string; id: string } | undefined> {
-    const row = await this.repository.getLastBotMessageRow(chatJid, options);
-    const msg = row ? this.mapMessage(row) : undefined;
-    return msg ? { timestamp: msg.timestamp, id: msg.id } : undefined;
-  }
-
   async getLastBotMessageTimestamp(
     chatJid: string,
     options: { providerAccountId?: string | null } = {},
   ): Promise<string | undefined> {
-    return (await this.getLastBotMessageCursor(chatJid, options))?.timestamp;
+    const row = await this.repository.getLastBotMessageRow(chatJid, options);
+    return row ? this.mapMessage(row).timestamp : undefined;
   }
 
   private mapMessage(row: CanonicalOpsMessageRow): NewMessage {
@@ -371,6 +383,7 @@ export class CanonicalMessageOpsService {
       reply_to_message_content: ref.reply_to_message_content,
       reply_to_sender_name: ref.reply_to_sender_name,
       external_message_id: ref.external_message_id,
+      ...(externalRef.mentions_bot === true ? { mentionsBot: true } : {}),
       providerAccountId,
       ...(responseSchema &&
       typeof responseSchema === 'object' &&

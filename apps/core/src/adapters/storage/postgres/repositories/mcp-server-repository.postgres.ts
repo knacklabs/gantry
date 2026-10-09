@@ -314,37 +314,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
   }
 
   async saveAgentBinding(binding: AgentMcpServerBinding): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      await lockAgentMcpBindingSet(tx, binding);
-      await tx
-        .insert(pgSchema.agentMcpServerBindingsPostgres)
-        .values({
-          id: binding.id,
-          appId: binding.appId,
-          agentId: binding.agentId,
-          serverId: binding.serverId,
-          status: binding.status,
-          required: binding.required,
-          permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
-          allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
-          conversationId: binding.conversationId ?? null,
-          threadId: binding.threadId ?? null,
-          createdAt: binding.createdAt,
-          updatedAt: binding.updatedAt,
-        })
-        .onConflictDoUpdate({
-          target: pgSchema.agentMcpServerBindingsPostgres.id,
-          set: {
-            status: binding.status,
-            required: binding.required,
-            permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
-            allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
-            conversationId: binding.conversationId ?? null,
-            threadId: binding.threadId ?? null,
-            updatedAt: binding.updatedAt,
-          },
-        });
-    });
+    await saveMcpAgentBindingsBatch(this.db, [binding]);
   }
 
   async saveAgentBindingsBatch(

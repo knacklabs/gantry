@@ -172,6 +172,7 @@ export class PostgresRuntimeRepositoryBundle
       agentId?: string | null;
       agentSessionId?: string | null;
       triggerDecision?: Record<string, unknown>;
+      sessionCommand?: boolean;
       now?: string;
     },
   ) {
@@ -196,6 +197,13 @@ export class PostgresRuntimeRepositoryBundle
     return this.messages.getMessagesSince(chatJid, sinceCursor, limit, options);
   }
 
+  async getMessagesByIds(
+    scope: import('../../../../domain/ports/live-turns.js').LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<NewMessage[]> {
+    return this.messages.getMessagesByIds(scope, ids);
+  }
+
   async getContextMessagesSince(
     chatJid: string,
     sinceCursor: string,
@@ -211,6 +219,17 @@ export class PostgresRuntimeRepositoryBundle
       limit,
       options,
     );
+  }
+
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.messages.hasSentBotMessage(chatJid, input);
   }
 
   async getRecentTopLevelMessagesBefore(
@@ -262,13 +281,6 @@ export class PostgresRuntimeRepositoryBundle
     options: { providerAccountId?: string | null } = {},
   ): Promise<Array<string | null>> {
     return this.messages.getMessageThreadIds(chatJid, options);
-  }
-
-  async getLastBotMessageCursor(
-    chatJid: string,
-    options: { providerAccountId?: string | null } = {},
-  ): Promise<{ timestamp: string; id: string } | undefined> {
-    return this.messages.getLastBotMessageCursor(chatJid, options);
   }
 
   async getLastBotMessageTimestamp(

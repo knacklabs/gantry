@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   gt,
   inArray,
   isNull,
@@ -14,6 +15,7 @@ import {
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
+import type { LiveAdmissionInputScope } from '../../../../domain/ports/live-turns.js';
 import { agentIdForFolder as normalizeAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import {
   fallbackProviderAccountId,
@@ -25,7 +27,10 @@ import {
 } from '../../../../shared/message-cursor.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
-import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
+import {
+  enqueueLiveAdmissionWorkItemWithExecutor,
+  quietWindowMs,
+} from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -50,7 +55,9 @@ import {
   externalRefForMessage,
   liveAdmissionIdempotencyKey,
   liveAdmissionWorkItemId,
+  messageConversationFilter,
   messageIdFor,
+  messageThreadFilter,
   publicThreadIdForRow,
 } from './canonical-message-repository-identifiers.js';
 
@@ -83,6 +90,8 @@ export interface MessageLiveAdmissionInput {
   agentSessionId?: string | null;
   providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
+  /** Decided by the caller that knows the route trigger; it never waits. */
+  sessionCommand?: boolean;
   now?: string;
 }
 
@@ -93,6 +102,9 @@ export interface MessageSaveWithExecutorResult {
 
 interface MessageListInput {
   jids: string[];
+  ids?: readonly string[];
+  appId?: string;
+  exactProviderAccountId?: boolean;
   providerAccountId?: string | null;
   after?: { timestamp: string; chatJid: string; id: string };
   before?: { timestamp: string; chatJid: string; id: string };
@@ -102,51 +114,6 @@ interface MessageListInput {
   includeSelfThreadRoots?: boolean;
   limit?: number;
   order?: 'asc' | 'desc';
-}
-
-function messageConversationFilter(
-  m: typeof pgSchema.messagesPostgres,
-  jids: string[],
-  providerAccountId?: string | null,
-) {
-  if (providerAccountId) {
-    return and(
-      inArray(
-        m.conversationId,
-        jids.map((jid) => conversationIdForJid(jid, providerAccountId)),
-      ),
-      eq(m.providerAccountId, providerAccountId),
-    );
-  }
-  return or(
-    inArray(
-      m.conversationId,
-      jids.map((jid) => conversationIdForJid(jid)),
-    ),
-    inArray(sql<string>`${m.externalRefJson}::jsonb->>'chat_jid'`, jids),
-  );
-}
-
-function messageThreadFilter(
-  m: typeof pgSchema.messagesPostgres,
-  jids: string[],
-  threadId: string,
-  providerAccountId?: string | null,
-) {
-  return or(
-    eq(sql<string>`${m.externalRefJson}::jsonb->>'thread_id'`, threadId),
-    inArray(
-      m.threadId,
-      jids
-        .flatMap((jid) => [
-          ...(providerAccountId
-            ? [threadIdFor(jid, threadId, providerAccountId)]
-            : []),
-          threadIdFor(jid, threadId),
-        ])
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
 }
 
 export class PostgresCanonicalMessageRepository {
@@ -387,6 +354,12 @@ export class PostgresCanonicalMessageRepository {
           agentId,
         ),
         triggerDecision: admission.triggerDecision,
+        quietWindowMs:
+          admission.sessionCommand ||
+          (admission.triggerDecision?.source === 'callable_agent_follow_up' &&
+            admission.triggerDecision.requiresTrigger === false)
+            ? 0
+            : quietWindowMs(msg.content, providerId),
         now: admission.now ?? msg.timestamp,
       },
       this.maxLiveAdmissionBacklog,
@@ -400,6 +373,30 @@ export class PostgresCanonicalMessageRepository {
     return this.listMessages(input, 'inbound');
   }
 
+  async getMessagesByIds(
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
+  ): Promise<CanonicalOpsMessageRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.listMessages(
+      {
+        jids: [scope.conversationId],
+        ids,
+        appId: CANONICAL_APP_ID,
+        providerAccountId: scope.providerAccountId,
+        exactProviderAccountId: true,
+        limit: ids.length,
+      },
+      'inbound',
+      scope,
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.flatMap((id) => {
+      const row = byId.get(id);
+      return row ? [row] : [];
+    });
+  }
+
   async listContextMessages(
     input: MessageListInput,
   ): Promise<CanonicalOpsMessageRow[]> {
@@ -409,6 +406,7 @@ export class PostgresCanonicalMessageRepository {
   private async listMessages(
     input: MessageListInput,
     direction: 'inbound' | 'all',
+    admissionScope?: LiveAdmissionInputScope,
   ): Promise<CanonicalOpsMessageRow[]> {
     const jids = input.jids;
     if (jids.length === 0) return [];
@@ -437,6 +435,7 @@ export class PostgresCanonicalMessageRepository {
       : '';
     const threadId = input.threadId?.trim() || null;
     const m = pgSchema.messagesPostgres;
+    const items = pgSchema.liveAdmissionWorkItemsPostgres;
     const p = pgSchema.messagePartsPostgres;
     const firstPart = this.db
       .select({ payloadJson: p.payloadJson })
@@ -548,7 +547,39 @@ export class PostgresCanonicalMessageRepository {
       .leftJoinLateral(firstPart, sql`true`)
       .where(
         and(
-          messageConversationFilter(m, jids, input.providerAccountId),
+          admissionScope
+            ? and(
+                messageConversationFilter(
+                  m,
+                  jids,
+                  admissionScope.providerAccountId,
+                ),
+                exists(
+                  this.db
+                    .select({ id: items.id })
+                    .from(items)
+                    .where(
+                      and(
+                        eq(items.messageId, m.id),
+                        eq(items.appId, admissionScope.appId),
+                        eq(items.conversationId, admissionScope.conversationId),
+                        admissionScope.threadId === null
+                          ? isNull(items.threadId)
+                          : eq(items.threadId, admissionScope.threadId),
+                        admissionScope.agentId === null
+                          ? isNull(items.agentId)
+                          : eq(items.agentId, admissionScope.agentId),
+                        sql`${items.providerAccountId} IS NOT DISTINCT FROM ${admissionScope.providerAccountId}`,
+                      ),
+                    ),
+                ),
+              )
+            : messageConversationFilter(m, jids, input.providerAccountId),
+          input.appId ? eq(m.appId, input.appId) : undefined,
+          input.exactProviderAccountId
+            ? sql`${m.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId}`
+            : undefined,
+          input.ids ? inArray(m.id, [...input.ids]) : undefined,
           directionFilter,
           afterFilter,
           beforeFilter,
@@ -562,6 +593,48 @@ export class PostgresCanonicalMessageRepository {
         input.order === 'desc' ? desc(m.id) : asc(m.id),
       )
       .limit(input.limit ?? 200);
+  }
+
+  async hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    const m = pgSchema.messagesPostgres;
+    const isMessage = (id: string) =>
+      or(
+        eq(m.externalMessageId, id),
+        sql`${m.externalRefJson}::jsonb->'external_message_ids' @> ${JSON.stringify([id])}::jsonb`,
+      );
+    const [row] = await this.db
+      .select({ id: m.id })
+      .from(m)
+      .where(
+        and(
+          messageConversationFilter(m, [chatJid], input.providerAccountId),
+          eq(m.direction, 'outbound'),
+          inArray(m.deliveryStatus, ['sent', 'partially_sent']),
+          input.threadId
+            ? or(
+                messageThreadFilter(
+                  m,
+                  [chatJid],
+                  input.threadId,
+                  input.providerAccountId,
+                ),
+                isMessage(input.threadId),
+              )
+            : undefined,
+          input.externalMessageId
+            ? isMessage(input.externalMessageId)
+            : undefined,
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
   }
 
   async listThreadIds(

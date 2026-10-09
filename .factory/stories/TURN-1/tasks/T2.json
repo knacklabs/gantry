@@ -1,0 +1,126 @@
+{
+  "branch": "task/TURN-1-T2",
+  "review": {
+    "blocking_level": "P1",
+    "changed": "fb5d8737be3e9d32542ac4af212aca918b057bb8ac476ed2fafe4c580fe0047b",
+    "commit": "a0db57d6a29e2eb574941acb97c470b3ebd2cad7",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "When an active turn requires a particular sender, live-turn-routing.ts:49-56 rejects an item from someone else. This branch releases that oldest item, then takes only one item per wake. Each wake can take the same ineligible item again while a later message from the required sender waits, preventing it from reaching the running turn. Defer the ineligible item for that turn or continue to the next eligible item.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 487,
+        "priority": "P2",
+        "title": "Do not let an ineligible follow-up block the required sender"
+      },
+      {
+        "body": "With an ordinary message followed by an unauthorized /compact, this returns `handled: false` after sending the denial. The caller then passes the unchanged `missedMessages` array to the agent as `currentMessages` (group-processing.ts:285-296), including the denied command. The earlier message can receive a normal answer, but the rejected control message should be consumed as history rather than presented as part of the user's request.",
+        "file": "apps/core/src/session/session-commands.ts",
+        "line": 280,
+        "priority": "P2",
+        "title": "Exclude a denied session command from the agent prompt"
+      },
+      {
+        "body": "Ordinary turns pass `admissionAppId` to this runner, but group-session-command-runner.ts:39-53 builds pre-command and compaction options without it. For a normal channel JID owned by a non-default app, those runs fall back to `default` here and can select the wrong app's provider configuration or session. Pass the admission app ID through the command runner options.",
+        "file": "apps/core/src/runtime/group-agent-runner.ts",
+        "line": 121,
+        "priority": "P2",
+        "title": "Pass the admission app ID to session-command agent runs"
+      },
+      {
+        "body": "If the active /stop or /new handler stops the run or resets the session and then throws during a later marker write or receipt send (runtime-services.ts:720-731), this catch releases the taken item. A later wake can execute the command again. The Tasks table assigns the durable command-effect and release rule to T8; that rule needs to preserve input once the side effect has occurred.",
+        "file": "apps/core/src/app/bootstrap/live-recovery-coordinator.ts",
+        "line": 518,
+        "priority": "P2",
+        "title": "Later: T8 must keep control input after a partial command effect"
+      },
+      {
+        "body": "Returning true confirms a continuation file was written, not that the model read it: continuation-input.ts:65-84 only writes and renames that file. The command pump can mark the command applied if the runner closes before reading it, leaving the item consumed. T4 owns per-command runner confirmation and release of unread follow-ups.",
+        "file": "apps/core/src/runtime/group-queue-live-turn-hooks.ts",
+        "line": 38,
+        "priority": "P2",
+        "title": "Later: T4 must confirm that the runner read a follow-up"
+      },
+      {
+        "body": "This added task-status file records review findings and workflow state. It is outside the permitted paths, is unnecessary for the record switch or its tests, and the supplied handoff gives no reason to include it.",
+        "file": ".factory/stories/TURN-1/tasks/T2.json",
+        "line": 1,
+        "priority": "P2",
+        "title": "Remove the unrelated review-state file outside scope"
+      }
+    ],
+    "status": "clean",
+    "tree": "6c56f4f7cd7350b37edd9028abc81d8244c877e25bc0ae816fd2ab904ebcecb0"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-09-29T07:49:52+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-09-29T10:45:15+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-29T16:43:47+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T00:55:04+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T02:26:05+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T03:33:30+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T09:59:55+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T10:30:45+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T14:01:09+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T14:23:12+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T15:14:22+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T16:04:31+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T16:48:19+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T18:41:47+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-09-30T19:49:10+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T01:52:33+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-01T02:27:55+00:00",
+      "step": "review"
+    }
+  ]
+}

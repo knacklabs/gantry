@@ -1,4 +1,4 @@
-import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
+import { ASSISTANT_NAME } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
@@ -33,9 +33,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
     this.interactionCallbacksEnabled =
       options.interactionCallbacks ?? options.inbound !== false;
     this.clearPollingRetryTimer();
-    const runtime = createTelegramBotRuntime(this.botToken);
-    this.bot = runtime.bot;
-    this.draftStreamApi = runtime.draftStreamApi;
+    this.bot = createTelegramBotRuntime(this.botToken);
     registerTelegramBotCommands(this.bot, ASSISTANT_NAME);
 
     const callbackChannel: TelegramCallbackChannel = {
@@ -84,8 +82,6 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       handleTelegramTextMessage({
         ctx,
         opts: this.opts,
-        assistantName: ASSISTANT_NAME,
-        triggerPattern: TRIGGER_PATTERN,
         tryResolveOther: (input) =>
           this.tryResolveUserQuestionOtherReply(input),
       }),

@@ -23,10 +23,7 @@ vi.mock(
   () => ({ requestPermissionApproval }),
 );
 vi.mock('@core/channels/telegram/bot-setup.js', () => ({
-  createTelegramBotRuntime: () => ({
-    bot: telegramCardBot.bot,
-    draftStreamApi: undefined,
-  }),
+  createTelegramBotRuntime: () => telegramCardBot.bot,
   registerTelegramBotCommands: vi.fn(),
 }));
 
@@ -302,7 +299,7 @@ it('renders an expired once row without decision actions', async () => {
   ).toEqual([]);
 });
 
-it('bounds expired retire rows with an overflow receipt', () => {
+it('keeps the newest three expired requests as the retire receipt', () => {
   const now = '2026-08-24T00:00:00.000Z';
   const state = {
     card: initialCard({ appId: 'default', jobId: 'job-many-expired' }, now),
@@ -312,17 +309,22 @@ it('bounds expired retire rows with an overflow receipt', () => {
         ({
           id: `need-${index}`,
           state: 'cancelled',
-          expiredAt: now,
+          grant: 'once',
+          expiredAt: `2026-08-24T00:00:${String(index).padStart(2, '0')}.000Z`,
+          updatedAt: `2026-08-24T00:00:${String(index).padStart(2, '0')}.000Z`,
           displayLabel: `Command ${index}`,
           createdAt: now,
         }) as JobPermissionNeedRecord,
     ),
   };
   reviseLivingCard(state, { maxRows: 10, maxGrantAtomsPerRow: 20 }, now);
-  expect(state.card.revisions.at(-1)!.retiredRows).toHaveLength(20);
-  expect(state.card.revisions.at(-1)!.retiredRows!.at(-1)).toEqual({
-    label: 'and 6 more',
-  });
+  const latest = state.card.revisions.at(-1)!;
+  expect(latest.retiredRows).toEqual([
+    { label: 'Command 22' },
+    { label: 'Command 23' },
+    { label: 'Command 24' },
+  ]);
+  expect(latest.representedNeeds).toEqual([]);
 });
 
 function jobPermissionAffordances(

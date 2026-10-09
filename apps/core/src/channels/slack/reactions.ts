@@ -1,3 +1,4 @@
+import { updateReactionCache } from '../reaction-cache.js';
 import {
   requestSlackLiveUx,
   slackReactionName,
@@ -45,29 +46,23 @@ export async function addSlackReaction(input: {
   if (!input.messageRef.trim()) return;
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
-  if (!input.reconcile && input.reactionKeys.has(key)) return;
-  if (input.reconcile) input.reactionKeys.delete(key);
-  const invalidate = () => input.reactionKeys.delete(key);
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
-    await requestSlackLiveUx({
-      method: 'reactions.add',
-      botToken: input.botToken,
-      channelId: input.channelId,
-      messageRef: input.messageRef,
-      name,
-      signal: input.signal,
-    });
-    if (!input.signal?.aborted) input.reactionKeys.add(key);
-  } catch (err) {
-    if (isSlackAlreadyReactedError(err)) {
-      if (!input.signal?.aborted) input.reactionKeys.add(key);
-      return;
+  await updateReactionCache({ ...input, key, operation: 'add' }, async () => {
+    try {
+      await requestSlackLiveUx({
+        method: 'reactions.add',
+        botToken: input.botToken,
+        channelId: input.channelId,
+        messageRef: input.messageRef,
+        name,
+        signal: input.signal,
+      });
+    } catch (err) {
+      if (isSlackAlreadyReactedError(err)) {
+        return;
+      }
+      throw err;
     }
-    throw err;
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  });
 }
 
 export async function removeSlackReaction(input: {
@@ -83,26 +78,24 @@ export async function removeSlackReaction(input: {
   if (!input.messageRef.trim()) return;
   const name = slackReactionName(input.emoji);
   const key = `${input.jid}:${input.messageRef}:${name}`;
-  if (input.reconcile) input.reactionKeys.delete(key);
-  const invalidate = () => input.reactionKeys.delete(key);
-  input.signal?.addEventListener('abort', invalidate, { once: true });
-  try {
-    await requestSlackLiveUx({
-      method: 'reactions.remove',
-      botToken: input.botToken,
-      channelId: input.channelId,
-      messageRef: input.messageRef,
-      name,
-      signal: input.signal,
-    });
-    if (!input.signal?.aborted) input.reactionKeys.delete(key);
-  } catch (err) {
-    if (isSlackReactionAlreadyAbsentError(err)) {
-      if (!input.signal?.aborted) input.reactionKeys.delete(key);
-      return;
-    }
-    throw err;
-  } finally {
-    input.signal?.removeEventListener('abort', invalidate);
-  }
+  await updateReactionCache(
+    { ...input, key, operation: 'remove' },
+    async () => {
+      try {
+        await requestSlackLiveUx({
+          method: 'reactions.remove',
+          botToken: input.botToken,
+          channelId: input.channelId,
+          messageRef: input.messageRef,
+          name,
+          signal: input.signal,
+        });
+      } catch (err) {
+        if (isSlackReactionAlreadyAbsentError(err)) {
+          return;
+        }
+        throw err;
+      }
+    },
+  );
 }

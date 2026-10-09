@@ -207,15 +207,31 @@ export interface LiveAdmissionInputScope {
 }
 
 export interface LiveAdmissionWorkItemRepository {
+  listUnconsumedLiveAdmissionQueueJids(input: {
+    appId: string;
+  }): Promise<string[]>;
   takeInput(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
     limit: number;
+    /** Leave items still in their quiet window; turn start sets this. */
+    excludeWaiting?: boolean;
   }): Promise<LiveAdmissionWorkItem[]>;
-  releaseInput(input: { consumedBy: string }): Promise<number>;
+  consumeInputItem(input: {
+    id: string;
+    consumedBy: string;
+    expectedConsumedBy?: string;
+  }): Promise<boolean>;
+  releaseInput(input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
+  }): Promise<number>;
   consumeAll(input: {
     scope: LiveAdmissionInputScope;
     consumedBy: string;
+    /** Only unconsumed items received before this order. */
+    waitingBefore?: number;
   }): Promise<number>;
   /**
    * Durable message-backed admission. The idempotency key is provider delivery
@@ -237,6 +253,8 @@ export interface LiveAdmissionWorkItemRepository {
     senderDisplayName?: string | null;
     idempotencyKey: string;
     triggerDecision?: Record<string, unknown>;
+    /** Quiet window before the turn may start; omitted or 0 means due now. */
+    quietWindowMs?: number;
     now?: string;
   }): Promise<LiveAdmissionWorkItemEnqueueResult>;
   /**
@@ -246,6 +264,8 @@ export interface LiveAdmissionWorkItemRepository {
   claimLiveAdmissionWorkItems(
     input: LiveAdmissionClaimInput,
   ): Promise<LiveAdmissionWorkItem[]>;
+  /** When the app's earliest deferred item becomes due, or null if none. */
+  nextLiveAdmissionDueAt(input: { appId: string }): Promise<string | null>;
   renewLiveAdmissionWorkItemClaim(input: {
     id: string;
     claimToken: string;
@@ -319,6 +339,7 @@ export interface LiveTurnRepository {
   }): Promise<LiveTurn | null>;
   getActiveLiveTurn(input: { scope: LiveTurnScope }): Promise<LiveTurn | null>;
   getLiveTurnById(id: string): Promise<LiveTurn | null>;
+  hasDeliveredOutputForRun(input: { runId: string }): Promise<boolean>;
   /**
    * Stop routing: resolve the non-terminal turn that registered `aliasJid`
    * among its durable stop aliases.

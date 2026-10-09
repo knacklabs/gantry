@@ -58,7 +58,9 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-function makeDeps(enqueueMessageCheck: () => boolean): MessageLoopDeps {
+function makeDeps(
+  enqueueMessageCheck: () => boolean | Promise<boolean>,
+): MessageLoopDeps {
   return {
     getConversationRoutes: () => ({
       'group@g.us': {
@@ -69,22 +71,18 @@ function makeDeps(enqueueMessageCheck: () => boolean): MessageLoopDeps {
         requiresTrigger: false,
       },
     }),
-    getOrRecoverCursor: () => '',
-    setAgentCursor: vi.fn(),
-    saveState: vi.fn(),
     hasChannel: () => true,
     setTyping: vi.fn(),
     sendProgressUpdate: vi.fn(),
     queue: {
       sendMessage: vi.fn(() => false),
-      enqueueMessageCheck,
+      enqueueMessageCheck: vi.fn(enqueueMessageCheck),
       closeStdin: vi.fn(),
     },
     opsRepository: {
       storeMessage: vi.fn(),
       getMessagesSince: vi.fn(async () => [replayMessage]),
       getMessageThreadIds: vi.fn(),
-      getLastBotMessageCursor: vi.fn(),
       getLastBotMessageTimestamp: vi.fn(),
     },
   };
@@ -136,9 +134,9 @@ describe('startLiveAdmissionWorkLoop', () => {
   it('renews a claimed work item while processing is still in flight', async () => {
     const settleLiveAdmissionWorkItem = vi.fn(async () => true);
     const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
-    const replay = deferred<(typeof replayMessage)[]>();
+    const wake = deferred<boolean>();
     const deps = makeDeps(() => true);
-    deps.opsRepository.getMessagesSince = vi.fn(() => replay.promise);
+    deps.queue.enqueueMessageCheck = vi.fn(() => wake.promise);
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
         claimLiveAdmissionWorkItems: vi.fn(async () => [baseItem]),
@@ -162,7 +160,7 @@ describe('startLiveAdmissionWorkLoop', () => {
         1,
       ),
     );
-    replay.resolve([replayMessage]);
+    wake.resolve(true);
     await vi.waitFor(() =>
       expect(settleLiveAdmissionWorkItem).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -248,7 +246,7 @@ describe('startLiveAdmissionWorkLoop', () => {
     expect(
       claimLiveAdmissionWorkItems.mock.calls.length,
     ).toBeGreaterThanOrEqual(2);
-    expect(deps.opsRepository.getMessagesSince).toHaveBeenCalled();
+    expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith('group@g.us');
   });
 
   it('settles poison work items as failed after the retry limit', async () => {
@@ -340,8 +338,8 @@ describe('startLiveAdmissionWorkLoop', () => {
     const deferLiveAdmissionWorkItem = vi.fn(async () => true);
     const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
     const deps = makeDeps(() => true);
-    deps.opsRepository.getMessagesSince = vi.fn(
-      () => new Promise(() => undefined),
+    deps.queue.enqueueMessageCheck = vi.fn(
+      () => new Promise<boolean>(() => undefined),
     );
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
@@ -378,5 +376,33 @@ describe('startLiveAdmissionWorkLoop', () => {
         reason: 'retry',
       }),
     );
+  });
+  it('claims when the earliest deferred item is due, not a poll later', async () => {
+    vi.useFakeTimers();
+    try {
+      const dueAt = new Date(Date.now() + 1_500).toISOString();
+      const claimLiveAdmissionWorkItems = vi.fn(async () => []);
+      const loop = startLiveAdmissionWorkLoop({
+        liveAdmissions: {
+          claimLiveAdmissionWorkItems,
+          nextLiveAdmissionDueAt: vi.fn(async () => dueAt),
+        } as never,
+        appId: 'default',
+        workerInstanceId: 'worker-1',
+        messageLoopDeps: makeDeps(() => true),
+        intervalMs: 2_000,
+        warn: vi.fn(),
+      });
+
+      await vi.advanceTimersByTimeAsync(1_499);
+      expect(claimLiveAdmissionWorkItems).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(claimLiveAdmissionWorkItems).toHaveBeenCalledTimes(2);
+      loop.stop();
+      await vi.advanceTimersByTimeAsync(0);
+      await loop.done;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

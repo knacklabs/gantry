@@ -6,15 +6,19 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
+  min,
+  ne,
+  or,
   sql,
 } from 'drizzle-orm';
 
 import type {
   LiveAdmissionWorkItem,
   LiveAdmissionWorkItemEnqueueResult,
-  LiveAdmissionInputScope,
   LiveAdmissionWorkItemRepository,
 } from '../../../../domain/ports/live-turns.js';
+import { getProvider } from '../../../../channels/provider-registry.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type {
@@ -27,6 +31,23 @@ type LiveAdmissionWorkItemRow =
 type EnqueueLiveAdmissionWorkItemInput = Parameters<
   LiveAdmissionWorkItemRepository['enqueueLiveAdmissionWorkItem']
 >[0];
+
+const QUIET_WINDOW_MS = 1_500;
+const NEAR_LIMIT_QUIET_WINDOW_MS = 4_000;
+const QUIET_WINDOW_CAP_SECONDS = 6;
+const QUIET_WINDOW_REASON = 'quiet_window';
+
+/**
+ * How long a new message waits for the rest of its batch: 4 s when the text is
+ * at least 90% of the platform's length limit (probably split), otherwise
+ * 1.5 s. Session commands skip it; the caller decides that.
+ */
+export function quietWindowMs(text: string, providerId: string): number {
+  const limit = getProvider(providerId)?.maxInboundTextLength;
+  return limit !== undefined && text.length >= limit * 0.9
+    ? NEAR_LIMIT_QUIET_WINDOW_MS
+    : QUIET_WINDOW_MS;
+}
 
 const LIVE_ADMISSION_RETENTION_DELETE_BATCH_SIZE = 5_000;
 const LIVE_ADMISSION_RETENTION_MAX_BATCHES_PER_SWEEP = 4;
@@ -116,6 +137,23 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     return { outcome: 'overloaded' };
   }
   const now = input.now ?? currentIso();
+  const windowMs = input.quietWindowMs ?? 0;
+  // The conversation's batch: items still in their quiet window. A new
+  // message restarts the wait for all of them, capped 6 s after the first.
+  const waiting = and(
+    eq(items.appId, input.appId),
+    eq(items.conversationId, input.conversationId),
+    input.threadId == null
+      ? isNull(items.threadId)
+      : eq(items.threadId, input.threadId),
+    input.agentId == null
+      ? isNull(items.agentId)
+      : eq(items.agentId, input.agentId),
+    sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.providerAccountId ?? null}`,
+    eq(items.state, 'deferred'),
+    eq(items.deferredReason, QUIET_WINDOW_REASON),
+    isNull(items.consumedAt),
+  );
   const row: typeof items.$inferInsert = {
     id: input.id,
     appId: input.appId,
@@ -130,7 +168,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     senderUserId: input.senderUserId ?? null,
     senderDisplayName: input.senderDisplayName ?? null,
     idempotencyKey: input.idempotencyKey,
-    state: 'queued',
+    state: windowMs > 0 ? 'deferred' : 'queued',
     sourceKind: 'message',
     triggerDecisionJson: input.triggerDecision ?? {},
     claimWorkerInstanceId: null,
@@ -140,18 +178,41 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
     retryCount: 0,
     failureCount: 0,
     deferUntil: null,
-    deferredReason: null,
+    deferredReason: windowMs > 0 ? QUIET_WINDOW_REASON : null,
     updatedAt: now,
     claimedAt: null,
     endedAt: null,
   };
+  const turns = pgSchema.liveTurnsPostgres;
+  // The agent is working only once a turn's runner registered; a claimed turn
+  // may still keep its batch as history without running it. A turn runs one
+  // queue, so its key pins the same chat, thread, agent and account.
+  const receivedDuringTurn = sql`case when exists (select 1 from ${turns}
+    where ${turns.appId} = ${input.appId}
+    and ${turns.pendingMessageJson}->>'queueJid' = ${input.queueJid}
+    and ${turns.state} in ('running', 'awaiting_interaction', 'setup_required'))
+    then '{"receivedDuringTurn": true}'::jsonb else '{}'::jsonb end`;
   const inserted = await db
     .insert(pgSchema.liveAdmissionWorkItemsPostgres)
-    .values(row)
+    .values({
+      ...row,
+      triggerDecisionJson: sql`${JSON.stringify(row.triggerDecisionJson)}::jsonb || ${receivedDuringTurn}`,
+      deferUntil:
+        windowMs > 0
+          ? sql`least(clock_timestamp() + make_interval(secs => ${windowMs / 1000}), coalesce((select min(${items.createdAt}) from ${items} where ${waiting}), clock_timestamp()) + make_interval(secs => ${QUIET_WINDOW_CAP_SECONDS}))`
+          : null,
+    })
     .onConflictDoNothing()
     .returning();
   if (inserted.length > 0) {
-    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(inserted[0]!) };
+    const item = inserted[0]!;
+    if (windowMs > 0) {
+      await db
+        .update(items)
+        .set({ deferUntil: item.deferUntil })
+        .where(and(waiting, ne(items.id, item.id)));
+    }
+    return { outcome: 'enqueued', item: toLiveAdmissionWorkItem(item) };
   }
   const conflicting = await findLiveAdmissionWorkItemByIdempotencyKey(
     db,
@@ -167,7 +228,7 @@ export async function enqueueLiveAdmissionWorkItemWithExecutor(
 
 export async function takeInput(
   db: CanonicalDb,
-  input: { scope: LiveAdmissionInputScope; consumedBy: string; limit: number },
+  input: Parameters<LiveAdmissionWorkItemRepository['takeInput']>[0],
 ): Promise<LiveAdmissionWorkItem[]> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   return db.transaction(async (tx) => {
@@ -186,6 +247,9 @@ export async function takeInput(
             : eq(items.agentId, input.scope.agentId),
           sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
           isNull(items.consumedAt),
+          input.excludeWaiting
+            ? sql`NOT (${items.state} = 'deferred' AND ${items.deferredReason} IS NOT DISTINCT FROM ${QUIET_WINDOW_REASON} AND coalesce(${items.deferUntil} > clock_timestamp(), false))`
+            : undefined,
         ),
       )
       .orderBy(asc(items.receiveOrder), asc(items.id))
@@ -207,24 +271,75 @@ export async function takeInput(
   });
 }
 
+export async function listUnconsumedLiveAdmissionQueueJids(
+  db: CanonicalDb,
+  input: { appId: string },
+): Promise<string[]> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .selectDistinct({ queueJid: items.queueJid })
+    .from(items)
+    .where(and(eq(items.appId, input.appId), isNull(items.consumedAt)))
+    .orderBy(asc(items.queueJid));
+  return rows.map(({ queueJid }) => queueJid);
+}
+
 export async function releaseInput(
   db: CanonicalDb,
-  input: { consumedBy: string },
+  input: {
+    consumedBy: string;
+    includeFollowUps?: boolean;
+    followUpsOnly?: boolean;
+  },
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const followUpPrefix = `${input.consumedBy}/command:`;
   const rows = await db
     .update(items)
     .set({ consumedAt: null, consumedBy: null })
     .where(
-      and(eq(items.consumedBy, input.consumedBy), isNotNull(items.consumedAt)),
+      and(
+        input.followUpsOnly
+          ? sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`
+          : input.includeFollowUps
+            ? or(
+                eq(items.consumedBy, input.consumedBy),
+                sql`left(${items.consumedBy}, ${followUpPrefix.length}) = ${followUpPrefix}`,
+              )
+            : eq(items.consumedBy, input.consumedBy),
+        isNotNull(items.consumedAt),
+      ),
     )
     .returning({ id: items.id });
   return rows.length;
 }
 
+export async function consumeInputItem(
+  db: CanonicalDb,
+  input: { id: string; consumedBy: string; expectedConsumedBy?: string },
+): Promise<boolean> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .update(items)
+    .set({ consumedAt: sql`clock_timestamp()`, consumedBy: input.consumedBy })
+    .where(
+      and(
+        eq(items.id, input.id),
+        input.expectedConsumedBy
+          ? or(
+              eq(items.consumedBy, input.expectedConsumedBy),
+              isNull(items.consumedAt),
+            )
+          : isNull(items.consumedAt),
+      ),
+    )
+    .returning({ id: items.id });
+  return rows.length === 1;
+}
+
 export async function consumeAll(
   db: CanonicalDb,
-  input: { scope: LiveAdmissionInputScope; consumedBy: string },
+  input: Parameters<LiveAdmissionWorkItemRepository['consumeAll']>[0],
 ): Promise<number> {
   const items = pgSchema.liveAdmissionWorkItemsPostgres;
   const rows = await db
@@ -242,6 +357,11 @@ export async function consumeAll(
           : eq(items.agentId, input.scope.agentId),
         sql`${items.providerAccountId} IS NOT DISTINCT FROM ${input.scope.providerAccountId}`,
         isNull(items.consumedAt),
+        // Whatever its admission state: a batch whose window ended while it
+        // waited for capacity is still a batch that hasn't started.
+        input.waitingBefore === undefined
+          ? undefined
+          : lt(items.receiveOrder, input.waitingBefore),
       ),
     )
     .returning({ id: items.id });
@@ -343,6 +463,18 @@ export async function claimLiveAdmissionWorkItems(
       .filter((row): row is LiveAdmissionWorkItemRow => Boolean(row))
       .map(toLiveAdmissionWorkItem);
   });
+}
+
+export async function nextLiveAdmissionDueAt(
+  db: CanonicalDb,
+  input: { appId: string },
+): Promise<string | null> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const [row] = await db
+    .select({ dueAt: min(items.deferUntil) })
+    .from(items)
+    .where(and(eq(items.appId, input.appId), eq(items.state, 'deferred')));
+  return row?.dueAt ?? null;
 }
 
 export async function renewLiveAdmissionWorkItemClaim(

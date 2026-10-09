@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type {
   LiveAdmissionWakeupSource,
+  LiveAdmissionInputScope,
+  LiveAdmissionWorkItemRepository,
   LiveTurn,
   LiveTurnScope,
 } from '../../domain/ports/live-turns.js';
@@ -39,31 +41,20 @@ import {
   startLiveAdmissionWorkLoop as defaultStartLiveAdmissionWorkLoop,
   type LiveAdmissionWorkLoopHandle,
 } from '../../runtime/live-admission-work-loop.js';
-import { markPendingContinuationCommandsApplied } from './live-turn-continuation.js';
-import { routeScopeActiveLiveTurnAdmissionFromCursor } from './live-recovery-coordinator.js';
+import { routeScopeActiveLiveTurnAdmissionFromInput } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
-import { type SessionCommand } from '../../session/session-commands.js';
-import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
+import {
+  createActiveCompactRouteHandlers,
+  type ActiveControlCommandHandler,
+  type ActiveControlRoute,
+} from './runtime-services-active-compact.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
-export type ActiveControlRoute = {
-  folder: string;
-  trigger?: string;
-  conversationKind?: 'dm' | 'channel';
-  providerAccountId?: string;
-  agentConfig?: { model?: string };
-};
-export type ActiveControlCommandHandler = (args: {
-  chatJid: string;
-  queueJid: string;
-  group: ActiveControlRoute;
-  message: NewMessage;
-  command: SessionCommand;
-}) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -91,11 +82,9 @@ interface AdmissionOpsRepository {
     resultSummary?: string | null;
     errorSummary?: string | null;
   }) => Promise<unknown>;
-  getMessagesSince?: (
-    conversationJid: string,
-    sinceCursor: string,
-    limit?: number,
-    options?: { threadId?: string | null; providerAccountId?: string | null },
+  getMessagesByIds?: (
+    scope: LiveAdmissionInputScope,
+    ids: readonly string[],
   ) => Promise<NewMessage[]>;
 }
 
@@ -109,12 +98,14 @@ interface AdmissionApp {
     queueJid: string,
     options: GroupProcessOptions & { queued: boolean },
   ) => Promise<boolean>;
-  getOrRecoverCursor: (queueJid: string) => Promise<string>;
-  setAgentCursor: (queueJid: string, cursor: string) => void;
-  saveState: () => Promise<void> | void;
 }
 
 export function buildLiveAdmissionProcessor(input: {
+  appId?: string;
+  inputRepository?: Pick<
+    LiveAdmissionWorkItemRepository,
+    'takeInput' | 'releaseInput' | 'consumeAll' | 'consumeInputItem'
+  >;
   liveTurnAuthority: LiveTurnAuthority | undefined;
   app: AdmissionApp;
   opsRepository: AdmissionOpsRepository;
@@ -147,6 +138,8 @@ export function buildLiveAdmissionProcessor(input: {
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
   handleActiveControlCommand?: ActiveControlCommandHandler;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
@@ -158,33 +151,37 @@ export function buildLiveAdmissionProcessor(input: {
     liveRunId: string,
     chatJid: string,
     threadId: string | null,
-    replayCursor: string,
     route: ActiveControlRoute,
   ): Promise<boolean> =>
-    routeScopeActiveLiveTurnAdmissionFromCursor({
-      scope,
-      queueJid,
-      liveRunId,
-      chatJid,
-      threadId,
-      replayCursor,
-      messageFetchPageSize,
-      timezone,
-      getMessagesSince: opsRepository.getMessagesSince?.bind(opsRepository),
-      setAgentCursor: app.setAgentCursor,
-      saveState: app.saveState,
-      enqueueMessageCheck: input.enqueueMessageCheck,
-      ...createActiveCompactRouteHandlers({
-        route,
-        chatJid,
+    (async () => {
+      const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
+      if (!owner?.runId) return false;
+      return routeScopeActiveLiveTurnAdmissionFromInput({
+        scope,
         queueJid,
-        handleActiveControlCommand: input.handleActiveControlCommand,
-      }),
-      routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
-      completeSessionAgentRun:
-        opsRepository.completeSessionAgentRun?.bind(opsRepository),
-      addReaction: input.addReaction,
-    });
+        liveRunId,
+        ownerTurnId: owner.id,
+        ownerRunId: owner.runId,
+        chatJid,
+        threadId,
+        messageFetchPageSize,
+        timezone,
+        inputRepository: input.inputRepository!,
+        getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
+        enqueueMessageCheck: input.enqueueMessageCheck,
+        ...createActiveCompactRouteHandlers({
+          route,
+          chatJid,
+          queueJid,
+          handleActiveControlCommand: input.handleActiveControlCommand,
+          getTriggerPattern: input.getTriggerPattern,
+        }),
+        routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
+        completeSessionAgentRun:
+          opsRepository.completeSessionAgentRun?.bind(opsRepository),
+        addReaction: input.addReaction,
+      });
+    })();
 
   return async (
     queueJid: string,
@@ -193,6 +190,7 @@ export function buildLiveAdmissionProcessor(input: {
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
+        admissionAppId: input.appId,
         ...projectLiveRetryContext(context),
       });
     }
@@ -235,6 +233,7 @@ export function buildLiveAdmissionProcessor(input: {
         (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
       const turnContext = await opsRepository.getAgentTurnContext?.({
+        appId: input.appId,
         agentFolder: route.folder,
         executionProviderId,
         conversationJid: chatJid,
@@ -250,7 +249,6 @@ export function buildLiveAdmissionProcessor(input: {
         conversationId: chatJid,
         threadId: threadId ?? null,
       };
-      const replayCursor = await app.getOrRecoverCursor(queueJid);
       // Pre-check: with N pollers the common case is that another worker already
       // owns this scope. Route the continuation WITHOUT minting a run row that
       // would just lose the claim and become an orphan.
@@ -262,7 +260,6 @@ export function buildLiveAdmissionProcessor(input: {
           /* liveRunId */ '',
           chatJid,
           threadId ?? null,
-          replayCursor,
           route,
         );
       }
@@ -278,11 +275,7 @@ export function buildLiveAdmissionProcessor(input: {
         scope,
         turnId: `live-turn:${randomUUID()}`,
         runId: liveRunId,
-        pendingMessage: {
-          kind: 'message_cursor',
-          queueJid,
-          cursorBefore: replayCursor,
-        },
+        pendingMessage: { queueJid },
       });
       if (admission.outcome !== 'claimed') {
         if (admission.outcome === 'scope_active') {
@@ -295,13 +288,12 @@ export function buildLiveAdmissionProcessor(input: {
             liveRunId,
             chatJid,
             threadId ?? null,
-            replayCursor,
             route,
           );
         }
-        // no_capacity / lease_unavailable: terminal-mark the orphan run. The
-        // message cursor is NOT advanced, so the deferred message is re-polled
-        // and a worker with free capacity admits it next tick.
+        // no_capacity / lease_unavailable: terminal-mark the orphan run. No
+        // input was taken, so the deferred message is re-polled and a worker
+        // with free capacity admits it next tick.
         await opsRepository.completeSessionAgentRun?.({
           runId: liveRunId,
           status:
@@ -316,6 +308,7 @@ export function buildLiveAdmissionProcessor(input: {
       let liveRunResult: 'success' | 'error' | 'stopped' | null = null;
       const success = await app.processGroupMessages(queueJid, {
         queued: true,
+        admissionAppId: input.appId,
         ...projectLiveRetryContext(context),
         existingRunId: liveRunId,
         ...(liveRunFence
@@ -331,9 +324,6 @@ export function buildLiveAdmissionProcessor(input: {
         onFirstProgress: reactionLifecycle.onFirstProgress,
         onFirstVisibleOutput: reactionLifecycle.onFirstVisibleOutput,
         onTurnTerminal: reactionLifecycle.onTerminal,
-        onLiveStopActionToken: async (token) => {
-          await liveTurnAuthority.registerStopAliases(queueJid, [token]);
-        },
       });
       const terminalSuccess =
         success && (liveRunResult === 'success' || liveRunResult === null);
@@ -566,7 +556,8 @@ export function startLiveExecutionServices(input: {
     if (!liveTurnAuthority || !liveTurnLeaseDeps) return;
     const recoveryLoop = startLiveTurnRecoveryLoop({
       intervalMs: 20_000,
-      tick: () => {
+      tick: async () => {
+        await recoverPendingMessages(messageLoopDeps);
         const hostCapacityPlan = computeHostCapacityPlan({
           queue: app.queue.getPolicy(),
           processRole: input.processRole,
@@ -669,11 +660,7 @@ async function resumeRecoveredTurn(input: {
   });
   const replayQueueJid =
     pendingMessage?.queueJid === queueJid ? queueJid : null;
-  const cursorBefore =
-    typeof pendingMessage?.cursorBefore === 'string'
-      ? pendingMessage.cursorBefore
-      : null;
-  if (!replayQueueJid || cursorBefore === null) {
+  if (!replayQueueJid) {
     warn(
       { turnId: turn.id, runId: turn.runId, queueJid },
       'Recovered live turn has no replayable pending message; failing closed',
@@ -684,17 +671,19 @@ async function resumeRecoveredTurn(input: {
     });
     return;
   }
-  const pendingCommands =
-    await liveTurnLeaseDeps.liveTurns.listPendingLiveTurnCommands({
-      liveTurnId: turn.id,
-      limit: 5000,
+  if (turn.runId) {
+    const consumedBy = `turn:${turn.runId}`;
+    await liveTurnLeaseDeps.liveTurns.releaseInput({
+      consumedBy,
+      followUpsOnly: true,
     });
-  app.setAgentCursor(queueJid, cursorBefore);
-  await app.saveState();
+    if (
+      !(await liveTurnLeaseDeps.liveTurns.hasDeliveredOutputForRun({
+        runId: turn.runId,
+      }))
+    ) {
+      await liveTurnLeaseDeps.liveTurns.releaseInput({ consumedBy });
+    }
+  }
   app.queue.enqueueMessageCheck(queueJid);
-  await markPendingContinuationCommandsApplied({
-    liveTurns: liveTurnLeaseDeps.liveTurns,
-    commands: pendingCommands,
-    fence: lease,
-  });
 }
