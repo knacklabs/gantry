@@ -173,7 +173,7 @@ describe('buildPermissionPromptParts', () => {
     });
     expect(mcp.bodyLines).toContain('Transport: stdio_template');
     expect(mcp.bodyLines).toContain('Install: npx -y @linear/mcp');
-    expect(mcp.bodyLines).toContain('Needs credentials: LINEAR_API_KEY');
+    expect(mcp.bodyLines.join('\n')).not.toContain('LINEAR_API_KEY');
     expect(mcp.bodyLines).toContain('Network: api.linear.app:443');
     expect(mcp.bodyLines.join('\n')).not.toContain('sandboxProfileId');
   });

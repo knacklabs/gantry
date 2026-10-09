@@ -81,8 +81,7 @@ const PERMISSION_PROMPT_DISPLAY_FIELDS: {
   promotionHintCount: asIs,
   firstAskedAt: asIs,
   turnIntentSummary: permissionRequestWhyText,
-  toolInput: (toolInput, request) =>
-    permissionDisplayToolInput(toolInput, request.toolName),
+  toolInput: (toolInput) => permissionDisplayToolInput(toolInput),
   interaction: displayInteraction,
 };
 

@@ -119,9 +119,6 @@ export interface PermissionPromptSafeOptions {
   /** A command keeps its shape (its programs must still show) and is cut at
    *  line ends; other text is hidden whole when a secret-like token remains. */
   command?: boolean;
-  /** A field whose credential-like name is not a credential (a browser
-   *  keyboard key). */
-  keepKey?: (key: string) => boolean;
 }
 
 /**
@@ -170,7 +167,7 @@ function promptSafeValue(
         ([key, item]) =>
           [
             key,
-            SENSITIVE_KEY_PATTERN.test(key) && !options.keepKey?.(key)
+            SENSITIVE_KEY_PATTERN.test(key)
               ? HIDDEN
               : promptSafeValue(
                   item,
@@ -201,25 +198,19 @@ function promptSafeText(
 /** The tool input a permission prompt shows, with secrets hidden. */
 export function permissionDisplayToolInput(
   input: Record<string, unknown> | undefined,
-  toolName?: string,
 ): Record<string, unknown> | undefined {
   if (!isPlainObject(input)) return undefined;
+  const safeInput = permissionPromptSafe(input) as Record<string, unknown>;
   const selected: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
+  for (const [key, value] of Object.entries(safeInput)) {
     if (isInternalPlumbingKey(key)) continue;
     // Unknown fields show only scalars and scalar lists.
-    selected[key] = PERMISSION_DISPLAY_INPUT_KEYS.has(key)
+    const shown = PERMISSION_DISPLAY_INPUT_KEYS.has(key)
       ? value
       : genericValue(value);
+    if (shown !== undefined) selected[key] = shown;
   }
-  const keyboardKey = toolName?.startsWith('mcp__gantry__browser_') === true;
-  const display = permissionPromptSafe(selected, {
-    // Named like credentials but never one: a browser keyboard key, and the
-    // names of credentials an MCP server needs.
-    keepKey: (key) =>
-      (keyboardKey && key === 'key') || key === 'credentialNeeds',
-  }) as Record<string, unknown>;
-  return Object.keys(display).length ? display : undefined;
+  return Object.keys(selected).length ? selected : undefined;
 }
 
 function genericValue(value: unknown): unknown {

@@ -647,15 +647,24 @@ maybeDescribe('permission durable authority chain (Postgres)', () => {
             activation: 'source_inventory_only',
           },
         },
-        secrets: [password],
+        secrets: [password, 'WEATHER_API_KEY'],
         lines: [
           'Transport: stdio_template',
           'Install: https://',
           'get_forecast',
-          'WEATHER_API_KEY',
           'api.weather.example',
           why,
         ],
+      },
+      {
+        request: {
+          ...admin,
+          requestId: 'req-perm-durable-recovered-browser',
+          toolName: 'mcp__gantry__browser_press_key',
+          toolInput: { key: 'Enter' },
+        },
+        secrets: ['Enter'],
+        lines: ['Key: [hidden]', why],
       },
       {
         request: {

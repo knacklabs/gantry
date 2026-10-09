@@ -48,6 +48,11 @@ const SHAPES: Array<{
     secret: 'plainkey1',
   },
   {
+    shape: 'a credential-named display field',
+    request: ask({ toolInput: { credentialNeeds: ['shortkey1'] } }),
+    secret: 'shortkey1',
+  },
+  {
     shape: 'a credential-named field nested in a displayed list',
     request: ask({
       toolName: 'request_skill_install',
@@ -156,14 +161,16 @@ describe('permission prompts hide secrets', () => {
     },
   );
 
-  it('keeps a browser keyboard key, which only looks like a credential', () => {
+  // Credential-like names are hidden for every tool, including browser tools.
+  it('hides a browser field named key in the stored request and prompt', () => {
     const request = ask({
       toolName: 'mcp__gantry__browser_press_key',
       toolInput: { key: 'Enter' },
     });
     expect(durablePermissionRequestSnapshot(request).toolInput).toMatchObject({
-      key: 'Enter',
+      key: '[hidden]',
     });
-    expect(formatPermissionPromptText(request)).toContain('Key: Enter');
+    expect(formatPermissionPromptText(request)).toContain('Key: [hidden]');
+    expect(formatPermissionPromptText(request)).not.toContain('Enter');
   });
 });
