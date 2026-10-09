@@ -116,8 +116,7 @@ export interface PermissionPromptSafeOptions {
   /** Characters kept from the start and end when text is shortened. */
   head?: number;
   tail?: number;
-  /** A command keeps its shape (its programs must still show) and is cut at
-   *  line ends; other text is hidden whole when a secret-like token remains. */
+  /** A safe command is cut at line ends. */
   command?: boolean;
 }
 
@@ -190,8 +189,8 @@ function promptSafeText(
   // Steps 1 and 2 over the whole text, so shortening can't split a secret
   // from the name that identifies it.
   const redacted = redactCredentials(text);
-  if (options.command) return clampCommandForDisplay(redacted, head, tail);
   if (detectPotentialUnredactedSecret(redacted)) return SENSITIVE_DETAIL_HIDDEN;
+  if (options.command) return clampCommandForDisplay(redacted, head, tail);
   return headTailTruncate(redacted, head, tail);
 }
 

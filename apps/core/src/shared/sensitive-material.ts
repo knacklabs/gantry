@@ -148,7 +148,7 @@ const SHORT_TOKEN_PATTERN =
 const QUOTED_KEY_VALUE_PATTERN =
   /(["'])([A-Za-z_][A-Za-z0-9_-]*)\1(\s*:\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;}\]]+)/g;
 const KEY_VALUE_PATTERN =
-  /\b([A-Za-z_][A-Za-z0-9_-]*)(\s*(?:=|:)\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/g;
+  /\b([A-Za-z_][A-Za-z0-9_-]*)(\s*(?:=|:)\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s,;}]+)/g;
 
 /** The one credential redaction for permission text: the tool input the host
  *  stores and judges, and everything a permission prompt shows, stores and

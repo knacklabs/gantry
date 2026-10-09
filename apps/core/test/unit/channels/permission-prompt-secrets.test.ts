@@ -86,6 +86,28 @@ const SHAPES: Array<{
     shows: 'Runs: psql',
   },
   {
+    shape: 'an escaped quote in a command credential',
+    request: ask({
+      toolName: 'Bash',
+      toolInput: {
+        command: String.raw`PGPASSWORD="prefix\"suffix" psql -h db -c "select 1"`,
+      },
+    }),
+    secret: 'suffix',
+    shows: 'Runs: psql',
+  },
+  {
+    shape: 'an opaque credential in a command header',
+    request: ask({
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'curl -H "X-Auth: aB3dE5gH7jK9mN2pQ4sT6vW8yZ0" https://api.example.com',
+      },
+    }),
+    secret: 'aB3dE5gH7jK9mN2pQ4sT6vW8yZ0',
+  },
+  {
     shape: 'URL user:password in a command',
     request: ask({
       toolName: 'Bash',
