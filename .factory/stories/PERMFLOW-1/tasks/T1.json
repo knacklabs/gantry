@@ -1,67 +1,47 @@
 {
   "branch": "task/PERMFLOW-1-T1",
   "flagged": [
+    "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
     "apps/core/src/runtime/permission-decision-coordinator.ts",
     "apps/core/src/runtime/permission-invocation-id.ts"
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "8ea343baa771deaa988f338b08a1c5e551eb1e908ae111e48f6edeffcbb5261a",
-    "changed": "5f8c5aa98c25c4e8c9ea3278da5214101acc758cce0a574ef0ceb126fd0238dc",
-    "commit": "75877ee8eeb77178a1c6d1378e0071eab6746630",
+    "branch_diff": "e08f05ecf1654aa35005646da852da1f3770207751be52b585b73b2e60ce1cfd",
+    "changed": "84364d88adbec240d1db578910a0484a8f5211a53ae73557521e9d5d77ef656e",
+    "commit": "3a3db517a5e9b01dff8df3905e2b959e369692f7",
     "dismissals": [],
     "findings": [
       {
-        "body": "The binding uses request.runId, which remains a worker-supplied claim. IPC parsing accepts raw.runId/context.runId without comparing it with the host run registry (ipc-parsing.ts:379\u2013384), and ipc-interaction-processing.ts:147\u2013149 overwrites personId and jobId but not runId. Consequently, engine ids supplied to this contract can evade the changed-action rejection by changing the asserted runId, or collide across authenticated runs that assert the same runId. Resolve the scope from the host-owned run binding and test forged run claims. This is separate from the ruled deferral of engine-id transport to T2.",
-        "file": "apps/core/src/runtime/permission-invocation-id.ts",
-        "line": 48,
+        "body": "The route guard runs only through resolvePermissionIpcDecision. In ipc-interaction-processing.ts:228\u2013237, a persisted approval short-circuits that function, so an active run can receive an approved response after its conversation route or binding is removed. New evidence beyond the earlier route ruling is the changed restart fixture in ipc-interaction-handler.test.ts:2708 and 2807\u20132863: it supplies a live run binding but no conversationRoutes, then expects a transient grant and signed allow. Check the route before replaying either persisted approval mode, while preserving the recorded human answer, and cover route removal on this replay path.",
+        "file": "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
+        "line": 130,
         "priority": "P1",
-        "title": "Not done: invocation ids are scoped to the authenticated run"
+        "title": "Not done: route checks precede persisted approvals"
       },
       {
-        "body": "Setting scalar decisionOptions does not enforce the actual prompt options. For an auto chat request with a person and complete effect hash, the IPC requester subsequently creates eligible cardAffordances (permission-remember-settlement.ts:125); the inline remote-MCP tail similarly builds its remember context. channels/permission-card-affordances.ts:47\u201349 then uses those affordances instead of decisionOptions, exposing remember_allow_exact and remember_deny_exact for admin actions and hard-rule commands. Those saved answers cannot settle subsequent hard-rule/admin calls, so the prompt also makes a false promise. Suppress remembered affordances on person-only asks and verify the rendered/callback options through the real requester. The listed gate tests mock the tail and inspect only scalar options, missing this downstream override.",
-        "file": "apps/core/src/runtime/permission-decision-coordinator.ts",
-        "line": 453,
-        "priority": "P1",
-        "title": "Not done: admin actions offer only Allow once and Deny"
-      },
-      {
-        "body": "The functional check's selected failure\u2014removing the conversation route\u2014returns an explanation but no action to take next. This reason reaches inline remote-MCP callers unchanged, and permission-decision-message.ts only prefixes it with denial metadata. The required failure walkthrough therefore lacks the promised plain-language recovery guidance. Add guidance to restore the conversation's agent connection and retry, and assert that guidance in the route-failure check.",
-        "file": "apps/core/src/runtime/permission-decision-coordinator.ts",
-        "line": 442,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "After 10,000 distinct bindings across the host, this eviction discards the oldest binding even if its run is still active. Reusing that invocation id with changed arguments then succeeds and replaces its action hash instead of returning the required reused-id refusal. The annotated restart limitation does not cover losing bindings within a live process. Retire completed-run bindings or fail closed when live bindings reach the limit.",
-        "file": "apps/core/src/runtime/permission-invocation-id.ts",
-        "line": 59,
-        "priority": "P2",
-        "title": "Preserve invocation bindings for live runs when the map fills"
-      },
-      {
-        "body": "The T2-owned requirements remain unfinished: permission-ipc-client.ts:179 still transports toolUseID rather than invocationId, and IPC parsing does not populate the new field. The Claude duplicate client remains; job-heartbeat.ts:6 still imports its pending requests. Runner protected-path and yolo checks also remain in tool-permission-gate.ts:324 and :380. T2 must transport the engine id through parsing, consolidate the client and runner checks while retaining sandbox/wait-only/memory guards, and adapt the existing waiting-job heartbeat proof to the shared client. These are nonblocking for T1 under the task ownership and transport ruling.",
+        "body": "The T2-owned gaps remain: runner/permission-ipc-client.ts:179 transports toolUseID, and ipc-parsing.ts:483 does not populate invocationId. The Claude duplicate client remains, with runner/job-heartbeat.ts:6 reading its pending requests. Protected-path and YOLO checks also remain in the Claude tool-permission-gate.ts:324 and 380. T2 must transport engine ids, consolidate the client and runner checks, and prove that the shared client's pending requests appear in job heartbeats. This remains nonblocking for T1 under the task ownership and transport ruling.",
         "file": "apps/core/src/domain/permission-approval-request.ts",
         "line": 40,
         "priority": "P2",
         "title": "Later: finish invocation transport and runner consolidation in T2"
       },
       {
-        "body": "Adding this dependency does not yet put every core or engine tool through the gate: registry.ts:575\u2013580 selects only delegation tools, DeepAgents runner/mcp-tools.ts:158\u2013164 returns selected Gantry tools without the common permission wrapper, and the Claude inline lane still allows core SDK calls at index.ts:178\u2013192. The classifier also receives the dispatcher name unchanged (ipc-permission-classifier-decision.ts:276), rather than establishing a verdict on its resolved target. T3 owns completing these entries and dispatcher decisions, the four-engine chat/job/mode table, actual one-ask alias versus two-call tests, and deepagents-gantry-tool-gate. The named end-to-end test is absent; the supplied three-caller unit test does not replace that assigned proof.",
+        "body": "The T3-owned coverage remains incomplete: registry.ts:575\u2013580 gates only delegation tools; DeepAgents runner/mcp-tools.ts:158\u2013164 returns selected Gantry tools without the common permission wrapper; and the Claude inline lane still allows core tools at inline-lane/index.ts:178\u2013192. Dispatcher consultation still passes the dispatcher name unchanged at ipc-permission-classifier-decision.ts:276. T3 must complete these entries and resolved-target decisions, the four-engine chat/job/mode table, actual one-ask alias versus two-call proof, and deepagents-gantry-tool-gate, which is absent from test/e2e. The host pinning and three-caller tests do not replace that assigned engine proof. This is nonblocking for T1.",
         "file": "apps/core/src/runtime/core-tools/registry.ts",
         "line": 143,
         "priority": "P2",
         "title": "Later: complete engine gate coverage and its proof in T3"
       },
       {
-        "body": "The remaining item-2 work is assigned to T4: unsupported shapes still ask before the judge under the temporary rail ruling; auto_strict still skips the judge when read-only proof fails (permission-classifier.ts:360); IPC sanitizes before hard-rule evaluation and produces no complete program/path summary; capability_run remains fixed high risk (gantry-tool-risk.ts:70\u201371); and structured-local-cli-invocation.ts:170 still refuses template mismatches. T4 must supply the shape/danger table, beyond-cut danger/path and malformed-input cases, repeated/restarted template-mismatch allow/deny cases, the piped/chained Postgres ladder proof, and piped-command-judge-allow. Neither named command end-to-end proof nor piped/chained cases exist in the new ladder integration test. This does not challenge T1's ruled temporary rail policy.",
+        "body": "The T4-owned gaps remain: unsupported shapes ask before the judge under the temporary rail ruling; permission-classifier.ts:360 skips consultation when auto_strict lacks read-only proof; ipc-parsing.ts:447\u2013454 sanitizes before rail evaluation without a complete program/path summary; gantry-tool-risk.ts:70\u201371 fixes capability_run as high risk; and structured-local-cli-invocation.ts:170\u2013173 still refuses template mismatches. T4 must supply the shape/danger table, beyond-cut danger/path and malformed-input cases, repeated/restarted template-mismatch allow/deny cases, piped/chained Postgres proof, and piped-command-judge-allow, which is absent from test/e2e. This remains nonblocking for T1 and does not challenge its approved temporary rail policy.",
         "file": "apps/core/src/runtime/permission-decision-coordinator.ts",
-        "line": 102,
+        "line": 105,
         "priority": "P2",
         "title": "Later: finish command policy and its proof in T4"
       }
     ],
-    "id": "036ceae0-4e8d-4683-97d3-9f4ee1a19611",
+    "id": "d56593d8-e3a2-4505-9946-4afc2c0d1def",
     "status": "blocked"
   },
   "round": 2,
@@ -73,6 +53,10 @@
     },
     {
       "at": "2026-10-09T10:12:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T13:51:32+00:00",
       "step": "review"
     }
   ],
