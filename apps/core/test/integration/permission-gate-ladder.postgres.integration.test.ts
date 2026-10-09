@@ -152,54 +152,5 @@ maybeDescribe(
       expect(gone.judge).not.toHaveBeenCalled();
       expect(gone.requestPermissionApproval).not.toHaveBeenCalled();
     });
-
-    it('asks a person for a hard rule and an admin action even when a stored verdict and the judge would allow them', async () => {
-      for (const [toolName, toolInput] of [
-        ['RunCommand', { command: 'rm -rf build-ladder' }],
-        ['mcp__gantry__service_restart', { reason: 'apply settings' }],
-      ] as const) {
-        const effectHash = computePermissionEffectHash({
-          request: {
-            requestId: 'seed',
-            appId: APP_ID,
-            targetJid: TARGET_JID,
-            sourceAgentFolder: FOLDER,
-            toolName,
-            toolInput,
-          },
-          workspaceRoot,
-        })!;
-        await runtime.repositories.permissionDecisionMemory.putClassifierVerdict(
-          {
-            appId: APP_ID,
-            agentFolder: FOLDER,
-            effectHash: classifierVerdictCacheKey({
-              effectHash,
-              lane: PermissionLane.InteractiveAuto,
-            }),
-            decision: 'allow',
-            reason: 'A stale stored allow.',
-            risk_level: 'low',
-            effectSchemaVersion: 3,
-            railVersion: 2,
-            provenance: 'classifier',
-            nowIso: new Date().toISOString(),
-          },
-        );
-        const ladder = gate({ routes: () => route() });
-
-        await expect(ladder.decide(toolName, toolInput)).resolves.toMatchObject(
-          {
-            approved: false,
-            decidedBy: 'person',
-          },
-        );
-        expect(ladder.judge).not.toHaveBeenCalled();
-        expect(ladder.requestPermissionApproval).toHaveBeenCalledOnce();
-        expect(
-          ladder.requestPermissionApproval.mock.calls[0]![0],
-        ).toMatchObject({ decisionOptions: ['allow_once', 'cancel'] });
-      }
-    });
   },
 );

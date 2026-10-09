@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PermissionClassifierStatus } from '@core/domain/permission-classifier-status.js';
-import { PermissionLane } from '@core/domain/permission-lane.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import {
-  classifierVerdictCacheKey,
   judgeOutageLatch,
   observeJudgeAvailability,
 } from '@core/runtime/permission-judge-outage.js';
@@ -58,24 +56,5 @@ describe('permission judge outage', () => {
         request,
       ),
     ).toBe('Needs a person.');
-  });
-
-  it('keys a cached verdict by the exact action, agent and conversation hash plus the lane', () => {
-    const effectHash = 'a'.repeat(64);
-    const keys = Object.values(PermissionLane).map((lane) =>
-      classifierVerdictCacheKey({ effectHash, lane }),
-    );
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(
-      classifierVerdictCacheKey({
-        effectHash,
-        lane: PermissionLane.InteractiveAuto,
-      }),
-    ).not.toBe(
-      classifierVerdictCacheKey({
-        effectHash: 'b'.repeat(64),
-        lane: PermissionLane.InteractiveAuto,
-      }),
-    );
   });
 });

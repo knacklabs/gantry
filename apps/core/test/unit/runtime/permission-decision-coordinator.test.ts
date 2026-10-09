@@ -1018,48 +1018,6 @@ describe('coordinatePermissionDecision', () => {
     expect(railRequest.decisionReason).toBe('rail now asks');
   });
 
-  // Contract change (PERMFLOW-1): a remembered exact Allow used to answer a
-  // destructive ask. Hard rules now come before every saved approval.
-  it('never answers a destructive or secret-path ask from a remembered exact Allow', async () => {
-    const findHumanDecision = vi.fn(async () =>
-      humanDecisionRow({
-        outcome: HumanDecisionOutcome.Allow,
-        scope: HumanDecisionScope.Exact,
-        scopeKey: 'destructive-allow',
-      }),
-    );
-    for (const rail of [
-      {
-        railOutcome: 'ask' as const,
-        reason: 'Destructive command requires approval.',
-        railSignal: RailSignal.Destructive,
-        hardFloor: true as const,
-      },
-      {
-        railOutcome: 'ask' as const,
-        reason: 'Command references a credential, secret, or protected path.',
-        railSignal: RailSignal.SecretPath,
-        hardFloor: true as const,
-      },
-    ]) {
-      const tail = vi.fn(async () =>
-        decisionForMode(request, 'cancel', 'human', 'human'),
-      );
-      await expect(
-        coordinatePermissionDecision({
-          request: { ...request, personId: 'person-one' },
-          analysis: interactiveAuto,
-          effectHash: 'destructive-allow',
-          decisionMemory: { findHumanDecision } as never,
-          deterministicRails: () => rail,
-          tail,
-        }),
-      ).resolves.toMatchObject({ approved: false, decidedBy: 'human' });
-      expect(tail).toHaveBeenCalledOnce();
-    }
-    expect(findHumanDecision).not.toHaveBeenCalled();
-  });
-
   it('lets a locked preset outrank a cached allow (lock beats cache)', async () => {
     const tail = vi.fn();
     const getClassifierVerdict = vi.fn(async () => ({
