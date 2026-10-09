@@ -12,6 +12,18 @@ const ENGINE_INVOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
 // waiting record if an id must stay bound across a restart.
 const MAX_INVOCATION_BINDINGS = 10_000;
 const invocationBindings = new Map<string, string>();
+const completeActionHashes = new WeakMap<PermissionApprovalRequest, string>();
+
+/** Keep the action digest before IPC redacts or truncates either input view. */
+export function capturePermissionInvocationAction<
+  T extends PermissionApprovalRequest,
+>(request: T, toolInput: unknown): T {
+  completeActionHashes.set(
+    request,
+    permissionActionHash(request.toolName, toolInput),
+  );
+  return request;
+}
 
 /**
  * Pins the engine's tool-call id (SDK tool-use id or LangChain tool-call id)
@@ -36,7 +48,9 @@ export function pinPermissionInvocationId(
     request.runId,
     engineId,
   ].join('\u0000');
-  const action = permissionActionHash(request);
+  const action =
+    completeActionHashes.get(request) ??
+    permissionActionHash(request.toolName, request.toolInput);
   const bound = invocationBindings.get(scope);
   if (bound !== undefined) {
     return bound === action ? undefined : INVOCATION_REUSED_REASON;
@@ -49,16 +63,10 @@ export function pinPermissionInvocationId(
 }
 
 /** The same call under two names (`send_message`, `mcp__gantry__send_message`) hashes the same. */
-function permissionActionHash(request: PermissionApprovalRequest): string {
-  const toolName =
-    gantryNativeCanonicalToolName(request.toolName)?.canonical ??
-    request.toolName;
+function permissionActionHash(toolName: string, toolInput: unknown): string {
+  const canonicalToolName =
+    gantryNativeCanonicalToolName(toolName)?.canonical ?? toolName;
   return createHash('sha256')
-    .update(
-      canonicalJson([
-        toolName,
-        request.classifierToolInput ?? request.toolInput ?? null,
-      ]),
-    )
+    .update(canonicalJson([canonicalToolName, toolInput ?? null]))
     .digest('hex');
 }

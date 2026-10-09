@@ -340,4 +340,27 @@ describe('the pinned invocation id', () => {
     });
     expect(tail).not.toHaveBeenCalled();
   });
+
+  it('binds inline calls to the complete action even when the classifier view hides changed arguments', async () => {
+    const invocationId = 'inline-redacted-action';
+    const decide = (token: string) =>
+      coordinatePermissionDecision({
+        request: call({
+          invocationId,
+          toolInput: { apiToken: token },
+          classifierToolInput: { apiToken: '[REDACTED]' },
+        }),
+        reviewedRuleDecision: reviewedAllow,
+        tail: async () => ({ approved: false }),
+      });
+
+    await expect(decide('first-token')).resolves.toMatchObject({
+      approved: true,
+    });
+    await expect(decide('second-token')).resolves.toMatchObject({
+      approved: false,
+      decidedBy: 'invocation_id',
+      reason: INVOCATION_REUSED_REASON,
+    });
+  });
 });
