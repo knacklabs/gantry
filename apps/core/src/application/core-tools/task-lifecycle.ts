@@ -99,6 +99,7 @@ export interface CoreTaskLifecycleService {
   startDelegatedAgent(
     input: CoreTaskOwner & {
       parentRunId?: string | null;
+      parentJobId?: string | null;
       objective: string;
       context?: string | null;
       expectedOutput?: string | null;
@@ -138,6 +139,7 @@ export function createCoreTaskLifecycleBackend(input: {
   owner: CoreTaskOwner;
   parentTaskId?: string | null;
   parentRunId?: string | null;
+  parentJobId?: string | null;
   authorityToolName?: 'AgentDelegation';
   enableDelegatedAsyncFollowUp?: boolean;
   workspaceFolder: string;
@@ -195,6 +197,7 @@ export function createCoreTaskLifecycleBackend(input: {
       const result = await input.service.startDelegatedAgent({
         ...input.owner,
         parentRunId: input.parentRunId ?? null,
+        parentJobId: input.parentJobId ?? null,
         objective,
         context: optionalString(args.context),
         expectedOutput: optionalString(args.expectedOutput),

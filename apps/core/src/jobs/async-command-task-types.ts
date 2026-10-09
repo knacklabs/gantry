@@ -62,7 +62,6 @@ export interface StartAsyncCommandTaskInput {
   parentRunId?: string | null;
   parentTaskId?: string | null;
   parentJobId?: string | null;
-  parentJobRunId?: string | null;
   command: string;
   cwd?: string;
   protectedReadPaths?: readonly string[];

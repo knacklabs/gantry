@@ -49,6 +49,7 @@ export interface StartDelegatedAgentTaskInput {
   providerAccountId?: string | null;
   threadId?: string | null;
   parentRunId?: string | null;
+  parentJobId?: string | null;
   objective: string;
   context?: string | null;
   expectedOutput?: string | null;
@@ -112,6 +113,7 @@ export async function startDelegatedAgentTask(input: {
     conversationId: input.taskInput.conversationId,
     threadId: input.taskInput.threadId,
     parentRunId: input.taskInput.parentRunId,
+    parentJobId: input.taskInput.parentJobId,
     kind: 'delegated_agent',
     status: 'queued',
     admissionClass: 'task',

@@ -45,7 +45,6 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       threadId: input.threadId ?? null,
       parentRunId: input.parentRunId ?? null,
       parentJobId: input.parentJobId ?? null,
-      parentJobRunId: input.parentJobRunId ?? null,
       kind: input.kind,
       status: input.status,
       admissionClass: input.admissionClass,
@@ -820,6 +819,8 @@ describe('AsyncCommandTaskService', () => {
       context: 'use current repo',
       expectedOutput: 'short report',
       targetAgentId: 'agent:reviewer',
+      parentRunId: 'starting-run',
+      parentJobId: 'starting-job',
       workspaceFolder: 'main_agent',
       run: async () => ({ outputSummary: 'should not run in old service' }),
     });
@@ -852,6 +853,8 @@ describe('AsyncCommandTaskService', () => {
       ) => {
         expect(taskInput.providerAccountId).toBe('slack-one');
         expect(taskInput.targetAgentId).toBe('agent:reviewer');
+        expect(taskInput.parentRunId).toBe('starting-run');
+        expect(taskInput.parentJobId).toBe('starting-job');
         return recoveredRun;
       },
     );
