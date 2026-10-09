@@ -105,4 +105,25 @@ test conflicted. Its immediate-readiness name, pre-delegation `claimNow`, routin
 full-answer and receipt assertions remain intact; every poll uses that same
 clock. No production edits were made beyond accepting upstream unchanged.
 The eleven-surface matrix describes this fix's own changes relative to main.
-Current verification results will be recorded after the merged checks finish.
+Current proof (round three):
+
+- `forge test` with pinned Forge 1.2.7 passed, exit 0. It ran current
+  `forge.toml`'s `fast_test`: dependency installation, formatting, architecture,
+  changed-file lint and typecheck. It did not run the full `test` command.
+- Fresh disposable `pgvector/pgvector:pg16` was started with the round-two
+  command using container name `gantry-delegated-readiness-pg-r3`; localhost
+  binding, tmpfs data and both extensions were verified.
+- With the same disposable URL, ran
+  `npm run test:integration:postgres -- apps/core/test/integration/delegated-answer-and-parent-wakeup.postgres.integration.test.ts apps/core/test/integration/live-admission-quiet-window.postgres.integration.test.ts apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts`:
+  3 files, 54 tests passed, no skips (17.06s).
+- The fixed-clock immediate parent wake-up and full-stream answer cases passed.
+  Routing, message content and receipt assertions remain outside the poll.
+- No schemas remained; `docker rm -f -v gantry-delegated-readiness-pg-r3`
+  removed the container, and the name-filtered container listing was empty.
+- Logs: `round3-forge-test.log` and `round3-focused-postgres.log` under the
+  existing ignored cache directory. Final diff and formatting checks passed.
+
+The earlier full-suite and chaos totals above are historical, not results on
+this reconciled tree. No local image scan was run: the image-security changes
+are accepted from main unchanged, and the coordinator will update the existing
+pull request for CI. No security ignores, new tests or skips were added.
