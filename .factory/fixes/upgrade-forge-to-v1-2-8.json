@@ -2,12 +2,27 @@
   "base": "e5aafb2fe3ab0e8acbb6cfd7aed5a24d57cd0a27",
   "branch": "fix/upgrade-forge-to-v1-2-8",
   "done_when": "This repo pins and runs Forge v1.2.8.",
+  "flagged": [],
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "ab54f1d83a2a48a652e12c5c2b6c88e17f441f70fe288907bc81e275ed092098",
+    "changed": "77927daf466a1e2984d47ffe687165b4bd5d45c476a268312c0a9e42983595e6",
+    "commit": "69945fce134ff1a4f94f295748eb1f414453dafa",
+    "dismissals": [],
+    "findings": [],
+    "id": "4d4fdc3f-c37e-48ac-b388-23860318f0cd",
+    "status": "clean"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-09T07:38:18+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-09T07:44:14+00:00",
+      "step": "review"
     }
   ],
   "why": "Upgrade Forge to v1.2.8."
