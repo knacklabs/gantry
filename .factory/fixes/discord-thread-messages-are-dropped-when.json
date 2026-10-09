@@ -2,17 +2,29 @@
   "base": "ed40e8c8ce6f616094264b0a4e0f0f0a0a726300",
   "branch": "fix/discord-thread-messages-are-dropped-when",
   "done_when": "A Discord thread message whose parent lookup fails is retried instead of being stored under a made-up conversation, proven by a test",
+  "flagged": [
+    "apps/core/test/unit/channels/discord/discord.test.ts"
+  ],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "changed": "35f3712c4462af816a2f3b80b130b680b2f7f928ecd1ce5995a38bfca4fa069a",
-    "commit": "3c3fe4fdc71e9a432e172ad95d4ab02046f6552a",
+    "branch_diff": "61ceff32b4c613f9d25fc06f543e8542870a6d06149f2b33812eca6062106f89",
+    "changed": "83a9a4732119c375332612d48424527e41f10fadf96da861c5ad4a3d7bda9175",
+    "commit": "fb503795b22c7f3d284f4b82b7703b211002ab9e",
     "dismissals": [],
-    "findings": [],
-    "status": "clean",
-    "tree": "cd6e749e8a0c56dd903eb27f61a1949d63dffb772e2375099cd4514edfa59044"
+    "findings": [
+      {
+        "body": "The supplied proof list is missing. Add a proof entry mapping the complete Done-when behavior to the new Discord channel test, naming its file and cases and recording the validation result. The test exercises recovery after a failed lookup and refusal to deliver under a fabricated conversation, but the required proof list does not identify that evidence.",
+        "file": "apps/core/test/unit/channels/discord/discord.test.ts",
+        "line": 2357,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "eca52ef1-7456-412c-9c9a-60e9abfd9074",
+    "status": "blocked"
   },
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-01T10:24:42+00:00",
@@ -24,6 +36,10 @@
     },
     {
       "at": "2026-10-02T14:34:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T09:37:38+00:00",
       "step": "review"
     }
   ],

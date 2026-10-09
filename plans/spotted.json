@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/domain/ports/inbound-events.ts",
+      "line": 153,
+      "text": "Not done: shared inbox lifecycle signatures",
+      "from": "blocking",
+      "item": "MSG-1/T1",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/runtime/agent-spawn-prompt.ts\tNot done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/src/runtime/agent-spawn-prompt.ts",
@@ -19,6 +30,17 @@
       "text": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual",
       "from": "blocking",
       "item": "the-agent-can-t-tell-which-gantry-tools",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
+      "kind": "bug",
+      "path": "apps/core/src/runtime/group-output-buffer.ts",
+      "line": 84,
+      "text": "Not done: Mention-required groups follow the conversation",
+      "from": "blocking",
+      "item": "TURN-1/T6",
       "status": "open",
       "closed_by": null
     },
@@ -56,6 +78,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
+      "kind": "bug",
+      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+      "line": 2357,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "discord-thread-messages-are-dropped-when",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
@@ -89,28 +122,6 @@
       "closed_by": "dismissed"
     },
     {
-      "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
-      "kind": "bug",
-      "path": "forge.toml",
-      "line": 2,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "upgrade-forge-to-v1-2-7",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/src/runtime/group-output-buffer.ts\tNot done: Mention-required groups follow the conversation\tTURN-1/T6",
-      "kind": "bug",
-      "path": "apps/core/src/runtime/group-output-buffer.ts",
-      "line": 84,
-      "text": "Not done: Mention-required groups follow the conversation",
-      "from": "blocking",
-      "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
       "key": "bug\tapps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts\tThe user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/ipc-permission-cancellation-directory.test.ts",
@@ -118,6 +129,17 @@
       "text": "The user-question retained-cancellation restart case failed in the second full unit suite and passed in its isolated file rerun; the failure remains unresolved.",
       "from": "worker",
       "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
+      "kind": "bug",
+      "path": "forge.toml",
+      "line": 2,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "upgrade-forge-to-v1-2-7",
       "status": "open",
       "closed_by": null
     },
@@ -162,17 +184,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
-      "kind": "bug",
-      "path": "apps/core/src/domain/ports/inbound-events.ts",
-      "line": 153,
-      "text": "Not done: shared inbox lifecycle signatures",
-      "from": "blocking",
-      "item": "MSG-1/T1",
       "status": "open",
       "closed_by": null
     }
