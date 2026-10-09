@@ -6,46 +6,26 @@
     "docs/architecture/README.md",
     "docs/architecture/areas/06-storage.md",
     "docs/architecture/areas/10-shared-domain.md",
+    "docs/architecture/areas/13-security-boundaries.md",
     "docs/architecture/areas/README.md"
   ],
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "4fdf2f442e48c0af12e41e0531e1a04a38c7924cc5dbf44e12db750b0e4992ec",
-    "changed": "b1b7d7252c521027b3e81a607da01747fda87513e471ff25c7ae1dd9921aef59",
-    "commit": "034e2842d45dffd500d6bc4634c9faf55d53fcd8",
+    "branch_diff": "dfef2caf4a9eaf763a249473e4e09634f21cffaa84b936dab5ea5aca03175b35",
+    "changed": "67a5cf7ecabe1894565f0f55a06dad4ad340c06fba54091f4f086357d5ed92f2",
+    "commit": "a7f7ccb6ceaf6af9a4123b31e19472c505364070",
     "dismissals": [],
     "findings": [
       {
-        "body": "chunk 1/2:\n\nThe supplied worker proof list is missing. Add the required commit proof list covering all fourteen audit areas, their architecture and flow diagrams, their walkthroughs, and the named checks/results used to verify claims and source links. The documentation itself does not replace this explicitly required proof list.",
-        "file": "docs/architecture/README.md",
-        "line": 5,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      },
-      {
-        "body": "chunk 1/2:\n\nThe guides contain concrete mismatches with this checkout, so the Done-when requirement's code verification remains incomplete. New evidence beyond the ruling to retain the guides: (1) 06-storage.md:81,87,362,389,480 and 09-identity-access.md:292,381 describe/link a remote-first skill wrapper and cache warming, but that module is absent and apps/core/src/adapters/storage/postgres/factory.ts:249 constructs S3SkillArtifactStore directly. Its getSkillArtifact implementation at apps/core/src/adapters/artifacts/skills/s3-skill-artifact-store.ts:113 reads S3 without warming that cache. (2) 06-storage.md:125 says unrouted messages use storeMessage, but apps/core/src/app/bootstrap/channel-persistence-handlers.ts:166\u2013167 drops them before persistence. (3) 06-storage.md:158 describes GroupQueue as the scheduler execution admission queue, while apps/core/src/infrastructure/pgboss/scheduler-engine.ts:495\u2013515 acquires durable slots and invokes runJob directly; apps/core/src/app/bootstrap/runtime-scheduler-start.ts:67 uses GroupQueue for process registration. (4) 02-runtime.md:203 cites the nonexistent src/session/session-command-parse.ts; the parser is in apps/core/src/application/sessions/session-command-parse.ts:8. Correct these current-system descriptions and references, then repeat the code/link check. Retaining the fourteen guides does not require retaining these inaccuracies.",
-        "file": "docs/architecture/areas/06-storage.md",
-        "line": 87,
-        "priority": "P1",
-        "title": "Not done: docs/architecture/areas/ checked against the code"
-      },
-      {
-        "body": "chunk 2/2:\n\nThe required code verification is incomplete. New evidence beyond the ruling to retain the guides: 10-shared-domain.md:295 describes two copied public-address classifiers, but apps/core/src/shared/network-host-declaration.ts:1\u201311 and apps/core/src/domain/network/public-address-policy.ts:1\u20136 both import/re-export the single shared implementation. Also, 09-identity-access.md:292 describes an S3 cache-warming wrapper and its reference at line 381 targets a nonexistent file; apps/core/src/adapters/storage/postgres/factory.ts:249 returns S3SkillArtifactStore directly. Update these current descriptions and references against this checkout. The dated audits can remain historical records.",
-        "file": "docs/architecture/areas/10-shared-domain.md",
-        "line": 295,
+        "body": "chunk 2/2:\n\nNew evidence beyond the previous rulings: current-system descriptions still contradict this checkout. (1) `13-security-boundaries.md:271` says completed-run policies remain until process exit, but `apps/core/src/runtime/agent-spawn.ts:799` releases them in `finally`, and `apps/core/src/runtime/async-command-sandbox-policy.ts:20\u201324` deletes the registry entry. (2) `10-shared-domain.md:232,266` documents `start-gantry.sh` and a nohup fallback, and `11-deploy-scaling.md:291` repeats that fallback. However, `apps/core/src/infrastructure/service/manager.ts:37\u201341` selects launchd, systemd-user or background, and `:387\u2013393` implements the background path with a detached Node process. These claims misdescribe cleanup and deployment behavior, leaving the required code verification incomplete. Correct all these current-guide descriptions and repeat the verification; the dated audits can remain historical.",
+        "file": "docs/architecture/areas/13-security-boundaries.md",
+        "line": 271,
         "priority": "P1",
         "title": "Not done: docs/architecture/areas/ guides checked against the code"
-      },
-      {
-        "body": "chunk 2/2:\n\nThe supplied worker proof list is explicitly missing. The README's general code-reading statement does not provide the required item-to-proof inventory covering all fourteen audit areas, their architecture diagrams, flow diagrams, walkthroughs and source verification. Supply that list with the actual documentation checks and results; this documentation-only task does not require new runtime tests.",
-        "file": "docs/architecture/areas/README.md",
-        "line": 5,
-        "priority": "P1",
-        "title": "Not done: proof list"
       }
     ],
-    "id": "ec00639f-46f0-4eb3-9ae2-84cd293d7a60",
+    "id": "7cd32bb9-c5ec-451e-8e9c-9eaf60a45557",
     "status": "blocked"
   },
   "round": 2,
@@ -57,6 +37,10 @@
     },
     {
       "at": "2026-10-09T10:29:17+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T11:01:21+00:00",
       "step": "review"
     }
   ],
