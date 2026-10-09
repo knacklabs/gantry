@@ -17,6 +17,7 @@ import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabil
 import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from './job-readiness-service.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
+import { permissionTurnIntent } from '../interactions/pending-interaction-permission-envelope.js';
 
 export interface SetupPauseReviewedRequirement {
   suggestions: PermissionApprovalUpdate[];
@@ -183,6 +184,7 @@ export async function raiseSetupPausePermissionPrompt(input: {
     description:
       'Allow once is unavailable because this run already ended; lasting access is required for a future run.',
     decisionReason: story,
+    ...permissionTurnIntent(job.prompt),
     toolInput: requirement.toolInput,
     suggestions: reviewed.suggestions,
     decisionOptions: reviewed.decisionOptions.filter(

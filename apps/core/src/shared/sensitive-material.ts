@@ -135,6 +135,55 @@ export function redactSensitiveText(raw: string): string {
     redacted = redacted.replace(pattern, replacement);
   return redacted;
 }
+/** Field names whose values are credentials: `KEY=value`, `key: value` and
+ *  object fields. */
+export const SENSITIVE_KEY_PATTERN =
+  /(secret|token|password|passphrase|credential|api[_-]?key|key|authorization|bearer|cookie|session)/i;
+const URL_USERINFO_PATTERN = /(:\/\/)[^\s/@:]+:[^\s/@]+@/g;
+const AUTH_VALUE_PATTERN = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+const SHORT_TOKEN_PATTERN =
+  /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[po]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[abp]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,})\b/g;
+// `"password": "x"` (JSON) and `'token': 'x'`: the quote after the key keeps
+// KEY_VALUE_PATTERN from seeing the separator.
+const QUOTED_KEY_VALUE_PATTERN =
+  /(["'])([A-Za-z_][A-Za-z0-9_-]*)\1(\s*:\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;}\]]+)/g;
+const KEY_VALUE_PATTERN =
+  /\b([A-Za-z_][A-Za-z0-9_-]*)(\s*(?:=|:)\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s,;}]+)/g;
+
+/** The one credential redaction for permission text: the tool input the host
+ *  stores and judges, and everything a permission prompt shows, stores and
+ *  recovers. Keys keep their separator; the value becomes `marker`. */
+export function redactCredentials(
+  raw: string,
+  marker = '[REDACTED_SECRET]',
+): string {
+  let redacted = raw
+    .replace(URL_USERINFO_PATTERN, `$1${marker}@`)
+    .replace(AUTH_VALUE_PATTERN, marker)
+    .replace(
+      QUOTED_KEY_VALUE_PATTERN,
+      (match, quote: string, key: string, separator: string, value: string) => {
+        if (!SENSITIVE_KEY_PATTERN.test(key)) return match;
+        const valueQuote = value[0] === '"' || value[0] === "'" ? value[0] : '';
+        return `${quote}${key}${quote}${separator}${valueQuote}${marker}${valueQuote}`;
+      },
+    )
+    .replace(
+      KEY_VALUE_PATTERN,
+      (match, key: string, separator: string, value: string) =>
+        // An already-masked value keeps its surrounding quotes.
+        SENSITIVE_KEY_PATTERN.test(key) && !value.startsWith(marker)
+          ? `${key}${separator}${marker}`
+          : match,
+    )
+    .replace(SHORT_TOKEN_PATTERN, marker);
+  for (const [pattern, replacement] of REDACTION_RULES)
+    redacted = redacted.replace(
+      pattern,
+      replacement.replace('[REDACTED_SECRET]', marker),
+    );
+  return redacted;
+}
 export function sanitizeOutboundLlmText(raw: string): {
   text: string;
   redacted: boolean;

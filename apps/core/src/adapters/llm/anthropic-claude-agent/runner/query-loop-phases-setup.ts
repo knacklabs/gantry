@@ -22,7 +22,7 @@ import { writeOutput } from './output.js';
 import { normalizeFilesystemSandboxPaths, readLocalCliCredentialDirectories } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 // prettier-ignore
-import { allowedOuterSandboxClaudeExecutable, discoverAdditionalDirectories, IPC_INPUT_DIR, IPC_INTERACTION_BOUNDARY_DIR, RUNTIME_SIGNAL_FALLBACK_POLL_MS, resolveClaudeCodeExecutableFromPath, WORKSPACE_GROUP_DIR } from './runtime-env.js';
+import { allowedOuterSandboxClaudeExecutable, discoverAdditionalDirectories, IPC_INPUT_DIR, IPC_INTERACTION_BOUNDARY_DIR, RUNTIME_SIGNAL_FALLBACK_POLL_MS, resolveClaudeCodeExecutableFromPath, TURN_INTENT_SUMMARY, WORKSPACE_GROUP_DIR } from './runtime-env.js';
 // prettier-ignore
 import { buildRunnerSystemPrompt, readMemoryContextBlock } from './system-prompt.js';
 import { completeGantryToolNames } from '../../../../shared/gantry-mcp-tool-surface.js';
@@ -364,7 +364,7 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
     attachedMcpSourceIds: agentInput.attachedMcpSourceIds, semanticCapabilities: agentInput.semanticCapabilities,
     hideAuthorityTools: agentInput.hideAuthorityTools === true,
     asyncTaskToolsEnabled: process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1',
-    memoryBlock: context.memoryBlock,
+    memoryBlock: context.memoryBlock, turnIntentSummary: TURN_INTENT_SUMMARY,
     accessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked' ? 'locked' : 'full',
     ipcDir: process.env.GANTRY_IPC_DIR, ipcAuthToken: process.env.GANTRY_IPC_AUTH_TOKEN,
     attachmentIpcAuthToken: process.env.GANTRY_ATTACHMENT_IPC_AUTH_TOKEN,

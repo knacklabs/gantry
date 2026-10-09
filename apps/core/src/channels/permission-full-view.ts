@@ -2,10 +2,7 @@ import type {
   PermissionApprovalRequest,
   InteractionFile,
 } from '../domain/types.js';
-import {
-  redactSensitiveText,
-  sanitizeOutboundLlmText,
-} from '../shared/sensitive-material.js';
+import { permissionPromptSafe } from '../shared/permission-display-input.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import { runtimeDisplayCommand } from './permission-tool-input-format.js';
 
@@ -181,9 +178,12 @@ function fullFileDiff(
   return undefined;
 }
 
+// The full view shows everything, so it is never shortened.
 function sanitizeFullPermissionText(input: string): string {
-  const result = sanitizeOutboundLlmText(redactSensitiveText(input));
-  return result.blocked ? 'Sensitive detail hidden.' : result.text;
+  return permissionPromptSafe(input, {
+    head: Number.POSITIVE_INFINITY,
+    tail: 0,
+  });
 }
 
 function formatApproxBytes(bytes: number): string {

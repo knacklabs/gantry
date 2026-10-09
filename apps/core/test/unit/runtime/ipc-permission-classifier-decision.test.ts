@@ -1684,7 +1684,7 @@ describe('IPC permission classifier decision', () => {
         risk_level: level,
         risk_category: category,
       });
-      expect(formatPermissionPromptText(promptRequest, 60_000)).toContain(
+      expect(formatPermissionPromptText(promptRequest)).toContain(
         `Risk: ${level} — ${category}`,
       );
       expect(decision).toMatchObject({

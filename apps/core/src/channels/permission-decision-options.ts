@@ -7,7 +7,12 @@ import type {
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { withRecoveredBatchOption } from './permission-batch-coalescer.js';
+
+const PROMPT_ORDER: readonly PermissionApprovalDecisionMode[] = [
+  'allow_once',
+  'allow_persistent_rule',
+  'cancel',
+];
 
 export function normalizePermissionAction(
   action: string,
@@ -18,18 +23,22 @@ export function normalizePermissionAction(
   return null;
 }
 
+/** Allow once, Allow for future (only when the request can save), Deny —
+ *  always in that order, and Deny is always offered. */
 export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
-  matchKind?: 'individual' | 'batch',
 ): PermissionApprovalDecisionMode[] {
   const rule = firstPersistentRule(request);
   const requested = request.decisionOptions;
-  const fallback: PermissionApprovalDecisionMode[] = rule
-    ? ['allow_once', 'allow_persistent_rule', 'cancel']
-    : ['allow_once', 'cancel'];
-  const options = requested?.length ? requested : fallback;
   if (!requested?.length && !rule) logOptionDrop(request);
-  return withRecoveredBatchOption(options, matchKind);
+  const offered: readonly PermissionApprovalDecisionMode[] = requested?.length
+    ? requested
+    : rule
+      ? PROMPT_ORDER
+      : ['allow_once'];
+  return PROMPT_ORDER.filter(
+    (mode) => mode === 'cancel' || offered.includes(mode),
+  );
 }
 
 function logOptionDrop(request: PermissionApprovalRequest): void {

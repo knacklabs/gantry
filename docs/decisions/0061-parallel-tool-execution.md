@@ -15,7 +15,7 @@ The question raised was whether agents can make parallel tool calls today, on th
 they cannot and that adding it would be a performance win.
 
 **They already can.** The model emits several `tool_use` blocks in one message, and gantry has
-`apps/core/src/channels/permission-batch-coalescer.ts` specifically to handle several tools
+a permission batch coalescer (since removed by PERMFLOW-1) specifically to handle several tools
 needing approval at once — collapsing them into a single prompt rather than interrupting the
 human repeatedly. Batch coalescing would not exist if calls did not arrive in batches. The SDK
 also exposes a `PostToolBatch` hook (unused by gantry).

@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildPermissionPromptParts,
-  formatPermissionPromptText,
-  formatPermissionPromptPartsText,
   PERMISSION_GLYPH,
 } from '@core/channels/permission-interaction.js';
 import {
@@ -29,7 +27,7 @@ const commandRequest: PermissionApprovalRequest = {
 
 describe('buildPermissionPromptParts', () => {
   it('splits a command prompt into title, fenced body, and context', () => {
-    const parts = buildPermissionPromptParts(commandRequest, 60_000);
+    const parts = buildPermissionPromptParts(commandRequest);
     expect(parts.title).toBe('Allow Main Agent to use exact command access?');
     expect(parts.bodyLines).toEqual(['Runs: npm']);
     expect(parts.contextLines[0]).toBe('Agent: Main Agent');
@@ -37,8 +35,6 @@ describe('buildPermissionPromptParts', () => {
     expect(parts.contextLines).toContain(
       'The agent cannot approve this itself.',
     );
-    expect(parts.replyInMinutes).toBe(1);
-    expect(parts.waitsForDecision).toBe(false);
     expect(parts.fullView).toMatchObject({
       label: 'View full command',
       content: 'npm test',
@@ -46,16 +42,13 @@ describe('buildPermissionPromptParts', () => {
   });
 
   it('keeps full command out of Telegram prompt unless full view is requested', () => {
-    const parts = buildPermissionPromptParts(
-      {
-        ...commandRequest,
-        toolInput: {
-          description: 'Run the test suite',
-          command: 'npm test -- --runInBand',
-        },
+    const parts = buildPermissionPromptParts({
+      ...commandRequest,
+      toolInput: {
+        description: 'Run the test suite',
+        command: 'npm test -- --runInBand',
       },
-      60_000,
-    );
+    });
     const collapsed = renderPermissionPromptHtml(parts);
     expect(collapsed).toContain('Run the test suite');
     expect(collapsed).not.toContain('npm test -- --runInBand');
@@ -85,20 +78,17 @@ describe('buildPermissionPromptParts', () => {
 
   it('keeps settings YAML in full view instead of the inline body', () => {
     const yaml = `agents:\n  main_agent:\n    name: Gantry\n${'x'.repeat(1200)}`;
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'settings-1',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_settings_update',
-        toolInput: {
-          expectedRevision: 'rev-1',
-          agentCount: 1,
-          replacementYaml: yaml,
-          diffSummary: ['+ 3:     name: Gantry'],
-        },
+    const parts = buildPermissionPromptParts({
+      requestId: 'settings-1',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_settings_update',
+      toolInput: {
+        expectedRevision: 'rev-1',
+        agentCount: 1,
+        replacementYaml: yaml,
+        diffSummary: ['+ 3:     name: Gantry'],
       },
-      60_000,
-    );
+    });
 
     expect(parts.bodyLines.join('\n')).not.toContain(yaml);
     expect(parts.fullView).toMatchObject({
@@ -109,15 +99,12 @@ describe('buildPermissionPromptParts', () => {
   });
 
   it('omits the body for a tool that takes no arguments (no empty Input block)', () => {
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'permission_1',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__gantry__guided_action_preview',
-        toolInput: {},
-      },
-      60_000,
-    );
+    const parts = buildPermissionPromptParts({
+      requestId: 'permission_1',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__gantry__guided_action_preview',
+      toolInput: {},
+    });
     expect(parts.bodyLines).toEqual([]);
     const html = renderPermissionPromptHtml(parts);
     expect(html).not.toContain('Input:');
@@ -125,36 +112,33 @@ describe('buildPermissionPromptParts', () => {
   });
 
   it('renders admin request tools as clean fields, not a raw JSON dump', () => {
-    const skill = buildPermissionPromptParts(
-      {
-        requestId: 'r',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_skill_install',
-        displayName: 'Skill: linkedin-posting',
-        toolInput: {
-          skillId: 'skill:564c',
-          name: 'linkedin-posting',
-          description: 'Publish posts to LinkedIn',
-          requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
-          files: [
-            {
-              path: 'SKILL.md',
-              sizeBytes: 1200,
-              contentHash: 'sha256:abc123',
-            },
-            { path: 'post.py', sizeBytes: 3400, contentHash: 'sha256:def456' },
-          ],
-          totalSizeBytes: 4600,
-          skillMarkdownPreview: {
-            path: '/tmp/staged/SKILL.md',
-            content:
-              '# LinkedIn Posting\n\nUse this skill to publish approved LinkedIn posts.',
-            truncated: false,
+    const skill = buildPermissionPromptParts({
+      requestId: 'r',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_skill_install',
+      displayName: 'Skill: linkedin-posting',
+      toolInput: {
+        skillId: 'skill:564c',
+        name: 'linkedin-posting',
+        description: 'Publish posts to LinkedIn',
+        requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+        files: [
+          {
+            path: 'SKILL.md',
+            sizeBytes: 1200,
+            contentHash: 'sha256:abc123',
           },
+          { path: 'post.py', sizeBytes: 3400, contentHash: 'sha256:def456' },
+        ],
+        totalSizeBytes: 4600,
+        skillMarkdownPreview: {
+          path: '/tmp/staged/SKILL.md',
+          content:
+            '# LinkedIn Posting\n\nUse this skill to publish approved LinkedIn posts.',
+          truncated: false,
         },
       },
-      60_000,
-    );
+    });
     expect(skill.bodyLines).toContain('Description: Publish posts to LinkedIn');
     expect(skill.bodyLines).toContain('Files: 2 (4.5 KB)');
     expect(skill.bodyLines).toContain('Review files:');
@@ -172,68 +156,62 @@ describe('buildPermissionPromptParts', () => {
     expect(skill.bodyLines.join('\n')).not.toContain('/tmp/staged');
     expect(skill.bodyLines.join('\n')).not.toContain('```json');
 
-    const mcp = buildPermissionPromptParts(
-      {
-        requestId: 'r',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_mcp_server',
-        displayName: 'MCP server: linear',
-        toolInput: {
-          name: 'linear',
-          transport: 'stdio_template',
-          sandboxProfileId: 'sp-1',
-          origin: 'npx -y @linear/mcp',
-          requestedToolPatterns: ['linear_*'],
-          credentialNeeds: ['LINEAR_API_KEY'],
-          networkHosts: ['api.linear.app:443'],
-        },
+    const mcp = buildPermissionPromptParts({
+      requestId: 'r',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_mcp_server',
+      displayName: 'MCP server: linear',
+      toolInput: {
+        name: 'linear',
+        transport: 'stdio_template',
+        sandboxProfileId: 'sp-1',
+        origin: 'npx -y @linear/mcp',
+        requestedToolPatterns: ['linear_*'],
+        credentialNeeds: ['LINEAR_API_KEY'],
+        networkHosts: ['api.linear.app:443'],
       },
-      60_000,
-    );
+    });
     expect(mcp.bodyLines).toContain('Transport: stdio_template');
     expect(mcp.bodyLines).toContain('Install: npx -y @linear/mcp');
-    expect(mcp.bodyLines).toContain('Needs credentials: LINEAR_API_KEY');
+    expect(mcp.bodyLines.join('\n')).not.toContain('LINEAR_API_KEY');
     expect(mcp.bodyLines).toContain('Network: api.linear.app:443');
     expect(mcp.bodyLines.join('\n')).not.toContain('sandboxProfileId');
   });
 
   it('redacts only sensitive values inside skill review previews', () => {
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'r',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_skill_proposal',
-        displayName: 'Skill: linkedin-posting',
-        toolInput: {
-          name: 'linkedin-posting',
-          description: 'Publish approved LinkedIn posts',
-          files: [
-            {
-              path: 'SKILL.md',
-              sizeBytes: 220,
-              contentHash: 'sha256:abc123',
-            },
-          ],
-          skillMarkdownPreview: {
+    const parts = buildPermissionPromptParts({
+      requestId: 'r',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_skill_proposal',
+      displayName: 'Skill: linkedin-posting',
+      toolInput: {
+        name: 'linkedin-posting',
+        description: 'Publish approved LinkedIn posts',
+        files: [
+          {
             path: 'SKILL.md',
-            content: [
-              '# LinkedIn Posting',
-              '',
-              'Use this skill to publish approved drafts.',
-              'access_token: abcdefghijklmnop123456',
-              'Network: api.linkedin.com:443',
-            ].join('\n'),
-            truncated: false,
+            sizeBytes: 220,
+            contentHash: 'sha256:abc123',
           },
+        ],
+        skillMarkdownPreview: {
+          path: 'SKILL.md',
+          content: [
+            '# LinkedIn Posting',
+            '',
+            'Use this skill to publish approved drafts.',
+            'access_token: abcdefghijklmnop123456',
+            'Network: api.linkedin.com:443',
+          ].join('\n'),
+          truncated: false,
         },
       },
-      60_000,
-    );
+    });
     const body = parts.bodyLines.join('\n');
 
     expect(body).toContain('# LinkedIn Posting');
     expect(body).toContain('Use this skill to publish approved drafts.');
-    expect(body).toContain('access_token=[REDACTED_SECRET]');
+    expect(body).toContain('access_token: [REDACTED_SECRET]');
     expect(body).toContain('Network: api.linkedin.com:443');
     expect(body).not.toContain('Sensitive detail hidden.');
     expect(body).not.toContain('abcdefghijklmnop123456');
@@ -244,7 +222,6 @@ describe('buildPermissionPromptParts', () => {
       title: 'Allow profile update?',
       bodyLines: ['Full content:', '```markdown', 'x'.repeat(3500), '```'],
       contextLines: ['Agent: Main Agent'],
-      replyInMinutes: 1,
     });
 
     const sectionTexts = blocks
@@ -269,22 +246,19 @@ describe('buildPermissionPromptParts', () => {
   });
 
   it('drops internal plumbing ids from the generic fallback for unknown tools', () => {
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'permission_1',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__third_party__do_thing',
-        toolInput: {
-          label: 'deploy',
-          chatJid: 'tg:-100team',
-          ipcDir: '/var/run/gantry/ipc',
-          runHandle: 'rh-9',
-          sandboxProfileId: 'sp-1',
-          agentId: 'agent:team',
-        },
+    const parts = buildPermissionPromptParts({
+      requestId: 'permission_1',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__third_party__do_thing',
+      toolInput: {
+        label: 'deploy',
+        chatJid: 'tg:-100team',
+        ipcDir: '/var/run/gantry/ipc',
+        runHandle: 'rh-9',
+        sandboxProfileId: 'sp-1',
+        agentId: 'agent:team',
       },
-      60_000,
-    );
+    });
     const body = parts.bodyLines.join('\n');
     expect(body).toContain('Label: deploy');
     expect(body).not.toContain('tg:-100team');
@@ -295,47 +269,45 @@ describe('buildPermissionPromptParts', () => {
   });
 
   it('adds a parent-conversation note for thread-routed requests', () => {
-    const parts = buildPermissionPromptParts(
-      { ...commandRequest, targetJid: 'tg:-100team', threadId: '42' },
-      60_000,
-    );
+    const parts = buildPermissionPromptParts({
+      ...commandRequest,
+      targetJid: 'tg:-100team',
+      threadId: '42',
+    });
     expect(parts.contextLines).toContain(
       'Approval applies to the parent conversation.',
     );
   });
 
   it('surfaces account and risk for semantic capability grants', () => {
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'permission_1',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_permission',
-        toolInput: {
-          capabilityId: 'acme.records.append',
-          capabilityDisplayName: 'Acme records append',
-          accountLabel: 'Acme tenant',
+    const parts = buildPermissionPromptParts({
+      requestId: 'permission_1',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      toolInput: {
+        capabilityId: 'acme.records.append',
+        capabilityDisplayName: 'Acme records append',
+        accountLabel: 'Acme tenant',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.records.append' }],
         },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:acme.records.append' }],
-          },
-        ],
-        semanticCapabilityDefinitions: {
-          'acme.records.append': {
-            capabilityId: 'acme.records.append',
-            displayName: 'Acme records append',
-            category: 'acme',
-            risk: 'write',
-            credentialSource: 'configured_access',
-            implementationBindings: [],
-            preflight: { kind: 'none' },
-          },
+      ],
+      semanticCapabilityDefinitions: {
+        'acme.records.append': {
+          capabilityId: 'acme.records.append',
+          displayName: 'Acme records append',
+          category: 'acme',
+          risk: 'write',
+          credentialSource: 'configured_access',
+          implementationBindings: [],
+          preflight: { kind: 'none' },
         },
       },
-      60_000,
-    );
+    });
     expect(parts.title).toBe('Allow Main Agent to use Acme records append?');
     expect(parts.bodyLines).toContain('Risk: Write');
   });
@@ -379,7 +351,7 @@ describe('Telegram HTML rendering', () => {
 
   it('wraps the prompt title and never leaks raw code fences', () => {
     const html = renderPermissionPromptHtml(
-      buildPermissionPromptParts(commandRequest, 60_000),
+      buildPermissionPromptParts(commandRequest),
     );
     expect(html).toContain(
       `<b>${PERMISSION_GLYPH} Allow Main Agent to use exact command access?</b>`,
@@ -387,58 +359,19 @@ describe('Telegram HTML rendering', () => {
     expect(html).toContain('Runs: npm');
     expect(html).not.toContain('<pre>npm test</pre>');
     expect(html).not.toContain('```');
-    expect(html).toContain('<i>Reply in 1m</i>');
-  });
-
-  it('shows an open decision wait for scheduled jobs in text parts and Telegram HTML', () => {
-    const parts = buildPermissionPromptParts(
-      { ...commandRequest, jobId: 'job-1' },
-      60_000,
-    );
-
-    expect(parts.waitsForDecision).toBe(true);
-    expect(formatPermissionPromptPartsText(parts)).toContain(
-      'This request stays open until you decide.',
-    );
-    expect(formatPermissionPromptPartsText(parts)).not.toContain('Reply in');
-    expect(renderPermissionPromptHtml(parts)).toContain(
-      '<i>This request stays open until you decide.</i>',
-    );
-    expect(renderPermissionPromptHtml(parts)).not.toContain('Reply in');
-  });
-
-  it('shows an open decision wait for scheduled-job batch prompts', () => {
-    const request = {
-      ...commandRequest,
-      jobId: 'job-1',
-      permissionBatch: {
-        requestIds: ['permission_1', 'permission_2'],
-        rows: ['1. Read notes.md', '2. Run npm test'],
-      },
-    };
-
-    expect(formatPermissionPromptText(request, 60_000)).toContain(
-      'This request stays open until you decide.',
-    );
-    expect(formatPermissionPromptText(request, 60_000)).not.toContain(
-      'Reply in',
-    );
   });
 
   it('hides secrets and keeps shell metacharacters HTML-safe', () => {
     const html = renderPermissionPromptHtml(
-      buildPermissionPromptParts(
-        {
-          requestId: 'permission_1',
-          sourceAgentFolder: 'main_agent',
-          toolName: 'Bash',
-          toolInput: {
-            command:
-              'curl https://x.test -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456" > /tmp/out',
-          },
+      buildPermissionPromptParts({
+        requestId: 'permission_1',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            'curl https://x.test -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456" > /tmp/out',
         },
-        60_000,
-      ),
+      }),
     );
     expect(html).toContain('hidden because it may contain sensitive values');
     expect(html).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
@@ -482,7 +415,7 @@ describe('truncateSlackText', () => {
 describe('Slack permission blocks', () => {
   it('renders header, section, context, and divider', () => {
     const blocks = buildPermissionPromptContentBlocks(
-      buildPermissionPromptParts(commandRequest, 60_000),
+      buildPermissionPromptParts(commandRequest),
     ) as Array<Record<string, any>>;
     expect(blocks[0].type).toBe('header');
     expect(blocks[0].text.text).toBe(
@@ -492,7 +425,6 @@ describe('Slack permission blocks', () => {
     const context = blocks.find((b) => b.type === 'context');
     expect(context?.elements[0].text).toContain('Agent: Main Agent');
     expect(context?.elements[0].text).toContain('Context: agent chat');
-    expect(context?.elements[0].text).toContain('Reply in 1m');
     expect(blocks.at(-1)?.type).toBe('divider');
   });
 

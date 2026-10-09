@@ -456,6 +456,11 @@ export function parseTaskIpcData(
   if (threadBinding.sourceRunKind) {
     parsed.sourceRunKind = threadBinding.sourceRunKind;
   }
+  const turnIntentSummary = toTrimmedString(
+    isPlainObject(raw.context) ? raw.context.turnIntentSummary : undefined,
+    { maxLen: 1_500 },
+  );
+  if (turnIntentSummary) parsed.turnIntentSummary = turnIntentSummary;
   if (threadBinding.payloadThreadId !== undefined) {
     parsed.threadId = threadBinding.payloadThreadId;
   }

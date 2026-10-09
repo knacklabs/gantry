@@ -1,30 +1,18 @@
 import { isPlainObject } from '../shared/object.js';
+import {
+  redactCredentials,
+  SENSITIVE_KEY_PATTERN,
+} from '../shared/sensitive-material.js';
 
 const TOOL_INPUT_MAX_DEPTH = 2;
 const TOOL_INPUT_MAX_KEYS = 40;
 const TOOL_INPUT_MAX_ARRAY_ENTRIES = 20;
 const TOOL_INPUT_MAX_STRING_LENGTH = 500;
 
-export const SENSITIVE_TOOL_INPUT_KEY_PATTERN =
-  /(secret|token|password|passphrase|credential|api[_-]?key|key|authorization|bearer|cookie|session)/i;
-
-const AUTH_VALUE_PATTERN = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-const KNOWN_TOKEN_PATTERN =
-  /\b(?:sk-[A-Za-z0-9_-]{8,}|gh[po]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,}|xox[abp]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,})\b/g;
-const ENV_VALUE_PATTERN =
-  /\b([A-Za-z_][A-Za-z0-9_-]*)(\s*(?:=|:)\s*)("[^"]*"|'[^']*'|[^\s,;}]+)/g;
-const URL_USERINFO_PATTERN = /(:\/\/)[^\s/@:]+:[^\s/@]+@/g;
+export const SENSITIVE_TOOL_INPUT_KEY_PATTERN = SENSITIVE_KEY_PATTERN;
 
 export function redactSensitiveToolInputString(value: string): string {
-  return value
-    .replace(URL_USERINFO_PATTERN, '$1[REDACTED]@')
-    .replace(AUTH_VALUE_PATTERN, '[REDACTED]')
-    .replace(KNOWN_TOKEN_PATTERN, '[REDACTED]')
-    .replace(ENV_VALUE_PATTERN, (match, key: string, separator: string) =>
-      SENSITIVE_TOOL_INPUT_KEY_PATTERN.test(key)
-        ? `${key}${separator}[REDACTED]`
-        : match,
-    );
+  return redactCredentials(value, '[REDACTED]');
 }
 
 interface SanitizationState {

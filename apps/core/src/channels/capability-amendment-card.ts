@@ -1,26 +1,17 @@
 import type {
   PermissionApprovalDecision,
-  PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
 } from '../domain/types.js';
 
 /**
  * Capability template amendment card copy (decision 0122): plain-language,
- * ability-terms body with "Approve fix" / "Deny" buttons. Kept out of
+ * ability-terms body with the admin Allow once / Deny buttons. Kept out of
  * permission-interaction.ts so the shared prompt module stays a router.
  */
 export function isCapabilityTemplateAmendmentRequest(
   request: PermissionApprovalRequest,
 ): boolean {
   return request.toolName === 'capability_template_amendment';
-}
-
-export function amendmentButtonLabel(
-  request: PermissionApprovalRequest,
-  mode: PermissionApprovalDecisionMode,
-): string | null {
-  if (!isCapabilityTemplateAmendmentRequest(request)) return null;
-  return mode === 'allow_once' ? 'Approve fix' : 'Deny';
 }
 
 export function amendmentReceiptText(
@@ -46,7 +37,6 @@ export function amendmentPromptParts(
   request: PermissionApprovalRequest,
   input: {
     contextLines: string[];
-    replyInMinutes: number;
     fullView: unknown;
     sanitize: (text: string, maxLen: number, maxWord: number) => string;
   },
@@ -54,7 +44,6 @@ export function amendmentPromptParts(
   title: string;
   bodyLines: string[];
   contextLines: string[];
-  replyInMinutes: number;
   fullView: unknown;
 } | null {
   if (!isCapabilityTemplateAmendmentRequest(request)) return null;
@@ -68,7 +57,6 @@ export function amendmentPromptParts(
       .map((line) => input.sanitize(line, 500, 160))
       .filter(Boolean),
     contextLines: input.contextLines,
-    replyInMinutes: input.replyInMinutes,
     fullView: input.fullView,
   };
 }

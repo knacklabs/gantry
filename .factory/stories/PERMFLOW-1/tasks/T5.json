@@ -1,0 +1,62 @@
+{
+  "branch": "task/PERMFLOW-1-T5",
+  "flagged": [
+    "apps/core/src/shared/permission-display-input.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "ea179a8660d2be236d8649b582a3838542ac7687c5cda8cd84ad52b72da2eeac",
+    "changed": "78577e4066f1bbb9afd3ba108c78bdea0a9e387373d148114bf7826a171df3ed",
+    "commit": "1fe20ab4c15b29d5b9cab6a8b6a2b699d1e2c6e4",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "chunk 1/2:\n\nCommand strings return before `detectPotentialUnredactedSecret` runs. A command containing an opaque credential in an `X-Auth` header therefore retains it in the durable snapshot, even though the same token is hidden by the full-view sanitizer. The raw-input path is verified at `inline-agent-loop-tools.ts:351`, and `durable-interaction-handler.ts:181` persists this projection. There is also a partial-redaction case: `KEY_VALUE_PATTERN` in `sensitive-material.ts:151` treats an escaped double quote as the end of a password value, so a valid assignment such as `PGPASSWORD=\"prefix\\\"suffix\"` leaves the credential suffix stored and visible in full views. These command cases are new evidence beyond the repaired field-name and shortening cases. Mask complete credential spans and apply the opaque-secret fallback before storing commands; cover both cases in the existing secret regression table.",
+        "file": "apps/core/src/shared/permission-display-input.ts",
+        "line": 193,
+        "priority": "P1",
+        "title": "Not done: command credentials are hidden in durable snapshots"
+      },
+      {
+        "body": "chunk 1/2:\n\nThe formatter recognizes conversation markup anywhere in the text, including an already-extracted user request. For example, a request saying `Count <messages> elements in this XML file` is extracted and unescaped successfully, but the snapshot calls `permissionRequestWhyText` again. This check then classifies that plain request as a formatted conversation, finds no `<message>` wrapper, and returns undefined at line 191. Consequently, every provider loses its Why line. Recognize the actual conversation envelope once and preserve literal tags in extracted request text.",
+        "file": "apps/core/src/application/interactions/pending-interaction-permission-envelope.ts",
+        "line": 184,
+        "priority": "P2",
+        "title": "Preserve literal XML tags in the request-derived why line"
+      }
+    ],
+    "id": "1bde4828-0892-436b-a673-8d8599e548a7",
+    "status": "blocked"
+  },
+  "round": 4,
+  "status": "fixing",
+  "steps": [
+    {
+      "at": "2026-10-02T02:39:54+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T06:07:35+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T11:21:50+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T14:16:35+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T16:00:54+00:00",
+      "step": "review"
+    }
+  ],
+  "stop": {
+    "choice": "narrow",
+    "file": "apps/core/src/shared/permission-display-input.ts",
+    "reason": "Owner: keep it simple, like Claude Code. Narrow to the three open findings: run the one secret rule over the full text before any shortening, mask every credential-named field (key included) with no allowlist exceptions, store only the shown text, and drive the e2e tap through the real Telegram handler",
+    "round": 4
+  },
+  "worker": "codex"
+}

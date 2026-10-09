@@ -107,6 +107,18 @@ describe('ASKFLOOR tap budget', () => {
 
     expect(replay.taps).toEqual([1, 1, 1, 1]);
     expect(replay.rows).toHaveLength(0);
+    expect(replay.claimedCodes).toEqual([
+      'remember_allow_exact',
+      'remember_allow_exact',
+      'cancel',
+      'cancel',
+    ]);
+    expect(replay.applications).toEqual([
+      'allow_once',
+      'allow_once',
+      'cancel',
+      'cancel',
+    ]);
     expect(replay.decisions).toMatchObject([
       { approved: true, mode: 'allow_once', source: 'human_once' },
       { approved: true, mode: 'allow_once', source: 'human_once' },

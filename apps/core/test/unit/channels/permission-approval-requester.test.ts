@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
-import { DEFAULT_PERMISSION_BATCH_WINDOW_MS } from '@core/channels/permission-batch-coalescer.js';
 import type {
   PermissionApprovalRequest,
   PermissionApprovalResult,
@@ -144,98 +143,6 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     },
   );
 
-  it('preserves a retryable member cancellation through batch fan-out', async () => {
-    vi.useFakeTimers();
-    let resolveBatchDecision!: (result: PermissionApprovalResult) => void;
-    const requestPermissionApproval = vi.fn(
-      async (_jid, _request, onPromptDelivered) => {
-        onPromptDelivered?.('permission-batch-prompt');
-        return new Promise<PermissionApprovalResult>((resolve) => {
-          resolveBatchDecision = resolve;
-        });
-      },
-    );
-    const cancelPendingPermission = vi.fn(async () => 'retryable' as const);
-    const requester = createPermissionApprovalRequester({
-      findBoundChannel: () => ({}),
-      asPermissionApprovalSurface: () => ({
-        requestPermissionApproval,
-        cancelPendingPermission,
-      }),
-      interactionLifecycle: { logger: { error: vi.fn() } },
-    });
-    const first: PermissionApprovalRequest = {
-      requestId: 'permission-batch-member-1',
-      appId: 'default',
-      sourceAgentFolder: 'main_agent',
-      targetJid: 'tg:team',
-      threadId: 'thread-1',
-      runId: 'run-1',
-      toolName: 'Bash',
-      toolInput: { command: 'git status' },
-    };
-    const second: PermissionApprovalRequest = {
-      ...first,
-      requestId: 'permission-batch-member-2',
-      toolInput: { command: 'git diff' },
-    };
-    const decisions = [requester(first), requester(second)];
-
-    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
-    await expect(
-      requester.cancel({
-        requestId: second.requestId,
-        appId: second.appId,
-        sourceAgentFolder: second.sourceAgentFolder,
-        reason: 'Permission request cancelled.',
-      }),
-    ).resolves.toBe('queued');
-
-    resolveBatchDecision({
-      kind: 'decision',
-      decision: {
-        approved: true,
-        mode: 'allow_persistent_rule',
-        decidedBy: 'approver',
-        updatedPermissions: [
-          {
-            type: 'add_permission',
-            rule: 'RunCommand(git:*)',
-            behavior: 'allow',
-            destination: 'agent',
-          },
-        ],
-      },
-    });
-
-    await expect(Promise.all(decisions)).resolves.toEqual([
-      expect.objectContaining({
-        kind: 'decision',
-        decision: expect.objectContaining({
-          approved: true,
-          mode: 'allow_once',
-        }),
-      }),
-      expect.objectContaining({
-        kind: 'decision',
-        decision: expect.objectContaining({
-          approved: false,
-          mode: 'cancel',
-          reason: 'Permission request cancelled.',
-        }),
-      }),
-    ]);
-    expect((await decisions[1]).kind).toBe('decision');
-    expect(
-      (await decisions[1]).kind === 'decision'
-        ? (await decisions[1]).decision.updatedPermissions
-        : undefined,
-    ).toBeUndefined();
-
-    await vi.advanceTimersByTimeAsync(250);
-    expect(cancelPendingPermission).toHaveBeenCalledOnce();
-  });
-
   it('reports run-scoped prompt delivery only to the first coalesced caller', async () => {
     vi.useFakeTimers();
     const requestPermissionApproval = vi.fn(
@@ -271,67 +178,11 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     const replay = requester({ ...request }, replayDelivered);
     expect(replay).toBe(first);
 
-    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
     await expect(Promise.all([first, replay])).resolves.toHaveLength(2);
 
     expect(firstDelivered).toHaveBeenCalledOnce();
     expect(firstDelivered).toHaveBeenCalledWith('permission-prompt');
     expect(replayDelivered).not.toHaveBeenCalled();
-  });
-
-  it('reports one batch prompt delivery to each distinct request scope but not replays', async () => {
-    vi.useFakeTimers();
-    const requestPermissionApproval = vi.fn(
-      async (_jid, _request, onPromptDelivered) => {
-        onPromptDelivered?.('permission-batch-prompt');
-        onPromptDelivered?.('duplicate-provider-signal');
-        return {
-          kind: 'decision' as const,
-          decision: {
-            approved: false,
-            mode: 'cancel' as const,
-            decidedBy: 'owner',
-          },
-        };
-      },
-    );
-    const requester = createPermissionApprovalRequester({
-      findBoundChannel: () => ({}),
-      asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
-      interactionLifecycle: { logger: { error: vi.fn() } },
-    });
-    const first: PermissionApprovalRequest = {
-      requestId: 'permission-batch-delivery-1',
-      appId: 'default',
-      sourceAgentFolder: 'main_agent',
-      targetJid: 'tg:team',
-      runId: 'run-1',
-      toolName: 'Bash',
-      toolInput: { command: 'git status' },
-    };
-    const second: PermissionApprovalRequest = {
-      ...first,
-      requestId: 'permission-batch-delivery-2',
-      toolInput: { command: 'git diff' },
-    };
-    const firstDelivered = vi.fn();
-    const firstReplayDelivered = vi.fn();
-    const secondDelivered = vi.fn();
-
-    const firstDecision = requester(first, firstDelivered);
-    const firstReplayDecision = requester({ ...first }, firstReplayDelivered);
-    const secondDecision = requester(second, secondDelivered);
-
-    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
-    await expect(
-      Promise.all([firstDecision, firstReplayDecision, secondDecision]),
-    ).resolves.toHaveLength(3);
-
-    expect(firstDelivered).toHaveBeenCalledOnce();
-    expect(firstDelivered).toHaveBeenCalledWith('permission-batch-prompt');
-    expect(secondDelivered).toHaveBeenCalledOnce();
-    expect(secondDelivered).toHaveBeenCalledWith('permission-batch-prompt');
-    expect(firstReplayDelivered).not.toHaveBeenCalled();
   });
 
   it('applies a retryable cancellation if a single prompt resolves before its retry', async () => {
@@ -432,41 +283,57 @@ describe('createPermissionApprovalRequester cancellation retries', () => {
     });
   });
 
-  it('preserves a provider unknown-delivery failure through batch fan-out', async () => {
-    vi.useFakeTimers();
-    const providerFailure = {
-      kind: 'delivery_failure' as const,
-      code: 'provider_failed' as const,
-      retryable: false,
-      delivered: 'unknown' as const,
-      userMessage: 'Slack may have posted the prompt',
-    };
+  it('delivers simultaneous asks as separate prompts and answers each one independently', async () => {
+    const answers = new Map<
+      string,
+      (result: PermissionApprovalResult) => void
+    >();
+    const prompted: PermissionApprovalRequest[] = [];
     const requester = createPermissionApprovalRequester({
       findBoundChannel: () => ({}),
       asPermissionApprovalSurface: () => ({
-        requestPermissionApproval: async () => providerFailure,
+        requestPermissionApproval: async (_jid, request) => {
+          prompted.push(request);
+          return new Promise<PermissionApprovalResult>((resolve) => {
+            answers.set(request.requestId, resolve);
+          });
+        },
       }),
       interactionLifecycle: { logger: { error: vi.fn() } },
     });
-    const request: PermissionApprovalRequest = {
-      requestId: 'permission-batch-provider-failure-1',
+    const first: PermissionApprovalRequest = {
+      requestId: 'permission-simultaneous-1',
       appId: 'default',
       sourceAgentFolder: 'main_agent',
-      targetJid: 'sl:team',
+      targetJid: 'tg:team',
       runId: 'run-1',
       toolName: 'Bash',
+      toolInput: { command: 'git status' },
     };
-    const first = requester(request);
-    const second = requester({
-      ...request,
-      requestId: 'permission-batch-provider-failure-2',
+    const second: PermissionApprovalRequest = {
+      ...first,
+      requestId: 'permission-simultaneous-2',
+      toolInput: { command: 'git diff' },
+    };
+
+    const firstDecision = requester(first);
+    const secondDecision = requester(second);
+    await vi.waitFor(() => expect(prompted).toHaveLength(2));
+
+    expect(prompted).toEqual([first, second]);
+    answers.get(second.requestId)!({
+      kind: 'decision',
+      decision: { approved: false, mode: 'cancel', decidedBy: 'owner' },
     });
-
-    await vi.advanceTimersByTimeAsync(DEFAULT_PERMISSION_BATCH_WINDOW_MS);
-
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      providerFailure,
-      providerFailure,
-    ]);
+    await expect(secondDecision).resolves.toMatchObject({
+      decision: { approved: false, mode: 'cancel' },
+    });
+    answers.get(first.requestId)!({
+      kind: 'decision',
+      decision: { approved: true, mode: 'allow_once', decidedBy: 'owner' },
+    });
+    await expect(firstDecision).resolves.toMatchObject({
+      decision: { approved: true, mode: 'allow_once' },
+    });
   });
 });

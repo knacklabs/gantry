@@ -209,7 +209,7 @@ export const TAP_BUDGET_WORKSPACE_ROOT =
 
 interface ExactMemoryReplay {
   taps: number[];
-  claimedCodes: PermissionRememberCode[];
+  claimedCodes: (PermissionRememberCode | 'cancel')[];
   applications: PermissionApprovalDecision['mode'][];
   decisions: PermissionApprovalDecision[];
   rows: PermissionDecisionMemoryRow[];
@@ -217,7 +217,10 @@ interface ExactMemoryReplay {
 
 async function replayExactMemorySequence(
   scenario: string,
-  steps: Array<{ command: string; rememberCode?: PermissionRememberCode }>,
+  steps: Array<{
+    command: string;
+    rememberCode?: PermissionRememberCode | 'cancel';
+  }>,
   options: {
     classifierConsult?: () => Promise<
       TapBudgetFixture['classifierVerdict'] & { latencyMs: number }
@@ -228,7 +231,7 @@ async function replayExactMemorySequence(
   const rows: PermissionDecisionMemoryRow[] = [];
   const decisionMemory = inMemoryDecisionMemory(rows);
   const durability = inMemoryPermissionDurability();
-  const claimedCodes: PermissionRememberCode[] = [];
+  const claimedCodes: (PermissionRememberCode | 'cancel')[] = [];
   const applications: PermissionApprovalDecision['mode'][] = [];
   const decisions: PermissionApprovalDecision[] = [];
   const taps: number[] = [];
@@ -360,7 +363,7 @@ export async function replayRememberedExactAllow(
   options?: Parameters<typeof replayExactMemorySequence>[2],
 ): Promise<{
   taps: number[];
-  claimedCodes: PermissionRememberCode[];
+  claimedCodes: (PermissionRememberCode | 'cancel')[];
   applications: PermissionApprovalDecision['mode'][];
   activeRows: number;
 }> {
@@ -390,8 +393,8 @@ export function replayDestructiveExactMemory(
     [
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
       { command: 'rm -rf build', rememberCode: 'remember_allow_exact' },
-      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
-      { command: 'rm -rf dist', rememberCode: 'remember_deny_exact' },
+      { command: 'rm -rf dist', rememberCode: 'cancel' },
+      { command: 'rm -rf dist', rememberCode: 'cancel' },
     ],
     options,
   );
@@ -614,7 +617,6 @@ export function inMemoryDecisionMemory(
       row.revokedAt = input.nowIso;
       return 'applied';
     },
-    countExactAllowsByTool: async () => ({}),
   };
 }
 

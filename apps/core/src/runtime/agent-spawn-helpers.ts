@@ -20,6 +20,7 @@ import {
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { computeAttachmentIpcAuthToken } from './ipc-auth.js';
 import { modelInputModalities } from '../shared/model-catalog.js';
+import { currentTurnRequest } from '../application/interactions/pending-interaction-permission-envelope.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
@@ -189,7 +190,10 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_PERMISSION_MODE:
       input.permissionMode === 'auto_strict' ? 'auto' : input.permissionMode,
     GANTRY_PERMISSION_LANE: input.permissionLane,
-    GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
+    // The person's request, taken before the cap so context can't push it out.
+    GANTRY_TURN_INTENT_SUMMARY: (
+      currentTurnRequest(input.turnIntentSummary) ?? input.turnIntentSummary
+    ).slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,

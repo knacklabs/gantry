@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   buildPermissionCardAffordances,
@@ -7,9 +7,10 @@ import {
 import {
   formatPermissionCardPreTapLines,
   formatPermissionCardReceipt,
-  permissionCardButtonLabel,
   permissionCardDecisionOptions,
 } from '@core/channels/permission-card-affordances.js';
+import { permissionButtonLabel } from '@core/channels/permission-interaction.js';
+import { permissionDecisionOptions } from '@core/channels/permission-decision-options.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 const remembered = (scopeKey = 'scope') => ({
@@ -45,49 +46,31 @@ function context(
   };
 }
 
-describe('permission card affordances', () => {
-  it('renders eligible destructive protected and trust-growth cards with the exact labels order scope nouns and pre and post-tap lines and picks family over trust growth over folder as the single alternative', async () => {
-    const folder = await buildPermissionCardAffordances({
-      request: request(),
-      rememberContext: context(),
-      canonicalRoot: '/workspace/project',
-      highRisk: false,
-    });
-    expect(permissionCardDecisionOptions(folder)).toEqual([
-      'remember_allow_exact',
-      'remember_allow_place',
-      'allow_once',
-      'remember_deny_exact',
-    ]);
-    expect(
-      permissionCardDecisionOptions(folder).map((code) =>
-        permissionCardButtonLabel(code, folder),
-      ),
-    ).toEqual(['Allow', 'Allow only in this folder', 'Just this once', 'No']);
-    expect(formatPermissionCardPreTapLines(folder)).toEqual([
-      'Allow will remember: this exact action',
-      'Allow only in this folder will remember: only in /workspace/project.',
-      'No will remember: this exact action.',
-    ]);
-    expect(formatPermissionCardReceipt(folder, 'remember_allow_exact')).toBe(
-      'Remembered: this exact action. Change it any time with /permissions.',
-    );
-    expect(formatPermissionCardReceipt(folder, 'remember_allow_place')).toBe(
-      'Remembered: only in /workspace/project. Change it any time with /permissions.',
-    );
-    expect(formatPermissionCardReceipt(folder, 'remember_deny_exact')).toBe(
-      "I'll keep saying no to this exact action. Change it with /permissions.",
-    );
+const labels = (
+  card: Awaited<ReturnType<typeof buildPermissionCardAffordances>>,
+) =>
+  permissionCardDecisionOptions(card).map((code) =>
+    permissionButtonLabel(code),
+  );
 
+describe('permission card affordances', () => {
+  it('offers Allow once, Allow for future and Deny, with Allow for future remembering only this exact action and Deny never remembered', async () => {
     const read = await buildPermissionCardAffordances({
       request: request({
-        toolName: 'FileRead',
         toolInput: { file_path: '/workspace/project/report.md' },
       }),
       rememberContext: context(),
-      highRisk: false,
     });
-    expect(read.preTapLines[0]).toBe('Allow will remember: this exact action');
+    expect(permissionCardDecisionOptions(read)).toEqual([
+      'allow_once',
+      'remember_allow_exact',
+      'cancel',
+    ]);
+    expect(labels(read)).toEqual(['Allow once', 'Allow for future', 'Deny']);
+    expect(read.offered).toEqual(['remember_allow_exact']);
+    expect(formatPermissionCardPreTapLines(read)).toEqual([
+      'Allow for future remembers: this exact action.',
+    ]);
     expect(formatPermissionCardReceipt(read, 'remember_allow_exact')).toBe(
       'Remembered: this exact action. Change it any time with /permissions.',
     );
@@ -98,26 +81,13 @@ describe('permission card affordances', () => {
         toolInput: { file_path: '/workspace/project/report.md' },
       }),
       rememberContext: context(),
-      highRisk: false,
     });
-    expect(write.preTapLines[0]).toBe(
-      'Allow will remember: writing to /workspace/project/report.md — any future content, no more asking for this file',
-    );
+    expect(write.preTapLines).toEqual([
+      'Allow for future remembers: writing to /workspace/project/report.md — any future content, no more asking for this file.',
+    ]);
     expect(formatPermissionCardReceipt(write, 'remember_allow_exact')).toBe(
       'Remembered: writes to /workspace/project/report.md (any content). Change it any time with /permissions.',
     );
-    // The public write identities classify as writes too.
-    for (const toolName of ['Write', 'Edit', 'MultiEdit']) {
-      const publicWrite = await buildPermissionCardAffordances({
-        request: request({
-          toolName,
-          toolInput: { file_path: '/workspace/project/report.md' },
-        }),
-        rememberContext: context(),
-        highRisk: false,
-      });
-      expect(publicWrite.preTapLines[0]).toBe(write.preTapLines[0]);
-    }
 
     const destructive = await buildPermissionCardAffordances({
       request: request({
@@ -126,121 +96,62 @@ describe('permission card affordances', () => {
         toolInput: { command: 'rm -rf build' },
       }),
       rememberContext: context(),
-      canonicalRoot: '/workspace/project',
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockResolvedValue(3),
     });
-    expect(permissionCardDecisionOptions(destructive)).toEqual([
-      'remember_allow_exact',
-      'allow_once',
-      'remember_deny_exact',
+    expect(labels(destructive)).toEqual([
+      'Allow once',
+      'Allow for future',
+      'Deny',
     ]);
-    expect(destructive.alternative).toBeUndefined();
     expect(destructive.preTapLines).toEqual([
-      'Allow will remember: this exact command only — nothing broader. No will remember: this exact command.',
+      'Allow for future remembers: this exact command only — nothing broader.',
     ]);
+  });
 
+  it('shows no alternative button even when a command family, trust growth or folder could be saved', async () => {
+    const family = await buildPermissionCardAffordances({
+      request: request({
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'git *' }],
+          },
+        ],
+      }),
+      rememberContext: context(),
+    });
+    expect(labels(family)).toEqual(['Allow once', 'Allow for future', 'Deny']);
+    expect(family).not.toHaveProperty('alternative');
+    expect(family.offered).toEqual(['remember_allow_exact']);
+  });
+
+  it('offers only Allow once and Deny for a protected path, and falls back to the plain prompt when this action cannot be saved', async () => {
     const protectedCard = await buildPermissionCardAffordances({
       request: request({ blockedPath: '/workspace/.env' }),
       rememberContext: context({
         exact: { ok: false, reason: 'protected_destination' },
       }),
-      canonicalRoot: '/workspace/project',
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockResolvedValue(3),
     });
-    expect(permissionCardDecisionOptions(protectedCard)).toEqual([
-      'allow_once',
-      'remember_deny_exact',
-    ]);
-    expect(
-      permissionCardDecisionOptions(protectedCard).map((code) =>
-        permissionCardButtonLabel(code, protectedCard),
-      ),
-    ).toEqual(['Allow once', 'No']);
+    expect(labels(protectedCard)).toEqual(['Allow once', 'Deny']);
     expect(protectedCard.preTapLines).toEqual([
       '/workspace/.env is protected, so I always ask.',
     ]);
 
-    const familyCount = vi.fn().mockResolvedValue(3);
-    const family = await buildPermissionCardAffordances({
-      request: request({
-        toolName: 'RunCommand',
-        toolInput: { command: 'npm test' },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
-          },
-        ],
-      }),
-      rememberContext: context(),
-      canonicalRoot: '/workspace/project',
-      highRisk: true,
-      countExactAllowsByTool: familyCount,
-    });
-    expect(family.alternative).toEqual({
-      code: 'allow_persistent_rule',
-      label: 'Allow all `npm` commands',
-      line: 'Allow for future covers: npm *',
-    });
-    expect(familyCount).not.toHaveBeenCalled();
-
-    const trust = await buildPermissionCardAffordances({
-      request: request({ toolName: 'FileWrite' }),
-      rememberContext: context(),
-      canonicalRoot: '/workspace/project',
-      toolLabel: 'file writing',
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockResolvedValue(3),
-    });
-    expect(trust.alternative).toEqual({
-      code: 'remember_allow_kind',
-      label: 'Allow all file writing actions',
-      line: 'Allow all file writing actions will remember: every file writing action, anywhere.',
-    });
-    expect(formatPermissionCardReceipt(trust, 'remember_allow_kind')).toBe(
-      'Remembered: this kind of action, anywhere. Change it any time with /permissions.',
-    );
-
-    const displayFallback = await buildPermissionCardAffordances({
-      request: request({
-        toolName: 'custom_internal_id',
-        displayName: 'Deploy',
-      }),
-      rememberContext: context({ place: { ok: false, reason: 'no_root' } }),
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockResolvedValue(3),
-    });
-    expect(displayFallback.alternative?.label).toBe('Allow all Deploy actions');
-
-    const missingLabel = await buildPermissionCardAffordances({
-      request: request({ toolName: 'custom_internal_id' }),
-      rememberContext: context({ place: { ok: false, reason: 'no_root' } }),
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockResolvedValue(3),
-    });
-    expect(missingLabel.alternative).toBeUndefined();
-
-    const warn = vi.fn();
-    const failedCount = await buildPermissionCardAffordances({
-      request: request({ toolName: 'FileWrite' }),
-      rememberContext: context(),
-      canonicalRoot: '/workspace/project',
-      highRisk: true,
-      countExactAllowsByTool: vi.fn().mockRejectedValue(new Error('offline')),
-      warn,
-    });
-    expect(failedCount.alternative).toBeUndefined();
-    expect(warn).toHaveBeenCalledTimes(1);
-
-    const scalar = await buildPermissionCardAffordances({
+    const unsaveable = await buildPermissionCardAffordances({
       request: request(),
-      rememberContext: { ...context(), eligible: false },
-      highRisk: false,
+      rememberContext: context({
+        exact: { ok: false, reason: 'incomplete_effect' },
+      }),
     });
-    expect(scalar).toEqual({
+    expect(unsaveable.eligible).toBe(false);
+    expect(
+      await buildPermissionCardAffordances({
+        request: request(),
+        rememberContext: { ...context(), eligible: false },
+      }),
+    ).toEqual({
       eligible: false,
       offered: [],
       destructive: false,
@@ -248,86 +159,47 @@ describe('permission card affordances', () => {
       preTapLines: [],
       postTapLines: {},
     });
-    expect(parsePermissionCardAffordances(folder)).toEqual(folder);
+  });
+
+  it('keeps person-only asks at Allow once and Deny even with an eligible remember context', async () => {
+    const personOnly = request({
+      toolName: 'RunCommand',
+      toolInput: { command: 'git status' },
+      decisionOptions: ['allow_once', 'cancel'],
+      cardAffordances: {
+        eligible: false,
+        offered: [],
+        destructive: false,
+        protected: false,
+        preTapLines: [],
+        postTapLines: {},
+      },
+    });
+    const card = await buildPermissionCardAffordances({
+      request: personOnly,
+      rememberContext: context(),
+    });
+    expect(card.eligible).toBe(false);
+    expect(card.offered).toEqual([]);
+    const options = permissionDecisionOptions({
+      ...personOnly,
+      cardAffordances: card,
+    });
+    expect(options).toEqual(['allow_once', 'cancel']);
+    expect(options.map(permissionButtonLabel)).toEqual(['Allow once', 'Deny']);
+  });
+
+  it('round-trips a stored card and rejects a forged code', async () => {
+    const card = await buildPermissionCardAffordances({
+      request: request(),
+      rememberContext: context(),
+    });
+    expect(parsePermissionCardAffordances(card)).toEqual(card);
     expect(
       parsePermissionCardAffordances({
-        ...folder,
+        ...card,
         offered: ['remember_allow_exact', 'forged'],
       }),
     ).toBeNull();
-  });
-
-  it('offers no folder alternative when the default kind candidate is refused even with a valid root-derived place candidate', async () => {
-    const card = await buildPermissionCardAffordances({
-      request: request(),
-      rememberContext: context({
-        kind: { ok: false as const, reason: 'no_kind' },
-      }),
-      canonicalRoot: '/workspace/project',
-      highRisk: false,
-    });
-    expect(card.alternative).toBeUndefined();
-    expect(permissionCardDecisionOptions(card)).toEqual([
-      'remember_allow_exact',
-      'allow_once',
-      'remember_deny_exact',
-    ]);
-  });
-
-  it('does not offer remember actions whose exact candidates are refused', async () => {
-    const refusedAllow = await buildPermissionCardAffordances({
-      request: request(),
-      rememberContext: context({
-        exact: { ok: false as const, reason: 'incomplete_effect' },
-      }),
-      highRisk: false,
-    });
-    expect(permissionCardDecisionOptions(refusedAllow)).toEqual([
-      'allow_once',
-      'remember_deny_exact',
-    ]);
-    expect(refusedAllow.preTapLines).not.toContain(
-      'Allow will remember: this exact action',
-    );
-    expect(refusedAllow.postTapLines).not.toHaveProperty(
-      'remember_allow_exact',
-    );
-
-    const refusedDeny = await buildPermissionCardAffordances({
-      request: request(),
-      rememberContext: context({
-        deny: { ok: false as const, reason: 'incomplete_effect' },
-      }),
-      highRisk: false,
-    });
-    expect(permissionCardDecisionOptions(refusedDeny)).toEqual([
-      'remember_allow_exact',
-      'allow_once',
-      'cancel',
-    ]);
-    expect(permissionCardButtonLabel('cancel', refusedDeny)).toBe('No');
-    expect(refusedDeny.postTapLines).not.toHaveProperty('remember_deny_exact');
-  });
-
-  it('offers the trust-growth alternative from the human tool label when the request has no displayName and withholds it when no label exists', async () => {
-    const card = await buildPermissionCardAffordances({
-      request: request({ toolName: 'FileWrite' }),
-      rememberContext: context(),
-      canonicalRoot: undefined,
-      highRisk: true,
-      countExactAllowsByTool: async () => 3,
-    });
-    expect(card.alternative).toMatchObject({
-      code: 'remember_allow_kind',
-      label: 'Allow all file writing actions',
-      line: 'Allow all file writing actions will remember: every file writing action, anywhere.',
-    });
-    const noLabel = await buildPermissionCardAffordances({
-      request: request({ toolName: 'UnknownTool' }),
-      rememberContext: context(),
-      highRisk: true,
-      countExactAllowsByTool: async () => 3,
-    });
-    expect(noLabel.alternative).toBeUndefined();
   });
 });
