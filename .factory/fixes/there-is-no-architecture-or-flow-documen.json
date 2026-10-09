@@ -30,7 +30,7 @@
     "status": "blocked"
   },
   "round": 5,
-  "status": "fixing",
+  "status": "hotspot",
   "steps": [
     {
       "at": "2026-10-02T17:01:12+00:00",
@@ -49,6 +49,10 @@
       "step": "review"
     }
   ],
+  "stop": {
+    "file": "docs/architecture/areas/11-deploy-scaling.md",
+    "round": 4
+  },
   "why": "There is no architecture or flow documentation per app area for explaining the system",
   "worker": "codex"
 }
