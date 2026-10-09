@@ -134,7 +134,7 @@ function toolingSection(mode: GantryAgentPromptMode): string {
           STRUCTURED_LOCAL_CLI_GUIDANCE,
         ]
       : [
-          'Use only Gantry public tools mounted in this run. Raw harness tools and raw subagents are implementation details.',
+          'Use only Gantry public tools. Raw harness tools and raw subagents are implementation details.',
           'The agent-scoped ready actions, installed skills, and connected sources are listed under # Capability catalog in the compiled profile.',
           'Use matching ready actions first. If policy blocks an action, say so plainly.',
           STRUCTURED_LOCAL_CLI_GUIDANCE,

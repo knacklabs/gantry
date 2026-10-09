@@ -197,27 +197,27 @@ async function spawnAgentWithContext(
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
   const credentials = host.getHostRuntimeCredentialEnv;
   const personasByAgentId = agentPersonasById(runtimeSettings.agents);
-  const { accessPreset, hideAuthorityTools, callableAgentManifest } =
-    await prepareWorkerAuthorityProjection({
-      agentInput: input,
-      accessPreset: agentSettings?.accessPreset,
-      delegates: agentSettings?.delegates ?? [],
-      getConversationBoundAgentIds: () =>
-        conversationBoundAgentIdsForRoute({
-          routes: options?.conversationRoutes ?? {},
-          chatJid: input.chatJid,
-          threadId: input.threadId,
-          callerAgentId:
-            input.agentId ?? String(agentIdForFolder(group.folder)),
-          callerProviderAccountId: group.providerAccountId,
-        }),
-      personasByAgentId,
-      workspaceFolder: group.folder,
-      options,
-      getAgentRepository: () => getRuntimeStorage().repositories.agents,
-      warn: logger.warn.bind(logger),
-    });
+  const authority = await prepareWorkerAuthorityProjection({
+    agentInput: input,
+    accessPreset: agentSettings?.accessPreset,
+    delegates: agentSettings?.delegates ?? [],
+    getConversationBoundAgentIds: () =>
+      conversationBoundAgentIdsForRoute({
+        routes: options?.conversationRoutes ?? {},
+        chatJid: input.chatJid,
+        threadId: input.threadId,
+        callerAgentId: input.agentId ?? String(agentIdForFolder(group.folder)),
+        callerProviderAccountId: group.providerAccountId,
+      }),
+    personasByAgentId,
+    workspaceFolder: group.folder,
+    options,
+    getAgentRepository: () => getRuntimeStorage().repositories.agents,
+    warn: logger.warn.bind(logger),
+  });
+  const { accessPreset, hideAuthorityTools, callableAgentManifest } = authority;
   const compiledSystemPrompt = await compileSpawnSystemPrompt({
+    ...authority,
     group,
     agentInput: input,
     appId: input.appId || 'default',
@@ -590,7 +590,7 @@ async function spawnAgentWithContext(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    if (options?.asyncTaskRepositoryAvailable === true) {
+    if (authority.gantryToolSelection.asyncTaskToolsEnabled) {
       env.GANTRY_ASYNC_TASK_TOOLS_ENABLED = '1';
     } else {
       delete env.GANTRY_ASYNC_TASK_TOOLS_ENABLED;

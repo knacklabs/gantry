@@ -5,6 +5,8 @@ import type { AgentRepository } from '../domain/ports/repositories.js';
 import { preloadCallableAgentManifest } from '../application/core-tools/callable-agent-tools.js';
 import type { AgentRuntime } from '../shared/agent-runtime.js';
 import { nowMs } from '../shared/time/datetime.js';
+import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import type { GantryMcpToolSelectionOptions } from '../shared/gantry-mcp-tool-surface.js';
 import { prepareRunnerWorkspace } from './agent-spawn-helpers.js';
 import { createRunnerHostStartupTiming } from './agent-spawn-startup-timing.js';
 import type {
@@ -105,5 +107,25 @@ export async function prepareWorkerAuthorityProjection(input: {
     getRepository: input.getAgentRepository,
     warn: input.warn,
   });
-  return { accessPreset, hideAuthorityTools, callableAgentManifest };
+  const gantryToolSelection: GantryMcpToolSelectionOptions = {
+    accessPreset,
+    excludeAuthorityTools: hideAuthorityTools,
+    keepRecoveryProposals: hideAuthorityTools && accessPreset !== 'locked',
+    asyncTaskToolsEnabled: input.options?.asyncTaskRepositoryAvailable === true,
+    browserIpcEnabled: (input.agentInput.toolPolicyRules ?? []).some(
+      isCanonicalBrowserCapabilityRule,
+    ),
+    memoryReviewerIsControlApprover:
+      input.agentInput.memoryReviewerIsControlApprover === true,
+    chatJid: input.agentInput.chatJid,
+    permissionLane: input.agentInput.isScheduledJob
+      ? 'autonomous'
+      : 'interactive',
+  };
+  return {
+    accessPreset,
+    hideAuthorityTools,
+    callableAgentManifest,
+    gantryToolSelection,
+  };
 }

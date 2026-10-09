@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildSync } from 'esbuild';
 
 import { schedulerJobConfirmationToken } from '@core/shared/scheduler-job-plan.js';
-import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
+import { ALL_GANTRY_MCP_TOOL_NAMES } from '@core/shared/gantry-mcp-tool-surface.js';
 
 const MCP_FIXTURE_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
@@ -160,15 +160,6 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/permission-ipc-client.ts'),
     path.join(runnerDir, 'permission-ipc-client.ts'),
-  );
-  fs.copyFileSync(
-    path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
-    path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
-  );
-  fs.mkdirSync(path.join(runnerDir, 'mcp'), { recursive: true });
-  fs.copyFileSync(
-    path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
-    path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
