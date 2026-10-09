@@ -78,6 +78,28 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+      "line": 1482,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
+      "kind": "bug",
+      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
+      "line": 2357,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "discord-thread-messages-are-dropped-when",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/unit/runtime/gantry-tools-in-run.test.ts\tNot done: Test Claude instructions against the complete runner tool surface\tthe-agent-can-t-tell-which-gantry-tools",
       "kind": "bug",
       "path": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
@@ -261,17 +283,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/test/unit/channels/discord/discord.test.ts\tNot done: proof list\tdiscord-thread-messages-are-dropped-when",
-      "kind": "bug",
-      "path": "apps/core/test/unit/channels/discord/discord.test.ts",
-      "line": 2357,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "discord-thread-messages-are-dropped-when",
       "status": "open",
       "closed_by": null
     }
