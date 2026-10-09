@@ -20,9 +20,7 @@ export async function sendSlackSnippetFallback(
     });
     return {
       fallbackArtifactId: uploaded.fileId,
-      ...(uploaded.externalMessageId
-        ? { externalMessageId: uploaded.externalMessageId }
-        : {}),
+      externalMessageIds: uploaded.externalMessageIds,
     };
   } catch (error) {
     logger.warn(

@@ -221,6 +221,17 @@ export class PostgresRuntimeRepositoryBundle
     );
   }
 
+  hasSentBotMessage(
+    chatJid: string,
+    input: {
+      providerAccountId?: string | null;
+      threadId?: string;
+      externalMessageId?: string;
+    },
+  ): Promise<boolean> {
+    return this.messages.hasSentBotMessage(chatJid, input);
+  }
+
   async getRecentTopLevelMessagesBefore(
     chatJid: string,
     before: Pick<NewMessage, 'timestamp' | 'id'>,

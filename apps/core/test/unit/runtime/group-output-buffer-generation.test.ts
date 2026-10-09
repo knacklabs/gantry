@@ -31,7 +31,7 @@ function makeBuffer(
       deliveryStatus = 'none';
     },
     getStreamedTranscriptDeliveryStatus: () => deliveryStatus,
-    persistCompletedStreamedGeneration: persist,
+    persistStreamedGeneration: persist,
     log: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -63,7 +63,7 @@ describe('streamed generation persistence', () => {
         throw new Error('reaction provider unavailable');
       },
       getStreamedTranscriptDeliveryStatus: () => 'sent',
-      persistCompletedStreamedGeneration: async () => {},
+      persistStreamedGeneration: async () => {},
       log: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -92,8 +92,8 @@ describe('streamed generation persistence', () => {
     await buffer.appendRawOutput('lo world');
     await buffer.flushBufferedOutput('end', { done: true, terminal: true });
 
-    expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toBe('hello world');
+    // Acknowledged live output is projected first; completion replaces its text.
+    expect(persisted.at(-1)).toBe('hello world');
   });
 
   it('persists a long generation whole, past the 4k summary bound', async () => {
@@ -111,10 +111,9 @@ describe('streamed generation persistence', () => {
     await buffer.appendRawOutput(tail);
     await buffer.flushBufferedOutput('end', { done: true, terminal: true });
 
-    expect(persisted).toHaveLength(1);
-    expect(persisted[0]).toHaveLength(6000);
-    expect(persisted[0].startsWith('A')).toBe(true);
-    expect(persisted[0].endsWith('B')).toBe(true);
+    expect(persisted.at(-1)).toHaveLength(6000);
+    expect(persisted.at(-1)?.startsWith('A')).toBe(true);
+    expect(persisted.at(-1)?.endsWith('B')).toBe(true);
   });
 
   it('persists a generation nothing was delivered from, marked failed', async () => {

@@ -2257,22 +2257,28 @@ describe('TeamsChannel adapter scaffold', () => {
     );
     await channel.connect();
 
-    await channel.sendStreamingChunk('teams:19:abc@thread.v2', 'Hello', {
-      threadId: 'root-message',
-      generation: 1,
-    });
-    await channel.sendStreamingChunk('teams:19:abc@thread.v2', ' world', {
-      threadId: 'root-message',
-      generation: 1,
-    });
+    await expect(
+      channel.sendStreamingChunk('teams:19:abc@thread.v2', 'Hello', {
+        threadId: 'root-message',
+        generation: 1,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['stream-card-1'] });
+    await expect(
+      channel.sendStreamingChunk('teams:19:abc@thread.v2', ' world', {
+        threadId: 'root-message',
+        generation: 1,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['stream-card-1'] });
     expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1800);
-    await channel.sendStreamingChunk('teams:19:abc@thread.v2', '!', {
-      threadId: 'root-message',
-      generation: 1,
-      done: true,
-    });
+    await expect(
+      channel.sendStreamingChunk('teams:19:abc@thread.v2', '!', {
+        threadId: 'root-message',
+        generation: 1,
+        done: true,
+      }),
+    ).resolves.toEqual({ externalMessageIds: ['stream-card-1'] });
 
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
@@ -2482,6 +2488,63 @@ describe('TeamsChannel adapter scaffold', () => {
       text: 'y',
     });
   });
+
+  it.each([-1, 0, 1])(
+    'retains Teams stream receipts when part %i fails (-1 is the final edit)',
+    async (failedPart) => {
+      const deliveredOverflow = Math.max(0, failedPart);
+      const sendMessage = vi.fn();
+      if (deliveredOverflow)
+        sendMessage.mockResolvedValueOnce({ externalMessageId: 'overflow-1' });
+      sendMessage.mockRejectedValueOnce(new Error('delivery failed'));
+      const sdkClient: TeamsSdkClient = {
+        start: vi.fn(async () => {}),
+        stop: vi.fn(async () => {}),
+        sendMessage,
+        sendAdaptiveCard: vi.fn(async () => ({
+          externalMessageId: 'stream-card-1',
+        })),
+        updateAdaptiveCard:
+          failedPart < 0
+            ? vi.fn().mockRejectedValue(new Error('edit failed'))
+            : vi.fn(async () => ({})),
+      };
+      const channel = new TeamsChannel(
+        {
+          clientId: 'client-id',
+          clientSecret: 'client-secret',
+          tenantId: 'tenant-id',
+        },
+        makeOpts(),
+        sdkClient,
+      );
+      await channel.connect();
+      await channel.sendStreamingChunk(
+        'teams:19:abc@thread.v2',
+        'x'.repeat(TEAMS_HARD_MESSAGE_BYTES * 2 + 1),
+      );
+      await expect(
+        channel.sendStreamingChunk('teams:19:abc@thread.v2', '', {
+          done: true,
+        }),
+      ).rejects.toMatchObject({
+        partialMessageDelivery: true,
+        deliveredChunks: 1 + deliveredOverflow,
+        externalMessageIds: deliveredOverflow
+          ? ['stream-card-1', 'overflow-1']
+          : ['stream-card-1'],
+        ...(failedPart >= 0
+          ? {
+              retryTail: {
+                canonicalText: 'x'.repeat(
+                  deliveredOverflow ? 2049 : TEAMS_HARD_MESSAGE_BYTES + 1,
+                ),
+              },
+            }
+          : {}),
+      });
+    },
+  );
 
   it('stops Teams overflow parts when the stream guard changes mid-send', async () => {
     let resolveFirstOverflow!: (value: { externalMessageId: string }) => void;
