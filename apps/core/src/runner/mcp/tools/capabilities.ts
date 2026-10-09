@@ -5,7 +5,10 @@ import {
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
 } from '../../../shared/semantic-capabilities.js';
-import { SOURCE_INVENTORY_AUTHORITY_GUIDANCE } from '../../../shared/capability-guidance.js';
+import {
+  DELEGATION_GUIDANCE,
+  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+} from '../../../shared/capability-guidance.js';
 import {
   type GantryFacadeExactToolName,
   isGantryFacadeExactToolName,
@@ -348,7 +351,7 @@ function submitExactToolRequest(input: {
           text: [
             `Tool "${input.toolName}" is already selected for this run.`,
             input.toolName === 'AgentDelegation'
-              ? 'Use delegate_task when it is mounted. If delegate_task is still missing, the delegated-task executor is unavailable for this run.'
+              ? DELEGATION_GUIDANCE
               : 'Use the available action directly instead of requesting the same access again.',
           ].join('\n'),
         },

@@ -1,0 +1,37 @@
+{
+  "approval": {
+    "at": "2026-10-02T11:36:22+00:00",
+    "by": "human-via-Claude",
+    "event": "toolu_01C3K2eTJAbnmEiyvCbpKY43",
+    "hash": "8a64ac8ac3b93379bfadca399bff1997573e5581da7ba3f27825b7952d225b34",
+    "round": 3,
+    "runtime": "claude",
+    "session": "a69a30fe-23d4-5b7d-9b59-8360571f490c"
+  },
+  "doc": "plans/MSG-1.md",
+  "status": "approved",
+  "steps": [
+    {
+      "at": "2026-10-02T09:20:29+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T09:32:11+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T10:43:37+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T10:59:41+00:00",
+      "step": "read"
+    },
+    {
+      "at": "2026-10-02T11:36:22+00:00",
+      "step": "approved"
+    }
+  ],
+  "title": "Every incoming message is saved before anything can fail",
+  "touches": 1
+}

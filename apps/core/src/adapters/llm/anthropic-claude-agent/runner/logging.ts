@@ -1,5 +1,5 @@
-import { redactString } from '../../../../infrastructure/logging/logger.js';
+import { writeRunnerDiagnostic } from '../../../../runner/logging.js';
 
 export function log(message: string): void {
-  console.error(`[agent-runner] ${redactString(message)}`);
+  writeRunnerDiagnostic(`[agent-runner] ${message}`);
 }

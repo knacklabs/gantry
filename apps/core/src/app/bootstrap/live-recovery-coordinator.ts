@@ -10,7 +10,6 @@ import type {
   LiveAdmissionInputScope,
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
-import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -383,6 +382,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   enqueueMessageCheck?: (queueJid: string) => void;
   isActiveControlMessage?: (message: NewMessage) => boolean;
   handleActiveControlMessage?: (message: NewMessage) => Promise<boolean>;
+  /** False keeps a sender's message as history instead of forwarding it. */
+  senderMayTrigger?: (message: NewMessage) => boolean;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -409,7 +410,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   const batch: Array<{
     message: NewMessage;
     itemId: string;
-    receiveOrder: number | null;
   }> = [];
   let queued = false;
   try {
@@ -422,7 +422,25 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      batch.push({ message, itemId: item.id, receiveOrder: item.receiveOrder });
+      if (
+        !input.isActiveControlMessage?.(message) &&
+        input.senderMayTrigger?.(message) === false
+      ) {
+        await input.inputRepository.consumeInputItem({
+          id: item.id,
+          consumedBy: 'history',
+          expectedConsumedBy: consumer,
+        });
+        if (input.liveRunId)
+          await input.completeSessionAgentRun?.({
+            runId: input.liveRunId,
+            status: 'canceled',
+            errorSummary: 'Live-turn admission kept the message as history.',
+          });
+        input.enqueueMessageCheck?.(input.queueJid);
+        return true;
+      }
+      batch.push({ message, itemId: item.id });
       if (input.isActiveControlMessage?.(message)) break;
     }
     const controlIndex = batch.findIndex(
@@ -439,9 +457,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
         return true;
       }
     }
-    const replayBatch = orderBatchForPresentation(
-      controlIndex < 0 ? batch : batch.slice(0, controlIndex),
-    );
+    const replayBatch = controlIndex < 0 ? batch : batch.slice(0, controlIndex);
     const replayMessages = replayBatch.map(({ message }) => message);
     const replayItemIds = replayBatch.map(({ itemId }) => itemId);
     const routed = await routeScopeActiveLiveTurnAdmission({

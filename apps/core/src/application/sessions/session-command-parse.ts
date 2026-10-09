@@ -1,5 +1,5 @@
-import type { ThinkingEffort, ThinkingOverride } from '../domain/types.js';
-import type { PermissionMode } from '../shared/permission-mode.js';
+import type { ThinkingEffort, ThinkingOverride } from '../../domain/types.js';
+import type { PermissionMode } from '../../shared/permission-mode.js';
 
 // Host-managed slash-command parsing and authorization. Split out of
 // session-commands.ts (which owns command EXECUTION) so the pure text->command
@@ -267,4 +267,16 @@ export function isSessionCommandAllowed(
 export interface AgentResult {
   status: 'success' | 'error';
   result?: string | object | null;
+}
+
+/**
+ * Whether text is a session command under the route's resolved trigger
+ * pattern (config.getTriggerPattern(route.trigger), the one turn start parses
+ * with), so every entry point lets exactly those messages skip the quiet window.
+ */
+export function isSessionCommandText(
+  text: string,
+  triggerPattern: RegExp,
+): boolean {
+  return extractSessionCommand(text, triggerPattern) !== null;
 }

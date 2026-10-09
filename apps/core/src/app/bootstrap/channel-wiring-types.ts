@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../../domain/messages/streaming-chunk-result.js';
 import type {
   MessageDeliveryResult,
   MessageActionCallbackInput,
@@ -144,6 +145,8 @@ export type RecoveryDispatchPermit = RecoveryDispatchPermitInput & {
 export interface ChannelWiringDeps {
   appId: AppId;
   providerIds: readonly Provider[];
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
   opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
@@ -256,7 +259,7 @@ export interface ChannelWiring {
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ) => Promise<boolean>;
+  ) => Promise<StreamingChunkResult>;
   resetStreaming: (jid: string, options?: ChannelStreamResetOptions) => void;
   setTyping: (
     jid: string,

@@ -3,6 +3,8 @@ import {
   type GantryAgentPromptMode,
 } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeepAgentRunnerInput } from './types.js';
+import { withMountedGantryToolNames } from '../../../../shared/gantry-mcp-tool-surface.js';
+import { buildGantryMcpProjection } from './gantry-mcp-env.js';
 
 // Composes the DeepAgents `systemPrompt` from the same provider-neutral
 // AgentInput fields the Anthropic runner uses (compiled persona/system prompt +
@@ -13,6 +15,7 @@ import type { DeepAgentRunnerInput } from './types.js';
 
 export function composeDeepAgentSystemPrompt(
   input: DeepAgentRunnerInput,
+  mountedGantryToolNames?: ReadonlySet<string>,
 ): string | undefined {
   const memoryBlock = readMemoryContextBlock(input);
   return buildGantryAgentSystemPrompt({
@@ -20,7 +23,28 @@ export function composeDeepAgentSystemPrompt(
     promptMode: input.promptMode as GantryAgentPromptMode | undefined,
     assistantName: input.assistantName,
     persona: input.persona,
-    compiledSystemPrompt: input.compiledSystemPrompt,
+    compiledSystemPrompt: mountedGantryToolNames
+      ? withMountedGantryToolNames(
+          input.compiledSystemPrompt,
+          mountedGantryToolNames,
+          input.allowedTools ?? [],
+          buildGantryMcpProjection({
+            configuredAllowedTools: input.allowedTools ?? [],
+            hideAuthorityTools: input.hideAuthorityTools === true,
+            processEnv: process.env,
+          }).env,
+          {
+            RunCommand:
+              process.env.GANTRY_DEEPAGENTS_SHELL_ENABLED === '1'
+                ? 'RunCommand has not been granted'
+                : 'shell execution is unavailable',
+            FileSearch: 'filesystem tools are unavailable',
+            FileRead: 'filesystem tools are unavailable',
+            FileEdit: 'filesystem tools are unavailable',
+            FileWrite: 'filesystem tools are unavailable',
+          },
+        )
+      : input.compiledSystemPrompt,
     hasMemoryContext: Boolean(memoryBlock),
     selectedToolRules: input.allowedTools,
     workspaceFolder: input.workspaceFolder,

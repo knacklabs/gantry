@@ -29,7 +29,6 @@ describe('startLiveExecutionServices', () => {
           },
         })),
         finalize: vi.fn(async () => true),
-        registerStopAliases: vi.fn(async () => undefined),
         routeMessage: vi.fn(),
       } as any,
       app: {
@@ -98,7 +97,6 @@ describe('startLiveExecutionServices', () => {
           },
         })),
         finalize: vi.fn(async () => true),
-        registerStopAliases: vi.fn(async () => undefined),
         routeMessage: vi.fn(),
       } as any,
       app: {

@@ -25,6 +25,7 @@ import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import { allowedOuterSandboxClaudeExecutable, discoverAdditionalDirectories, IPC_INPUT_DIR, IPC_INTERACTION_BOUNDARY_DIR, RUNTIME_SIGNAL_FALLBACK_POLL_MS, resolveClaudeCodeExecutableFromPath, WORKSPACE_GROUP_DIR } from './runtime-env.js';
 // prettier-ignore
 import { buildRunnerSystemPrompt, readMemoryContextBlock } from './system-prompt.js';
+import { completeGantryToolNames } from '../../../../shared/gantry-mcp-tool-surface.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
@@ -315,10 +316,6 @@ async function bindGantryToolRegistrationProvenance(
 }
 
 export function prepareSdkQuery(context: QueryLoopContext): Query {
-  const systemPrompt = buildRunnerSystemPrompt(
-    context.agentInput,
-    context.memoryBlock,
-  );
   const localCliCredentialDirectories = [
     ...new Set([
       ...readLocalCliCredentialDirectories(),
@@ -359,7 +356,6 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE, runId: agentInput.runId,
     parentTaskId: agentInput.parentTaskId, callableAgentManifest: agentInput.callableAgentManifest,
     runLeaseToken: agentInput.runLeaseToken, runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
-    liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,
     memoryUserId: agentInput.memoryUserId, memoryDefaultScope: agentInput.memoryDefaultScope,
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona, browserProfileName: agentInput.browserProfileName,
@@ -380,6 +376,17 @@ export function prepareSdkQuery(context: QueryLoopContext): Query {
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(), isScheduledJob: agentInput.isScheduledJob,
   });
   context.capabilities = capabilities;
+  const systemPrompt = buildRunnerSystemPrompt(
+    agentInput,
+    context.memoryBlock,
+    completeGantryToolNames(
+      capabilities.gantryOwnedTools,
+      capabilities.availableTools,
+    ),
+    'env' in capabilities.mcpServers.gantry
+      ? (capabilities.mcpServers.gantry.env ?? {})
+      : {},
+  );
   for (const toolName of capabilities.gantryOwnedTools) {
     const family = gantryOwnedToolActivityFamily(toolName);
     if (family) context.registeredGantryToolFamilies.set(toolName, family);

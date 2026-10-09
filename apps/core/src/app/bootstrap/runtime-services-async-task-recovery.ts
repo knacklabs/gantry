@@ -357,7 +357,7 @@ function createRecoveredDelegatedAgentRun(
       },
       async (output: AgentOutput) => {
         if (output.result) {
-          latestResult = output.result;
+          latestResult = (latestResult ?? '') + output.result;
           await runInput.onProgress?.(output.result);
         }
       },

@@ -1,6 +1,7 @@
 import * as config from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { NewMessage } from '../domain/types.js';
+import { persistBotMessage } from '../application/messages/bot-message-persistence.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
@@ -19,7 +20,6 @@ import {
   createGroupTurnChannelActions,
   createGroupTurnProgressSenders,
   finalRetryNotice,
-  hasTakenGroupTurnTrigger,
   handleFailure,
   resetGroupStreamingForTurn,
   resolveGroupTurnFinalProgressState,
@@ -27,14 +27,12 @@ import {
   takeGroupTurnInput,
   waitOutput,
 } from './group-processing-flow.js';
+import { decideBatch } from './group-trigger-policy.js';
 import {
   createGroupDoneProgressSender,
   sendGroupFinalProgress,
 } from './group-final-progress-action.js';
-import {
-  createResponseProgressSenders,
-  startInitialGroupProgress,
-} from './group-progress-heartbeats.js';
+import { createResponseProgressSenders } from './group-progress-heartbeats.js';
 import { GroupLivenessController } from './group-liveness-state.js';
 import {
   createGroupAgentRunner,
@@ -110,8 +108,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     try {
       const {
         missedMessages,
+        receivedDuringTurn,
         permitsUnmentionedCompletion,
         hasMore,
+        lastReceiveOrder,
         activeThreadId,
         latestMessageReactionTarget,
       } = await takeGroupTurnInput({
@@ -192,6 +192,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           deps,
           queueJid,
           missedMessages,
+          cancelWaitingInput: async () => {
+            if (lastReceiveOrder === null) return;
+            await inputRepository.consumeAll({
+              scope: inputScope,
+              consumedBy: 'stopped',
+              waitingBefore: lastReceiveOrder,
+            });
+          },
           runAgent,
           processOptions: options,
           commandOverrideRouteKey: routeContext.commandOverrideRouteKey,
@@ -230,15 +238,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         return (sendProgressToChannel.retire(), cmdResult.success);
       }
       if (
-        !(await hasTakenGroupTurnTrigger({
+        !permitsUnmentionedCompletion &&
+        !(await decideBatch({
           group,
           chatJid,
+          threadId,
           triggerPattern: config.getTriggerPattern(group.trigger),
           messages: missedMessages,
-          permitsUnmentionedCompletion,
-          threadId,
+          receivedDuringTurn,
           messageRepository: opsRepository,
-          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
         }))
       ) {
         if (hasMore) deps.queue.enqueueMessageCheck(queueJid);
@@ -309,7 +317,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         resetIdleTimer();
         let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
         let backgroundDemoted = false;
-        const { sendControlOnlyProgress, sendWaitingForUserResponseProgress } =
+        const { sendWaitingForUserResponseProgress } =
           createGroupTurnProgressSenders({
             supportsProgress,
             sendProgressToChannel,
@@ -331,19 +339,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         let activeGenerationHasOutput = false;
         let sentAnyTurnDoneProgress = false;
         let sentTurnDoneProgressGeneration: number | null = null;
-        let cancelInitialProgress: () => Promise<void> = async () => undefined;
         const sendTrackedDoneProgress = async (
           state: progress.FinalProgressState,
           generation = progressGeneration,
         ) => {
-          await cancelInitialProgress();
           await sendDoneProgress(state, generation);
           if (supportsProgress) {
             sentAnyTurnDoneProgress = true;
             sentTurnDoneProgressGeneration = generation;
           }
         };
-        let userVisibleTurnProgressReady: Promise<void> | null = null;
         const startUserVisibleTurn = async () => {
           liveness.resetStallEpoch();
           progressGeneration =
@@ -354,13 +359,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           sentAnyTurnDoneProgress = false;
           sentTurnDoneProgressGeneration = null;
           liveness.resume();
-          const progressReady = sendControlOnlyProgress().finally(() => {
-            if (userVisibleTurnProgressReady === progressReady) {
-              userVisibleTurnProgressReady = null;
-            }
-          });
-          userVisibleTurnProgressReady = progressReady;
-          await progressReady;
         };
         const { sendResponseReceipt } = createResponseProgressSenders({
           supportsProgress,
@@ -370,29 +368,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           sendMessageToChannel,
           sendProgressToChannel,
         });
-        await options
-          .onLiveStopActionToken?.(turnOptions.liveStopActionToken)
-          ?.catch((err) =>
-            logger.warn(
-              { err, chatJid, group: group.name },
-              'Failed to register live Stop action token before progress render',
-            ),
-          );
-        const initialProgress = startInitialGroupProgress({
-          supportsProgress,
-          groupName: group.name,
-          buildProgressOptions,
-          sendProgressToChannel,
-          log: logger,
-        });
-        cancelInitialProgress = () => initialProgress.cancel();
         const unregisterContinuationHandler =
           deps.queue.registerContinuationHandler?.(queueJid, () => {
             void startUserVisibleTurn();
           });
         cancelTurnUiTimers = async () => {
           clearBackgroundDemoteTimer();
-          await Promise.all([liveness.terminal(), cancelInitialProgress()]);
+          await liveness.terminal();
         };
         turnCleanup.activeTurnUiCleanupByQueue.set(queueJid, {
           turnMarker: turnUiMarker,
@@ -513,20 +495,23 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             liveness.finishVisibleDelivery(delivered),
           getStreamedTranscriptDeliveryStatus: () =>
             streamedTranscriptDeliveryStatus,
-          // Persistence is per completed generation, so the accounting has to be
-          // too: otherwise a delivered generation leaves the status non-'none' and
-          // a later, wholly undelivered one is persisted as if it had been sent.
+          // A later generation must not inherit a previous one's delivery status.
           resetStreamedTranscriptDeliveryStatus: () => {
             streamedTranscriptDeliveryStatus = 'none';
           },
           onGenerationUndelivered: (text) => {
             undeliveredGenerations.push(text);
           },
-          persistCompletedStreamedGeneration: async (text, deliveryStatus) => {
+          persistStreamedGeneration: async (
+            text,
+            deliveryStatus,
+            receipts,
+            generationId,
+          ) => {
             persistedAnyGeneration = true;
             const timestamp = nowIso();
             const message: NewMessage = {
-              id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
+              id: `streamed-outbound:${options.existingRunId ?? generationId}:${generationId}`,
               chat_jid: chatJid,
               sender: 'gantry',
               sender_name: 'Gantry',
@@ -535,18 +520,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               is_from_me: true,
               is_bot_message: true,
               thread_id: activeThreadId,
+              providerAccountId: group.providerAccountId,
               delivery_status: deliveryStatus,
               // Only claim a delivery time when something was actually delivered.
               delivered_at: deliveryStatus === 'failed' ? undefined : timestamp,
             };
-            await ops()
-              .storeMessage(message)
-              .catch((err: unknown) =>
+            await persistBotMessage(ops(), message, receipts).catch(
+              (err: unknown) =>
                 logger.warn(
                   { err, group: group.name },
                   'Failed to persist streamed assistant generation',
                 ),
-              );
+            );
           },
           log: logger,
         });
@@ -685,7 +670,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 options.existingRunLeaseWorkerInstanceId,
               existingRunLeaseFencingVersion:
                 options.existingRunLeaseFencingVersion,
-              liveStopActionToken: turnOptions.liveStopActionToken,
               responseSchema: missedMessages.find(
                 (message) => message.responseSchema !== undefined,
               )?.responseSchema,
@@ -703,7 +687,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             logger,
           });
           await finalizeStreamingOutput('turn-complete');
-          await cancelInitialProgress();
           if (output === 'success' && pendingIdleBoundary) {
             notifyTurnIdle();
           }
@@ -760,10 +743,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             outputSentToUser,
             groupName: group.name,
             storeMessage: (message) =>
-              ops().storeMessage({
-                ...message,
-                id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
-              }),
+              persistBotMessage(
+                ops(),
+                {
+                  ...message,
+                  id: `streamed-outbound:${options.existingRunId ?? randomUUID()}:${randomUUID()}`,
+                  providerAccountId: group.providerAccountId,
+                },
+                outputBuffer.receiptsSnapshot(),
+              ),
             log: logger,
           });
           const finalization = await finalizeGroupAgentUserVisibleOutput({

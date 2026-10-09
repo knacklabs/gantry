@@ -1,0 +1,815 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+import { buildSync } from 'esbuild';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
+import { FakeListChatModel } from '@langchain/core/utils/testing';
+import type { BaseMessage } from '@langchain/core/messages';
+
+import '@core/channels/register-builtins.js';
+import { compileSpawnSystemPrompt } from '@core/runtime/agent-spawn-prompt.js';
+import { prepareWorkerAuthorityProjection } from '@core/runtime/agent-spawn-preparation.js';
+import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
+import { connectGantryAndThirdPartyMcpTools } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
+import {
+  DEFAULT_AGENT_ENGINE,
+  DEEPAGENTS_ENGINE,
+} from '@core/shared/agent-engine.js';
+import { DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION } from '@core/shared/gantry-tool-facades.js';
+
+const sdkCalls = vi.hoisted(() => [] as Options[]);
+const deepProbe = vi.hoisted(() => ({
+  prompt: '',
+  tools: [] as string[],
+  model: undefined as unknown,
+}));
+vi.mock(
+  '@core/adapters/llm/deepagents-langchain/runner/model-factory.js',
+  () => ({
+    buildRunnerModel: async () => ({
+      model: deepProbe.model,
+      endpointFamily: 'openai',
+      modelId: 'test-model',
+    }),
+  }),
+);
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
+  query: ({ options }: { options: Options }) => {
+    sdkCalls.push(options);
+    return (async function* () {
+      yield {
+        type: 'system',
+        subtype: 'init',
+        session_id: 'tool-inventory-proof',
+        mcp_servers: [{ name: 'gantry', status: 'connected' }],
+      };
+      yield { type: 'result', subtype: 'success', result: 'ok' };
+    })();
+  },
+}));
+
+class CapturingModel extends FakeListChatModel {
+  bindTools(...args: Parameters<FakeListChatModel['bindTools']>) {
+    deepProbe.tools = args[0].map(({ name }) => name);
+    return super.bindTools(...args);
+  }
+}
+
+function captureMessages(messages: BaseMessage[]) {
+  deepProbe.prompt = messages
+    .filter((message) => message.getType() === 'system')
+    .map((message) =>
+      typeof message.content === 'string'
+        ? message.content
+        : message.content
+            .filter((block) => block.type === 'text')
+            .map((block) => ('text' in block ? block.text : ''))
+            .join('\n'),
+    )
+    .join('\n');
+}
+
+function publicNativeTools(tools: readonly string[]): Set<string> {
+  const projection = DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION;
+  const names = new Set<string>();
+  for (const nativeName of tools) {
+    const facade = Object.entries(projection.exactTools).find(
+      ([, nativeNames]) => nativeNames.includes(nativeName),
+    );
+    names.add(
+      facade?.[0] ??
+        (nativeName === projection.runCommandToolName
+          ? 'RunCommand'
+          : nativeName),
+    );
+  }
+  return names;
+}
+
+async function registeredTools(
+  serverPath: string,
+  env: Record<string, string>,
+): Promise<Set<string>> {
+  const client = new Client({ name: 'gantry-tools-proof', version: '1' });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env,
+  });
+  try {
+    await client.connect(transport);
+    const result = await client.listTools();
+    return new Set(result.tools.map((tool) => tool.name));
+  } finally {
+    await client.close();
+    await transport.close();
+  }
+}
+
+function advertisedTools(prompt: string): Set<string> {
+  const section = prompt.split('## Gantry tools in this run')[1];
+  expect(section).toBeDefined();
+  const names = section?.match(/^Available: (.+)\.$/m)?.[1];
+  expect(names).toBeDefined();
+  return new Set(names?.split(', '));
+}
+
+function unavailableTools(prompt: string): Map<string, string> {
+  const reasons = new Map<string, string>();
+  for (const line of prompt
+    .split('\n')
+    .filter((line) => line.startsWith('Unavailable: '))) {
+    const match = /^Unavailable: (.+) — (.+)\.$/.exec(line);
+    expect(match).not.toBeNull();
+    for (const name of match![1].split(', ')) {
+      expect(reasons.has(name)).toBe(false);
+      reasons.set(name, match![2]);
+    }
+  }
+  return reasons;
+}
+
+function expectedUnavailableTools(
+  scenario: {
+    tools: string[];
+    accessPreset: 'full' | 'locked';
+    hidden: boolean;
+    asyncEnabled: boolean;
+    autonomous: boolean;
+    browserCredential?: boolean;
+    slack?: boolean;
+    reviewer?: boolean;
+    shellEnabled?: boolean;
+    filesystemEnabled?: boolean;
+    persona?: 'developer' | 'generalist';
+  },
+  engine: string,
+): Map<string, string> {
+  const reasons = new Map<string, string>();
+  const add = (names: string[], reason: string) => {
+    for (const name of names) reasons.set(name, reason);
+  };
+  const hiddenReason =
+    scenario.accessPreset === 'locked'
+      ? 'locked access preset'
+      : scenario.hidden
+        ? 'tools are hidden for this run'
+        : undefined;
+  const taskReason =
+    hiddenReason ??
+    (scenario.asyncEnabled ? undefined : 'async task executor is unavailable');
+  if (!scenario.slack) {
+    add(
+      ['canvas_read', 'canvas_create', 'canvas_update'],
+      'unavailable on this conversation provider',
+    );
+  }
+  if (taskReason) {
+    add(
+      [
+        'async_run_command',
+        'async_mcp_call',
+        'task_cancel',
+        'task_get',
+        'task_list',
+      ],
+      taskReason,
+    );
+  }
+  if (taskReason || !scenario.tools.includes('AgentDelegation')) {
+    add(
+      ['delegate_task', 'task_message'],
+      taskReason ?? 'AgentDelegation has not been granted',
+    );
+  }
+  if (engine === DEFAULT_AGENT_ENGINE) {
+    add(
+      ['AgentDelegation'],
+      taskReason ??
+        (scenario.tools.includes('AgentDelegation')
+          ? 'use delegate_task for delegation in this runner'
+          : 'AgentDelegation has not been granted'),
+    );
+    if (scenario.autonomous) {
+      add(['RunCommand'], 'not exposed by the scheduled runner');
+      add(
+        ['FileEdit', 'FileWrite'].filter(
+          (name) => !scenario.tools.includes(name),
+        ),
+        'not exposed by the scheduled runner',
+      );
+      if (scenario.persona === 'generalist') {
+        add(
+          ['FileRead', 'FileSearch'].filter(
+            (name) => !scenario.tools.includes(name),
+          ),
+          'not exposed by the scheduled runner',
+        );
+      }
+    }
+  } else {
+    if (taskReason || !scenario.tools.includes('AgentDelegation')) {
+      add(
+        ['AgentDelegation'],
+        taskReason ?? 'AgentDelegation has not been granted',
+      );
+    }
+    if (!(scenario.shellEnabled ?? scenario.tools.includes('RunCommand'))) {
+      add(['RunCommand'], 'shell execution is unavailable');
+    } else if (!scenario.tools.includes('RunCommand')) {
+      add(['RunCommand'], 'RunCommand has not been granted');
+    }
+    if (scenario.filesystemEnabled === false) {
+      add(
+        ['FileSearch', 'FileRead', 'FileEdit', 'FileWrite'],
+        'filesystem tools are unavailable',
+      );
+    }
+  }
+  if (!scenario.tools.includes('Browser') || !scenario.browserCredential) {
+    add(
+      [
+        'browser_status',
+        'browser_open',
+        'browser_inspect',
+        'browser_act',
+        'browser_close',
+      ],
+      scenario.tools.includes('Browser')
+        ? 'browser IPC is unavailable'
+        : 'Browser has not been granted',
+    );
+  }
+  add(
+    [
+      'memory_patch',
+      'memory_demote',
+      'procedure_patch',
+      'memory_dream',
+      'memory_consolidate',
+    ],
+    hiddenReason ?? 'not selected for this agent',
+  );
+  if (hiddenReason || !scenario.reviewer) {
+    add(
+      ['memory_review_pending', 'memory_review_decision'],
+      hiddenReason ?? 'not selected for this agent',
+    );
+  }
+  for (const name of [
+    'settings_desired_state',
+    'request_settings_update',
+    'guided_action_preview',
+    'admin_permission_list',
+    'admin_permission_revoke',
+    'service_restart',
+    'register_agent',
+  ]) {
+    if (!scenario.tools.includes(`mcp__gantry__${name}`)) {
+      add([name], 'not selected for this agent');
+    } else if (scenario.accessPreset === 'locked') {
+      add([name], 'locked access preset');
+    }
+  }
+  if (hiddenReason) {
+    add(['request_agent_profile_update'], hiddenReason);
+    if (scenario.accessPreset === 'locked') {
+      add(
+        [
+          'request_access',
+          'request_skill_install',
+          'request_skill_proposal',
+          'request_skill_dependency_install',
+          'request_mcp_server',
+        ],
+        hiddenReason,
+      );
+    }
+    add(
+      [
+        'scheduler_list_models',
+        'scheduler_get_job',
+        'scheduler_list_jobs',
+        'scheduler_list_notification_targets',
+        'scheduler_list_runs',
+        'scheduler_list_events',
+        'scheduler_wait_for_events',
+        'scheduler_get_dead_letter',
+      ],
+      hiddenReason,
+    );
+  }
+  if (hiddenReason || scenario.autonomous) {
+    add(
+      [
+        'scheduler_upsert_job',
+        'scheduler_update_job',
+        'scheduler_delete_job',
+        'scheduler_pause_job',
+        'scheduler_resume_job',
+        'scheduler_run_now',
+      ],
+      hiddenReason ?? 'scheduler mutations are unavailable in autonomous runs',
+    );
+  }
+  return reasons;
+}
+
+describe('the-agent-can-t-tell-which-gantry-tools', () => {
+  let root: string;
+  let serverPath: string;
+  beforeAll(() => {
+    root = mkdtempSync(join(process.cwd(), '.gantry-tools-test-'));
+    serverPath = join(root, 'stdio.mjs');
+    buildSync({
+      entryPoints: ['apps/core/src/runner/mcp/stdio.ts'],
+      outfile: serverPath,
+      bundle: true,
+      packages: 'external',
+      platform: 'node',
+      format: 'esm',
+      target: 'node24',
+    });
+  });
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    sdkCalls.length = 0;
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    {
+      name: 'delegation is granted',
+      tools: ['AgentDelegation', 'RunCommand'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      delegation: true,
+    },
+    {
+      name: 'delegation has no grant',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'the access preset is locked',
+      tools: ['AgentDelegation', 'mcp__gantry__service_restart'],
+      accessPreset: 'locked' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'authority tools are hidden while selected admin tools remain',
+      tools: ['AgentDelegation', 'mcp__gantry__service_restart'],
+      accessPreset: 'full' as const,
+      hidden: true,
+      asyncEnabled: true,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'the async executor is unavailable',
+      tools: ['AgentDelegation'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: false,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'unselected admin tools have hidden authority and no executor',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: true,
+      asyncEnabled: false,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'unselected admin tools have locked access and no executor',
+      tools: [],
+      accessPreset: 'locked' as const,
+      hidden: true,
+      asyncEnabled: false,
+      autonomous: false,
+      delegation: false,
+    },
+    {
+      name: 'an autonomous run has no browser IPC credential',
+      tools: ['Browser', 'mcp__gantry__scheduler_run_now'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      delegation: false,
+    },
+    {
+      name: 'a Browser grant has no runner credential',
+      tools: ['Browser'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      browserCredential: false,
+      delegation: false,
+    },
+    {
+      name: 'a runner credential has no Browser grant',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      browserCredential: true,
+      delegation: false,
+    },
+    {
+      name: 'Browser is granted with a runner credential',
+      tools: ['Browser'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      browserCredential: true,
+      delegation: false,
+    },
+    {
+      name: 'a Slack reviewer mounts provider and review tools',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      slack: true,
+      reviewer: true,
+      delegation: false,
+    },
+    {
+      name: 'a RunCommand grant has no runner shell',
+      tools: ['RunCommand'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      shellEnabled: false,
+      delegation: false,
+    },
+    {
+      name: 'an enabled runner shell has no RunCommand grant',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      shellEnabled: true,
+      delegation: false,
+    },
+    {
+      name: 'file grants have no runner filesystem',
+      tools: ['FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      filesystemEnabled: false,
+      delegation: false,
+    },
+    {
+      name: 'an enabled runner filesystem needs no file grants',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: false,
+      filesystemEnabled: true,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled developer has file and command grants',
+      tools: ['RunCommand', 'FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'developer' as const,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled assistant has file and command grants',
+      tools: ['RunCommand', 'FileRead', 'FileSearch', 'FileEdit', 'FileWrite'],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'generalist' as const,
+      delegation: false,
+    },
+    {
+      name: 'a scheduled assistant has no file grants',
+      tools: [],
+      accessPreset: 'full' as const,
+      hidden: false,
+      asyncEnabled: true,
+      autonomous: true,
+      persona: 'generalist' as const,
+      delegation: false,
+    },
+  ])(
+    'advertises the mounted surface and every unavailable reason when $name',
+    async (scenario) => {
+      vi.stubEnv('GANTRY_NO_PERMISSION_TOOLS', '0');
+      vi.stubEnv('GANTRY_IPC_DIR', root);
+      vi.stubEnv('GANTRY_WORKSPACE_GROUP_DIR', root);
+      vi.stubEnv('GANTRY_WORKSPACE_EXTRA_DIR', root);
+      const inputDir = join(root, 'input');
+      mkdirSync(inputDir, { recursive: true });
+      vi.stubEnv('GANTRY_IPC_INPUT_DIR', inputDir);
+      vi.stubEnv('CLAUDE_CONFIG_DIR', join(root, 'claude-config'));
+      vi.stubEnv('GANTRY_MCP_SERVERS_JSON', '{}');
+      vi.stubEnv('GANTRY_MCP_ALLOWED_TOOLS_JSON', '[]');
+      const agentInput = {
+        prompt: 'Which Gantry tools can I use in this run?',
+        workspaceFolder: 'team',
+        chatJid: scenario.slack ? 'sl:1001' : 'tg:1001',
+        memoryReviewerIsControlApprover: scenario.reviewer === true,
+        persona: scenario.persona,
+        toolPolicyRules: scenario.tools,
+        hideAuthorityTools: scenario.hidden,
+        isScheduledJob: scenario.autonomous,
+      };
+      const authority = await prepareWorkerAuthorityProjection({
+        agentInput,
+        accessPreset: scenario.accessPreset,
+        delegates: [],
+        getConversationBoundAgentIds: () => new Set(),
+        personasByAgentId: {},
+        workspaceFolder: agentInput.workspaceFolder,
+        options: { asyncTaskRepositoryAvailable: scenario.asyncEnabled },
+        getAgentRepository: () => {
+          throw new Error('No delegate lookup is needed for this run');
+        },
+        warn: () => {},
+      });
+      const claude = composeAgentCapabilities({
+        mcpServerPath: serverPath,
+        ...agentInput,
+        configuredAllowedTools: scenario.tools,
+        accessPreset: authority.accessPreset,
+        hideAuthorityTools: authority.hideAuthorityTools,
+        asyncTaskToolsEnabled: scenario.asyncEnabled,
+        browserIpcAuthToken: scenario.browserCredential
+          ? 'browser-proof-token'
+          : undefined,
+      });
+      const claudeEnv = claude.mcpServers.gantry.env ?? {};
+      const deepEnv = {
+        GANTRY_IPC_DIR: root,
+        GANTRY_MCP_SERVER_PATH: serverPath,
+        GANTRY_MCP_CONFIG_FILE: '',
+        GANTRY_BROWSER_IPC_AUTH_TOKEN: scenario.browserCredential
+          ? 'browser-proof-token'
+          : '',
+        GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: scenario.reviewer
+          ? '1'
+          : '',
+        GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED:
+          scenario.filesystemEnabled === false ? '' : '1',
+        GANTRY_DEEPAGENTS_SHELL_ENABLED:
+          (scenario.shellEnabled ?? scenario.tools.includes('RunCommand'))
+            ? '1'
+            : '',
+        GANTRY_CHAT_JID: agentInput.chatJid,
+        GANTRY_AGENT_ACCESS_PRESET: authority.accessPreset,
+        GANTRY_NO_PERMISSION_TOOLS: authority.hideAuthorityTools ? '1' : '',
+        GANTRY_ASYNC_TASK_TOOLS_ENABLED: scenario.asyncEnabled ? '1' : '',
+        GANTRY_PERMISSION_LANE: scenario.autonomous
+          ? 'autonomous'
+          : 'interactive',
+      };
+      for (const [name, value] of Object.entries(deepEnv))
+        vi.stubEnv(name, value);
+      const mounted = await registeredTools(serverPath, {
+        GANTRY_IPC_DIR: root,
+        ...claudeEnv,
+        GANTRY_AGENT_ACCESS_PRESET: authority.accessPreset,
+      });
+      expect(claude.mcpServers.gantry.alwaysLoad).toBe(true);
+      expect(mounted.has('delegate_task')).toBe(scenario.delegation);
+      expect(mounted.has('task_message')).toBe(scenario.delegation);
+      if (scenario.delegation) {
+        for (const name of ['task_get', 'task_list', 'task_cancel']) {
+          expect(mounted.has(name)).toBe(true);
+        }
+      }
+      expect(mounted.has('send_message')).toBe(true);
+      if (scenario.accessPreset === 'locked') {
+        expect(mounted.has('request_access')).toBe(false);
+        expect(mounted.has('service_restart')).toBe(false);
+      } else if (scenario.hidden) {
+        expect(mounted.has('request_access')).toBe(true);
+        expect(mounted.has('service_restart')).toBe(
+          scenario.tools.includes('mcp__gantry__service_restart'),
+        );
+      }
+      if (scenario.autonomous) {
+        expect(mounted.has('scheduler_run_now')).toBe(false);
+        expect(mounted.has('browser_open')).toBe(false);
+      }
+      const deep = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: scenario.tools,
+        hideAuthorityTools: authority.hideAuthorityTools,
+        shellCwd: root,
+        gate: {
+          workspaceFolder: 'team',
+          memoryBlock: '',
+          gateContext: { conversationId: agentInput.chatJid },
+          permissionEnv: {
+            appId: 'default',
+            agentId: '',
+            chatJid: agentInput.chatJid,
+            jobId: '',
+            jobName: '',
+            jobRunId: '',
+            jobRunLeaseToken: '',
+            jobRunLeaseFencingVersion: '',
+            ipcAuthToken: '',
+            ipcResponseVerifyKey: '',
+            ipcResponseKeyId: '',
+            permissionRequestTimeoutMs: 1000,
+            resolveWorkspaceIpcDir: () => root,
+          },
+          capabilityRequestToolsHidden: authority.hideAuthorityTools,
+        },
+      });
+      try {
+        const deepMounted = new Set(deep.tools.map((tool) => tool.name));
+        expect(deepMounted).toEqual(deep.gantryOwnedToolNames);
+        expect(deepMounted.has('WebSearch')).toBe(true);
+        expect(deepMounted.has('WebRead')).toBe(true);
+        for (const name of [
+          'FileRead',
+          'FileSearch',
+          'FileEdit',
+          'FileWrite',
+        ]) {
+          expect(deepMounted.has(name)).toBe(
+            scenario.filesystemEnabled !== false,
+          );
+        }
+        expect(deepMounted.has('RunCommand')).toBe(
+          (scenario.shellEnabled ?? scenario.tools.includes('RunCommand')) &&
+            scenario.tools.includes('RunCommand'),
+        );
+        expect(deepMounted.has('delegate_task')).toBe(scenario.delegation);
+        for (const agentEngine of [DEFAULT_AGENT_ENGINE, DEEPAGENTS_ENGINE]) {
+          const compiled = await compileSpawnSystemPrompt({
+            group: {
+              name: 'Team',
+              folder: 'team',
+              trigger: '',
+              added_at: '2026-01-01T00:00:00.000Z',
+              conversationKind: 'dm',
+            },
+            agentInput,
+            appId: 'default',
+            accessPreset: authority.accessPreset,
+            mcpInventoryToolsMounted: !authority.hideAuthorityTools,
+            agentEngine,
+            gantryToolSelection: authority.gantryToolSelection,
+            fileArtifactStore: () => undefined,
+            measureAsync: (_name, fn) => fn(),
+          });
+          let prompt: string;
+          let completeMounted: Set<string>;
+          if (agentEngine === DEEPAGENTS_ENGINE) {
+            deepProbe.model = new CapturingModel({ responses: ['done'] });
+            const stream = FakeListChatModel.prototype._streamResponseChunks;
+            vi.spyOn(
+              FakeListChatModel.prototype,
+              '_streamResponseChunks',
+            ).mockImplementation(async function* (
+              this: FakeListChatModel,
+              ...args
+            ) {
+              captureMessages(args[0]);
+              yield* stream.call(this, ...args);
+            });
+            const { runDeepAgentTurn } =
+              await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
+            await runDeepAgentTurn({
+              agentInput: {
+                ...agentInput,
+                allowedTools: scenario.tools,
+                hideAuthorityTools: authority.hideAuthorityTools,
+                permissionMode: 'ask',
+                compiledSystemPrompt: compiled,
+                modelCredentialEnv: {
+                  OPENAI_BASE_URL: 'http://127.0.0.1:10254/openai',
+                  OPENAI_API_KEY: 'gtw_worker_tool_proof',
+                },
+              },
+              provider: 'openai',
+              modelId: 'test-model',
+              newSessionId: 'worker-tool-proof',
+              includeMemoryContext: false,
+              emit: () => {},
+            });
+            prompt = deepProbe.prompt;
+            completeMounted = new Set(deepProbe.tools);
+            expect(completeMounted).toEqual(deepMounted);
+          } else {
+            const { runQuery } =
+              await import('@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js');
+            await runQuery(
+              agentInput.prompt,
+              serverPath,
+              {
+                ...agentInput,
+                hideAuthorityTools: authority.hideAuthorityTools,
+                allowedTools: scenario.tools,
+                permissionMode: 'ask',
+                compiledSystemPrompt: compiled,
+              },
+              { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+              'sonnet',
+              undefined,
+              undefined,
+              { enableIpcFollowups: false, persistSdkSession: false },
+            );
+            const options = sdkCalls.at(-1);
+            expect(options).toBeDefined();
+            expect(Array.isArray(options?.tools)).toBe(true);
+            const nativeTools = Array.isArray(options?.tools)
+              ? options.tools
+              : [];
+            const gantryServer = options?.mcpServers?.gantry;
+            expect(gantryServer && 'env' in gantryServer).toBeTruthy();
+            expect(gantryServer?.alwaysLoad).toBe(true);
+            const actualMcpMounted = await registeredTools(
+              serverPath,
+              gantryServer && 'env' in gantryServer
+                ? (gantryServer.env ?? {})
+                : {},
+            );
+            completeMounted = new Set([
+              ...actualMcpMounted,
+              ...publicNativeTools(nativeTools),
+            ]);
+            expect(completeMounted.has('WebSearch')).toBe(true);
+            expect(completeMounted.has('WebRead')).toBe(true);
+            for (const name of ['FileRead', 'FileSearch']) {
+              expect(completeMounted.has(name)).toBe(
+                scenario.tools.includes(name) ||
+                  !scenario.autonomous ||
+                  scenario.persona !== 'generalist',
+              );
+            }
+            for (const name of ['FileEdit', 'FileWrite']) {
+              expect(completeMounted.has(name)).toBe(
+                scenario.tools.includes(name) || !scenario.autonomous,
+              );
+            }
+            expect(completeMounted.has('RunCommand')).toBe(
+              !scenario.autonomous,
+            );
+            expect(completeMounted.has('delegate_task')).toBe(
+              scenario.delegation,
+            );
+            prompt = Array.isArray(options?.systemPrompt)
+              ? options.systemPrompt.join('\n')
+              : typeof options?.systemPrompt === 'string'
+                ? options.systemPrompt
+                : '';
+          }
+          expect(advertisedTools(prompt)).toEqual(completeMounted);
+          expect
+            .soft(unavailableTools(prompt), agentEngine)
+            .toEqual(expectedUnavailableTools(scenario, agentEngine));
+        }
+      } finally {
+        await deep.close();
+      }
+    },
+    30_000,
+  );
+});

@@ -35,6 +35,7 @@ interface LiveAdmissionActivatingRuntimeEventRepository extends RuntimeEventRepo
         agentId?: string | null;
         agentSessionId?: string | null;
         triggerDecision?: Record<string, unknown>;
+        sessionCommand?: boolean;
         now?: string;
       };
     },
@@ -85,6 +86,7 @@ export class RuntimeEventExchange {
         agentId?: string | null;
         agentSessionId?: string | null;
         triggerDecision?: Record<string, unknown>;
+        sessionCommand?: boolean;
         now?: string;
       };
     },
