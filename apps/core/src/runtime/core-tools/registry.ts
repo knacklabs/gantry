@@ -51,6 +51,7 @@ import {
   CoreToolPermissionDeliveryError,
 } from './core-tool-permission-coordinator.js';
 import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
+import { withMountedGantryToolNames } from '../../shared/gantry-mcp-tool-surface.js';
 
 export type {
   CoreToolDefinition,
@@ -202,6 +203,7 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
 }
 
 export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
+  gantryToolAvailability: string;
   tools: readonly CoreToolDefinition[];
   byName: Readonly<Record<string, CoreToolDefinition>>;
   get(name: string): CoreToolDefinition | undefined;
@@ -340,7 +342,29 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
   const byName = Object.fromEntries(
     definitions.map((tool) => [tool.name, tool]),
   ) as Record<string, CoreToolDefinition>;
+  const delegationGate = !deps.taskLifecycleBackend
+    ? 'async task executor is unavailable'
+    : deps.context.accessPreset === 'locked'
+      ? 'locked access preset'
+      : deps.context.fixedImageRestricted
+        ? 'tools are hidden for this run'
+        : !deps.context.allowedToolRules?.includes('AgentDelegation')
+          ? 'AgentDelegation has not been granted'
+          : undefined;
   return {
+    gantryToolAvailability: [
+      withMountedGantryToolNames(
+        '',
+        new Set(definitions.map(({ name }) => name)),
+      ),
+      'Unavailable: other Gantry tools — not exposed by the inline runtime.',
+      ...(delegationGate
+        ? [
+            `Gated: ${deps.taskLifecycleBackend ? 'delegate_task, task_message' : 'delegate_task, task_get, task_list, task_cancel, task_message'} — ${delegationGate}.`,
+          ]
+        : []),
+      'Available lists exposed tools; execution still passes through Gantry permission checks.',
+    ].join('\n'),
     tools: definitions,
     byName,
     get: (name) => byName[name],

@@ -21,6 +21,7 @@ import {
   type DeepAgentsFacadeToolName,
 } from './gantry-facade-tools.js';
 import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool-references.js';
+import { completeGantryToolNames } from '../../../../shared/gantry-mcp-tool-surface.js';
 import {
   canonicalGantryToolRuleName,
   isRunCommandToolRule,
@@ -209,7 +210,7 @@ export async function connectGantryAndThirdPartyMcpTools(
 
   const shellTools = projectGantryShellTool(input);
   // Preserve registration ownership separately from the streamed tool name.
-  const gantryOwnedToolNames = new Set([
+  const gantryOwnedToolNames = completeGantryToolNames([
     ...gantryTools.map((tool) => tool.name),
     ...facadeTools.map((tool) => tool.name),
     ...shellTools.map((tool) => tool.name),

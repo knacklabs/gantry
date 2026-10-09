@@ -273,7 +273,10 @@ describe('host child-process runtime smoke', () => {
     expect(childRecord.input).toEqual(
       expect.objectContaining({
         prompt: 'real child smoke prompt',
-        compiledSystemPrompt: 'compiled host smoke prompt',
+        // The compiled profile is followed by this run's tool availability.
+        compiledSystemPrompt: expect.stringMatching(
+          /^compiled host smoke prompt\n\n## Gantry tools in this run\nAvailable: /,
+        ),
       }),
     );
     expect(childRecord.env).toEqual(

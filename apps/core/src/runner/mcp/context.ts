@@ -4,7 +4,7 @@ import {
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   parseEnabledGantryMcpToolNames,
-} from '../gantry-mcp-tool-surface.js';
+} from '../../shared/gantry-mcp-tool-surface.js';
 import { readLiveToolRules } from '../../shared/live-tool-rules.js';
 import { normalizeMemoryIpcActions } from '../../shared/memory-ipc-actions.js';
 import {

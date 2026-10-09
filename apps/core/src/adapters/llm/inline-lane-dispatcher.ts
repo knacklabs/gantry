@@ -16,6 +16,7 @@ import type { AgentPersona } from '../../shared/agent-persona.js';
 import { DEFAULT_AGENT_ENGINE } from '../../shared/agent-engine.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { PermissionMode } from '../../shared/permission-mode.js';
+import { withMountedGantryToolNames } from '../../shared/gantry-mcp-tool-surface.js';
 
 export const DEFAULT_INLINE_AGENT_MAX_TURNS = 50;
 const RESPONSE_SCHEMA_RETRY_LIMIT = 1;
@@ -104,6 +105,7 @@ export interface AdapterInlineAgentLoopLaneInput {
 }
 
 export interface InlineCoreToolRegistry {
+  gantryToolAvailability?: string;
   tools: readonly {
     name: string;
     description: string;
@@ -172,6 +174,26 @@ export function createInlineAgentLoopLaneDispatcher(input: {
         ? input.claudeLane
         : input.deepAgentsLane;
     const coreTools = await input.createCoreTools(laneInput);
+    laneInput = {
+      ...laneInput,
+      input: {
+        ...laneInput.input,
+        compiledSystemPrompt: [
+          laneInput.input.compiledSystemPrompt,
+          coreTools.gantryToolAvailability,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+      },
+    };
+    if (laneInput.input.disableTools) {
+      laneInput.input.compiledSystemPrompt =
+        withMountedGantryToolNames(
+          laneInput.input.compiledSystemPrompt,
+          new Set(),
+        ) +
+        '\nUnavailable: all Gantry tools — tools are disabled for this invocation.';
+    }
     const egressDenylist = input.getEgressDenylist();
     if (!laneInput.input.responseSchema) {
       return lane({ ...laneInput, coreTools, egressDenylist });
@@ -242,6 +264,12 @@ export function createInlineAgentLoopLaneDispatcher(input: {
           ...laneInput.input,
           prompt: `${laneInput.input.prompt}\n\nYour previous response failed validation with: ${validation.error}\nFix it to satisfy response_schema.\n\nPrevious response:\n${boundedRepairCandidate(output.result)}\n\nReturn one corrected JSON response matching response_schema.`,
           disableTools: true,
+          compiledSystemPrompt:
+            withMountedGantryToolNames(
+              laneInput.input.compiledSystemPrompt,
+              new Set(),
+            ) +
+            '\nUnavailable: all Gantry tools — tools are disabled for response repair.',
         },
       };
     }
