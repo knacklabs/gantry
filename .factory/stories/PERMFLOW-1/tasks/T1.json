@@ -7,45 +7,45 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "e08f05ecf1654aa35005646da852da1f3770207751be52b585b73b2e60ce1cfd",
-    "changed": "84364d88adbec240d1db578910a0484a8f5211a53ae73557521e9d5d77ef656e",
-    "commit": "3a3db517a5e9b01dff8df3905e2b959e369692f7",
+    "branch_diff": "a47fc9a666d0c7ea5ca22989ac44a715f3d96e802f7db0d8c2f07b1e82ee4a9d",
+    "changed": "5d93479147978afa3a5fa73f009909fd9523214fd12a6e8965124a2ec1e8a0bf",
+    "commit": "84166af5a614021604440476ff009995500ec384",
     "dismissals": [],
     "findings": [
       {
-        "body": "The route guard runs only through resolvePermissionIpcDecision. In ipc-interaction-processing.ts:228\u2013237, a persisted approval short-circuits that function, so an active run can receive an approved response after its conversation route or binding is removed. New evidence beyond the earlier route ruling is the changed restart fixture in ipc-interaction-handler.test.ts:2708 and 2807\u20132863: it supplies a live run binding but no conversationRoutes, then expects a transient grant and signed allow. Check the route before replaying either persisted approval mode, while preserving the recorded human answer, and cover route removal on this replay path.",
-        "file": "apps/core/src/runtime/ipc-permission-classifier-decision.ts",
-        "line": 130,
-        "priority": "P1",
-        "title": "Not done: route checks precede persisted approvals"
-      },
-      {
-        "body": "The T2-owned gaps remain: runner/permission-ipc-client.ts:179 transports toolUseID, and ipc-parsing.ts:483 does not populate invocationId. The Claude duplicate client remains, with runner/job-heartbeat.ts:6 reading its pending requests. Protected-path and YOLO checks also remain in the Claude tool-permission-gate.ts:324 and 380. T2 must transport engine ids, consolidate the client and runner checks, and prove that the shared client's pending requests appear in job heartbeats. This remains nonblocking for T1 under the task ownership and transport ruling.",
+        "body": "The previously identified T2 gaps remain. apps/core/src/runner/permission-ipc-client.ts:179 transports toolUseID, while ipc-parsing.ts:483 does not populate invocationId, so real IPC requests cannot exercise the new engine-id binding. The Claude duplicate client remains, job-heartbeat.ts:6 reads its pending requests, and tool-permission-gate.ts:324 and :380 retain protected-path and YOLO checks. T2 must complete transport, client consolidation, runner-check removal and shared-client heartbeat proof. This is nonblocking for T1 under the accepted ownership ruling.",
         "file": "apps/core/src/domain/permission-approval-request.ts",
         "line": 40,
         "priority": "P2",
         "title": "Later: finish invocation transport and runner consolidation in T2"
       },
       {
-        "body": "The T3-owned coverage remains incomplete: registry.ts:575\u2013580 gates only delegation tools; DeepAgents runner/mcp-tools.ts:158\u2013164 returns selected Gantry tools without the common permission wrapper; and the Claude inline lane still allows core tools at inline-lane/index.ts:178\u2013192. Dispatcher consultation still passes the dispatcher name unchanged at ipc-permission-classifier-decision.ts:276. T3 must complete these entries and resolved-target decisions, the four-engine chat/job/mode table, actual one-ask alias versus two-call proof, and deepagents-gantry-tool-gate, which is absent from test/e2e. The host pinning and three-caller tests do not replace that assigned engine proof. This is nonblocking for T1.",
+        "body": "The previously identified T3 gaps remain. registry.ts:575\u2013580 gates only delegation tools; DeepAgents runner/mcp-tools.ts:158\u2013164 returns selected Gantry tools without the common gate; and the Claude inline lane still allows core tools at inline-lane/index.ts:178\u2013192. IPC classifier consultation also passes the dispatcher name unchanged at ipc-permission-classifier-decision.ts:276. T3 must complete engine entry coverage and resolved-target decisions, then supply the four-engine chat/job/mode table, one-ask-versus-two-call proof and deepagents-gantry-tool-gate, which is absent from apps/core/test/e2e/. This remains nonblocking for T1.",
         "file": "apps/core/src/runtime/core-tools/registry.ts",
         "line": 143,
         "priority": "P2",
         "title": "Later: complete engine gate coverage and its proof in T3"
       },
       {
-        "body": "The T4-owned gaps remain: unsupported shapes ask before the judge under the temporary rail ruling; permission-classifier.ts:360 skips consultation when auto_strict lacks read-only proof; ipc-parsing.ts:447\u2013454 sanitizes before rail evaluation without a complete program/path summary; gantry-tool-risk.ts:70\u201371 fixes capability_run as high risk; and structured-local-cli-invocation.ts:170\u2013173 still refuses template mismatches. T4 must supply the shape/danger table, beyond-cut danger/path and malformed-input cases, repeated/restarted template-mismatch allow/deny cases, piped/chained Postgres proof, and piped-command-judge-allow, which is absent from test/e2e. This remains nonblocking for T1 and does not challenge its approved temporary rail policy.",
+        "body": "The previously identified T4 gaps remain. Unsupported shapes still ask before the judge under the approved temporary rail policy. Unchanged permission-classifier.ts:360 skips consultation without read-only proof in auto_strict; ipc-parsing.ts:447\u2013454 sanitizes before rail evaluation without a complete program/path summary; gantry-tool-risk.ts:70\u201371 fixes capability_run as high risk; and structured-local-cli-invocation.ts:170\u2013173 refuses template mismatches. T4 must implement these policies and their shape/danger, truncation, repeated/restarted template, piped/chained Postgres and piped-command-judge-allow proofs. This is nonblocking for T1 and does not challenge its temporary rail ruling.",
         "file": "apps/core/src/runtime/permission-decision-coordinator.ts",
         "line": 105,
         "priority": "P2",
         "title": "Later: finish command policy and its proof in T4"
+      },
+      {
+        "body": "The host now pins invocationId, but durable waiting-record identity still uses requestId: unchanged apps/core/src/application/interactions/pending-interaction-idempotency.ts:11\u201316 contains no invocation or authenticated-run identity, and pending-interaction-permission-envelope.ts:17\u201339 does not persist invocationId. Two gate requests for the same engine invocation can therefore still create separate waiting records and asks. The Tasks table assigns durable record deduplication to T6; it must consume the authenticated invocation identity and prove alias deduplication while keeping two legitimate calls independent. This is nonblocking for T1.",
+        "file": "apps/core/src/domain/permission-approval-request.ts",
+        "line": 40,
+        "priority": "P2",
+        "title": "Later: consume the pinned invocation id in durable waiting records in T6"
       }
     ],
-    "id": "d56593d8-e3a2-4505-9946-4afc2c0d1def",
-    "status": "blocked"
+    "id": "8e47ecba-9658-4411-83f5-6f77c02ccab3",
+    "status": "clean"
   },
   "round": 3,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-09T04:59:17+00:00",
@@ -57,6 +57,10 @@
     },
     {
       "at": "2026-10-09T13:51:32+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-09T14:58:44+00:00",
       "step": "review"
     }
   ],
