@@ -1,3 +1,4 @@
+import type { StreamingChunkResult } from '../domain/messages/streaming-chunk-result.js';
 import type { ChildProcess } from 'child_process';
 
 import type {
@@ -73,7 +74,7 @@ export interface SchedulerDependencies {
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ) => Promise<boolean>;
+  ) => Promise<StreamingChunkResult>;
   resetStreaming?: (jid: string) => void;
   onSchedulerChanged?: (jobId?: string) => void;
   runAgent: typeof spawnAgent;

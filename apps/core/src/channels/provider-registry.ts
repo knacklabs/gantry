@@ -45,6 +45,8 @@ export interface Provider {
   isGroupJid: (jid: string) => boolean;
   canStreamToJid?: (jid: string) => boolean;
   formatting: ChannelFormattingDialect;
+  /** Longest text a user can send in one message; unset when none is known. */
+  maxInboundTextLength?: number;
   promptPresentation?: PromptPresentationDescriptor;
   isEnabled: (settings: ChannelProviderSettingsLike) => boolean;
   create: ChannelFactory;

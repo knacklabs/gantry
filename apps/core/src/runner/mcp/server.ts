@@ -16,17 +16,18 @@ import {
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   parseEnabledGantryMcpToolNames,
-} from '../gantry-mcp-tool-surface.js';
+} from '../../shared/gantry-mcp-tool-surface.js';
 import {
   callableAgentToolName,
   parseCallableAgentManifest,
 } from '../../shared/callable-agent-manifest.js';
 import {
   ADMIN_MCP_TOOL_NAMES,
+  RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES,
   isAdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
 import { formatOperatorError } from '../../shared/operator-error.js';
-import { applyProviderAffinity } from './tool-provider-affinity.js';
+import { applyProviderAffinity } from '../../shared/gantry-tool-provider-affinity.js';
 
 export { parseCallableAgentManifest } from '../../shared/callable-agent-manifest.js';
 
@@ -163,6 +164,19 @@ export function effectiveEnabledMcpToolNames(
     }),
   );
   const selectedAdminTools = parseSelectedAdminMcpToolNames(rawAdminToolNames);
+  const selectedRecoveryProposals = new Set<string>();
+  if (rawToolNames) {
+    try {
+      const selected: unknown = JSON.parse(rawToolNames);
+      if (Array.isArray(selected)) {
+        for (const name of RECOVERY_PROPOSAL_GANTRY_MCP_TOOL_NAMES) {
+          if (selected.includes(name)) selectedRecoveryProposals.add(name);
+        }
+      }
+    } catch {
+      // Malformed selection must not restore hidden tools from the default set.
+    }
+  }
   // Locked agents never mount admin tools, even when capabilities selected them.
   if (!lockedPreset) {
     for (const toolName of selectedAdminTools) {
@@ -181,6 +195,8 @@ export function effectiveEnabledMcpToolNames(
     // previously selected admin tools so admin agents stay functional.
     if (!lockedPreset) {
       for (const toolName of selectedAdminTools) enabledTools.add(toolName);
+      for (const toolName of selectedRecoveryProposals)
+        enabledTools.add(toolName);
     }
   }
   if (rawAsyncTaskToolsEnabled !== '1') {

@@ -44,24 +44,13 @@ import {
 import { routeScopeActiveLiveTurnAdmissionFromInput } from './live-recovery-coordinator.js';
 import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
-import { type SessionCommand } from '../../session/session-commands.js';
-import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
+import {
+  createActiveCompactRouteHandlers,
+  type ActiveControlCommandHandler,
+  type ActiveControlRoute,
+} from './runtime-services-active-compact.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
-export type ActiveControlRoute = {
-  folder: string;
-  trigger?: string;
-  conversationKind?: 'dm' | 'channel';
-  providerAccountId?: string;
-  agentConfig?: { model?: string };
-};
-export type ActiveControlCommandHandler = (args: {
-  chatJid: string;
-  queueJid: string;
-  group: ActiveControlRoute;
-  message: NewMessage;
-  command: SessionCommand;
-}) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
@@ -149,47 +138,50 @@ export function buildLiveAdmissionProcessor(input: {
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
   handleActiveControlCommand?: ActiveControlCommandHandler;
+  /** The route-trigger pattern turn start parses session commands with. */
+  getTriggerPattern: (trigger?: string) => RegExp;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
   const { finalizeAgentTodo, finalizeBrowserForLiveTurn } = input;
 
-  const routeScopeActive = async (
+  const routeScopeActive = (
     scope: LiveTurnScope,
     queueJid: string,
     liveRunId: string,
     chatJid: string,
     threadId: string | null,
-    route: ConversationRoute,
-  ): Promise<boolean> => {
-    const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
-    if (!owner?.runId) return false;
-    return routeScopeActiveLiveTurnAdmissionFromInput({
-      scope,
-      queueJid,
-      liveRunId,
-      ownerTurnId: owner.id,
-      ownerRunId: owner.runId,
-      chatJid,
-      threadId,
-      route,
-      messageFetchPageSize,
-      timezone,
-      inputRepository: input.inputRepository!,
-      getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
-      enqueueMessageCheck: input.enqueueMessageCheck,
-      ...createActiveCompactRouteHandlers({
-        route,
-        chatJid,
+    route: ActiveControlRoute,
+  ): Promise<boolean> =>
+    (async () => {
+      const owner = await liveTurnAuthority!.getActiveLiveTurn(scope);
+      if (!owner?.runId) return false;
+      return routeScopeActiveLiveTurnAdmissionFromInput({
+        scope,
         queueJid,
-        handleActiveControlCommand: input.handleActiveControlCommand,
-      }),
-      routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
-      completeSessionAgentRun:
-        opsRepository.completeSessionAgentRun?.bind(opsRepository),
-      addReaction: input.addReaction,
-    });
-  };
+        liveRunId,
+        ownerTurnId: owner.id,
+        ownerRunId: owner.runId,
+        chatJid,
+        threadId,
+        messageFetchPageSize,
+        timezone,
+        inputRepository: input.inputRepository!,
+        getMessagesByIds: opsRepository.getMessagesByIds!.bind(opsRepository),
+        enqueueMessageCheck: input.enqueueMessageCheck,
+        ...createActiveCompactRouteHandlers({
+          route,
+          chatJid,
+          queueJid,
+          handleActiveControlCommand: input.handleActiveControlCommand,
+          getTriggerPattern: input.getTriggerPattern,
+        }),
+        routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
+        completeSessionAgentRun:
+          opsRepository.completeSessionAgentRun?.bind(opsRepository),
+        addReaction: input.addReaction,
+      });
+    })();
 
   return async (
     queueJid: string,

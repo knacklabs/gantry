@@ -162,13 +162,8 @@ function createRunnerFixture(): {
     path.join(adapterDir, 'native-sdk-skills.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
-    path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
-  );
-  fs.mkdirSync(path.join(runnerDir, 'mcp'), { recursive: true });
-  fs.copyFileSync(
-    path.resolve('apps/core/src/runner/mcp/tool-provider-affinity.ts'),
-    path.join(runnerDir, 'mcp', 'tool-provider-affinity.ts'),
+    path.resolve('apps/core/src/runner/logging.ts'),
+    path.join(runnerDir, 'logging.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),

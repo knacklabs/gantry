@@ -190,6 +190,7 @@ import { createPostgresIntegrationRuntime } from '../harness/postgres-integratio
 import { hasPostgresIntegrationDatabase } from '../harness/postgres-integration-runtime.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
 import { createFakeChannelRuntime } from '../harness/fake-channel.js';
+import { getTriggerPattern } from '@core/config/index.js';
 
 const group: ConversationRoute = {
   name: 'Inline integration agent',
@@ -1079,6 +1080,7 @@ maybeDescribe('inline session turns through the control API', () => {
       ops: {} as never,
       repositories: {} as never,
       runtimeEvents: getRuntimeEventExchange(),
+      getTriggerPattern,
       now: () => '2026-07-10T00:00:00.000Z' as never,
       createId: () => 'inline-stage-2d-event',
       stableHash: (input) => createHash('sha256').update(input).digest('hex'),

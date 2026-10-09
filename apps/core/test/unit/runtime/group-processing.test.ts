@@ -775,112 +775,6 @@ describe('createGroupProcessor', () => {
       expect(mockFormatConversationContextMessages).not.toHaveBeenCalled();
     });
 
-    it('ignores a thread follow-up from a sender who is not allowed', async () => {
-      const group = makeGroup({
-        requiresTrigger: true,
-        trigger: 'Andy',
-      });
-      const reply = makeMessage({
-        chat_jid: 'sl:C123',
-        sender: 'bob',
-        content: 'yes, continue with that',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: 'root-message',
-      });
-      const root = makeMessage({
-        id: 'root-message',
-        chat_jid: 'sl:C123',
-        sender: 'alice',
-        content: '@Andy please help',
-        thread_id: '1710000000.000100',
-      });
-      const { deps } = setupHappyPath({ group, messages: [reply] });
-      mockGetMessagesSince.mockImplementation(
-        (_chatJid, cursor, _limit, options) =>
-          cursor === '' && options?.threadId === '1710000000.000100'
-            ? [root]
-            : [reply],
-      );
-      mockIsTriggerAllowed.mockImplementation(
-        (_jid: string, sender: string) => sender === 'alice',
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('sl:C123::thread:1710000000.000100');
-
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
-    });
-
-    it('allows an untagged continuation in a trigger-owned Slack thread', async () => {
-      const group = makeGroup({
-        requiresTrigger: true,
-        trigger: 'Andy',
-      });
-      const reply = makeMessage({
-        chat_jid: 'sl:C123',
-        content: 'yes, continue with that',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: 'root-message',
-      });
-      const root = makeMessage({
-        id: 'root-message',
-        chat_jid: 'sl:C123',
-        content: '@Andy please help',
-        thread_id: '1710000000.000100',
-      });
-      const { deps } = setupHappyPath({ group, messages: [reply] });
-      mockGetMessagesSince.mockImplementation(
-        (_chatJid, cursor, _limit, options) =>
-          cursor === '' && options?.threadId === '1710000000.000100'
-            ? [root]
-            : [reply],
-      );
-      mockIsTriggerAllowed.mockReturnValue(true);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages(
-        'sl:C123::thread:1710000000.000100',
-      );
-
-      expect(result).toBe(true);
-      expect(mockSpawnAgent).toHaveBeenCalled();
-    });
-
-    it('keeps an untagged human Slack thread trigger-gated', async () => {
-      const group = makeGroup({
-        requiresTrigger: true,
-        trigger: 'Andy',
-      });
-      const reply = makeMessage({
-        chat_jid: 'sl:C123',
-        content: 'can someone look at this?',
-        thread_id: '1710000000.000100',
-        reply_to_message_id: 'root-message',
-      });
-      const root = makeMessage({
-        id: 'root-message',
-        chat_jid: 'sl:C123',
-        content: 'human thread root',
-        thread_id: '1710000000.000100',
-      });
-      const { deps } = setupHappyPath({ group, messages: [reply] });
-      mockGetMessagesSince.mockImplementation(
-        (_chatJid, cursor, _limit, options) =>
-          cursor === '' && options?.threadId === '1710000000.000100'
-            ? [root]
-            : [reply],
-      );
-      mockIsTriggerAllowed.mockReturnValue(true);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages(
-        'sl:C123::thread:1710000000.000100',
-      );
-
-      expect(result).toBe(true);
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
-    });
-
     it('requeues when a no-trigger replay fills the bounded pending replay', async () => {
       const group = makeGroup({
         requiresTrigger: true,
@@ -6365,7 +6259,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('bounds provider-visible streamed output and persisted transcript for large chunked output', async () => {
+    it('keeps the whole streamed generation in one message and redacts provider handles', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
       });
@@ -6413,13 +6307,15 @@ describe('createGroupProcessor', () => {
       expect(deliveredStream).not.toContain(splitProviderHandle);
       expect(deliveredStream).toContain('[REDACTED]');
       expect(deliveredStream.endsWith(tailChunk)).toBe(true);
-      const storedTranscript = (deps.opsRepository as any).storeMessage.mock
-        .calls[0][0].content as string;
-      expect(storedTranscript.length).toBeLessThanOrEqual(
-        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
-      );
-      expect(storedTranscript).toMatch(/^\[output truncated; showing tail\]\n/);
-      expect(storedTranscript).not.toContain('HEAD-START');
+      // Live acknowledgements update one message; its final text is the entire
+      // generation. Only the run summary and fallback transcript remain bounded.
+      const projections = vi
+        .mocked(deps.opsRepository.storeMessage)
+        .mock.calls.map(([message]) => message);
+      expect(new Set(projections.map((message) => message.id)).size).toBe(1);
+      const storedTranscript = projections.at(-1)!.content;
+      expect(storedTranscript).toBe(deliveredStream);
+      expect(storedTranscript).toContain('HEAD-START');
       expect(storedTranscript).not.toContain(splitProviderHandle);
       expect(storedTranscript).toContain('[REDACTED]');
       expect(storedTranscript.endsWith(tailChunk)).toBe(true);

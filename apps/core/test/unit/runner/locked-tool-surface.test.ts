@@ -11,7 +11,7 @@ import {
   DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   parseEnabledGantryMcpToolNames,
   selectedGantryMcpToolNames,
-} from '@core/runner/gantry-mcp-tool-surface.js';
+} from '@core/shared/gantry-mcp-tool-surface.js';
 import { ADMIN_MCP_TOOL_NAMES } from '@core/shared/admin-mcp-tools.js';
 
 const RAW_DEEPAGENTS_ASYNC_TOOL_NAMES = [

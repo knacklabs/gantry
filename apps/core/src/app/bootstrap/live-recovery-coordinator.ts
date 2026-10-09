@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
-import type { ConversationRoute, NewMessage } from '../../domain/types.js';
+import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type {
@@ -10,11 +10,6 @@ import type {
   LiveAdmissionInputScope,
 } from '../../domain/ports/live-turns.js';
 import { acknowledgeContinuationReceipt } from '../../runtime/continuation-receipts.js';
-import { orderBatchForPresentation } from '../../runtime/group-processing-flow.js';
-import {
-  admissionPermitsUnmentionedCompletion,
-  batchHasAllowedSender,
-} from '../../runtime/group-trigger-policy.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import {
   findConversationRouteForQueue,
@@ -374,7 +369,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   ownerRunId: string;
   chatJid: string;
   threadId: string | null;
-  route: Pick<ConversationRoute, 'folder' | 'requiresTrigger'>;
   messageFetchPageSize: number;
   timezone: string;
   inputRepository: Pick<
@@ -388,6 +382,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   enqueueMessageCheck?: (queueJid: string) => void;
   isActiveControlMessage?: (message: NewMessage) => boolean;
   handleActiveControlMessage?: (message: NewMessage) => Promise<boolean>;
+  /** False keeps a sender's message as history instead of forwarding it. */
+  senderMayTrigger?: (message: NewMessage) => boolean;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -414,8 +410,6 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
   const batch: Array<{
     message: NewMessage;
     itemId: string;
-    receiveOrder: number | null;
-    triggerDecision: Record<string, unknown>;
   }> = [];
   let queued = false;
   try {
@@ -428,12 +422,29 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
       if (!item) break;
       const [message] = await input.getMessagesByIds(scope, [item.messageId]);
       if (!message) throw new Error('Taken input has no scoped message row');
-      batch.push({
-        message,
-        itemId: item.id,
-        receiveOrder: item.receiveOrder,
-        triggerDecision: item.triggerDecision ?? {},
-      });
+      if (
+        !input.isActiveControlMessage?.(message) &&
+        !(
+          item.triggerDecision?.source === 'callable_agent_follow_up' &&
+          item.triggerDecision.requiresTrigger === false
+        ) &&
+        input.senderMayTrigger?.(message) === false
+      ) {
+        await input.inputRepository.consumeInputItem({
+          id: item.id,
+          consumedBy: 'history',
+          expectedConsumedBy: consumer,
+        });
+        if (input.liveRunId)
+          await input.completeSessionAgentRun?.({
+            runId: input.liveRunId,
+            status: 'canceled',
+            errorSummary: 'Live-turn admission kept the message as history.',
+          });
+        input.enqueueMessageCheck?.(input.queueJid);
+        return true;
+      }
+      batch.push({ message, itemId: item.id });
       if (input.isActiveControlMessage?.(message)) break;
     }
     const controlIndex = batch.findIndex(
@@ -450,52 +461,18 @@ export async function routeScopeActiveLiveTurnAdmissionFromInput(input: {
         return true;
       }
     }
-    const replayBatch = orderBatchForPresentation(
-      controlIndex < 0 ? batch : batch.slice(0, controlIndex),
-    );
+    const replayBatch = controlIndex < 0 ? batch : batch.slice(0, controlIndex);
     const replayMessages = replayBatch.map(({ message }) => message);
     const replayItemIds = replayBatch.map(({ itemId }) => itemId);
-    const continuation = buildLiveTurnContinuation({
-      messages: replayMessages,
-      itemIds: replayItemIds,
-      timezone: input.timezone,
-    });
-    if (
-      continuation &&
-      !replayBatch.some(({ triggerDecision }) =>
-        admissionPermitsUnmentionedCompletion(triggerDecision),
-      ) &&
-      !batchHasAllowedSender({
-        group: input.route,
-        chatJid: input.chatJid,
-        messages: replayMessages,
-      })
-    ) {
-      // Nobody here may talk to the agent: the batch stays history and
-      // reaches neither the running turn nor a new one.
-      for (const id of replayItemIds) {
-        await input.inputRepository.consumeInputItem({
-          id,
-          consumedBy: 'history',
-          expectedConsumedBy: consumer,
-        });
-      }
-      if (input.liveRunId) {
-        await input.completeSessionAgentRun?.({
-          runId: input.liveRunId,
-          status: 'canceled',
-          errorSummary:
-            'Live-turn admission kept a follow-up from a sender who may not trigger the agent as history.',
-        });
-      }
-      input.enqueueMessageCheck?.(input.queueJid);
-      return true;
-    }
     const routed = await routeScopeActiveLiveTurnAdmission({
       scope: input.scope,
       queueJid: input.queueJid,
       liveRunId: input.liveRunId,
-      continuation,
+      continuation: buildLiveTurnContinuation({
+        messages: replayMessages,
+        itemIds: replayItemIds,
+        timezone: input.timezone,
+      }),
       routeMessage: (message) =>
         input.routeMessage({
           ...message,

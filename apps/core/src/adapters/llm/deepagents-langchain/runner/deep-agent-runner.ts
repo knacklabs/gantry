@@ -237,10 +237,6 @@ export async function runDeepAgentTurn(input: {
     }),
   );
   logElapsed('Model built');
-  const systemPrompt = startupTiming.measure('systemPromptMs', () =>
-    composeDeepAgentSystemPrompt(input.agentInput),
-  );
-  logElapsed('System prompt composed');
 
   const configuredAllowedTools = input.agentInput.allowedTools ?? [];
   const memoryBlock = readMemoryContextBlock(input.agentInput);
@@ -312,6 +308,13 @@ export async function runDeepAgentTurn(input: {
   startupTiming.markToolsReady();
 
   try {
+    const systemPrompt = startupTiming.measure('systemPromptMs', () =>
+      composeDeepAgentSystemPrompt(
+        input.agentInput,
+        connected.gantryOwnedToolNames,
+      ),
+    );
+    logElapsed('System prompt composed');
     const skillProjection = input.agentInput.deepAgentSkills;
     const hasProjectedSkills =
       (skillProjection?.sources.length ?? 0) > 0 &&

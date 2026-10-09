@@ -1,0 +1,70 @@
+{
+  "allow_large": "The agent cannot see which Gantry tools it has: every place it appears (instructions and both runner tool surfaces); no interface change",
+  "base": "f05bc55b04f18aaab3de951d49084df68ff402a0",
+  "branch": "fix/the-agent-can-t-tell-which-gantry-tools",
+  "done_when": "Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual reason, all derived from the same selection that mounts the tools; delegate_task is always loaded when available; a test through the real prompt compile and runner tool surface proves it",
+  "flagged": [
+    "apps/core/src/runtime/agent-spawn-prompt.ts",
+    "apps/core/src/shared/gantry-mcp-tool-surface.ts",
+    "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "0db816ca315857e4192ad1afcec2980ec49ff4ee6b7aa0329deb918ce9f1ede9",
+    "changed": "7c71b9edf6624cf626ef9db9738c9eb0bfc94a8e44539ccf946ddfcf33406de5",
+    "commit": "d5495cb67214e0fe2407fe7faa63b0f780636595",
+    "dismissals": [
+      {
+        "because": "apps/core/src/shared/gantry-mcp-tool-surface.ts:287 Owner chose 2026-10-08 to split: unavailable reasons derived from the real mount decision move to the follow-up fix 'The agent's unavailable reasons come from grants instead of what the runner really mounts'",
+        "finding": 1,
+        "from_base": false
+      },
+      {
+        "because": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts:352 Owner chose 2026-10-08 to split: testing every unavailable reason against the real mount decision moves to the same follow-up fix",
+        "finding": 2,
+        "from_base": false
+      }
+    ],
+    "findings": [
+      {
+        "body": "Both worker runners use this finalizer, but it replaces only `Available:` and preserves the host's unavailable-tool reasons. New evidence beyond the mounting-boundary ruling: `agent-spawn-preparation.ts:115` predicts browser IPC availability from the Browser grant, while Claude registration uses the actual credential (`agent-capabilities.ts:289`), as does DeepAgents (`gantry-mcp-env.ts:47`). In the proof list's Browser-selected/no-credential scenario, using the real authority projection therefore removes browser tools from Available without stating why they are unavailable. Facade capabilities have the same gap: DeepAgents omits RunCommand without its grant (`mcp-tools.ts:375`), but the unavailable renderer iterates only MCP names, so instructions never state that gate. Finalize unavailable reasons alongside available names from the actual mounting selection.",
+        "file": "apps/core/src/shared/gantry-mcp-tool-surface.ts",
+        "line": 287,
+        "priority": "P1",
+        "title": "Not done: Each run's instructions state which Gantry tools are available and, for an unavailable capability like delegation, the actual"
+      },
+      {
+        "body": "The worker-boundary proof overwrites the real authority projection with `browserIpcEnabled: false` before compiling instructions. Production preparation instead derives that value from the Browser grant (`agent-spawn-preparation.ts:115`). This supplies the missing browser reason in the fixture and hides the finalizer's failure to derive it from the credential-based mount selection. Moreover, the final assertions check unavailable reasons only for delegate_task; the browser scenario and existing RunCommand-absent cases would pass with no explanation for those missing capabilities. Preserve the real authority projection and assert the final instructions' unavailable reasons against these actual runner gates for both engines.",
+        "file": "apps/core/test/unit/runtime/gantry-tools-in-run.test.ts",
+        "line": 352,
+        "priority": "P1",
+        "title": "Not done: Test unavailable capabilities against the real mounting selection"
+      }
+    ],
+    "id": "71a18828-745b-47a6-a1b0-ad7ea2417a3e",
+    "status": "clean"
+  },
+  "round": 5,
+  "status": "working",
+  "steps": [
+    {
+      "at": "2026-10-08T13:22:16+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-08T15:23:29+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T16:25:54+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-08T17:20:53+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The agent can't tell which Gantry tools it has, so it refuses work it could do",
+  "worker": "codex"
+}

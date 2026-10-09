@@ -14,7 +14,7 @@ import {
 } from '@core/app/bootstrap/live-execution.js';
 import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { listChannelProviders } from '@core/channels/provider-registry.js';
-import { GANTRY_HOME } from '@core/config/index.js';
+import { GANTRY_HOME, getTriggerPattern } from '@core/config/index.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 import {
   ensureConfiguredConversationBinding,
@@ -118,7 +118,15 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
     const runnerReleased = new Promise<void>((resolve) => {
       releaseRunner = resolve;
     });
-    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    let deliveredReplies = 0;
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid, {
+      supportsStreaming: true,
+      sendStreamingChunk: (_jid, _text, options) => {
+        if (!options?.done) return true;
+        deliveredReplies += 1;
+        return { externalMessageIds: [`thread-reply-${deliveredReplies}`] };
+      },
+    });
     const route = {
       name: 'Thread sender group',
       folder,
@@ -198,6 +206,7 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
         executionAdapter: { id: 'anthropic:claude-agent-sdk' },
         messageFetchPageSize: 50,
         timezone: 'UTC',
+        getTriggerPattern,
         enqueueMessageCheck: (queueJid) => {
           queue.enqueueMessageCheck(queueJid);
         },
@@ -242,6 +251,7 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
       app,
       resolved: {
         appId: appId as AppId,
+        getTriggerPattern,
         providerIds: listChannelProviders(),
         loadSenderAllowlist,
         loadSenderControlAllowlist,
@@ -276,9 +286,7 @@ maybeDescribe('thread follow-up sender allowlist (Postgres)', () => {
         ...(replyTo ? { reply_to_message_id: replyTo } : {}),
       });
     const replies = () =>
-      channel.outbound.filter((message) =>
-        message.text.includes('Thread reply.'),
-      ).length;
+      channel.streaming.filter(({ options }) => options?.done).length;
     // How the runtime finished with a saved message: what consumed its input.
     const consumedBy = async (id: string) => {
       const [item] = await runtime.service.db

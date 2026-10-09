@@ -53,7 +53,7 @@ allow-or-deny-with-reason.
    suggestion key → count, last_offered_at) incremented on classifier
    auto-allows that carry a synthesizable suggestion. At count 3 (constant),
    emit a one-tap durable prompt (`decisionOptions:
-   ['allow_persistent_rule','cancel']`) carrying the pre-validated
+['allow_persistent_rule','cancel']`) carrying the pre-validated
    suggestions; a tap persists via the existing
    `PermissionManagementService.applyPersistentToolRuleGrant` path (template
    caller: `apps/core/src/jobs/request-permission-review.ts`). Offer at most
@@ -108,27 +108,29 @@ allow-or-deny-with-reason.
 - **Settings surface for the per-agent key** (full list — all must change
   together): hand parser
   `apps/core/src/config/settings/runtime-settings-agents-parser.ts` (whitelist
-  + assignment), Zod contract `packages/contracts/src/settings/index.ts`
-  (`RuntimeSettingsConfiguredAgentSchema`, strict), type
-  `apps/core/src/config/settings/runtime-settings-types.ts`
-  (`RuntimeConfiguredAgent`), YAML renderer
-  `apps/core/src/config/settings/runtime-settings-renderer.ts`, import/export
-  `apps/core/src/config/settings/settings-import-service.ts` (+ reader version
-  bump), `apps/core/src/config/settings/desired-state-current-export.ts`,
-  public projection `apps/core/src/config/index.ts`, spawn threading
-  `apps/core/src/runtime/agent-spawn-types.ts` /
-  `apps/core/src/runtime/agent-spawn-host.ts`.
+  - assignment), Zod contract `packages/contracts/src/settings/index.ts`
+    (`RuntimeSettingsConfiguredAgentSchema`, strict), type
+    `apps/core/src/config/settings/runtime-settings-types.ts`
+    (`RuntimeConfiguredAgent`), YAML renderer
+    `apps/core/src/config/settings/runtime-settings-renderer.ts`, import/export
+    `apps/core/src/config/settings/settings-import-service.ts` (+ reader version
+    bump), `apps/core/src/config/settings/desired-state-current-export.ts`,
+    public projection `apps/core/src/config/index.ts`, spawn threading
+    `apps/core/src/runtime/agent-spawn-types.ts` /
+    `apps/core/src/runtime/agent-spawn-host.ts`.
 
 ## Stages
 
 ### Stage A — settings + mode plumbing
+
 Packets:
+
 1. Per-agent `permission_mode` across the full settings surface listed above,
    with parser/contract/renderer/import-export tests mirroring how
    `agent_harness` or `effort` were added. Reader version bump.
 2. Conversation override command (parse + handler + route-config persistence),
    copying the `/thinking` command shape end to end
-   (`apps/core/src/session/session-command-parse.ts`,
+   (`apps/core/src/application/sessions/session-command-parse.ts`,
    `apps/core/src/session/session-commands.ts`,
    `apps/core/src/runtime/group-registry.ts`); `permissionMode` added to
    `AgentConfig` (`apps/core/src/domain/types.ts`).
@@ -137,7 +139,9 @@ Packets:
    runner env projection for the unattended bounded wait.
 
 ### Stage B — classifier core
+
 Packets:
+
 1. New application-layer module: eligibility function (families + exclusions),
    verdict client on the memory-LLM port (prompt build with redaction, 3s
    timeout, strict parse + Zod, fail-to-ask incl. unconfigured port), types.
@@ -145,7 +149,9 @@ Packets:
    helper.
 
 ### Stage C — consult wiring
+
 Packets:
+
 1. Host seams: shared consult called at the three sites; `allow` ⇒
    auto-resolve as allow_once/`decidedBy:'auto_classifier'` (registry + inline
    authorizer return allow; IPC processor writes the response file and
@@ -156,7 +162,9 @@ Packets:
    every unattended eligible request (allow or deny) within the window.
 
 ### Stage D — promotion flywheel
+
 Packets:
+
 1. Suggestion synthesis module + adoption at the ask/consult seams that lack
    suggestions today.
 2. Counter table migration + repository method (increment-and-get, mark
@@ -165,16 +173,19 @@ Packets:
    `applyPersistentToolRuleGrant`.
 
 ### Stage E — docs (orchestrator-owned, not codex)
+
 `docs/architecture/capability-management.md`, settings reference, SDK/docs
 note. Written by the orchestrator after D lands.
 
 ## Surface Impact Matrix
+
 (settings parser/contract/renderer/import-export; session commands; runtime
 core-tools registry; IPC interaction processing; inline agent loop tools;
 runner permission clients ×2; deepagents gate wrappers (suggestions only);
 domain events + projection; postgres schema/migration + repository; docs)
 
 ## Verification
+
 - Unit: eligibility boundaries (hard tier + excluded families never consulted;
   promotion prompt never classified), verdict parse/fail-to-ask matrix
   (timeout, garbage JSON, unconfigured port), suggestion synthesis validity
@@ -190,6 +201,7 @@ domain events + projection; postgres schema/migration + repository; docs)
   settings.yaml + subsequent calls silent. Knacklabs lead-gen job still green.
 
 ## Repo gate notes (for every handoff)
+
 - Import from source modules in tests (no re-export barrels for mocked
   modules); update EVERY vi.mock site (unit/integration/e2e) when adding
   module exports; contains-not-last assertions; no provider-name literals
