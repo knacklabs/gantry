@@ -1605,6 +1605,34 @@ describe('McpToolProxy', () => {
     );
   });
 
+  it('forwards host-built invocation metadata as MCP params._meta', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+    const meta = { 'gantry.invocation': { invocationId: 'invocation:key-1' } };
+
+    await proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'search_repositories',
+      arguments: { q: 'gantry' },
+      meta,
+    });
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      { name: 'search_repositories', arguments: { q: 'gantry' }, _meta: meta },
+      undefined,
+      { timeout: 60_000 },
+    );
+  });
+
   it('denies pattern-mismatched calls naming the nearest reviewed capability', async () => {
     const proxy = new McpToolProxy(mcpRepository(), {
       tools: patternToolRepository(),

@@ -84,6 +84,8 @@ interface McpToolCallInput {
    * authority of the reviewed model-facing operation that initiated it.
    */
   authorizationToolName?: string;
+  /** Host-owned MCP request metadata (`params._meta`), e.g. the capability invocation envelope; never model-supplied. */
+  meta?: Record<string, unknown>;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -542,6 +544,7 @@ export class McpToolProxy {
           {
             name: input.toolName,
             arguments: input.arguments ?? {},
+            ...(input.meta ? { _meta: input.meta } : {}),
           },
           undefined,
           {

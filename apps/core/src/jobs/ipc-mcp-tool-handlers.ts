@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { publishInvalidMcpToolRequestAudit } from '../application/mcp/mcp-tool-audit.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import type { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
+import { capabilityInvocationMetadata } from '../application/mcp/capability-invocation-metadata.js';
 import { isActiveRunLeaseForInteraction } from '../application/interactions/pending-interaction-durability.js';
 import {
   isAsyncTaskTerminal,
@@ -280,6 +281,16 @@ function externalCapabilityCallToolHandler(
           toolName: input.toolName,
           arguments: args,
           authorizationArguments: args,
+          // Binds the provider's record of this call to the authenticated job, run and reviewed operation.
+          meta: capabilityInvocationMetadata({
+            appId: data.appId,
+            jobId,
+            runId,
+            capabilityId,
+            operation: input.toolName,
+            idempotencyKey,
+            arguments: args,
+          }),
           timeoutMs: preflight.operation.deadlineMs,
         });
         const resultEnvelope = validateExternalCapabilityResultEnvelope(
