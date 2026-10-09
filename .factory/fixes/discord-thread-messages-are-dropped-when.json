@@ -24,6 +24,7 @@
     "id": "eca52ef1-7456-412c-9c9a-60e9abfd9074",
     "status": "blocked"
   },
+  "round": 2,
   "status": "fixing",
   "steps": [
     {
@@ -43,5 +44,6 @@
       "step": "review"
     }
   ],
-  "why": "Discord thread messages are dropped when looking up the thread's parent channel fails"
+  "why": "Discord thread messages are dropped when looking up the thread's parent channel fails",
+  "worker": "codex"
 }
