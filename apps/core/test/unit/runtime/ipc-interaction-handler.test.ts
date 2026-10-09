@@ -2807,7 +2807,10 @@ describe('ipc-interaction-handler', () => {
     await processPermissionInteractionIpc({
       request,
       sourceAgentFolder: request.sourceAgentFolder,
-      deps: { requestPermissionApproval },
+      deps: {
+        conversationRoutes: () => askingRoutes(request.targetJid),
+        requestPermissionApproval,
+      },
       ipcBaseDir: tempDir,
       file: 'claimed-replayed-decision.json',
       claimedPath,
