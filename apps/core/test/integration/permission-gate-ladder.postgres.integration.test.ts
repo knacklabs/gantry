@@ -148,6 +148,9 @@ maybeDescribe(
       await expect(gone.decide('RunCommand', command)).resolves.toMatchObject({
         approved: false,
         decidedBy: 'route',
+        reason: expect.stringContaining(
+          "Reconnect this conversation's agent, then retry.",
+        ),
       });
       expect(gone.judge).not.toHaveBeenCalled();
       expect(gone.requestPermissionApproval).not.toHaveBeenCalled();

@@ -312,7 +312,7 @@ describe('inline core tool bootstrap', () => {
       routes = {};
       const gone =
         'no deliverable approver route, because this conversation' +
-        "'s route or agent binding is gone.";
+        "'s route or agent binding is gone. Reconnect this conversation's agent, then retry.";
       await expect(
         tools.authorizeThirdPartyMcpTool('mcp__crm__lookup', { id: 'crm-2' }),
       ).resolves.toMatchObject({

@@ -17,6 +17,7 @@ import {
 } from '../domain/permission-deterministic-rails.js';
 import type { AutoLaneAnalysis } from '../application/permissions/auto-lane-analysis-types.js';
 import { gantryNativeCanonicalToolName } from '../application/permissions/gantry-tool-risk.js';
+import { scalarPermissionCardAffordances } from '../application/permissions/permission-card-affordances.js';
 import type { ToolPolicyDecision } from '../shared/tool-execution-policy-service.js';
 import type {
   PermissionDecisionMemoryRepository,
@@ -47,7 +48,10 @@ import {
   observeJudgeAvailability,
   writePermissionClassifierVerdictCache,
 } from './permission-judge-outage.js';
-import { pinPermissionInvocationId } from './permission-invocation-id.js';
+import {
+  pinPermissionInvocationId,
+  retirePermissionInvocationBindings,
+} from './permission-invocation-id.js';
 import { applyClassifierRisk, requestRisk } from './permission-request-risk.js';
 import { projectHumanDecisionMatch } from '../application/permissions/human-decision-job-projection.js';
 
@@ -182,7 +186,16 @@ export async function coordinatePermissionDecision(
     delete request.risk_category;
     return denied(request, routeRefusal, 'route');
   }
-  const invocationRefusal = pinPermissionInvocationId(request);
+  // IPC credentials identify the authenticated lifetime, including unfenced chat runs.
+  const runKey = request.responseKeyId
+    ? permissionRunRestriction({
+        sourceAgentFolder: request.sourceAgentFolder,
+        responseKeyId: request.responseKeyId,
+      })
+      ? `ipc:${request.responseKeyId}`
+      : undefined
+    : request.runId;
+  const invocationRefusal = pinPermissionInvocationId(request, runKey);
   if (invocationRefusal) {
     return denied(request, invocationRefusal, 'invocation_id');
   }
@@ -260,6 +273,7 @@ export async function coordinatePermissionDecision(
     request.decisionReason = familyGap;
     request.suggestions = [];
     request.decisionOptions = ['allow_once', 'cancel'];
+    request.cardAffordances = scalarPermissionCardAffordances();
   } else if (reviewedRuleDecision) {
     request.decisionReason = reviewedRuleDecision.reason;
     request.closestRule = reviewedRuleDecision.closestRule;
@@ -394,6 +408,7 @@ export async function coordinatePermissionDecision(
         // A saved rule would never be honoured while the denylist blocks it.
         request.suggestions = undefined;
         request.decisionOptions = ['allow_once', 'cancel'];
+        request.cardAffordances = scalarPermissionCardAffordances();
       }
       classifierDecision = verdict;
     }
@@ -439,7 +454,7 @@ export function findPermissionRoute(input: {
 }
 
 export function missingPermissionRouteReason(toolName: string): string {
-  return `Permission approval is unavailable: ${toolName} has no deliverable approver route, because this conversation's route or agent binding is gone.`;
+  return `Permission approval is unavailable: ${toolName} has no deliverable approver route, because this conversation's route or agent binding is gone. Reconnect this conversation's agent, then retry.`;
 }
 
 /** Hard-rule and admin asks: no saved approval, cache or classifier may answer, and nothing is offered for the future. */
@@ -451,6 +466,7 @@ function askPersonOnly(
   input.request.decisionReason = reason;
   input.request.suggestions = [];
   input.request.decisionOptions = ['allow_once', 'cancel'];
+  input.request.cardAffordances = scalarPermissionCardAffordances();
   const railRisk = permissionRiskForDeterministicRailDecision(railDecision);
   if (railRisk) {
     input.request.risk_level = railRisk.level;
@@ -657,6 +673,10 @@ export function unregisterPermissionRunRestriction(input: {
   sourceAgentFolder: string;
   responseKeyId: string;
 }): void {
+  retirePermissionInvocationBindings({
+    sourceAgentFolder: input.sourceAgentFolder,
+    runKey: `ipc:${input.responseKeyId}`,
+  });
   permissionRunRestrictions.delete(restrictionKey(input));
 }
 

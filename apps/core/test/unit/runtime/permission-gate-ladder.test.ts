@@ -252,6 +252,8 @@ describe('the host permission ladder', () => {
 });
 
 describe('the pinned invocation id', () => {
+  const pin = (request: PermissionApprovalRequest) =>
+    pinPermissionInvocationId(request, request.runId);
   const call = (overrides: Partial<PermissionApprovalRequest> = {}) =>
     ({
       requestId: 'invocation',
@@ -266,20 +268,16 @@ describe('the pinned invocation id', () => {
 
   it('binds an engine id to its run and action: the same call under two names matches, changed arguments are refused, another run never matches', () => {
     const first = call({ invocationId: 'toolu_01' });
-    expect(pinPermissionInvocationId(first)).toBeUndefined();
+    expect(pin(first)).toBeUndefined();
     expect(first.invocationId).toBe('toolu_01');
 
     // The same call seen under its bare Gantry name.
     expect(
-      pinPermissionInvocationId(
-        call({ invocationId: 'toolu_01', toolName: 'send_message' }),
-      ),
+      pin(call({ invocationId: 'toolu_01', toolName: 'send_message' })),
     ).toBeUndefined();
 
     expect(
-      pinPermissionInvocationId(
-        call({ invocationId: 'toolu_01', toolInput: { text: 'changed' } }),
-      ),
+      pin(call({ invocationId: 'toolu_01', toolInput: { text: 'changed' } })),
     ).toBe(INVOCATION_REUSED_REASON);
 
     // The same id in another run, app or agent is a different call.
@@ -289,7 +287,7 @@ describe('the pinned invocation id', () => {
       { agentId: 'agent:other', sourceAgentFolder: 'other' },
     ]) {
       expect(
-        pinPermissionInvocationId(
+        pin(
           call({
             invocationId: 'toolu_01',
             toolInput: { text: 'changed' },
@@ -310,7 +308,7 @@ describe('the pinned invocation id', () => {
       call({ invocationId: 'toolu_02', runId: undefined }),
       call({ invocationId: 'toolu_02', runId: undefined }),
     ]) {
-      expect(pinPermissionInvocationId(request)).toBeUndefined();
+      expect(pin(request)).toBeUndefined();
       expect(request.invocationId).toMatch(/^host:/);
       seen.add(request.invocationId!);
     }

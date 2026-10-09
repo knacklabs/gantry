@@ -42,6 +42,10 @@ import type {
   PermissionApprovalRequest,
 } from '@core/domain/types.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import {
+  registerPermissionRunRestriction,
+  unregisterPermissionRunRestriction,
+} from '@core/runtime/permission-decision-coordinator.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 import {
   interactionInFlightKey,
@@ -202,12 +206,23 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       appId: APP_ID,
       agentId: AGENT_ID,
     });
+    registerPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'interactive',
+    });
     vi.spyOn(fs, 'watch').mockImplementation(() => {
       throw new Error('exercise the production polling fallback');
     });
   }, 60_000);
 
   afterAll(async () => {
+    if (ipcAuth)
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: AGENT_FOLDER,
+        responseKeyId: ipcAuth.responseKeyId,
+      });
     configurePendingInteractionDurability(null);
     configurePendingInteractionPermissionPersistence(null);
     if (originalSettingsYaml !== undefined) {
@@ -594,6 +609,18 @@ maybeDescribe('permission decision durable IPC chain (Postgres)', () => {
       ),
     });
     const releaseRunSlot = await acquireRunSlot(jobId, 1, { runId });
+    unregisterPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+    });
+    registerPermissionRunRestriction({
+      sourceAgentFolder: AGENT_FOLDER,
+      responseKeyId: ipcAuth.responseKeyId,
+      hideAuthorityTools: false,
+      runKind: 'scheduled',
+      jobId,
+      runId,
+    });
     const runnerDecision = requestPermissionApprovalViaIpc(
       clientEnv({
         jobId,

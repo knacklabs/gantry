@@ -22,6 +22,7 @@ import type {
 } from '@core/domain/ports/worker-coordination.js';
 import type {
   QuestionRecoveryEnvelope,
+  PermissionApprovalRequest,
   UserQuestionRequest,
 } from '@core/domain/types.js';
 import { getOperationalErrorCount } from '@core/shared/operational-error-counters.js';
@@ -159,12 +160,35 @@ function durableQuestionInteraction(input: {
 
 describe('ipc-interaction-handler', () => {
   let tempDir: string;
+  const hostRunKeys = new Set<string>();
+
+  function bindHostPermissionRun(
+    responseKeyId: string,
+    runId: string | undefined,
+    jobId?: string,
+  ) {
+    registerPermissionRunRestriction({
+      sourceAgentFolder: 'main_agent',
+      responseKeyId,
+      hideAuthorityTools: false,
+      runKind: jobId ? 'scheduled' : 'interactive',
+      runId,
+      jobId,
+    });
+    hostRunKeys.add(responseKeyId);
+  }
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-interaction-'));
   });
 
   afterEach(() => {
+    for (const responseKeyId of hostRunKeys)
+      unregisterPermissionRunRestriction({
+        sourceAgentFolder: 'main_agent',
+        responseKeyId,
+      });
+    hostRunKeys.clear();
     fs.rmSync(tempDir, { recursive: true, force: true });
     configurePendingInteractionDurability(null);
     vi.clearAllMocks();
@@ -197,6 +221,163 @@ describe('ipc-interaction-handler', () => {
       }),
     );
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the authenticated host run for every permission consumer and refuses forged run claims without colliding across runs', async () => {
+    const envelopes = [
+      createIpcAuthEnvelope('main_agent', null),
+      createIpcAuthEnvelope('main_agent', null),
+    ];
+    const seenRunIds: Array<string | undefined> = [];
+    const requestPermissionApproval = vi.fn(
+      async (request: PermissionApprovalRequest) => {
+        seenRunIds.push(request.runId);
+        return permissionDecisionResult({
+          approved: false,
+          mode: 'cancel',
+          decidedBy: 'owner',
+        });
+      },
+    );
+    const published: Array<string | undefined> = [];
+    try {
+      for (const envelope of envelopes)
+        registerPermissionRunRestriction({
+          sourceAgentFolder: 'main_agent',
+          responseKeyId: envelope.responseKeyId,
+          hideAuthorityTools: false,
+          runKind: 'interactive',
+        });
+      const claims = [
+        { envelope: envelopes[0]!, runId: undefined, text: 'first' },
+        { envelope: envelopes[0]!, runId: 'forged-other-run', text: 'changed' },
+        {
+          envelope: envelopes[1]!,
+          runId: 'forged-other-run',
+          text: 'different-run',
+        },
+      ];
+      for (const [index, claim] of claims.entries()) {
+        const file = `forged-run-${index}.json`;
+        const claimedPath = path.join(tempDir, file);
+        fs.writeFileSync(claimedPath, '{}');
+        const request: PermissionApprovalRequest = {
+          requestId: `forged-run-${index}`,
+          appId: 'default',
+          agentId: agentIdForFolder('main_agent'),
+          responseKeyId: claim.envelope.responseKeyId,
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'tg:scope',
+          runId: claim.runId,
+          invocationId: 'same-engine-call',
+          toolName: 'mcp__crm__write',
+          toolInput: { text: claim.text },
+        };
+        await processPermissionInteractionIpc({
+          request,
+          sourceAgentFolder: 'main_agent',
+          ipcBaseDir: tempDir,
+          file,
+          claimedPath,
+          deps: {
+            conversationRoutes: () => askingRoutes('tg:scope'),
+            requestPermissionApproval,
+            publishRuntimeEvent: async (event) => {
+              published.push(event.runId);
+            },
+            getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
+          },
+          logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+        });
+        const response = JSON.parse(
+          fs.readFileSync(
+            path.join(
+              tempDir,
+              'main_agent',
+              'permission-responses',
+              `${request.requestId}.json`,
+            ),
+            'utf8',
+          ),
+        );
+        if (index === 1)
+          expect(response.reason).toBe(
+            'This tool call id was already used for a different action in this run.',
+          );
+      }
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(2);
+      expect(seenRunIds).toEqual([undefined, undefined]);
+      expect(published.length).toBeGreaterThan(0);
+      expect(published.every((runId) => runId === undefined)).toBe(true);
+    } finally {
+      for (const envelope of envelopes)
+        unregisterPermissionRunRestriction({
+          sourceAgentFolder: 'main_agent',
+          responseKeyId: envelope.responseKeyId,
+        });
+    }
+  });
+
+  it('refuses an orphaned scheduled permission before persistence or prompting', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const durability = inMemoryPermissionDurability();
+    const createPendingInteraction = vi.spyOn(
+      durability.repository,
+      'createPendingInteraction',
+    );
+    configurePendingInteractionDurability({
+      repository: durability.repository as never,
+    });
+    const requestPermissionApproval = vi.fn(async () =>
+      permissionDecisionResult({
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'owner',
+      }),
+    );
+    const file = 'orphaned-job.json';
+    const claimedPath = path.join(tempDir, file);
+    fs.writeFileSync(claimedPath, '{}');
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'orphaned-job',
+        appId: 'default',
+        sourceAgentFolder: 'main_agent',
+        responseKeyId: envelope.responseKeyId,
+        runId: 'ended-run',
+        jobId: 'ended-job',
+        targetJid: 'tg:scope',
+        toolName: 'mcp__crm__write',
+        toolInput: {},
+      },
+      sourceAgentFolder: 'main_agent',
+      ipcBaseDir: tempDir,
+      file,
+      claimedPath,
+      deps: {
+        conversationRoutes: () => askingRoutes('tg:scope'),
+        requestPermissionApproval,
+        getPermissionRuntimeSettings: promptPermissionRuntimeSettings,
+      },
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+    expect(createPendingInteraction).not.toHaveBeenCalled();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    const response = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          tempDir,
+          'main_agent',
+          'permission-responses',
+          'orphaned-job.json',
+        ),
+        'utf8',
+      ),
+    );
+    expect(response).toMatchObject({
+      approved: false,
+      reason: 'This run is no longer active. Start a new run, then retry.',
+    });
   });
 
   it('forwards humanDecisionRecordId beside jobId from the production post-apply audit call', async () => {
@@ -283,7 +464,7 @@ describe('ipc-interaction-handler', () => {
     );
   });
 
-  it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow once before the current call is applied once-only with unchanged events, persists a remembered No with the current call denied, persists nothing for an ask, auto_strict, group, batch or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
+  it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow from a classifier ask before the current call is applied once-only with unchanged events, settles denylist asks once-only without learning, persists a remembered No with the current call denied, persists nothing for an ask, auto_strict, group, batch or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
     const runRemembered = async (options: {
       code: 'remember_allow_exact' | 'remember_deny_exact';
       permissionMode?: 'ask' | 'auto' | 'auto_strict';
@@ -547,16 +728,25 @@ describe('ipc-interaction-handler', () => {
       expect(allowed.contextBeforeDelegation).toMatchObject({
         personLabel: 'Host Approver',
       });
-      expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
-      expect(allowed.putHumanDecision).toHaveBeenCalledWith(
-        expect.objectContaining({
-          actingPersonId: 'host-person',
-          actingPersonLabel: 'Host Approver',
-        }),
-      );
-      expect(allowed.putHumanDecision.mock.invocationCallOrder[0]).toBeLessThan(
-        allowed.createTransientGrant.mock.invocationCallOrder[0]!,
-      );
+      // Person-only denylist asks cannot promise a saved answer; ordinary
+      // classifier asks still learn before applying the current call once.
+      if (denylist) {
+        expect(allowed.putHumanDecision).not.toHaveBeenCalled();
+        expect(allowed.rows).toHaveLength(0);
+      } else {
+        expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
+        expect(allowed.putHumanDecision).toHaveBeenCalledWith(
+          expect.objectContaining({
+            actingPersonId: 'host-person',
+            actingPersonLabel: 'Host Approver',
+          }),
+        );
+        expect(
+          allowed.putHumanDecision.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          allowed.createTransientGrant.mock.invocationCallOrder[0]!,
+        );
+      }
       expect(
         allowed.publishRuntimeEvent.mock.calls.map(
           ([event]) => event.eventType,
@@ -581,7 +771,7 @@ describe('ipc-interaction-handler', () => {
         matchKind: 'individual',
       });
       expect(replay.status).toBe('already_decided');
-      expect(allowed.putHumanDecision).toHaveBeenCalledOnce();
+      expect(allowed.putHumanDecision).toHaveBeenCalledTimes(denylist ? 0 : 1);
     }
 
     const denied = await runRemembered({
@@ -2155,6 +2345,7 @@ describe('ipc-interaction-handler', () => {
   // used to be cancelled; it is a hard-rule ask, so a person answers it.
   it('attaches secret-redacted job input to the job ask without consulting the judge', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, undefined, 'job:auto');
     const claimedPath = path.join(tempDir, 'claimed-unattended-ask.json');
     fs.writeFileSync(claimedPath, '{}');
     const classifierConsult = vi.fn(async () => ({
@@ -2348,7 +2539,7 @@ describe('ipc-interaction-handler', () => {
           responseKeyId: envelope.responseKeyId,
           sourceAgentFolder: 'main_agent',
           runHandle: 'agent-run-1',
-          runId: 'run:test',
+          runId: 'worker-forged-run',
           runLeaseToken: 'lease-token',
           runLeaseFencingVersion: 7,
           jobId: 'worker-forged-job',
@@ -2514,6 +2705,7 @@ describe('ipc-interaction-handler', () => {
 
   it('replays a decided Review-each member after restart without opening a fresh prompt', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:replay');
     const claimedPath = path.join(tempDir, 'claimed-replayed-decision.json');
     fs.writeFileSync(claimedPath, '{}');
     const request = {
@@ -2729,6 +2921,7 @@ describe('ipc-interaction-handler', () => {
 
   it('releases a callback claim when the scheduled lease becomes stale after the decision', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test');
     const claimedPath = path.join(tempDir, 'claimed-stale-after-decision.json');
     fs.writeFileSync(claimedPath, '{}');
     const claim = {
@@ -2804,6 +2997,7 @@ describe('ipc-interaction-handler', () => {
 
   it('does not release a callback claim after durable settlement succeeds', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test');
     const claimedPath = path.join(tempDir, 'claimed-stale-after-settle.json');
     fs.writeFileSync(claimedPath, '{}');
     const claim = {
@@ -2889,6 +3083,7 @@ describe('ipc-interaction-handler', () => {
 
   it('does not prompt or resume scheduled permission IPC when the run lease is stale', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test', 'job:test');
     const claimedPath = path.join(tempDir, 'claimed-stale-permission.json');
     fs.writeFileSync(claimedPath, '{}');
     const requestPermissionApproval = vi.fn(async () =>
@@ -3403,6 +3598,7 @@ describe('ipc-interaction-handler', () => {
       'permission_request',
     );
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test', 'job:test');
     const claimedPath = path.join(
       tempDir,
       'claimed-unresolved-permission.json',
@@ -3503,6 +3699,7 @@ describe('ipc-interaction-handler', () => {
 
   it('retries only durable resolution after a transient post-authority failure', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test');
     const file = 'retryable-resolution-permission.json';
     const claimedPath = path.join(tempDir, `.processing-test-${file}`);
     fs.writeFileSync(claimedPath, '{}');
@@ -3820,6 +4017,7 @@ describe('ipc-interaction-handler', () => {
 
   it('does not write a denied scheduled permission response after lease recovery', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test');
     const claimedPath = path.join(tempDir, 'claimed-recovered-permission.json');
     fs.writeFileSync(claimedPath, '{}');
     const requestPermissionApproval = vi.fn(async () =>
@@ -3911,6 +4109,7 @@ describe('ipc-interaction-handler', () => {
 
   it('rechecks the scheduled run lease before persistent permission mutation', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
+    bindHostPermissionRun(envelope.responseKeyId, 'run:test', 'job:test');
     const claimedPath = path.join(tempDir, 'claimed-response-race.json');
     fs.writeFileSync(claimedPath, '{}');
     const getActiveRunLease = vi

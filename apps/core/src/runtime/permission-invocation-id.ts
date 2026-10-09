@@ -8,10 +8,12 @@ export const INVOCATION_REUSED_REASON =
   'This tool call id was already used for a different action in this run.';
 
 const ENGINE_INVOCATION_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
-// ponytail: in-process bindings, oldest evicted past 10k; move them to the
-// waiting record if an id must stay bound across a restart.
+// shortcut: in-process bindings; use the waiting record if they must survive a restart.
 const MAX_INVOCATION_BINDINGS = 10_000;
-const invocationBindings = new Map<string, string>();
+const invocationBindings = new Map<
+  string,
+  { action: string; runKey: string; sourceAgentFolder: string }
+>();
 const completeActionHashes = new WeakMap<PermissionApprovalRequest, string>();
 
 /** Keep the action digest before IPC redacts or truncates either input view. */
@@ -30,13 +32,14 @@ export function capturePermissionInvocationAction<
  * to the authenticated run, app and agent, bound to a hash of the action. A
  * missing or malformed id, or one with no run to scope it, gets a fresh host
  * id. Returns why the call is refused when the id was already used in this
- * run for a different action.
+ * run for a different action. The run key comes from the host, never the worker claim.
  */
 export function pinPermissionInvocationId(
   request: PermissionApprovalRequest,
+  runKey: string | undefined,
 ): string | undefined {
   const engineId = request.invocationId?.trim();
-  if (!engineId || !ENGINE_INVOCATION_ID.test(engineId) || !request.runId) {
+  if (!engineId || !ENGINE_INVOCATION_ID.test(engineId) || !runKey) {
     request.invocationId = `host:${randomUUID()}`;
     return undefined;
   }
@@ -45,7 +48,7 @@ export function pinPermissionInvocationId(
     request.appId ?? 'default',
     request.agentId ?? '',
     request.sourceAgentFolder,
-    request.runId,
+    runKey,
     engineId,
   ].join('\u0000');
   const action =
@@ -53,13 +56,31 @@ export function pinPermissionInvocationId(
     permissionActionHash(request.toolName, request.toolInput);
   const bound = invocationBindings.get(scope);
   if (bound !== undefined) {
-    return bound === action ? undefined : INVOCATION_REUSED_REASON;
+    return bound.action === action ? undefined : INVOCATION_REUSED_REASON;
   }
   if (invocationBindings.size >= MAX_INVOCATION_BINDINGS) {
-    invocationBindings.delete(invocationBindings.keys().next().value!);
+    return 'Active runs have reached the tool call limit. Let a run finish, then retry.';
   }
-  invocationBindings.set(scope, action);
+  invocationBindings.set(scope, {
+    action,
+    runKey,
+    sourceAgentFolder: request.sourceAgentFolder,
+  });
   return undefined;
+}
+
+export function retirePermissionInvocationBindings(input: {
+  sourceAgentFolder: string;
+  runKey?: string;
+}): void {
+  if (!input.runKey) return;
+  for (const [key, binding] of invocationBindings) {
+    if (
+      binding.sourceAgentFolder === input.sourceAgentFolder &&
+      binding.runKey === input.runKey
+    )
+      invocationBindings.delete(key);
+  }
 }
 
 /** The same call under two names (`send_message`, `mcp__gantry__send_message`) hashes the same. */

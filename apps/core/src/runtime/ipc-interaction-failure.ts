@@ -1,9 +1,34 @@
 import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
+import type { PermissionApprovalRequest } from '../domain/types.js';
+import { archiveIpcErrorFile } from './ipc-filesystem.js';
 import type { IpcInteractionLogger } from './ipc-interaction-processing.js';
 import {
   writePermissionIpcResponse,
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
+
+export function refusePermissionInteraction(
+  input: {
+    ipcBaseDir: string;
+    sourceAgentFolder: string;
+    request: Pick<
+      PermissionApprovalRequest,
+      'requestId' | 'responseNonce' | 'threadId' | 'responseKeyId'
+    >;
+    file: string;
+    claimedPath: string;
+    logger: IpcInteractionLogger;
+  },
+  reason: string,
+): void {
+  writePermissionInteractionFailure({ ...input.request, ...input, reason });
+  archiveIpcErrorFile(
+    input.ipcBaseDir,
+    input.sourceAgentFolder,
+    input.file,
+    input.claimedPath,
+  );
+}
 
 export function writePermissionInteractionFailure(input: {
   ipcBaseDir: string;

@@ -100,12 +100,13 @@ describe('ASKFLOOR tap budget', () => {
   });
 
   // Contract change (PERMFLOW-1): S4 used to remember an exact answer to a
-  // recursive delete. Hard rules now come before every saved approval, so a
-  // remembered Allow or No never answers one.
-  it('S4 asks every time for rm -rf build and rm -rf dist, even after a remembered exact Allow or No', async () => {
+  // recursive delete. Hard rules now ask for each call, without remembering
+  // even a submitted remember callback.
+  it('S4 asks every time for rm -rf build and rm -rf dist and never saves a submitted remember callback', async () => {
     const replay = await replayDestructiveExactMemory();
 
     expect(replay.taps).toEqual([1, 1, 1, 1]);
+    expect(replay.rows).toHaveLength(0);
     expect(replay.decisions).toMatchObject([
       { approved: true, mode: 'allow_once', source: 'human_once' },
       { approved: true, mode: 'allow_once', source: 'human_once' },
