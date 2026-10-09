@@ -48,6 +48,7 @@
     "id": "ec00639f-46f0-4eb3-9ae2-84cd293d7a60",
     "status": "blocked"
   },
+  "round": 2,
   "status": "fixing",
   "steps": [
     {
@@ -59,5 +60,6 @@
       "step": "review"
     }
   ],
-  "why": "There is no architecture or flow documentation per app area for explaining the system"
+  "why": "There is no architecture or flow documentation per app area for explaining the system",
+  "worker": "codex"
 }
