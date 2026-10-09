@@ -1,0 +1,32 @@
+{
+  "base": "f7de785004e29235790076c6115fa17ce1e0ba41",
+  "branch": "fix/reviews-still-ask-small-fixes-for-end-to",
+  "done_when": "docs/review-instructions.md and apps/core/AGENTS.md say what the review rules say: a story proves each user-visible Done-when item with one end-to-end test, a small fix is proven at its real boundary, and end-to-end tests run nightly",
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "9eba7780feea32f82eae49d51e38ef48ce797d6a3d75ffc09f50df17aeff8e49",
+    "changed": "96f3dc725df219b8de5b95f23b9791014f595fbc5d9d8737c09c9f8216ee48dc",
+    "commit": "0ffa8501571506c7b121a4deed00a4ef6e9dcaa6",
+    "dismissals": [],
+    "findings": [],
+    "status": "clean",
+    "tree": "b3428128a96bc4d1ac3213cd64b5389d952ee93751a14e56ecd78b3cecc7e070"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-02T03:39:57+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-02T04:27:21+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-02T06:47:58+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Reviews still ask small fixes for end-to-end tests because two detail docs contradict the review rules"
+}

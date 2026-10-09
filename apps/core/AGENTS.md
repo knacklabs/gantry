@@ -108,6 +108,8 @@ confidently wrong cause is worse than `unknown`.
 - Test balance (adopted 2026-09-30): use fast, numerous unit cases for pure rules and decisions, such as trigger decisions, parsers, and the steering inbox.
 - Postgres integration is the main proof for storage, consumption, migration, and recovery contracts.
 - Use the real runtime and Postgres with a fake channel and runner for exactly one automated end-to-end test per user-visible behavior promised by a story's Done-when (for example, a burst gets one reply or a restart loses nothing), not per function. Pure deletions, config, and docs changes need no end-to-end test.
+- A small fix needs no end-to-end test. Prove it at its real boundary: a Postgres integration test, or a channel or runner test with only the external platform or model faked.
+- End-to-end tests run nightly, not at close or in PR CI. A named end-to-end test in `apps/core/test/e2e/` counts as the proof in review.
 - Give each behavior one owner test at the strongest level that can observe it; do not replay the same scenario at every layer. Name story end-to-end cases up front in the task table's Tests column.
 - Run live Slack or Telegram checks only when the owner asks.
 - Integration tests for runtime features must use shared harnesses under `apps/core/test/harness/`; DB-backed cases must guard on `GANTRY_TEST_DATABASE_URL` and isolate schemas.
