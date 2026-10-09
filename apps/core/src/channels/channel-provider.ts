@@ -21,6 +21,10 @@ import {
   TypingSink,
 } from '../domain/types.js';
 import type { PreparedPermissionCardSink } from '../domain/permission-card.js';
+import type {
+  InboundEventCodec,
+  InboundEventSaver,
+} from '../domain/ports/inbound-events.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
@@ -76,6 +80,8 @@ export type MaterializeProviderAttachment = (input: {
 }) => Promise<MaterializedProviderAttachment>;
 
 export interface MessageAttachmentsDeleted {
+  inboundConnectionId?: string;
+  rawSource?: { channelId: string; messageIds: readonly string[] };
   providerId: string;
   providerAccountIds?: readonly string[];
   channelId: string;
@@ -88,6 +94,7 @@ export interface MessageAttachmentsDeleted {
 }
 
 export interface ChannelOpts {
+  saveInboundEvent?: InboundEventSaver;
   appId?: string;
   providerAccountId?: string;
   inboundProviderAccountIds?: string[];
@@ -141,6 +148,7 @@ export type ChannelAdapter = ChannelLifecyclePort &
   ChannelOwnershipPort &
   MessageSink & {
     reportsHistoryCoverageInboundLiveness?: boolean;
+    inboundCodec?: InboundEventCodec;
     liveUx?: ChannelLiveUxCapability;
   } & Partial<
     StreamingSink &

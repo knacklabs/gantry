@@ -164,6 +164,17 @@
       "item": "TURN-1/T6",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
+      "kind": "bug",
+      "path": "apps/core/src/domain/ports/inbound-events.ts",
+      "line": 153,
+      "text": "Not done: shared inbox lifecycle signatures",
+      "from": "blocking",
+      "item": "MSG-1/T1",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }

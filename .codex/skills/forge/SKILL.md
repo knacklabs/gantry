@@ -38,7 +38,7 @@ Start with `forge next`. It says where things stand and gives the exact next com
 | "Add it to the roadmap" | `forge roadmap add <spec>` |
 | "The new spec replaces this roadmap item" | In a fix: `forge roadmap retire <KEY> --by <spec>` |
 | "Change a finished story's outcome" | On an existing work branch: `forge story done <KEY> "<outcome>"` |
-| "Is my setup healthy?" or "Fix my setup" | `forge doctor`, then `forge doctor --fix` for what it can repair. On the default branch, repairs to Forge's files need a clean checkout at `origin/<default>` and use a dated fix `forge-files-<YYYYMMDD-HHMM>`: `forge close <name>`, then merge it like any other. An existing `fix/forge-files-*` branch with no merged or closed pull request blocks another repair, record or not; follow doctor's finish-or-remove step. Finished-work cleanup skips only the open doctor fix. If a repair already used this minute's name, run `forge doctor --fix` in the next minute. A file it holds back as changed by hand: move that change out of the file, then `forge doctor --fix` again |
+| "Is my setup healthy?" or "Fix my setup" | `forge doctor`, then `forge doctor --fix` for what it can repair. On the default branch, repairs to Forge's files need a clean checkout at `origin/<default>` and use a dated fix `forge-files-<YYYYMMDD-HHMM>`: `forge close <name>`, then merge it like any other. An existing `fix/forge-files-*` branch with no merged or closed pull request blocks another repair, record or not; follow doctor's finish-or-remove step. Finished-work cleanup skips only the open doctor fix. If a repair already used this minute's name, run `forge doctor --fix` in the next minute. A file it holds back as changed by hand: move that change out of the file, then `forge doctor --fix` again. In AGENTS.md, only hand edits inside the `forge:begin` and `forge:end` lines hold the file; your rules outside them stay as written when doctor refreshes Forge's block |
 | "Set up a new repo" | `forge init`, then propose a `fast_test` as in step 8 of Adopt a live app, below |
 | "Bring our live app into Forge" | Adopt a live app, below |
 | "Change who builds" or "Change the test command" | Ask, then in a fix: edit `forge.toml` (never its `merge` setting), `forge close <fix>` |
@@ -66,10 +66,28 @@ questions; write for the human's choice.
 
 The human never edits `forge.toml`; you keep it. When a setting must change, ask first with
 options, then make the change yourself in a fix: `forge fix start`, the edit, then `forge close`.
+`runner` selects the GitHub Actions runner label for both jobs in the generated `forge.yml`;
+it defaults to `"ubuntu-latest"`. For self-hosted Linux runners, initialise with
+`forge init --runner self-hosted`, or set `runner = "self-hosted"` (or a custom label) in an
+existing repo's fix, then run `forge sync`. New repos get it at init; earlier adopted repos get
+it after upgrading Forge and syncing. The jobs set up uv and Python, and install
+Node for Node tests, respecting version files or engines with Node 22 as the fallback.
+If the current branch's pull request checks stay queued for at least five minutes and no job
+in this repo using the configured runner has started during that queue, `forge doctor`, close
+and land name the runner setting. Make a matching runner available or correct the setting and
+sync; keep the required checks enabled. If a matching job has started, the pool is busy: close
+and land keep their normal check waits, and doctor gives no missing-runner warning.
 The `merge` setting is the owner's, because it is a gate on your own work: never change it to
 `"agent"` or run `forge merge enable`, even when the owner asks, and never merge a change to it.
 When agent merges are off and the owner wants you to merge, tell them to run `forge merge enable`
-in their own terminal; it opens the change for them to merge.
+in their own terminal; it opens the change for them to merge. If an interrupted switch's fix
+contains only that setting and the default branch has moved, it rebuilds the same fix on the
+current default branch, preserving its other settings. It leaves remote work outside that fix
+alone and refuses to replace a remote branch that changes after its check. The owner still
+merges the pull request. Close checks this generated fix mechanically instead of asking a model:
+only `forge.toml`'s top-level `merge = "agent"` may change, with all other parsed settings equal
+to the current default branch. Extra changes are refused without review. Tests and CI still run;
+every other item keeps its model review.
 
 Give status updates in one shape: `Ready to merge (n): ... · Needs you (n): ...`.
 
@@ -85,6 +103,11 @@ even if the laptop installer installed a different one:
 `uv tool install git+https://github.com/knacklabs/symphony-forge@<release>`
 (replace `<release>` with the pin, such as `v1.2.4`). Then run `forge sync` to install
 the local git hooks and refresh the generated files, followed by `forge doctor --fix`.
+In Husky repos, sync preserves the team's hooks and adds Forge's checks to the committed
+`.husky/pre-commit` and `.husky/pre-push`, through `.forge/hooks.sh`. Commit those additions;
+`npm install` can rebuild `.husky/_` without removing Forge's checks.
+The team's commands run first in a child shell; successful `exit` or `exec` cannot skip
+Forge, both pre-push checks receive Git's input, and a team hook failure still blocks Git.
 Resolve any remaining Doctor rows before starting work. An existing repo gets these
 instructions and the updated CI workflow on its next `forge sync` after upgrading.
 
@@ -544,6 +567,11 @@ On a live app, every story and fix also follows these:
 
 ## Upgrade Forge
 
+On the default branch, `forge doctor --fix` commits its dated Forge-files fix with a proof list
+of its Done-when and the files refreshed by the pinned release's sync. Run `forge close <name>`
+as doctor suggests; close supplies its test run result to the first review. New repos get this
+at setup, and existing repos get it when they move to this release.
+
 When `forge next` says a newer Forge release is out, offer the upgrade to the owner.
 Never upgrade without the owner's agreement. The check runs at most once per UTC day,
 shares its cache across worktrees, and stays silent when GitHub cannot be reached.
@@ -554,6 +582,7 @@ repo, rewritten by that version. One command does all of it.
 1. Ask which release to move to, recommending the newest.
 2. Run `forge upgrade <release>` in the main checkout, on the default branch. It installs the
    release, has that release refresh Forge's files in the fix, commits them and closes the fix.
+   Its commit includes the upgrade's proof list; close supplies its test run result to the review.
    It changes only the version in `forge.toml`.
 3. When it refuses, follow its `Next:` line. Running it again picks up where it stopped.
 4. Close's last line says who merges: the human, or `forge merge <fix>` when the repo allows it.
@@ -561,6 +590,9 @@ repo, rewritten by that version. One command does all of it.
 A repo pinned to a release without `forge upgrade` runs it once through uv:
 `uvx --from git+https://github.com/knacklabs/symphony-forge@<release> forge upgrade <release>`.
 Until the upgrade merges, the default branch keeps working with the new release installed.
+After it merges, older branches keep their pinned release and its rules. When Forge says the
+default branch already pins the installed release, merge the default branch into your branch to
+use that release and its rules.
 
 ## Refresh dependencies
 
@@ -630,6 +662,12 @@ so with the command that merges it into the story branch; run it, then carry on.
 content history, never commit dates: an older copy on the default branch does not block a start.
 When only the story doc differs, `forge task start` merges the default branch into the clean
 story branch itself and says so; conflicting edits still need the printed merge command.
+When a story pins an older Forge release than the fetched default branch, `forge task start`
+first merges that default branch into the clean story branch so the task uses the upgraded
+release and rules. Resolve any merge conflicts in the named story folder, commit the merge,
+then retry task start. Matching release pins need no upgrade merge.
+This also works from an older story checkout or a stale default checkout: task start handles
+the upgrade before Forge can forward the command to the checkout's older release.
 `forge next` names the unmerged item a part waits on for overlapping files, including another
 story's work, using the same overlap rule as `forge task start`.
 
@@ -738,8 +776,16 @@ named in the story. Untraced work: `Cut or defer: <item>`. An unmet Done-when it
 
 Before building a fix, check its brief for the five-code-file limit, interface globs and any
 recorded allowance; test files and files whose content is exactly what `forge sync` writes don't
-count, so an upgrade fix needs no allowance. If the work exceeds that boundary, promote it to a story or get the
-allowance recorded before editing.
+count, so an upgrade fix needs no allowance. You may run `forge fix allow-large "<reason>"`
+yourself, without asking the human, when the fix corrects one kind of problem in every place it
+appears and changes no interface. Name that problem in the reason and record the allowance
+before editing beyond the limit. Anything else needs the human's allowance or a story.
+
+For a follow-up to an unmerged item's findings, run `forge fix start` in that item's checkout.
+The fix starts there, and its size and interface checks count only its own changes, including
+after the underlying item lands and the default branch is merged in. Otherwise it starts from
+the default branch. Merging default-branch updates before the underlying item lands needs Git
+2.38 or newer.
 
 Mark generated files such as migration snapshots `linguist-generated` in `.gitattributes`, so
 reviews show them only as counts of changed lines.
@@ -752,6 +798,11 @@ request and the review prompt. The first review checks the whole list, not a sam
 entry against the code and its named proof, including every Done-when detail. Compare it with the
 covered items so omitted entries cannot hide gaps; report every missing case in that one round,
 even when a finding already blocks. Keep the whole list current and repeat the check on later rounds.
+When a Done-when item's named proof is a pull request check that has not finished yet, do not
+report it as `Not done` if the check is configured to run on the pull request. Close's checks
+gate holds the merge until that check passes. A failed check or a proof with no check behind
+it is still P1 `Not done`. New repos get these instructions at init; existing repos get them
+after upgrading Forge and running sync.
 Test fixtures are plain text files, never archives or other binary files. Build an old repo for
 an upgrade test in the test from a text fixture folder. Close refuses added binary files under
 `tests/` before the review, naming the file to replace.
@@ -829,7 +880,11 @@ round if the check is still red.
 
 Use `forge land <item>` for build, close, fix rounds and merge where agent merges are allowed;
 otherwise it hands the ready pull request to the human. It replaces private landing and CI-wait
-loops, with bounded check waiting and fix rounds. When it stops, follow its refusal and the
+loops, with bounded check waiting and fix rounds. Land waits for the pushed head's checks while
+GitHub shows progress, retrying unreadable or failed answers. It stops waiting on green or
+failed checks, or after 30 minutes without a check starting, finishing or being replaced, and
+says which checks are still running, missing, or unreadable. Close on its own still waits at
+most ten minutes. When it stops, follow its refusal and the
 Closing section above, then run it again. Run it in the background and keep watching it.
 If the branch already has commits after the item's start, land goes straight to close. Close
 still stops for a pending question and gives open findings or failing tests a worker fix round.
@@ -867,7 +922,9 @@ A worker or review notes problems outside its change as spotted items, which For
 except a bug that blocks it. When `forge next` names a file that keeps breaking, start its fix
 command at once, like any ready item, without asking the owner.
 
-When close stops an item because a file keeps breaking, run no more `forge work` on that item.
+Close holds the fourth review after three consecutive rounds blocked by serious findings,
+whatever files they were in. The existing same-file stop still applies from the third round.
+When close stops an item on either review-loop hold, run no more `forge work` on that item.
 Ask the human to narrow the part, split it, or accept the remaining findings.
 Never re-run close or land past this stop until their choice is recorded.
 After their answer, record it with
