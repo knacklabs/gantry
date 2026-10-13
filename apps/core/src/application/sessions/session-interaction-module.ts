@@ -101,6 +101,7 @@ export type SessionInteractionDeps = {
   now: () => IsoTimestamp;
   createId: () => string;
   stableHash: (input: string) => string;
+  sessionProviderAccountId?: string;
 };
 
 export type SessionQueueIntent = {
@@ -158,6 +159,7 @@ export class SessionInteractionModule {
         .stableHash(`${input.appId}\0${conversationId}`)
         .slice(0, 12),
       addedAt: this.deps.now(),
+      providerAccountId: this.deps.sessionProviderAccountId,
     });
     const requestedAgentId = input.agentId?.trim();
     if (requestedAgentId) {
@@ -439,6 +441,7 @@ export class SessionInteractionModule {
         message,
         liveAdmission: {
           appId: liveAdmissionAppId ?? session.appId,
+          agentId: session.agentId,
           triggerDecision: {
             source: 'sdk_session',
             responseMode,
@@ -655,6 +658,7 @@ type AppGroupRegistration = {
   senderIdentityEvidenceType: 'web_user';
   systemSenderIds: string[];
   conversationKind?: 'dm' | 'channel';
+  providerAccountId?: string;
 };
 
 export function makeAppGroup(input: {
@@ -664,6 +668,7 @@ export function makeAppGroup(input: {
   conversationKind?: 'dm' | 'channel';
   identityHash: string;
   addedAt: string;
+  providerAccountId?: string;
 }): AppGroupRegistration {
   const app = sanitizeSegment(input.appId) || 'app';
   const conversation = sanitizeSegment(input.conversationId) || 'session';
@@ -683,6 +688,9 @@ export function makeAppGroup(input: {
     senderIdentityEvidenceType: 'web_user',
     systemSenderIds: ['sdk'],
     conversationKind: input.conversationKind ?? 'channel',
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
   };
 }
 
