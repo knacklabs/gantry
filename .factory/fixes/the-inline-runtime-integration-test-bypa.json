@@ -2,12 +2,27 @@
   "base": "41360023176b949e3b526f639c42375f377b641e",
   "branch": "fix/the-inline-runtime-integration-test-bypa",
   "done_when": "A Postgres integration test sends SDK messages through the control API, durable admission, the real live worker, conversation queue, mocked Claude and OpenAI models, core and remote MCP tools, outbound delivery, and durable completion without manual database repair",
+  "flagged": [],
   "kind": "fix",
-  "status": "started",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "64c934596b7e845fa351ba31fce279fcc641d8bcc4427c5ea17e17b2a2bec0db",
+    "changed": "64c934596b7e845fa351ba31fce279fcc641d8bcc4427c5ea17e17b2a2bec0db",
+    "commit": "660ef7cc0473d64d81410e68281ca6c39b4a9139",
+    "dismissals": [],
+    "findings": [],
+    "id": "3ecf1b5d-4cf0-452a-bfda-00dbd1279f48",
+    "status": "clean"
+  },
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-12T10:26:14+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-13T11:07:01+00:00",
+      "step": "review"
     }
   ],
   "why": "The inline runtime integration test bypasses durable live admission and cannot prove the full worker path"
