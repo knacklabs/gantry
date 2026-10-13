@@ -144,6 +144,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tNot done: unique provider sessions in concurrent conversations\tthe-inline-runtime-integration-test-bypa",
+      "kind": "bug",
+      "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+      "line": 1539,
+      "text": "Not done: unique provider sessions in concurrent conversations",
+      "from": "blocking",
+      "item": "the-inline-runtime-integration-test-bypa",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tThe Control API run stays running at the completion assertion on both this branch and origin/main.",
       "kind": "bug",
       "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
