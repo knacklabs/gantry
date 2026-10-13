@@ -12,6 +12,7 @@ import {
   vi,
 } from 'vitest';
 import { z } from 'zod';
+import { emptyCheckpoint } from '@langchain/langgraph-checkpoint';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
@@ -485,61 +486,80 @@ function configureProviderMocks(): void {
     },
   }));
 
-  deep.createAgent.mockImplementation(({ tools, responseFormat }) => ({
-    async *streamEvents(input) {
-      if (mockProviderDelayMs) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, mockProviderDelayMs),
-        );
-      }
-      if (responseFormat) {
-        const structuredAttempt = structuredAttemptPrompts.deepAgents.push(
-          JSON.stringify(input),
-        );
+  deep.createAgent.mockImplementation(
+    ({ tools, responseFormat, checkpointer }) => ({
+      async *streamEvents(input, config) {
+        // The mocked provider graph owns its native checkpoint, just as the
+        // real graph does; otherwise valid second turns look like lost sessions.
+        if (checkpointer) {
+          const previous = await checkpointer.getTuple(config);
+          const version =
+            Number(previous?.checkpoint.channel_versions.messages ?? 0) + 1;
+          await checkpointer.put(
+            config,
+            {
+              ...emptyCheckpoint(),
+              channel_values: { messages: input.messages },
+              channel_versions: { messages: version },
+            },
+            {},
+            { messages: version },
+          );
+        }
+        if (mockProviderDelayMs) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, mockProviderDelayMs),
+          );
+        }
+        if (responseFormat) {
+          const structuredAttempt = structuredAttemptPrompts.deepAgents.push(
+            JSON.stringify(input),
+          );
+          yield {
+            event: 'on_chain_end',
+            data: {
+              output: {
+                structuredResponse:
+                  structuredAttempt === 1
+                    ? { wrong: 'second' }
+                    : { lane: 'second' },
+              },
+            },
+          };
+          return;
+        }
+        await tools
+          .find((tool) => tool.name === 'send_message')
+          .invoke({ text: 'OpenAI core message' });
+        await tools
+          .find((tool) => tool.name === 'ask_user_question')
+          .invoke({
+            questions: [
+              {
+                question: 'Continue?',
+                header: 'Continue',
+                options: [
+                  { label: 'Yes', description: 'Continue the turn.' },
+                  { label: 'No', description: 'Stop the turn.' },
+                ],
+              },
+            ],
+          });
+        await tools
+          .find((tool) => tool.name === 'mcp__crm__echo')
+          .invoke({ value: 'openai' });
         yield {
-          event: 'on_chain_end',
+          event: 'on_chat_model_stream',
           data: {
-            output: {
-              structuredResponse:
-                structuredAttempt === 1
-                  ? { wrong: 'second' }
-                  : { lane: 'second' },
+            chunk: {
+              content: 'OpenAI inline complete',
+              usage_metadata: { input_tokens: 3, output_tokens: 1 },
             },
           },
         };
-        return;
-      }
-      await tools
-        .find((tool) => tool.name === 'send_message')
-        .invoke({ text: 'OpenAI core message' });
-      await tools
-        .find((tool) => tool.name === 'ask_user_question')
-        .invoke({
-          questions: [
-            {
-              question: 'Continue?',
-              header: 'Continue',
-              options: [
-                { label: 'Yes', description: 'Continue the turn.' },
-                { label: 'No', description: 'Stop the turn.' },
-              ],
-            },
-          ],
-        });
-      await tools
-        .find((tool) => tool.name === 'mcp__crm__echo')
-        .invoke({ value: 'openai' });
-      yield {
-        event: 'on_chat_model_stream',
-        data: {
-          chunk: {
-            content: 'OpenAI inline complete',
-            usage_metadata: { input_tokens: 3, output_tokens: 1 },
-          },
-        },
-      };
-    },
-  }));
+      },
+    }),
+  );
 
   model.build.mockImplementation(async (input) => {
     await fetch(`${input.gatewayBaseUrl}/mock`, {
@@ -1579,10 +1599,16 @@ maybeDescribe('inline session turns through the control API', () => {
     const outboundBefore = channelEffects.outbound.length;
     sdk.query.mockClear();
     deep.createAgent.mockClear();
+    const { prepareInlineAgentHostContext } =
+      await import('@core/runtime/agent-spawn-host.js');
+    const hostPreparation = vi.mocked(prepareInlineAgentHostContext);
+    hostPreparation.mockClear();
+    const firstProviderSessions = new Map<string, string>();
     mockProviderDelayMs = 50;
     const acceptedLatencies: number[] = [];
     const startedAt = performance.now();
     for (let round = 1; round <= rounds; round += 1) {
+      const hostCallStart = hostPreparation.mock.calls.length;
       await Promise.all(
         sessions.map(async ({ sessionId, openai }) => {
           const requestStartedAt = performance.now();
@@ -1592,7 +1618,7 @@ maybeDescribe('inline session turns through the control API', () => {
               method: 'POST',
               headers,
               body: JSON.stringify({
-                message: `${openai ? 'OPENAI_TURN' : 'CLAUDE_TURN'} round ${round} use every scripted tool`,
+                message: `${openai ? 'OPENAI_TURN' : 'CLAUDE_TURN'} round ${round} TURN_FOR:${sessionId} use every scripted tool`,
                 responseMode: 'sse',
               }),
             },
@@ -1640,6 +1666,47 @@ maybeDescribe('inline session turns through the control API', () => {
         },
         { timeout: 45_000, interval: 100 },
       );
+      const providerSessions = await runtime.service.db
+        .select()
+        .from(pgSchema.providerSessionsPostgres);
+      const roundInputs = hostPreparation.mock.calls
+        .slice(hostCallStart)
+        .map(([, input]) => input);
+      const roundSessionIds: string[] = [];
+      for (const { jid, sessionId } of sessions) {
+        const scoped = providerSessions.filter(
+          (row) =>
+            (row.metadataJson as { chatJid?: string }).chatJid === jid &&
+            row.status === 'active',
+        );
+        expect(scoped).toHaveLength(1);
+        const externalSessionId = scoped[0]!.externalSessionId;
+        roundSessionIds.push(externalSessionId);
+        const inputs = roundInputs.filter((input) => input.chatJid === jid);
+        expect(inputs.length).toBeGreaterThanOrEqual(1);
+        for (const input of inputs) {
+          expect(input.prompt).toContain(`TURN_FOR:${sessionId}`);
+          for (const other of sessions.filter(
+            (session) => session.jid !== jid,
+          )) {
+            expect(input.prompt).not.toContain(`TURN_FOR:${other.sessionId}`);
+          }
+        }
+        if (round === 1) {
+          expect(inputs.every((input) => input.sessionId === undefined)).toBe(
+            true,
+          );
+          firstProviderSessions.set(jid, externalSessionId);
+        } else {
+          expect(externalSessionId).toBe(firstProviderSessions.get(jid));
+          expect(
+            inputs.every(
+              (input) => input.sessionId === firstProviderSessions.get(jid),
+            ),
+          ).toBe(true);
+        }
+      }
+      expect(new Set(roundSessionIds).size).toBe(conversationCount);
     }
     mockProviderDelayMs = 0;
     const turns = conversationCount * rounds;
