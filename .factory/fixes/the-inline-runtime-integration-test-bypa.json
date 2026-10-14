@@ -24,7 +24,7 @@
     "id": "956d0f26-3b3c-4928-9494-fe1e2b8207c1",
     "status": "blocked"
   },
-  "status": "hotspot",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-12T10:26:14+00:00",
@@ -44,7 +44,9 @@
     }
   ],
   "stop": {
-    "file": "apps/core/test/integration/inline-agent-runtime.integration.test.ts"
+    "choice": "narrow",
+    "file": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+    "reason": "The user requested correction of the CI import boundary and a refreshed review. Remaining work is limited to the corrected checkpoint fixture and the existing session-isolation assertions; no findings are accepted or waived."
   },
   "why": "The inline runtime integration test bypasses durable live admission and cannot prove the full worker path"
 }
