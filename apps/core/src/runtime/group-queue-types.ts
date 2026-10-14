@@ -26,10 +26,12 @@ export interface GroupMessageRunContext {
   maxRetries: number;
 }
 
+export type GroupMessageRunResult = boolean | 'queued_capacity';
+
 export type ProcessMessagesFn = (
   groupJid: string,
   context: GroupMessageRunContext,
-) => Promise<boolean>;
+) => Promise<GroupMessageRunResult>;
 
 export type ContinuationRunnerControlPort = Pick<
   RunnerControlPort,

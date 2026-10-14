@@ -532,7 +532,12 @@ export class GroupQueue {
           retryCount: state.retryCount,
           maxRetries: this.policy.maxRetries,
         });
-        if (success) state.retryCount = 0;
+        if (success === 'queued_capacity') {
+          this.scheduleMessageCheck(
+            groupJid,
+            Math.max(25, this.policy.baseRetryMs),
+          );
+        } else if (success) state.retryCount = 0;
         else this.scheduleRetry(groupJid, state);
       }
     } catch (err) {
@@ -606,6 +611,10 @@ export class GroupQueue {
       { groupJid, retryCount: state.retryCount, delayMs },
       'Scheduling retry with backoff',
     );
+    this.scheduleMessageCheck(groupJid, delayMs);
+  }
+
+  private scheduleMessageCheck(groupJid: string, delayMs: number): void {
     this.setTimeoutFn(() => {
       if (!this.shuttingDown) {
         this.enqueueMessageCheck(groupJid);

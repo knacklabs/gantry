@@ -17,6 +17,7 @@ import { runBoundedOutboundDeliveryRecovery } from '@core/jobs/outbound-delivery
 import { stopWorkerHeartbeat } from '@core/jobs/worker-identity.js';
 import { buildPendingMessagesContinuationIdempotencyKey } from '@core/runtime/pending-message-replay.js';
 import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import type { ProcessMessagesFn } from '@core/runtime/group-queue-types.js';
 import {
   FakeCoordination,
   FakeLiveTurns,
@@ -1696,9 +1697,15 @@ describe('startRuntimeServices', () => {
     );
     try {
       const processMessages = vi.mocked(app.queue.setProcessMessagesFn as any)
-        .mock.calls[0]?.[0] as (queueJid: string) => Promise<boolean>;
+        .mock.calls[0]?.[0] as ProcessMessagesFn;
 
-      await expect(processMessages('tg:primary')).resolves.toBe(false);
+      await expect(
+        processMessages('tg:primary', {
+          finalRetry: false,
+          retryCount: 0,
+          maxRetries: 3,
+        }),
+      ).resolves.toBe('queued_capacity');
       expect(app.processGroupMessages).not.toHaveBeenCalled();
       expect(completeSessionAgentRun).toHaveBeenCalledWith({
         runId: 'agent-run:live-1',

@@ -1,0 +1,59 @@
+{
+  "amendments": [
+    {
+      "at": "2026-10-14T08:10:59+00:00",
+      "because": "The user explicitly requested that PR 614 fix the busy-worker retry bug only, removing unrelated SDK routing and broad load-test changes.",
+      "done_when": "A Postgres integration test sends SDK messages through the control API, durable admission, the real live worker, conversation queue, mocked Claude and OpenAI models, core and remote MCP tools, outbound delivery, and durable completion without manual database repair"
+    }
+  ],
+  "base": "41360023176b949e3b526f639c42375f377b641e",
+  "branch": "fix/the-inline-runtime-integration-test-bypa",
+  "done_when": "Busy live workers keep saved messages waiting without consuming failure retries; messages complete once capacity returns, and real failures still exhaust their configured retries",
+  "flagged": [
+    "apps/core/test/integration/inline-agent-runtime.integration.test.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "2c7d6d283626ee33a4e275f17d764df64989152fcfc391915e233d46af75c4e4",
+    "changed": "c85db38c6306c0a13ba07668befee4234c022c6ca2bbeecd252004476e991372",
+    "commit": "687cf8f9d58fb2c3c4b3484fcf5f9b6536328e5e",
+    "dismissals": [],
+    "findings": [],
+    "id": "7dd2d65b-19ba-4dcf-aa3e-9b59292e1870",
+    "status": "clean"
+  },
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-12T10:26:14+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-13T11:07:01+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-13T11:36:56+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-13T11:42:35+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-14T07:01:50+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-14T08:39:02+00:00",
+      "step": "review"
+    }
+  ],
+  "stop": {
+    "choice": "narrow",
+    "file": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
+    "reason": "The user requested correction of the CI import boundary and a refreshed review. Remaining work is limited to the corrected checkpoint fixture and the existing session-isolation assertions; no findings are accepted or waived."
+  },
+  "why": "The inline runtime integration test bypasses durable live admission and cannot prove the full worker path"
+}
