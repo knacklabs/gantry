@@ -8,23 +8,15 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "3333028f9875e4e20457f383231286af6af685846a8ac2e8187eedd97746c7d0",
-    "changed": "8534404bfe9720550567c88ae01de73e9772a5a7e3abf9c72f05114ee6edece0",
-    "commit": "ae32a55ff8b3f6ca8d7713924e83afe8de737dce",
+    "branch_diff": "663465964d69f1fa3f72d0c9aefea353e32d1caada89a6e65988a0f7a868314b",
+    "changed": "3a027e8666ba413867adb3b02778703ac71844c977c4383abe369874b1491561",
+    "commit": "607d5361e6cb88640f6ce058c13111382fd5e61b",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The proof list claims this test verifies unique provider sessions, but it checks only provider call counts, admission records, tool counts and outbound messages. It never checks provider session identities or conversation-specific model context. For example, reusing one Claude resume ID across every Claude conversation would still produce the mock's fixed replies and satisfy these assertions. Verify that provider sessions are distinct across conversations and remain scoped to their conversation on the second round, for both mocked providers.",
-        "file": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
-        "line": 1539,
-        "priority": "P1",
-        "title": "Not done: unique provider sessions in concurrent conversations"
-      }
-    ],
-    "id": "956d0f26-3b3c-4928-9494-fe1e2b8207c1",
-    "status": "blocked"
+    "findings": [],
+    "id": "6071799d-7d63-4727-9265-e825d3c3564e",
+    "status": "clean"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-12T10:26:14+00:00",
@@ -40,6 +32,10 @@
     },
     {
       "at": "2026-10-13T11:42:35+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-14T07:01:50+00:00",
       "step": "review"
     }
   ],
