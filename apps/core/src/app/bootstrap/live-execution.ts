@@ -10,7 +10,10 @@ import type {
   AgentTodoCardStatus,
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
-import type { GroupMessageRunContext } from '../../runtime/group-queue-types.js';
+import type {
+  GroupMessageRunContext,
+  GroupMessageRunResult,
+} from '../../runtime/group-queue-types.js';
 import { createLiveReactionLifecycle } from './live-reaction-lifecycle.js';
 import { projectLiveRetryContext } from './live-retry-context.js';
 import type { GroupProcessOptions } from '../../runtime/group-processing-types.js';
@@ -140,7 +143,10 @@ export function buildLiveAdmissionProcessor(input: {
   handleActiveControlCommand?: ActiveControlCommandHandler;
   /** The route-trigger pattern turn start parses session commands with. */
   getTriggerPattern: (trigger?: string) => RegExp;
-}): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
+}): (
+  queueJid: string,
+  context?: GroupMessageRunContext,
+) => Promise<GroupMessageRunResult> {
   const { liveTurnAuthority, app, opsRepository, executionAdapter } = input;
   const { messageFetchPageSize, timezone, warn } = input;
   const { finalizeAgentTodo, finalizeBrowserForLiveTurn } = input;
@@ -186,7 +192,7 @@ export function buildLiveAdmissionProcessor(input: {
   return async (
     queueJid: string,
     context?: GroupMessageRunContext,
-  ): Promise<boolean> => {
+  ): Promise<GroupMessageRunResult> => {
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
@@ -291,16 +297,15 @@ export function buildLiveAdmissionProcessor(input: {
             route,
           );
         }
-        // no_capacity / lease_unavailable: terminal-mark the orphan run. No
-        // input was taken, so the deferred message is re-polled and a worker
-        // with free capacity admits it next tick.
+        // No input was taken. Capacity waits must not spend failure retries;
+        // lease failures still follow the normal failure policy.
         await opsRepository.completeSessionAgentRun?.({
           runId: liveRunId,
           status:
             admission.outcome === 'lease_unavailable' ? 'failed' : 'canceled',
           errorSummary: `Live-turn admission did not claim the run: ${admission.outcome}`,
         });
-        return false;
+        return admission.outcome === 'no_capacity' ? 'queued_capacity' : false;
       }
       liveRunFence = admission.fence;
     }

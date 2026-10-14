@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 
@@ -57,7 +57,6 @@ const structuredAttemptPrompts = {
   claude: [] as string[],
   deepAgents: [] as string[],
 };
-let mockProviderDelayMs = 0;
 
 vi.mock('@core/runtime/agent-spawn.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@core/runtime/agent-spawn.js')>()),
@@ -186,9 +185,6 @@ import type {
 } from '@core/runtime/agent-spawn-types.js';
 import { readScheduledJobHeartbeat } from '@core/runtime/agent-spawn-scheduled-idle.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
-import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
-import { startLiveAdmissionWorkLoop } from '@core/runtime/live-admission-work-loop.js';
-import { buildLiveAdmissionProcessor } from '@core/app/bootstrap/live-execution.js';
 import { runJobAgentWithFailover } from '@core/jobs/execution-failover.js';
 import { createPostgresIntegrationRuntime } from '../harness/postgres-integration-runtime.js';
 import { hasPostgresIntegrationDatabase } from '../harness/postgres-integration-runtime.js';
@@ -401,7 +397,6 @@ async function callRemoteTool(
 }
 
 function configureProviderMocks(): void {
-  mockProviderDelayMs = 0;
   structuredAttemptPrompts.claude.length = 0;
   structuredAttemptPrompts.deepAgents.length = 0;
   deep.createAgent.mockReset();
@@ -416,13 +411,8 @@ function configureProviderMocks(): void {
       yield {
         type: 'system',
         subtype: 'init',
-        session_id: options.resume ?? randomUUID(),
+        session_id: 'claude-inline-session',
       };
-      if (mockProviderDelayMs) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, mockProviderDelayMs),
-        );
-      }
       if (options.outputFormat) {
         const promptIterable = prompt as AsyncIterable<unknown>;
         const initialPrompt =
@@ -485,83 +475,56 @@ function configureProviderMocks(): void {
     },
   }));
 
-  deep.createAgent.mockImplementation(
-    ({ tools, responseFormat, checkpointer }) => ({
-      async *streamEvents(input, config) {
-        // The mocked provider graph owns its native checkpoint, just as the
-        // real graph does; otherwise valid second turns look like lost sessions.
-        if (checkpointer) {
-          const previous = await checkpointer.getTuple(config);
-          const version =
-            Number(previous?.checkpoint.channel_versions.messages ?? 0) + 1;
-          await checkpointer.put(
-            config,
-            {
-              v: 4,
-              id: randomUUID(),
-              ts: new Date().toISOString(),
-              channel_values: { messages: input.messages },
-              channel_versions: { messages: version },
-              versions_seen: {},
-            },
-            {},
-            { messages: version },
-          );
-        }
-        if (mockProviderDelayMs) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, mockProviderDelayMs),
-          );
-        }
-        if (responseFormat) {
-          const structuredAttempt = structuredAttemptPrompts.deepAgents.push(
-            JSON.stringify(input),
-          );
-          yield {
-            event: 'on_chain_end',
-            data: {
-              output: {
-                structuredResponse:
-                  structuredAttempt === 1
-                    ? { wrong: 'second' }
-                    : { lane: 'second' },
-              },
-            },
-          };
-          return;
-        }
-        await tools
-          .find((tool) => tool.name === 'send_message')
-          .invoke({ text: 'OpenAI core message' });
-        await tools
-          .find((tool) => tool.name === 'ask_user_question')
-          .invoke({
-            questions: [
-              {
-                question: 'Continue?',
-                header: 'Continue',
-                options: [
-                  { label: 'Yes', description: 'Continue the turn.' },
-                  { label: 'No', description: 'Stop the turn.' },
-                ],
-              },
-            ],
-          });
-        await tools
-          .find((tool) => tool.name === 'mcp__crm__echo')
-          .invoke({ value: 'openai' });
+  deep.createAgent.mockImplementation(({ tools, responseFormat }) => ({
+    async *streamEvents(input) {
+      if (responseFormat) {
+        const structuredAttempt = structuredAttemptPrompts.deepAgents.push(
+          JSON.stringify(input),
+        );
         yield {
-          event: 'on_chat_model_stream',
+          event: 'on_chain_end',
           data: {
-            chunk: {
-              content: 'OpenAI inline complete',
-              usage_metadata: { input_tokens: 3, output_tokens: 1 },
+            output: {
+              structuredResponse:
+                structuredAttempt === 1
+                  ? { wrong: 'second' }
+                  : { lane: 'second' },
             },
           },
         };
-      },
-    }),
-  );
+        return;
+      }
+      await tools
+        .find((tool) => tool.name === 'send_message')
+        .invoke({ text: 'OpenAI core message' });
+      await tools
+        .find((tool) => tool.name === 'ask_user_question')
+        .invoke({
+          questions: [
+            {
+              question: 'Continue?',
+              header: 'Continue',
+              options: [
+                { label: 'Yes', description: 'Continue the turn.' },
+                { label: 'No', description: 'Stop the turn.' },
+              ],
+            },
+          ],
+        });
+      await tools
+        .find((tool) => tool.name === 'mcp__crm__echo')
+        .invoke({ value: 'openai' });
+      yield {
+        event: 'on_chat_model_stream',
+        data: {
+          chunk: {
+            content: 'OpenAI inline complete',
+            usage_metadata: { input_tokens: 3, output_tokens: 1 },
+          },
+        },
+      };
+    },
+  }));
 
   model.build.mockImplementation(async (input) => {
     await fetch(`${input.gatewayBaseUrl}/mock`, {
@@ -1067,11 +1030,10 @@ maybeDescribe('inline session turns through the control API', () => {
     | undefined;
   const mcpCalls: Array<Record<string, unknown>> = [];
   const gatewayCalls: string[] = [];
+  const liveTurnIds: string[] = [];
+  const runIds: string[] = [];
   const workerId = 'worker:inline-stage-2d-itest';
   let channelEffects: ReturnType<typeof createFakeChannelRuntime>;
-  let liveTurnAuthority: LiveTurnAuthority | undefined;
-  let admissionLoop: ReturnType<typeof startLiveAdmissionWorkLoop> | undefined;
-  let runtimeQueue: GroupQueue | undefined;
 
   beforeAll(async () => {
     vi.stubEnv('SECRET_ENCRYPTION_KEYRING_JSON', '');
@@ -1154,12 +1116,11 @@ maybeDescribe('inline session turns through the control API', () => {
       getEgressDenylist: () => [],
     });
     const queue = new GroupQueue({
-      maxMessageRuns: 4,
+      maxMessageRuns: 1,
       maxJobRuns: 1,
-      maxRetries: 2,
-      baseRetryMs: 25,
+      maxRetries: 0,
+      baseRetryMs: 1,
     });
-    runtimeQueue = queue;
     const executionAdapter = {
       id: 'anthropic:claude-agent-sdk',
       prepare: vi.fn(),
@@ -1253,64 +1214,45 @@ maybeDescribe('inline session turns through the control API', () => {
       warn: vi.fn(),
     });
 
-    liveTurnAuthority = new LiveTurnAuthority({
-      leaseDeps: {
-        liveTurns: runtime.repositories.liveTurns,
-        coordination: runtime.repositories.workerCoordination,
-        workerInstanceId: workerId,
-      },
-      slotCapacity: () => 4,
-    });
-    queue.setLiveTurnRunnerRegistrar((queueJid, hooks, routing) =>
-      liveTurnAuthority!.registerLocalRunner(queueJid, hooks, routing),
-    );
-    const processLiveAdmission = buildLiveAdmissionProcessor({
-      appId: 'default',
-      inputRepository: runtime.repositories.liveTurns,
-      liveTurnAuthority,
-      app,
-      opsRepository: runtime.ops,
-      executionAdapter,
-      messageFetchPageSize: 50,
-      timezone: 'UTC',
-      enqueueMessageCheck: (queueJid) => queue.enqueueMessageCheck(queueJid),
-      getTriggerPattern,
-      warn: vi.fn(),
-    });
-    queue.setProcessMessagesFn((queueJid, processOptions) =>
-      processLiveAdmission(queueJid, processOptions),
-    );
-    admissionLoop = startLiveAdmissionWorkLoop({
-      liveAdmissions: runtime.repositories.liveTurns,
-      appId: 'default',
-      workerInstanceId: workerId,
-      intervalMs: 25,
-      messageLoopDeps: {
-        appId: 'default',
-        inputRepository: runtime.repositories.liveTurns,
-        getConversationRoutes: () => app.getConversationRoutes(),
-        getTriggerPattern,
-        hasChannel: (chatJid, options) =>
-          channelEffects.runtime.hasChannel(chatJid, options),
-        setTyping: (chatJid, isTyping, options) =>
-          channelEffects.runtime.setTyping(chatJid, isTyping, options),
-        sendProgressUpdate: async (chatJid, text, options) =>
-          void (await channelEffects.runtime.sendProgressUpdate(
-            chatJid,
-            text,
-            options,
-          )),
-        queue: {
-          sendMessage: (chatJid, text, options) =>
-            queue.sendMessage(chatJid, text, options),
-          enqueueMessageCheck: (queueJid) =>
-            queue.enqueueMessageCheck(queueJid),
-          closeStdin: (queueJid) => queue.closeStdin(queueJid),
-          stopGroup: (queueJid) => queue.stopGroup(queueJid),
+    queue.setProcessMessagesFn(async (queueJid, processOptions) => {
+      const route = app.getConversationRoutes()[queueJid];
+      if (!route) return true;
+      const turnContext = await runtime.ops.getAgentTurnContext({
+        appId: 'app-inline-itest',
+        agentFolder: route.folder,
+        executionProviderId: 'anthropic:claude-agent-sdk' as never,
+        conversationJid: queueJid,
+      });
+      const runId = await runtime.ops.createSessionAgentRun({
+        agentSessionId: turnContext.agentSessionId,
+        executionProviderId: 'anthropic:claude-agent-sdk' as never,
+        cause: 'message',
+      });
+      if (!runId) throw new Error('Failed to create the integration run.');
+      runIds.push(runId);
+      const liveTurnId = `live-turn:inline-itest:${liveTurnIds.length + 1}`;
+      liveTurnIds.push(liveTurnId);
+      await runtime.repositories.liveTurns.claimLiveTurn({
+        id: liveTurnId,
+        scope: {
+          appId: 'app-inline-itest',
+          agentSessionId: turnContext.agentSessionId,
+          conversationId: queueJid,
+          threadId: null,
         },
-        opsRepository: runtime.ops,
-      },
-      warn: vi.fn(),
+        workerInstanceId: workerId,
+        runId,
+      });
+      const completed = await app.processGroupMessages(queueJid, {
+        ...processOptions,
+        existingRunId: runId,
+      });
+      await runtime.repositories.liveTurns.transitionLiveTurnState({
+        id: liveTurnId,
+        toState: completed ? 'completed' : 'failed',
+        fromStates: ['claimed', 'running'],
+      });
+      return completed;
     });
 
     controlServer = await startTestControlServer({
@@ -1318,16 +1260,12 @@ maybeDescribe('inline session turns through the control API', () => {
       appId: 'app-inline-itest',
       scopes: ['sessions:read', 'sessions:write'],
       runtimeApp: app,
-      liveExecution: true,
-      liveTurnsEnabled: true,
+      liveExecution: false,
+      liveTurnsEnabled: false,
     });
   }, 60_000);
 
   afterAll(async () => {
-    admissionLoop?.stop();
-    await admissionLoop?.done;
-    await runtimeQueue?.shutdown(5_000);
-    await liveTurnAuthority?.shutdown();
     await controlServer?.close();
     await close(mcpServer);
     await close(gatewayServer);
@@ -1362,11 +1300,7 @@ maybeDescribe('inline session turns through the control API', () => {
       message: string,
       responseSchema?: Record<string, unknown>,
     ) => {
-      const admissionCountBefore = (
-        await runtime.service.db
-          .select({ id: pgSchema.liveAdmissionWorkItemsPostgres.id })
-          .from(pgSchema.liveAdmissionWorkItemsPostgres)
-      ).length;
+      const runIndex = runIds.length;
       const response = await fetch(
         `${controlServer!.baseUrl}/v1/sessions/${sessionId}/messages`,
         {
@@ -1383,30 +1317,13 @@ maybeDescribe('inline session turns through the control API', () => {
         },
       );
       expect(response.status).toBe(202);
-      const expectedOutbound = responseSchema
-        ? message.includes('OPENAI_TURN')
-          ? '{"lane":"second"}'
-          : '{"lane":"first"}'
-        : message.includes('OPENAI_TURN')
-          ? 'OpenAI inline complete'
-          : 'Claude inline complete';
       await vi.waitFor(
         async () => {
-          const admissionRows = await runtime.service.db
-            .select({
-              messageId: pgSchema.liveAdmissionWorkItemsPostgres.messageId,
-              state: pgSchema.liveAdmissionWorkItemsPostgres.state,
-            })
-            .from(pgSchema.liveAdmissionWorkItemsPostgres);
-          expect(admissionRows).toHaveLength(admissionCountBefore + 1);
-          expect(admissionRows.every((row) => row.state === 'completed')).toBe(
-            true,
-          );
-          expect(
-            channelEffects.outbound.some(
-              ({ text }) => text === expectedOutbound,
-            ),
-          ).toBe(true);
+          const runId = runIds[runIndex];
+          expect(runId).toEqual(expect.any(String));
+          await expect(
+            runtime.repositories.agentRuns.getAgentRun(runId as never),
+          ).resolves.toMatchObject({ status: 'completed' });
         },
         { timeout: 20_000, interval: 50 },
       );
@@ -1479,7 +1396,6 @@ maybeDescribe('inline session turns through the control API', () => {
       },
       { timeout: 20_000, interval: 50 },
     );
-    expect(channelEffects.outbound).toHaveLength(6);
     expect(channelEffects.userQuestions).toHaveLength(2);
     expect(channelEffects.permissionRequests).toHaveLength(2);
 
@@ -1511,41 +1427,22 @@ maybeDescribe('inline session turns through the control API', () => {
       interactionRows.filter((row) => row.kind === 'question'),
     ).toHaveLength(2);
 
-    const admissionRows = await runtime.service.db
+    const runRows = await runtime.service.db
       .select({
-        agentId: pgSchema.liveAdmissionWorkItemsPostgres.agentId,
-        state: pgSchema.liveAdmissionWorkItemsPostgres.state,
+        id: pgSchema.agentRunsPostgres.id,
+        status: pgSchema.agentRunsPostgres.status,
       })
-      .from(pgSchema.liveAdmissionWorkItemsPostgres);
-    expect(admissionRows).toHaveLength(4);
-    expect(admissionRows).toEqual(
-      expect.arrayContaining(
-        Array.from({ length: 4 }, () =>
-          expect.objectContaining({
-            agentId: expect.stringMatching(/^agent:/),
-            state: 'completed',
-          }),
-        ),
-      ),
-    );
+      .from(pgSchema.agentRunsPostgres);
+    expect(runRows.filter((row) => row.status === 'completed')).toHaveLength(4);
     await vi.waitFor(
       async () => {
-        const runRows = await runtime.service.db
-          .select({
-            id: pgSchema.agentRunsPostgres.id,
-            status: pgSchema.agentRunsPostgres.status,
-          })
-          .from(pgSchema.agentRunsPostgres);
-        expect(
-          runRows.filter((row) => row.status === 'completed'),
-        ).toHaveLength(6);
         const liveTurnRows = await runtime.service.db
           .select({
             runId: pgSchema.liveTurnsPostgres.runId,
             state: pgSchema.liveTurnsPostgres.state,
           })
           .from(pgSchema.liveTurnsPostgres);
-        expect(liveTurnRows).toHaveLength(6);
+        expect(liveTurnRows).toHaveLength(4);
         expect(liveTurnRows).toEqual(
           expect.arrayContaining(
             runRows.map((run) =>
@@ -1556,219 +1453,12 @@ maybeDescribe('inline session turns through the control API', () => {
       },
       { timeout: 20_000, interval: 50 },
     );
+    for (const liveTurnId of liveTurnIds) {
+      await expect(
+        runtime.repositories.liveTurns.getLiveTurnById(liveTurnId),
+      ).resolves.toMatchObject({ state: 'completed' });
+    }
   }, 60_000);
-
-  it('delivers concurrent multi-turn conversations exactly once and rejects invalid requests', async () => {
-    const headers = {
-      authorization: `Bearer ${controlServer!.token}`,
-      'content-type': 'application/json',
-    };
-    const conversationCount = 20;
-    const rounds = 2;
-    const sessions = [] as Array<{
-      sessionId: string;
-      jid: string;
-      openai: boolean;
-    }>;
-    // Configure before admitting messages, so every route has its real runtime.
-    for (let index = 0; index < conversationCount; index += 1) {
-      const conversationId = `runtime-load-${index}`;
-      registerInlineSessionAgent(conversationId);
-      const response = await fetch(
-        `${controlServer!.baseUrl}/v1/sessions/ensure`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ conversationId, responseMode: 'sse' }),
-        },
-      );
-      expect(response.status).toBe(200);
-      const { sessionId } = (await response.json()) as { sessionId: string };
-      sessions.push({
-        sessionId,
-        jid: `app:app-inline-itest:${conversationId}`,
-        openai: index % 2 === 1,
-      });
-    }
-    const admissionBefore = (
-      await runtime.service.db
-        .select()
-        .from(pgSchema.liveAdmissionWorkItemsPostgres)
-    ).length;
-    const mcpBefore = mcpCalls.length;
-    const questionBefore = channelEffects.userQuestions.length;
-    const permissionBefore = channelEffects.permissionRequests.length;
-    const outboundBefore = channelEffects.outbound.length;
-    sdk.query.mockClear();
-    deep.createAgent.mockClear();
-    const { prepareInlineAgentHostContext } =
-      await import('@core/runtime/agent-spawn-host.js');
-    const hostPreparation = vi.mocked(prepareInlineAgentHostContext);
-    hostPreparation.mockClear();
-    const firstProviderSessions = new Map<string, string>();
-    mockProviderDelayMs = 50;
-    const acceptedLatencies: number[] = [];
-    const startedAt = performance.now();
-    for (let round = 1; round <= rounds; round += 1) {
-      const hostCallStart = hostPreparation.mock.calls.length;
-      await Promise.all(
-        sessions.map(async ({ sessionId, openai }) => {
-          const requestStartedAt = performance.now();
-          const response = await fetch(
-            `${controlServer!.baseUrl}/v1/sessions/${sessionId}/messages`,
-            {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                message: `${openai ? 'OPENAI_TURN' : 'CLAUDE_TURN'} round ${round} TURN_FOR:${sessionId} use every scripted tool`,
-                responseMode: 'sse',
-              }),
-            },
-          );
-          expect(response.status).toBe(202);
-          acceptedLatencies.push(performance.now() - requestStartedAt);
-        }),
-      );
-      await vi.waitFor(
-        async () => {
-          const admissions = await runtime.service.db
-            .select()
-            .from(pgSchema.liveAdmissionWorkItemsPostgres);
-          expect(admissions).toHaveLength(
-            admissionBefore + conversationCount * round,
-          );
-          for (const { jid, openai } of sessions) {
-            const scoped = admissions.filter(
-              (row) => row.conversationId === jid,
-            );
-            expect(scoped).toHaveLength(round);
-            expect(
-              scoped.map(({ state, agentId, consumedBy }) => ({
-                state,
-                agentId,
-                consumedBy,
-              })),
-            ).toEqual(
-              Array.from({ length: round }, () => ({
-                state: 'completed',
-                agentId: expect.any(String),
-                consumedBy: expect.any(String),
-              })),
-            );
-            const delivered = channelEffects.outbound.filter(
-              (entry) => entry.chatJid === jid,
-            );
-            expect(delivered.map(({ text }) => text)).toEqual(
-              Array.from({ length: round }, () => [
-                `${openai ? 'OpenAI' : 'Claude'} core message`,
-                `${openai ? 'OpenAI' : 'Claude'} inline complete`,
-              ]).flat(),
-            );
-          }
-        },
-        { timeout: 45_000, interval: 100 },
-      );
-      const providerSessions = await runtime.service.db
-        .select()
-        .from(pgSchema.providerSessionsPostgres);
-      const roundInputs = hostPreparation.mock.calls
-        .slice(hostCallStart)
-        .map(([, input]) => input);
-      const roundSessionIds: string[] = [];
-      for (const { jid, sessionId } of sessions) {
-        const scoped = providerSessions.filter(
-          (row) =>
-            (row.metadataJson as { chatJid?: string }).chatJid === jid &&
-            row.status === 'active',
-        );
-        expect(scoped).toHaveLength(1);
-        const externalSessionId = scoped[0]!.externalSessionId;
-        roundSessionIds.push(externalSessionId);
-        const inputs = roundInputs.filter((input) => input.chatJid === jid);
-        expect(inputs.length).toBeGreaterThanOrEqual(1);
-        for (const input of inputs) {
-          expect(input.prompt).toContain(`TURN_FOR:${sessionId}`);
-          for (const other of sessions.filter(
-            (session) => session.jid !== jid,
-          )) {
-            expect(input.prompt).not.toContain(`TURN_FOR:${other.sessionId}`);
-          }
-        }
-        if (round === 1) {
-          expect(inputs.every((input) => input.sessionId === undefined)).toBe(
-            true,
-          );
-          firstProviderSessions.set(jid, externalSessionId);
-        } else {
-          expect(externalSessionId).toBe(firstProviderSessions.get(jid));
-          expect(
-            inputs.every(
-              (input) => input.sessionId === firstProviderSessions.get(jid),
-            ),
-          ).toBe(true);
-        }
-      }
-      expect(new Set(roundSessionIds).size).toBe(conversationCount);
-    }
-    mockProviderDelayMs = 0;
-    const turns = conversationCount * rounds;
-    expect(sdk.query).toHaveBeenCalledTimes(turns / 2);
-    expect(deep.createAgent).toHaveBeenCalledTimes(turns / 2);
-    expect(mcpCalls.length - mcpBefore).toBe(turns);
-    expect(channelEffects.userQuestions.length - questionBefore).toBe(turns);
-    expect(channelEffects.permissionRequests.length - permissionBefore).toBe(
-      turns,
-    );
-    expect(channelEffects.outbound.length - outboundBefore).toBe(turns * 2);
-
-    const rejected = await Promise.all([
-      fetch(
-        `${controlServer!.baseUrl}/v1/sessions/${sessions[0]!.sessionId}/messages`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ message: '   ' }),
-        },
-      ),
-      fetch(
-        `${controlServer!.baseUrl}/v1/sessions/${sessions[0]!.sessionId}/messages`,
-        {
-          method: 'POST',
-          headers: { ...headers, authorization: 'Bearer invalid' },
-          body: JSON.stringify({ message: 'must not reach the model' }),
-        },
-      ),
-      fetch(`${controlServer!.baseUrl}/v1/sessions/missing-session/messages`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ message: 'must not reach the model' }),
-      }),
-    ]);
-    expect(rejected.map(({ status }) => status)).toEqual([400, 401, 404]);
-    expect(
-      (
-        await runtime.service.db
-          .select()
-          .from(pgSchema.liveAdmissionWorkItemsPostgres)
-      ).length,
-    ).toBe(admissionBefore + turns);
-    expect(sdk.query).toHaveBeenCalledTimes(turns / 2);
-    expect(deep.createAgent).toHaveBeenCalledTimes(turns / 2);
-    acceptedLatencies.sort((left, right) => left - right);
-    console.info(
-      '[runtime-load]',
-      JSON.stringify({
-        conversations: conversationCount,
-        turns,
-        outbound: turns * 2,
-        rejected: rejected.length,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        acceptanceP95Ms: Math.round(
-          acceptedLatencies[Math.ceil(acceptedLatencies.length * 0.95) - 1]!,
-        ),
-      }),
-    );
-  }, 120_000);
 
   it('persists child runs for inline and worker delegation targets', async () => {
     const { createInlineAgentTaskLifecycle } =

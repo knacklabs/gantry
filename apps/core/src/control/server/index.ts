@@ -88,7 +88,6 @@ import {
 } from './webhook-delivery.js';
 import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { fallbackProviderAccountId } from '../../channels/provider-registry.js';
 import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
 import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 import { adaptSessionControlPort } from './session-control-port.js';
@@ -372,10 +371,6 @@ export function startControlServer(input: {
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
-    sessionProviderAccountId: fallbackProviderAccountId(
-      DEFAULT_JOB_RUNTIME_APP_ID,
-      'app',
-    ),
   });
   const ctx: ControlRouteContext = {
     app: input.app,

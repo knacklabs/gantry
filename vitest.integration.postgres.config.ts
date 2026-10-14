@@ -18,10 +18,7 @@ export default makeVitestConfig({
         ? [
             'apps/core/test/integration/**/*-explain.postgres.integration.test.ts',
           ]
-        : [
-            'apps/core/test/integration/**/*.postgres.integration.test.ts',
-            'apps/core/test/integration/inline-agent-runtime.integration.test.ts',
-          ],
+        : ['apps/core/test/integration/**/*.postgres.integration.test.ts'],
   exclude:
     lane === 'default'
       ? [

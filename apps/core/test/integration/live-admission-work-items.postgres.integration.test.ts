@@ -1147,6 +1147,122 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await app.queue.shutdown(500);
   });
 
+  it('delivers saved input after repeated capacity waits with no failure retries', async () => {
+    const { _setRuntimeStorageForTest } =
+      await import('@core/adapters/storage/postgres/runtime-store.js');
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    const appId = 'capacity-boundary';
+    const chatJid = `app:${appId}:waiting`;
+    const folder = 'capacity_boundary';
+    const providerAccountId = `control:${appId}`;
+    const queue = new GroupQueue({ maxRetries: 0, baseRetryMs: 25 });
+    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const app = createRuntimeApp({
+      queue,
+      opsRepository: runtime.ops,
+      ensureCredentialBinding: async () => ({ created: false }),
+      runAgent: async (_group, _input, _onProcess, onOutput) => {
+        const output = {
+          status: 'success' as const,
+          result: 'Capacity returned.',
+        };
+        await onOutput?.(output);
+        return output;
+      },
+    });
+    app.setChannelRuntime(channel.runtime);
+    await runtime.control.ensureAppSession({
+      appId,
+      conversationId: 'waiting',
+      chatJid,
+      workspaceFolder: folder,
+    });
+    await app.registerGroup(chatJid, {
+      name: 'Capacity boundary',
+      folder,
+      providerAccountId,
+      trigger: '',
+      added_at: toIso(nowMs()),
+      requiresTrigger: false,
+      conversationKind: 'dm',
+      agentConfig: { model: 'opus' },
+    });
+    const saved = await admitDue(
+      {
+        id: 'message:capacity-waiting',
+        chat_jid: chatJid,
+        provider: 'app',
+        providerAccountId,
+        sender: 'person',
+        content: 'Please answer when a worker is free.',
+        timestamp: toIso(nowMs()),
+        is_from_me: false,
+        is_bot_message: false,
+      },
+      { appId, agentId: agentIdForFolder(folder) },
+    );
+    if (!saved || saved.outcome === 'overloaded')
+      throw new Error('Admission failed');
+    const workerInstanceId = 'capacity-boundary-worker';
+    await runtime.repositories.workerCoordination.registerWorker({
+      id: workerInstanceId,
+      bootNonce: workerInstanceId,
+    });
+    let capacity = 0;
+    const authority = new LiveTurnAuthority({
+      leaseDeps: {
+        liveTurns,
+        coordination: runtime.repositories.workerCoordination,
+        workerInstanceId,
+      },
+      slotCapacity: () => 1,
+      hostSlotCapacity: () => capacity,
+    });
+    const processor = buildLiveAdmissionProcessor({
+      appId,
+      app,
+      opsRepository: runtime.ops,
+      inputRepository: liveTurns,
+      liveTurnAuthority: authority,
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: (jid) => {
+        queue.enqueueMessageCheck(jid);
+      },
+      warn: () => undefined,
+    });
+    const retries: number[] = [];
+    queue.setProcessMessagesFn(async (jid, context) => {
+      retries.push(context.retryCount);
+      return processor(jid, context);
+    });
+    try {
+      // No recovery sweep or second enqueue: the original queue signal must survive.
+      queue.enqueueMessageCheck(saved.item.queueJid);
+      await vi.waitFor(() => expect(retries.length).toBeGreaterThanOrEqual(3), {
+        timeout: 10_000,
+      });
+      expect(retries.every((count) => count === 0)).toBe(true);
+      expect(channel.outbound).toHaveLength(0);
+      capacity = 1;
+      await vi.waitFor(() => expect(channel.outbound).toHaveLength(1), {
+        timeout: 10_000,
+      });
+      expect(channel.outbound[0].text).toContain('Capacity returned.');
+      expect(
+        await liveTurns.takeInput({
+          scope: saved.item,
+          consumedBy: 'turn:capacity-next',
+          limit: 1,
+        }),
+      ).toEqual([]);
+    } finally {
+      await queue.shutdown(500);
+      await authority.shutdown();
+    }
+  });
+
   it('delivers a follow-up after a replied worker crashes without repeating answered input', async () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
