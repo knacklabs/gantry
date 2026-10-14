@@ -12,7 +12,6 @@ import {
   vi,
 } from 'vitest';
 import { z } from 'zod';
-import { emptyCheckpoint } from '@langchain/langgraph-checkpoint';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
@@ -498,9 +497,12 @@ function configureProviderMocks(): void {
           await checkpointer.put(
             config,
             {
-              ...emptyCheckpoint(),
+              v: 4,
+              id: randomUUID(),
+              ts: new Date().toISOString(),
               channel_values: { messages: input.messages },
               channel_versions: { messages: version },
+              versions_seen: {},
             },
             {},
             { messages: version },
