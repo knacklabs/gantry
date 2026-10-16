@@ -3,12 +3,14 @@
   "branch": "fix/capacity-regression-covers-only-one-wait",
   "done_when": "A repeatable real-runtime load test checks concurrent saved messages, capacity waits without failure retries, conversation isolation, single delivery and consumption after capacity returns, and reports verified results",
   "kind": "fix",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-16T09:01:47+00:00",
       "step": "start"
     }
   ],
-  "why": "Capacity regression covers only one waiting conversation rather than concurrent load"
+  "why": "Capacity regression covers only one waiting conversation rather than concurrent load",
+  "worker": "codex"
 }
