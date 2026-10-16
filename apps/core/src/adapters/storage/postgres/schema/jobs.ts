@@ -107,40 +107,6 @@ export const canonicalJobsPostgres = pgTable(
   }),
 );
 
-export const jobRunsPostgres = pgTable(
-  'job_runs',
-  {
-    id: text('id').primaryKey(),
-    appId: text('app_id')
-      .notNull()
-      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
-    jobId: text('job_id')
-      .notNull()
-      .references(() => canonicalJobsPostgres.id, { onDelete: 'cascade' }),
-    agentRunId: text('agent_run_id').references(() => agentRunsPostgres.id),
-    status: text('status').notNull(),
-    scheduledFor: timestamp('scheduled_for', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' }),
-    endedAt: timestamp('ended_at', { withTimezone: true, mode: 'string' }),
-    resultSummary: text('result_summary'),
-    errorSummary: text('error_summary'),
-    createdAt: timestamp('created_at', {
-      withTimezone: true,
-      mode: 'string',
-    }).notNull(),
-    updatedAt: timestamp('updated_at', {
-      withTimezone: true,
-      mode: 'string',
-    }).notNull(),
-  },
-  (table) => ({
-    jobIdx: index('idx_job_runs_job').on(table.jobId, table.createdAt),
-  }),
-);
-
 export const canonicalJobTriggersPostgres = pgTable('job_triggers', {
   id: text('id').primaryKey(),
   appId: text('app_id')

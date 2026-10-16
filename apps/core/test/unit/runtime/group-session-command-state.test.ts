@@ -12,7 +12,6 @@ function task(patch: Partial<AsyncTaskRecord> = {}): AsyncTaskRecord {
     threadId: null,
     parentRunId: null,
     parentJobId: null,
-    parentJobRunId: null,
     kind: 'session_compaction',
     status: 'completed',
     admissionClass: 'task',

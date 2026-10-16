@@ -43,7 +43,6 @@ export interface AsyncTaskRecord {
   threadId?: string | null;
   parentRunId?: string | null;
   parentJobId?: string | null;
-  parentJobRunId?: string | null;
   kind: AsyncTaskKind;
   status: AsyncTaskStatus;
   admissionClass: 'task';
@@ -96,7 +95,6 @@ export interface AsyncTaskCreateInput {
   threadId?: string | null;
   parentRunId?: string | null;
   parentJobId?: string | null;
-  parentJobRunId?: string | null;
   kind: AsyncTaskKind;
   status: AsyncTaskStatus;
   admissionClass: 'task';

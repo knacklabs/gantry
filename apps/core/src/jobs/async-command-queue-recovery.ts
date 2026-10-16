@@ -133,6 +133,7 @@ async function recoverQueuedDelegatedAgentTasks(input: {
       conversationId: task.conversationId ?? '',
       threadId: task.threadId,
       parentRunId: task.parentRunId,
+      parentJobId: task.parentJobId,
       objective: payload.objective,
       context: payload.context,
       expectedOutput: payload.expectedOutput,
