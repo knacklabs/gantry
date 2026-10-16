@@ -36,7 +36,6 @@ import {
   parsePermissionCustomId,
   permissionCustomId,
 } from '@core/channels/discord/components.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import {
   consume as consumeDiscordPermissionPrompt,
   pending as pendingDiscordPermissionPrompt,
@@ -5255,134 +5254,6 @@ describe('DiscordChannel', () => {
     await channel.disconnect();
   });
 
-  it('deletes an approved Discord batch prompt before Review each settles', async () => {
-    let socket!: FakeWebSocket;
-    durabilityMocks.bindPendingPermissionInteractionMessage.mockResolvedValue(
-      true,
-    );
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        jsonResponse({ url: 'wss://gateway.discord.test' }),
-      )
-      .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-1' }))
-      .mockResolvedValue(jsonResponse({}));
-    const channel = new DiscordChannel(
-      'bot-token',
-      'app-id',
-      opts({ isControlApproverAllowed: vi.fn(async () => true) }),
-      (url) => {
-        socket = new FakeWebSocket(url);
-        return socket;
-      },
-    );
-    const batchRequest = createPermissionBatchRequest(
-      [
-        {
-          requestId: 'permission-1',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-        {
-          requestId: 'permission-2',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-      ],
-      ['1. Command (git status)', '2. Command (git diff)'],
-    );
-
-    await channel.connect();
-    const approval = channel
-      .requestPermissionApproval('dc:channel-1', batchRequest)
-      .then(requirePermissionDecision);
-    await vi.waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://discord.com/api/v10/channels/channel-1/messages',
-        expect.objectContaining({ method: 'POST' }),
-      ),
-    );
-    socket.receive({
-      op: 0,
-      t: 'INTERACTION_CREATE',
-      d: {
-        id: 'interaction-review',
-        token: 'token-review',
-        type: 3,
-        channel_id: 'channel-1',
-        data: {
-          custom_id: permissionCustomId(
-            latestDiscordPermissionAlias(),
-            'allow_persistent_rule',
-          ),
-        },
-        member: { user: { id: 'user-1', username: 'Ravi' } },
-      },
-    });
-
-    await expect(approval).resolves.toMatchObject({
-      approved: true,
-      batchDecision: 'review_each',
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://discord.com/api/v10/channels/channel-1/messages/batch-message-1',
-      expect.objectContaining({
-        method: 'DELETE',
-      }),
-    );
-    await channel.disconnect();
-  });
-
-  it('clears a live Discord batch prompt when its post-send binding is already resolved', async () => {
-    durabilityMocks.bindPendingPermissionInteractionMessage
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-    const fetchMock = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(jsonResponse({ id: 'batch-message-1' }));
-    const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const batch = createPermissionBatchRequest(
-      [
-        {
-          requestId: 'permission-1',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-        {
-          requestId: 'permission-2',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-      ],
-      ['1. Command', '2. File action'],
-    );
-    const onPromptDelivered = vi.fn();
-
-    await expect(
-      channel.requestPermissionApproval(
-        'dc:channel-1',
-        batch,
-        onPromptDelivered,
-      ),
-    ).resolves.toMatchObject({
-      kind: 'delivery_failure',
-      code: 'provider_failed',
-      retryable: false,
-      delivered: 'unknown',
-    });
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(
-      durabilityMocks.bindPendingPermissionInteractionMessage,
-    ).toHaveBeenCalledTimes(2);
-    expect(onPromptDelivered).not.toHaveBeenCalled();
-    expect((channel as any).interactions.pendingPermissions.size).toBe(0);
-  });
-
   it('propagates a typed Discord post-send binding failure and retains the live waiter', async () => {
     const persistenceError =
       new durabilityMocks.DurableInteractionPersistenceError('binding failed');
@@ -5421,20 +5292,21 @@ describe('DiscordChannel', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-1' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'batch-message-2' }));
     const channel = new DiscordChannel('bot-token', 'app-id', opts());
-    const batch = createPermissionBatchRequest(
-      [
-        {
-          requestId: 'permission-chunked',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-      ],
-      [`1. ${'x'.repeat(2100)}`],
-    );
+    const request = {
+      requestId: 'permission-chunked',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      toolName: 'request_settings_update',
+      toolInput: {
+        diffSummary: Array.from(
+          { length: 12 },
+          (_, index) => `${index} ${'x'.repeat(240)}`,
+        ),
+      },
+    };
 
     await expect(
-      channel.requestPermissionApproval('dc:channel-1', batch),
+      channel.requestPermissionApproval('dc:channel-1', request),
     ).resolves.toMatchObject({
       kind: 'delivery_failure',
       code: 'provider_failed',
@@ -5656,31 +5528,21 @@ describe('DiscordChannel', () => {
     await channel.disconnect();
   });
 
-  it('settles the final component-bearing message for chunked batch prompts', async () => {
+  it('settles the final component-bearing message for chunked prompts', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(jsonResponse({}));
-    const batchRequest = createPermissionBatchRequest(
-      [
-        {
-          requestId: 'permission-1',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-        {
-          requestId: 'permission-2',
-          sourceAgentFolder: 'main_agent',
-          targetJid: 'dc:channel-1',
-          toolName: 'RunCommand',
-        },
-      ],
-      ['1. Command (git status)', '2. Command (git diff)'],
-    );
+    const chunkedRequest = {
+      requestId: 'permission-1',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'dc:channel-1',
+      toolName: 'RunCommand',
+      toolInput: { command: 'git status' },
+    };
     const timeout = setTimeout(() => undefined, 60_000);
     const pending = pendingDiscordPermissionPrompt(
-      discordPermissionCallback(batchRequest.requestId),
-      batchRequest,
+      discordPermissionCallback(chunkedRequest.requestId),
+      chunkedRequest,
       {
         externalMessageId: 'batch-message-1',
         externalMessageIds: ['batch-message-1', 'batch-message-2'],
@@ -5703,7 +5565,7 @@ describe('DiscordChannel', () => {
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({
-          content: 'Canceled: Review 2 permission requests. Nothing changed.',
+          content: 'Canceled: Command (git status). Nothing changed.',
           components: [],
         }),
       }),

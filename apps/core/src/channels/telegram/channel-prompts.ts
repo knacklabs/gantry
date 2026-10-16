@@ -28,7 +28,6 @@ import {
   TELEGRAM_MESSAGE_MAX_LENGTH,
   telegramPermissionCallbackData,
   splitTelegramTextByCodeUnits,
-  telegramThreadOptionsFromString,
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 import { claimAndSettleTelegramPermissionPrompt } from './permission-prompt-settlement.js';
@@ -132,7 +131,6 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     chatId: string;
     request: PermissionApprovalRequest;
     callbackId: string;
-    timeoutMs: number;
     threadOpts: { message_thread_id?: number };
     // Fired immediately before the FIRST Telegram API call: everything
     // before it is local preparation and stays retryable (0128
@@ -140,7 +138,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     onTransmissionBegin?: () => void;
   }): Promise<{ message_id: number }> {
     if (!this.bot) throw new Error('Telegram bot is not connected');
-    const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
+    const parts = buildPermissionPromptParts(input.request);
     const promptHtmlWithFullView = renderPermissionPromptHtml(parts, {
       includeFullView: Boolean(parts.fullView),
     });
@@ -218,7 +216,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     const replyMarkup = {
       inline_keyboard: permissionDecisionOptions(input.request).map((mode) => [
         {
-          text: permissionButtonLabel(mode, input.request),
+          text: permissionButtonLabel(mode),
           callback_data: telegramPermissionCallbackData(mode, input.callbackId),
         },
       ]),

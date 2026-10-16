@@ -210,15 +210,6 @@ export class HumanDecisionMemoryService {
   }) {
     return this.repository.revokeById({ ...input, nowIso: this.now() });
   }
-
-  countExactAllowsByTool(input: {
-    appId: string;
-    agentFolder: string;
-    actingPersonId: string;
-    railVersion: number;
-  }) {
-    return this.repository.countExactAllowsByTool(input);
-  }
 }
 
 export function deriveHumanDecisionShortIds(

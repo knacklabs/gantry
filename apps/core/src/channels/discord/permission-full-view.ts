@@ -26,7 +26,6 @@ export async function handleDiscordPermissionFullView(input: {
   appId: string;
   applicationId: string;
   botToken: string;
-  timeoutMs: number;
   pendingPermissions: Map<string, PendingDiscordPermission>;
   resolveConversationContext: (
     channelId: string,
@@ -63,10 +62,7 @@ export async function handleDiscordPermissionFullView(input: {
       );
       return;
     }
-    fullView = buildPermissionPromptParts(
-      pending.request,
-      input.timeoutMs,
-    ).fullView;
+    fullView = buildPermissionPromptParts(pending.request).fullView;
   } else {
     const messageId = input.interaction.message?.id;
     const channelId = input.interaction.channel_id;

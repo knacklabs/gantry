@@ -68,6 +68,7 @@ export interface AgentCapabilityContext {
   hideAuthorityTools?: boolean;
   asyncTaskToolsEnabled?: boolean;
   memoryBlock?: string;
+  turnIntentSummary?: string;
   // Locked agents auto-deny permission prompts and never mount authority/admin
   // tools. Default 'full' preserves today's behavior.
   accessPreset?: 'full' | 'locked';
@@ -312,6 +313,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
       ...(ctx.runId ? { GANTRY_RUN_ID: ctx.runId } : {}),
       GANTRY_PERMISSION_LANE: ctx.isScheduledJob ? 'autonomous' : 'interactive',
+      ...(ctx.turnIntentSummary
+        ? { GANTRY_TURN_INTENT_SUMMARY: ctx.turnIntentSummary }
+        : {}),
       ...(ctx.parentTaskId ? { GANTRY_PARENT_TASK_ID: ctx.parentTaskId } : {}),
       ...(ctx.runLeaseToken
         ? { GANTRY_JOB_RUN_LEASE_TOKEN: ctx.runLeaseToken }

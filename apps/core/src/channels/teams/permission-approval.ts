@@ -167,9 +167,7 @@ export async function requestTeamsPermissionApproval(input: {
       sourceAgentFolder: approvalRequest.sourceAgentFolder,
       interactionId: approvalRequest.requestId,
     },
-    matchKind: approvalRequest.permissionBatch
-      ? ('batch' as const)
-      : ('individual' as const),
+    matchKind: 'individual' as const,
   };
   let settlementDelayMs: number | undefined;
   const timeoutPermissionPrompt = async (): Promise<void> => {

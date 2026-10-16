@@ -61,7 +61,6 @@ import {
   createUserQuestionResponder,
 } from '@core/app/bootstrap/channel-wiring-interactions.js';
 import { createPermissionApprovalRequester } from '@core/channels/permission-approval-requester.js';
-import { decisionForMode } from '@core/channels/permission-interaction.js';
 import { DurableInteractionPersistenceError } from '@core/application/interactions/pending-interaction-durability.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
@@ -322,123 +321,6 @@ describe('createChannelWiring', () => {
         externalMessageIds: ['message-1', 'message-2'],
         deletedAt: '2026-08-01T00:00:00.000Z',
       });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('coalesces run permission requests into one live batch prompt', async () => {
-    vi.useFakeTimers();
-    try {
-      const resetStreaming = vi.fn();
-      const requestPermissionApproval = vi.fn(
-        async (
-          _jid: string,
-          _request: PermissionApprovalRequest,
-          onPromptDelivered?: (messageId: string) => void,
-        ) => {
-          onPromptDelivered?.('batch-prompt-1');
-          return permissionDecisionResult({
-            approved: true,
-            mode: 'allow_once' as const,
-            decidedBy: 'Ravi',
-          });
-        },
-      );
-      const requester = createPermissionApprovalRequester({
-        findBoundChannel: () => ({}),
-        asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
-        interactionLifecycle: { logger: { error: vi.fn() }, resetStreaming },
-      });
-      const base = {
-        sourceAgentFolder: 'main_agent',
-        targetJid: 'tg:team',
-        runId: 'run-1',
-        decisionPolicy: 'same_channel' as const,
-        toolName: 'Bash',
-        toolInput: { command: 'npm test' },
-      };
-
-      const first = requester({ ...base, requestId: 'permission-1' });
-      const second = requester({ ...base, requestId: 'permission-2' });
-      await vi.advanceTimersByTimeAsync(1500);
-
-      expect(requestPermissionApproval).toHaveBeenCalledOnce();
-      expect(requestPermissionApproval.mock.calls[0]?.[1]).toEqual(
-        expect.objectContaining({
-          title: 'Review 2 permission requests',
-          decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
-        }),
-      );
-      await expect(Promise.all([first, second])).resolves.toEqual([
-        permissionDecisionResult(
-          expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        ),
-        permissionDecisionResult(
-          expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        ),
-      ]);
-      expect(resetStreaming).toHaveBeenCalledOnce();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('preserves Review each when a provider overwrites the decision reason', async () => {
-    vi.useFakeTimers();
-    try {
-      const requestPermissionApproval = vi.fn(
-        async (
-          _jid: string,
-          request: PermissionApprovalRequest,
-          onPromptDelivered?: (messageId: string) => void,
-        ) => {
-          onPromptDelivered?.(`prompt-${request.requestId}`);
-          if (request.permissionBatch) {
-            return permissionDecisionResult({
-              ...decisionForMode(request, 'allow_persistent_rule', 'Ravi'),
-              reason: 'persistent rule allowed via Telegram',
-            });
-          }
-          return request.requestId === 'permission-1'
-            ? permissionDecisionResult({
-                approved: true,
-                mode: 'allow_once' as const,
-                decidedBy: 'Ravi',
-              })
-            : permissionDecisionResult({
-                approved: false,
-                mode: 'cancel' as const,
-                decidedBy: 'Ravi',
-              });
-        },
-      );
-      const requester = createPermissionApprovalRequester({
-        findBoundChannel: () => ({}),
-        asPermissionApprovalSurface: () => ({ requestPermissionApproval }),
-        interactionLifecycle: { logger: { error: vi.fn() } },
-      });
-      const base = {
-        sourceAgentFolder: 'main_agent',
-        targetJid: 'tg:team',
-        runId: 'run-1',
-        decisionPolicy: 'same_channel' as const,
-        toolName: 'Bash',
-      };
-
-      const first = requester({ ...base, requestId: 'permission-1' });
-      const second = requester({ ...base, requestId: 'permission-2' });
-      await vi.advanceTimersByTimeAsync(1500);
-
-      await expect(Promise.all([first, second])).resolves.toEqual([
-        permissionDecisionResult(
-          expect.objectContaining({ approved: true, mode: 'allow_once' }),
-        ),
-        permissionDecisionResult(
-          expect.objectContaining({ approved: false, mode: 'cancel' }),
-        ),
-      ]);
-      expect(requestPermissionApproval).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }

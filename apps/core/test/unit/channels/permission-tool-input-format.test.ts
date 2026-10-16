@@ -28,7 +28,7 @@ function commandRequest(
 }
 
 describe('formatPermissionToolInputLines', () => {
-  it('leads command prompts with the model-provided intent', () => {
+  it('leads command prompts with the model-provided intent and the programs it runs', () => {
     expect(
       formatPermissionToolInputLines(
         commandRequest({
@@ -36,9 +36,10 @@ describe('formatPermissionToolInputLines', () => {
           description: 'Check the working tree status.',
         }),
         passthrough,
-      ).slice(0, 4),
+      ).slice(0, 5),
     ).toEqual([
       'What it does: Check the working tree status.',
+      'Runs: git',
       'Command:',
       '```',
       'git status --short',

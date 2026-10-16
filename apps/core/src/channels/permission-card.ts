@@ -5,7 +5,6 @@ import {
   type PermissionPromptParts,
 } from './permission-interaction.js';
 
-const PERMISSION_CARD_TIMEOUT_MS = 24 * 60 * 60_000;
 const PERMISSION_CARD_TEXT_BUDGET = 1_600;
 const PERMISSION_CARD_FULL_VIEW_BUDGET = 500;
 const PERMISSION_CARD_TITLE_BUDGET = 200;
@@ -22,10 +21,7 @@ export interface BoundedPermissionCard {
 export function buildBoundedPermissionCard(
   view: PermissionCardMessageView,
 ): BoundedPermissionCard {
-  const source = buildPermissionPromptParts(
-    view.request,
-    PERMISSION_CARD_TIMEOUT_MS,
-  );
+  const source = buildPermissionPromptParts(view.request);
   const fullView = view.fullView ?? source.fullView;
   const boundedFullView = fullView
     ? {
@@ -123,6 +119,6 @@ export function permissionCardCallback(view: PermissionCardMessageView): {
       sourceAgentFolder: view.request.sourceAgentFolder,
       interactionId: view.request.requestId,
     },
-    matchKind: view.request.permissionBatch ? 'batch' : 'individual',
+    matchKind: 'individual',
   };
 }
