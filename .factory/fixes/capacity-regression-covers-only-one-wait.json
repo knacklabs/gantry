@@ -3,7 +3,7 @@
   "branch": "fix/capacity-regression-covers-only-one-wait",
   "done_when": "A repeatable real-runtime load test checks concurrent saved messages, capacity waits without failure retries, conversation isolation, single delivery and consumption after capacity returns, and reports verified results",
   "kind": "fix",
-  "round": 1,
+  "round": 2,
   "status": "working",
   "steps": [
     {
