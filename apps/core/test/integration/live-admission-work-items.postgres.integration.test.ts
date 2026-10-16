@@ -1147,62 +1147,89 @@ maybeDescribe('live admission work items (Postgres)', () => {
     await app.queue.shutdown(500);
   });
 
-  it('delivers saved input after repeated capacity waits with no failure retries', async () => {
+  it('delivers two rounds of concurrent saved input after capacity waits without failure retries or duplicate replies', async () => {
     const { _setRuntimeStorageForTest } =
       await import('@core/adapters/storage/postgres/runtime-store.js');
     _setRuntimeStorageForTest(runtime.storageRuntime);
     const appId = 'capacity-boundary';
-    const chatJid = `app:${appId}:waiting`;
+    const conversations = Array.from({ length: 12 }, (_, index) => ({
+      chatJid: `app:${appId}:waiting-${index}`,
+      conversationId: `waiting-${index}`,
+      marker: `CAPACITY_CONVERSATION_${index}_END`,
+    }));
     const folder = 'capacity_boundary';
     const providerAccountId = `control:${appId}`;
-    const queue = new GroupQueue({ maxRetries: 0, baseRetryMs: 25 });
-    const channel = createFakeChannelRuntime((jid) => jid === chatJid);
+    const concurrency = 3;
+    const queue = new GroupQueue({
+      maxMessageRuns: concurrency,
+      maxRetries: 0,
+      baseRetryMs: 25,
+    });
+    const channel = createFakeChannelRuntime((jid) =>
+      conversations.some(({ chatJid }) => chatJid === jid),
+    );
+    const barrier = () => {
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { promise, release };
+    };
+    let round = 0;
+    let runnerGate = barrier();
+    let attemptGate = barrier();
+    let activeRunners = 0;
+    let peakRunners = 0;
+    let activeProcessors = 0;
+    let peakProcessors = 0;
+    const prompts: Array<{ round: number; marker: string; prompt: string }> =
+      [];
     const app = createRuntimeApp({
       queue,
       opsRepository: runtime.ops,
       ensureCredentialBinding: async () => ({ created: false }),
-      runAgent: async (_group, _input, _onProcess, onOutput) => {
-        const output = {
-          status: 'success' as const,
-          result: 'Capacity returned.',
-        };
-        await onOutput?.(output);
-        return output;
+      runAgent: async (_group, input, _onProcess, onOutput) => {
+        const owners = conversations.filter(({ marker }) =>
+          input.prompt.includes(marker),
+        );
+        expect(owners).toHaveLength(1);
+        const marker = owners[0]!.marker;
+        expect(input.prompt).toContain(`${marker}_ROUND_${round}`);
+        prompts.push({ round, marker, prompt: input.prompt });
+        activeRunners += 1;
+        peakRunners = Math.max(peakRunners, activeRunners);
+        try {
+          await runnerGate.promise;
+          const output = {
+            status: 'success' as const,
+            result: `Capacity returned: ${marker}_ROUND_${round}`,
+          };
+          await onOutput?.(output);
+          return output;
+        } finally {
+          activeRunners -= 1;
+        }
       },
     });
     app.setChannelRuntime(channel.runtime);
-    await runtime.control.ensureAppSession({
-      appId,
-      conversationId: 'waiting',
-      chatJid,
-      workspaceFolder: folder,
-    });
-    await app.registerGroup(chatJid, {
-      name: 'Capacity boundary',
-      folder,
-      providerAccountId,
-      trigger: '',
-      added_at: toIso(nowMs()),
-      requiresTrigger: false,
-      conversationKind: 'dm',
-      agentConfig: { model: 'opus' },
-    });
-    const saved = await admitDue(
-      {
-        id: 'message:capacity-waiting',
-        chat_jid: chatJid,
-        provider: 'app',
+    for (const { chatJid, conversationId } of conversations) {
+      await runtime.control.ensureAppSession({
+        appId,
+        conversationId,
+        chatJid,
+        workspaceFolder: folder,
+      });
+      await app.registerGroup(chatJid, {
+        name: 'Capacity boundary',
+        folder,
         providerAccountId,
-        sender: 'person',
-        content: 'Please answer when a worker is free.',
-        timestamp: toIso(nowMs()),
-        is_from_me: false,
-        is_bot_message: false,
-      },
-      { appId, agentId: agentIdForFolder(folder) },
-    );
-    if (!saved || saved.outcome === 'overloaded')
-      throw new Error('Admission failed');
+        trigger: '',
+        added_at: toIso(nowMs()),
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { model: 'opus' },
+      });
+    }
     const workerInstanceId = 'capacity-boundary-worker';
     await runtime.repositories.workerCoordination.registerWorker({
       id: workerInstanceId,
@@ -1215,7 +1242,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
         coordination: runtime.repositories.workerCoordination,
         workerInstanceId,
       },
-      slotCapacity: () => 1,
+      slotCapacity: () => concurrency,
       hostSlotCapacity: () => capacity,
     });
     const processor = buildLiveAdmissionProcessor({
@@ -1227,38 +1254,170 @@ maybeDescribe('live admission work items (Postgres)', () => {
       executionAdapter: { id: 'anthropic:claude-agent-sdk' },
       messageFetchPageSize: 50,
       timezone: 'UTC',
+      getTriggerPattern,
       enqueueMessageCheck: (jid) => {
         queue.enqueueMessageCheck(jid);
       },
       warn: () => undefined,
     });
-    const retries: number[] = [];
+    const attempts: Array<{
+      jid: string;
+      retryCount: number;
+      result: unknown;
+      capacity: number;
+    }> = [];
     queue.setProcessMessagesFn(async (jid, context) => {
-      retries.push(context.retryCount);
-      return processor(jid, context);
+      activeProcessors += 1;
+      peakProcessors = Math.max(peakProcessors, activeProcessors);
+      try {
+        await attemptGate.promise;
+        const hostCapacity = capacity;
+        const result = await processor(jid, context);
+        attempts.push({
+          jid,
+          retryCount: context.retryCount,
+          result,
+          capacity: hostCapacity,
+        });
+        return result;
+      } finally {
+        activeProcessors -= 1;
+      }
     });
     try {
-      // No recovery sweep or second enqueue: the original queue signal must survive.
-      queue.enqueueMessageCheck(saved.item.queueJid);
-      await vi.waitFor(() => expect(retries.length).toBeGreaterThanOrEqual(3), {
-        timeout: 10_000,
-      });
-      expect(retries.every((count) => count === 0)).toBe(true);
-      expect(channel.outbound).toHaveLength(0);
-      capacity = 1;
-      await vi.waitFor(() => expect(channel.outbound).toHaveLength(1), {
-        timeout: 10_000,
-      });
-      expect(channel.outbound[0].text).toContain('Capacity returned.');
-      expect(
-        await liveTurns.takeInput({
-          scope: saved.item,
-          consumedBy: 'turn:capacity-next',
-          limit: 1,
-        }),
-      ).toEqual([]);
+      for (round = 1; round <= 2; round += 1) {
+        const startedAt = performance.now();
+        capacity = 0;
+        runnerGate = barrier();
+        attemptGate = barrier();
+        const attemptStart = attempts.length;
+        const saved = await Promise.all(
+          conversations.map(async ({ chatJid, marker }) => {
+            const message = {
+              id: `message:capacity-${marker}-${round}`,
+              chat_jid: chatJid,
+              provider: 'app',
+              providerAccountId,
+              sender: 'person',
+              content: `Please answer ${marker}_ROUND_${round}`,
+              timestamp: toIso(nowMs()),
+              is_from_me: false,
+              is_bot_message: false,
+            };
+            const options = { appId, agentId: agentIdForFolder(folder) };
+            const admission = await admitDue(message, options);
+            if (!admission || admission.outcome === 'overloaded')
+              throw new Error('Admission failed');
+            const replay = await runtime.ops.storeMessageWithLiveAdmission(
+              message,
+              options,
+            );
+            expect(replay?.outcome).toBe('replayed');
+            expect(replay?.item.id).toBe(admission.item.id);
+            return admission.item;
+          }),
+        );
+        // Hold real queue processors together before admission, proving overlap.
+        for (const item of saved) queue.enqueueMessageCheck(item.queueJid);
+        await vi.waitFor(() => expect(activeProcessors).toBe(concurrency));
+        attemptGate.release();
+        await vi.waitFor(
+          () => {
+            for (const item of saved) {
+              const waits = attempts
+                .slice(attemptStart)
+                .filter(
+                  ({ jid, result, capacity }) =>
+                    jid === item.queueJid &&
+                    result === 'queued_capacity' &&
+                    capacity === 0,
+                );
+              expect(waits.length).toBeGreaterThanOrEqual(3);
+            }
+          },
+          { timeout: 20_000 },
+        );
+        expect(attempts.every(({ retryCount }) => retryCount === 0)).toBe(true);
+        expect(prompts).toHaveLength((round - 1) * conversations.length);
+        expect(channel.outbound).toHaveLength(
+          (round - 1) * conversations.length,
+        );
+        // No recovery services are started and no new signal restores capacity.
+        capacity = concurrency;
+        await vi.waitFor(() => expect(activeRunners).toBe(concurrency), {
+          timeout: 20_000,
+        });
+        // Duplicate wakeups while real turns are held may request checks, never extra replies.
+        for (const item of saved) {
+          queue.enqueueMessageCheck(item.queueJid);
+          queue.enqueueMessageCheck(item.queueJid);
+        }
+        runnerGate.release();
+        await vi.waitFor(
+          () => {
+            expect(channel.outbound).toHaveLength(round * conversations.length);
+            expect(activeProcessors).toBe(0);
+            for (const item of saved)
+              expect(queue.isGroupActive(item.queueJid)).toBe(false);
+          },
+          { timeout: 20_000 },
+        );
+        for (const { chatJid, marker } of conversations) {
+          expect(
+            channel.outbound.filter(
+              (entry) =>
+                entry.chatJid === chatJid &&
+                entry.text.includes(`${marker}_ROUND_${round}`),
+            ),
+          ).toHaveLength(1);
+          expect(
+            prompts.filter(
+              (entry) => entry.round === round && entry.marker === marker,
+            ),
+          ).toHaveLength(1);
+        }
+        for (const item of saved) {
+          expect(
+            await liveTurns.takeInput({
+              scope: item,
+              consumedBy: 'turn:capacity-next',
+              limit: 1,
+            }),
+          ).toEqual([]);
+        }
+        const { rows } = await runtime.service.pool.query<{
+          id: string;
+          consumed_by: string | null;
+        }>(
+          `SELECT id, consumed_by FROM ${quotePostgresIdentifier(runtime.schemaName)}.live_admission_work_items WHERE id = ANY($1::text[])`,
+          [saved.map(({ id }) => id)],
+        );
+        expect(rows).toHaveLength(conversations.length);
+        expect(rows.every(({ consumed_by }) => consumed_by !== null)).toBe(
+          true,
+        );
+        expect(attempts.every(({ retryCount }) => retryCount === 0)).toBe(true);
+        expect(peakProcessors).toBe(concurrency);
+        expect(peakRunners).toBe(concurrency);
+        process.stdout.write(
+          `${JSON.stringify({
+            message: 'capacity load proof',
+            round,
+            conversations: saved.length,
+            zeroCapacityAttempts: attempts
+              .slice(attemptStart)
+              .filter((entry) => entry.capacity === 0).length,
+            replies: channel.outbound.length,
+            peakProcessors,
+            peakRunners,
+            elapsedMs: Math.round(performance.now() - startedAt),
+          })}\n`,
+        );
+      }
     } finally {
-      await queue.shutdown(500);
+      attemptGate.release();
+      runnerGate.release();
+      await queue.shutdown(10_000);
       await authority.shutdown();
     }
   });
