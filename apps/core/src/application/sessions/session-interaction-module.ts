@@ -439,6 +439,8 @@ export class SessionInteractionModule {
         message,
         liveAdmission: {
           appId: liveAdmissionAppId ?? session.appId,
+          agentId: session.agentId,
+          agentSessionId: session.sessionId,
           triggerDecision: {
             source: 'sdk_session',
             responseMode,
