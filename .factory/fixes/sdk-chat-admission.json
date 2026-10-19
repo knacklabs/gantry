@@ -10,7 +10,7 @@
   "branch": "fix/sdk-chat-admission",
   "done_when": "Accepted SDK session input retains its bound agent and session, and real Postgres proves only the matching agent, connection, conversation and thread can take it once",
   "kind": "fix",
-  "round": 2,
+  "round": 3,
   "status": "working",
   "steps": [
     {
