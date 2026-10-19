@@ -20,7 +20,6 @@ import {
 } from '../../domain/review-message-view.js';
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import type { DurableQuestionCallback } from '../../application/interactions/pending-interaction-durability.js';
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 import {
   agentTodoLines,
   countCompletedAgentTodos,
@@ -155,15 +154,10 @@ export function buildTeamsApprovalAdaptiveCard(
       sourceAgentFolder: request.sourceAgentFolder,
       interactionId: request.requestId,
     },
-    matchKind: request.permissionBatch
-      ? ('batch' as const)
-      : ('individual' as const),
+    matchKind: 'individual' as const,
   },
 ): TeamsAdaptiveCardPayload {
-  const promptText = formatPermissionPromptText(
-    request,
-    PERMISSION_APPROVAL_TIMEOUT_MS,
-  );
+  const promptText = formatPermissionPromptText(request);
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
@@ -180,9 +174,9 @@ export function buildTeamsApprovalAdaptiveCard(
     ],
     actions: permissionDecisionOptions(request).map((mode) => ({
       type: 'Action.Execute',
-      title: permissionButtonLabel(mode, request),
+      title: permissionButtonLabel(mode),
       verb:
-        mode === 'cancel' || mode === 'remember_deny_exact'
+        mode === 'cancel'
           ? 'gantry.permission.cancel'
           : 'gantry.permission.allow',
       data: {

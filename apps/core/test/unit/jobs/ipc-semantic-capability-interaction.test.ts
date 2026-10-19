@@ -23,19 +23,16 @@ describe('semantic MCP capability review interaction', () => {
       { toolName: 'request_permission', toolInput },
       'request-1',
     );
-    const parts = buildPermissionPromptParts(
-      {
-        requestId: 'request-1',
-        appId: 'app:test',
-        agentId: 'agent:test',
-        sourceAgentFolder: 'main_agent',
-        targetJid: 'sl:C123',
-        toolName: 'request_permission',
-        toolInput,
-        interaction,
-      } as never,
-      300_000,
-    );
+    const parts = buildPermissionPromptParts({
+      requestId: 'request-1',
+      appId: 'app:test',
+      agentId: 'agent:test',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'sl:C123',
+      toolName: 'request_permission',
+      toolInput,
+      interaction,
+    } as never);
 
     expect(parts.fullView).toMatchObject({
       label: 'View MCP scope',

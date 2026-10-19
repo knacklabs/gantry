@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 import type { PermissionCardMessageView } from '@core/domain/permission-card.js';
@@ -10,7 +14,6 @@ import {
 } from '@core/channels/discord/components.js';
 import { prepareDiscordPermissionCardSend } from '@core/channels/discord/prepared-permission-card.js';
 import { normalizePermissionAction } from '@core/channels/permission-interaction.js';
-import { createPermissionBatchRequest } from '@core/channels/permission-batch-coalescer.js';
 import { prepareSlackPermissionCardSend } from '@core/channels/slack/permission-approval-delivery.js';
 import {
   SLACK_PERMISSION_DECISION_ACTION_IDS,
@@ -27,6 +30,14 @@ import {
   telegramPermissionCallbackData,
 } from '@core/channels/telegram/channel-shared.js';
 import { prepareTelegramPermissionCardSend } from '@core/channels/telegram/prepared-permission-card.js';
+import { processTaskIpc } from '@core/jobs/ipc-handler.js';
+import {
+  requestPermissionApprovalViaIpc,
+  type PermissionApprovalRequestOptions,
+} from '@core/runner/permission-ipc-client.js';
+import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { buildLocalCliSemanticCapability } from '@core/shared/semantic-capabilities.js';
+import { parsePermissionIpcRequest } from '@core/runtime/ipc-parsing.js';
 
 const schedulerActions = [
   { kind: 'scheduler_run_now' as const, label: 'Retry now', jobId: 'job-1' },
@@ -69,6 +80,84 @@ function ineligibleRequest(
     decisionOptions: [...scalarDecisionOptions],
     ...overrides,
   };
+}
+
+/** A tool ask as the runner sends it for this turn, read back by the host. */
+async function askedThroughRunner(
+  turnIntentSummary: string,
+  options: Omit<PermissionApprovalRequestOptions, 'agentFolder' | 'signal'>,
+): Promise<PermissionApprovalRequest> {
+  const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-parity-'));
+  const auth = createIpcAuthEnvelope('main_agent', undefined, {
+    appId: 'default',
+    agentId: 'agent:main_agent',
+  });
+  const stop = new AbortController();
+  const asked = requestPermissionApprovalViaIpc(
+    {
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      chatJid: 'provider:conversation-1',
+      jobId: '',
+      jobName: '',
+      jobRunId: '',
+      jobRunLeaseToken: '',
+      jobRunLeaseFencingVersion: '',
+      ipcAuthToken: auth.authToken,
+      ipcResponseVerifyKey: auth.responseVerifyKey,
+      ipcResponseKeyId: auth.responseKeyId,
+      permissionRequestTimeoutMs: 0,
+      permissionLane: 'interactive',
+      turnIntentSummary,
+      resolveWorkspaceIpcDir: () => ipcDir,
+    },
+    { ...options, agentFolder: 'main_agent', signal: stop.signal },
+  );
+  const requestsDir = path.join(ipcDir, 'permission-requests');
+  const [file] = fs.readdirSync(requestsDir);
+  const raw = JSON.parse(
+    fs.readFileSync(path.join(requestsDir, file!), 'utf-8'),
+  ) as unknown;
+  stop.abort();
+  await asked;
+  fs.rmSync(ipcDir, { recursive: true, force: true });
+  return parsePermissionIpcRequest(raw, 'main_agent');
+}
+
+/** A skill install asked through the host's task path for this turn. */
+async function skillInstallAskedThroughHost(
+  turnIntentSummary: string,
+): Promise<PermissionApprovalRequest> {
+  const asked: PermissionApprovalRequest[] = [];
+  await processTaskIpc(
+    {
+      type: 'request_skill_install',
+      taskId: 'skill-install-parity',
+      appId: 'default',
+      chatJid: 'provider:conversation-1',
+      targetJid: 'provider:conversation-1',
+      turnIntentSummary,
+      payload: {
+        reason: 'Weather lookups',
+        installCommandArgv: ['npx', 'skills', 'add', 'acme/weather'],
+      },
+    },
+    'main_agent',
+    {
+      conversationRoutes: () => ({
+        'provider:conversation-1': { folder: 'main_agent' },
+      }),
+      sendMessage: async () => undefined,
+      opsRepository: {},
+      runApprovedCommand: async () => undefined,
+      requestPermissionApproval: async (request: PermissionApprovalRequest) => {
+        asked.push(request);
+        return { kind: 'delivery_failure', userMessage: 'not delivered' };
+      },
+    } as never,
+  );
+  await vi.waitFor(() => expect(asked).toHaveLength(1));
+  return asked[0]!;
 }
 
 async function renderPermissionCards(
@@ -242,7 +331,7 @@ describe('provider affordance parity', () => {
                   },
                   {
                     "custom_id": "gantry:perm:callback-ask:cancel",
-                    "label": "Cancel",
+                    "label": "Deny",
                     "style": 4,
                     "type": 2,
                   },
@@ -257,8 +346,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "slack": {
             "blocks": [
@@ -283,8 +371,7 @@ describe('provider affordance parity', () => {
                   {
                     "text": "Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
                     "type": "mrkdwn",
                   },
                 ],
@@ -328,7 +415,7 @@ describe('provider affordance parity', () => {
                     "action_id": "gantry_perm_decision_cancel",
                     "style": "danger",
                     "text": {
-                      "text": "Cancel",
+                      "text": "Deny",
                       "type": "plain_text",
                     },
                     "type": "button",
@@ -346,8 +433,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "teams": {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -402,7 +488,7 @@ describe('provider affordance parity', () => {
                   },
                   "decision": "cancel",
                 },
-                "title": "Cancel",
+                "title": "Deny",
                 "type": "Action.Execute",
                 "verb": "gantry.permission.cancel",
               },
@@ -427,8 +513,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1m",
+      The agent cannot approve this itself.",
                 "type": "TextBlock",
                 "wrap": true,
               },
@@ -448,9 +533,7 @@ describe('provider affordance parity', () => {
       <i>The agent cannot approve this itself.</i>
 
       <b>View full command</b>
-      <blockquote expandable>npm test</blockquote>
-
-      <i>Reply in 1440m</i>",
+      <blockquote expandable>npm test</blockquote>",
             {
               "link_preview_options": {
                 "is_disabled": true,
@@ -473,7 +556,7 @@ describe('provider affordance parity', () => {
                   [
                     {
                       "callback_data": "perm:cancel:callback-ask",
-                      "text": "Cancel",
+                      "text": "Deny",
                     },
                   ],
                 ],
@@ -506,7 +589,7 @@ describe('provider affordance parity', () => {
                   },
                   {
                     "custom_id": "gantry:perm:callback-auto_strict:cancel",
-                    "label": "Cancel",
+                    "label": "Deny",
                     "style": 4,
                     "type": 2,
                   },
@@ -521,8 +604,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "slack": {
             "blocks": [
@@ -547,8 +629,7 @@ describe('provider affordance parity', () => {
                   {
                     "text": "Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
                     "type": "mrkdwn",
                   },
                 ],
@@ -592,7 +673,7 @@ describe('provider affordance parity', () => {
                     "action_id": "gantry_perm_decision_cancel",
                     "style": "danger",
                     "text": {
-                      "text": "Cancel",
+                      "text": "Deny",
                       "type": "plain_text",
                     },
                     "type": "button",
@@ -610,8 +691,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "teams": {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -666,7 +746,7 @@ describe('provider affordance parity', () => {
                   },
                   "decision": "cancel",
                 },
-                "title": "Cancel",
+                "title": "Deny",
                 "type": "Action.Execute",
                 "verb": "gantry.permission.cancel",
               },
@@ -691,8 +771,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: agent chat
-      The agent cannot approve this itself.
-      Reply in 1m",
+      The agent cannot approve this itself.",
                 "type": "TextBlock",
                 "wrap": true,
               },
@@ -712,9 +791,7 @@ describe('provider affordance parity', () => {
       <i>The agent cannot approve this itself.</i>
 
       <b>View full command</b>
-      <blockquote expandable>npm test</blockquote>
-
-      <i>Reply in 1440m</i>",
+      <blockquote expandable>npm test</blockquote>",
             {
               "link_preview_options": {
                 "is_disabled": true,
@@ -737,7 +814,7 @@ describe('provider affordance parity', () => {
                   [
                     {
                       "callback_data": "perm:cancel:callback-auto_strict",
-                      "text": "Cancel",
+                      "text": "Deny",
                     },
                   ],
                 ],
@@ -770,7 +847,7 @@ describe('provider affordance parity', () => {
                   },
                   {
                     "custom_id": "gantry:perm:callback-group:cancel",
-                    "label": "Cancel",
+                    "label": "Deny",
                     "style": 4,
                     "type": 2,
                   },
@@ -786,8 +863,7 @@ describe('provider affordance parity', () => {
       Agent: Main Agent
       Context: agent chat
       Approval applies to the parent conversation.
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "slack": {
             "blocks": [
@@ -813,8 +889,7 @@ describe('provider affordance parity', () => {
                     "text": "Agent: Main Agent
       Context: agent chat
       Approval applies to the parent conversation.
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
                     "type": "mrkdwn",
                   },
                 ],
@@ -858,7 +933,7 @@ describe('provider affordance parity', () => {
                     "action_id": "gantry_perm_decision_cancel",
                     "style": "danger",
                     "text": {
-                      "text": "Cancel",
+                      "text": "Deny",
                       "type": "plain_text",
                     },
                     "type": "button",
@@ -877,8 +952,7 @@ describe('provider affordance parity', () => {
       Agent: Main Agent
       Context: agent chat
       Approval applies to the parent conversation.
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
           },
           "teams": {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -933,7 +1007,7 @@ describe('provider affordance parity', () => {
                   },
                   "decision": "cancel",
                 },
-                "title": "Cancel",
+                "title": "Deny",
                 "type": "Action.Execute",
                 "verb": "gantry.permission.cancel",
               },
@@ -959,8 +1033,7 @@ describe('provider affordance parity', () => {
       Agent: Main Agent
       Context: agent chat
       Approval applies to the parent conversation.
-      The agent cannot approve this itself.
-      Reply in 1m",
+      The agent cannot approve this itself.",
                 "type": "TextBlock",
                 "wrap": true,
               },
@@ -981,9 +1054,7 @@ describe('provider affordance parity', () => {
       <i>The agent cannot approve this itself.</i>
 
       <b>View full command</b>
-      <blockquote expandable>npm test</blockquote>
-
-      <i>Reply in 1440m</i>",
+      <blockquote expandable>npm test</blockquote>",
             {
               "link_preview_options": {
                 "is_disabled": true,
@@ -1006,7 +1077,7 @@ describe('provider affordance parity', () => {
                   [
                     {
                       "callback_data": "perm:cancel:callback-group",
-                      "text": "Cancel",
+                      "text": "Deny",
                     },
                   ],
                 ],
@@ -1039,7 +1110,7 @@ describe('provider affordance parity', () => {
                   },
                   {
                     "custom_id": "gantry:perm:callback-job_prompt:cancel",
-                    "label": "Cancel",
+                    "label": "Deny",
                     "style": 4,
                     "type": 2,
                   },
@@ -1054,8 +1125,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: scheduled job: Nightly checks
-      The agent cannot approve this itself.
-      This request stays open until you decide.",
+      The agent cannot approve this itself.",
           },
           "slack": {
             "blocks": [
@@ -1080,8 +1150,7 @@ describe('provider affordance parity', () => {
                   {
                     "text": "Agent: Main Agent
       Context: scheduled job: Nightly checks
-      The agent cannot approve this itself.
-      Reply in 1440m",
+      The agent cannot approve this itself.",
                     "type": "mrkdwn",
                   },
                 ],
@@ -1125,7 +1194,7 @@ describe('provider affordance parity', () => {
                     "action_id": "gantry_perm_decision_cancel",
                     "style": "danger",
                     "text": {
-                      "text": "Cancel",
+                      "text": "Deny",
                       "type": "plain_text",
                     },
                     "type": "button",
@@ -1143,8 +1212,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: scheduled job: Nightly checks
-      The agent cannot approve this itself.
-      This request stays open until you decide.",
+      The agent cannot approve this itself.",
           },
           "teams": {
             "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
@@ -1199,7 +1267,7 @@ describe('provider affordance parity', () => {
                   },
                   "decision": "cancel",
                 },
-                "title": "Cancel",
+                "title": "Deny",
                 "type": "Action.Execute",
                 "verb": "gantry.permission.cancel",
               },
@@ -1224,8 +1292,7 @@ describe('provider affordance parity', () => {
 
       Agent: Main Agent
       Context: scheduled job: Nightly checks
-      The agent cannot approve this itself.
-      This request stays open until you decide.",
+      The agent cannot approve this itself.",
                 "type": "TextBlock",
                 "wrap": true,
               },
@@ -1245,9 +1312,7 @@ describe('provider affordance parity', () => {
       <i>The agent cannot approve this itself.</i>
 
       <b>View full command</b>
-      <blockquote expandable>npm test</blockquote>
-
-      <i>This request stays open until you decide.</i>",
+      <blockquote expandable>npm test</blockquote>",
             {
               "link_preview_options": {
                 "is_disabled": true,
@@ -1270,7 +1335,7 @@ describe('provider affordance parity', () => {
                   [
                     {
                       "callback_data": "perm:cancel:callback-job_prompt",
-                      "text": "Cancel",
+                      "text": "Deny",
                     },
                   ],
                 ],
@@ -1453,85 +1518,132 @@ describe('provider affordance parity', () => {
     }
   });
 
-  it('renders eligible destructive protected batch and every ineligible-lane card identically on all four providers and round-trips the four remember codes through every provider codec', async () => {
-    const eligibleAffordances = {
-      eligible: true,
-      offered: [
-        'remember_allow_exact' as const,
-        'remember_allow_place' as const,
-        'remember_deny_exact' as const,
+  it('renders a shell command, a capability and an admin action with the same what, which and why and the same buttons on all four providers', async () => {
+    const secret = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+    const password = 'hunter2-secret-pass';
+    const turnIntentSummary = `<context timezone="UTC" />\n<messages>\n<message sender="Ravi" time="09:00">Count the files in https://ravi:${password}@git.example.com/proj for the size report</message>\n</messages>`;
+    const why = 'Why: Count the files in https://';
+    const shellAsk = (command: string) => ({
+      toolName: 'Bash',
+      displayName: 'Terminal',
+      toolInput: { command },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Bash', ruleContent: command }],
+        },
       ],
-      alternative: {
-        code: 'remember_allow_place' as const,
-        label: 'Allow only in this folder',
-        line: 'Allow only in this folder will remember: only in /workspace.',
-      },
+      decisionOptions: [...scalarDecisionOptions],
+    });
+    const cardAffordances = {
+      eligible: true,
+      offered: ['remember_allow_exact' as const],
       destructive: false,
       protected: false,
-      preTapLines: [
-        'Allow will remember: this exact action',
-        'Allow only in this folder will remember: only in /workspace.',
-        'No will remember: this exact action.',
-      ],
+      preTapLines: ['Allow for future remembers: this exact action.'],
       postTapLines: {},
     };
     const fixtures: Array<{
       request: PermissionApprovalRequest;
       labels: string[];
-      line?: string;
+      lines: string[];
+      inlineCommand?: string;
     }> = [
       {
-        request: ineligibleRequest('eligible', {
-          cardAffordances: eligibleAffordances,
-        }),
-        labels: ['Allow', 'Allow only in this folder', 'Just this once', 'No'],
-        line: 'Allow will remember: this exact action',
+        request: await askedThroughRunner(
+          turnIntentSummary,
+          shellAsk('cd proj && ls -la | wc -l'),
+        ),
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: ['Runs: cd, ls, wc', why],
       },
       {
-        request: ineligibleRequest('destructive', {
-          cardAffordances: {
-            ...eligibleAffordances,
-            offered: ['remember_allow_exact', 'remember_deny_exact'] as const,
-            alternative: undefined,
-            destructive: true,
-            preTapLines: [
-              'Allow will remember: this exact command only — nothing broader. No will remember: this exact command.',
-            ],
+        request: await askedThroughRunner(turnIntentSummary, {
+          ...shellAsk('npm test -- --runInBand'),
+          toolInput: {
+            command: 'npm test -- --runInBand',
+            description: 'Run the test suite',
           },
         }),
-        labels: ['Allow', 'Just this once', 'No'],
-        line: 'Allow will remember: this exact command only — nothing broader.',
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: ['What it does: Run the test suite', 'Runs: npm', why],
       },
       {
-        request: ineligibleRequest('protected', {
+        request: await askedThroughRunner(
+          turnIntentSummary,
+          shellAsk(
+            `GITHUB_TOKEN=${secret} git clone https://ravi:${password}@git.example.com/proj.git`,
+          ),
+        ),
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: ['Runs: git', why],
+      },
+      {
+        request: ineligibleRequest('auto-card', {
+          turnIntentSummary,
+          cardAffordances,
+        }),
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: ['Allow for future remembers: this exact action.', why],
+      },
+      {
+        request: ineligibleRequest('protected-card', {
+          turnIntentSummary,
           cardAffordances: {
-            ...eligibleAffordances,
-            offered: ['remember_deny_exact'] as const,
-            alternative: undefined,
+            ...cardAffordances,
+            offered: [],
             protected: true,
             preTapLines: ['/workspace/.env is protected, so I always ask.'],
           },
         }),
-        labels: ['Allow once', 'No'],
-        line: '/workspace/.env is protected, so I always ask.',
+        labels: ['Allow once', 'Deny'],
+        lines: ['/workspace/.env is protected, so I always ask.', why],
       },
       {
-        request: createPermissionBatchRequest(
-          [ineligibleRequest('batch-a'), ineligibleRequest('batch-b')],
-          ['1. Read file', '2. Run command'],
-        ),
-        labels: ['Allow all', 'Review each', 'Deny all'],
-        line: 'Allow all and Deny all are once-only. Tap Review each to decide one at a time — those cards can remember.',
+        request: await askedThroughRunner(turnIntentSummary, {
+          ...shellAsk('gog sheets get sheet-1'),
+          toolInput: {
+            command: 'gog sheets get sheet-1',
+            accountLabel: 'ops@example.com',
+          },
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'capability:google.sheets.values.get' }],
+            },
+          ],
+          semanticCapabilityDefinitions: {
+            'google.sheets.values.get': buildLocalCliSemanticCapability({
+              capabilityId: 'google.sheets.values.get',
+              displayName: 'Read Google Sheets values',
+              category: 'google',
+              risk: 'read',
+              can: 'Read sheet values.',
+              cannot: 'Change sheets.',
+              executablePath: '/opt/homebrew/bin/gog',
+              executableVersion: '0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplates: ['/opt/homebrew/bin/gog sheets get *'],
+            }),
+          },
+        }),
+        labels: ['Allow once', 'Allow for future', 'Deny'],
+        lines: [
+          'Allow Main Agent to use Read Google Sheets values?',
+          'Account: ops@example.com',
+          'Runs: gog',
+          why,
+        ],
+        // Slack and Discord carry the full command behind "View full command".
+        inlineCommand: 'gog sheets get sheet-1',
       },
-      ...[
-        ineligibleRequest('ask'),
-        ineligibleRequest('auto-strict'),
-        ineligibleRequest('job', { jobId: 'job-1' }),
-        ineligibleRequest('group', { decisionPolicy: 'same_channel' }),
-      ].map((request) => ({
-        request,
-        labels: ['Allow once', 'Allow for future', 'Cancel'],
-      })),
+      {
+        request: await skillInstallAskedThroughHost(turnIntentSummary),
+        labels: ['Allow once', 'Deny'],
+        lines: ['npx skills add acme/weather', why],
+      },
     ];
 
     for (const [index, fixture] of fixtures.entries()) {
@@ -1542,10 +1654,16 @@ describe('provider affordance parity', () => {
       expect(Object.values(renderedPermissionLabels(cards))).toEqual(
         Array.from({ length: 4 }, () => fixture.labels),
       );
-      if (fixture.line) {
-        for (const text of renderedPermissionTexts(cards)) {
-          expect(text).toContain(fixture.line);
-        }
+      for (const text of renderedPermissionTexts(cards)) {
+        for (const line of fixture.lines) expect(text).toContain(line);
+        expect(text).not.toContain(secret);
+        expect(text).not.toContain(password);
+        expect(text).not.toContain('Run the requested command.');
+      }
+      if (fixture.inlineCommand) {
+        const [telegram, , , teams] = renderedPermissionTexts(cards);
+        expect(telegram).toContain(fixture.inlineCommand);
+        expect(teams).toContain(fixture.inlineCommand);
       }
     }
 

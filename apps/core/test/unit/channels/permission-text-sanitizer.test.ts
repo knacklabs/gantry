@@ -19,7 +19,7 @@ describe('sanitizeReceiptDetail', () => {
 
   it('drops the detail entirely only when a secret cannot be span-masked', () => {
     const detail = sanitizeReceiptDetail(
-      'token= A9xQ7mN2pR5sT8uV1wX4yZ6aB3cD5eF7gH9iJ0kL2',
+      'use A9xQ7mN2pR5sT8uV1wX4yZ6aB3cD5eF7gH9iJ0kL2 for auth',
     );
     expect(detail).toBeNull();
   });

@@ -1,15 +1,4 @@
-import {
-  and,
-  count,
-  desc,
-  eq,
-  gt,
-  isNotNull,
-  isNull,
-  ne,
-  or,
-  sql,
-} from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, ne, or, sql } from 'drizzle-orm';
 
 import {
   AllowOnceNeverPersistedError,
@@ -312,36 +301,6 @@ export class PostgresPermissionDecisionMemoryRepository implements PermissionDec
       )
       .limit(1);
     return existing ? 'already_revoked' : 'not_found';
-  }
-
-  async countExactAllowsByTool(input: {
-    appId: string;
-    agentFolder: string;
-    actingPersonId: string;
-    railVersion: number;
-  }): Promise<Record<string, number>> {
-    const rows = await this.db
-      .select({ principal: table.principal, count: count() })
-      .from(table)
-      .where(
-        and(
-          eq(table.appId, input.appId),
-          eq(table.agentFolder, input.agentFolder),
-          eq(table.kind, HUMAN_DECISION_MEMORY_KIND),
-          eq(table.actingPersonId, input.actingPersonId),
-          eq(table.outcome, HumanDecisionOutcome.Allow),
-          eq(table.scope, HumanDecisionScope.Exact),
-          eq(table.railVersion, input.railVersion),
-          isNull(table.revokedAt),
-          isNotNull(table.principal),
-        ),
-      )
-      .groupBy(table.principal);
-    return Object.fromEntries(
-      rows.flatMap((row) =>
-        row.principal ? [[row.principal, row.count] as const] : [],
-      ),
-    );
   }
 
   async putClassifierVerdict(input: {

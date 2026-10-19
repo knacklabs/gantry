@@ -52,6 +52,7 @@ import {
   type CorePermissionGate,
 } from './core-tool-permission-coordinator.js';
 import { formatPermissionDeniedMessage } from '../../shared/permission-decision-message.js';
+import { permissionTurnIntent } from '../../application/interactions/pending-interaction-permission-envelope.js';
 import { withMountedGantryToolNames } from '../../shared/gantry-mcp-tool-surface.js';
 
 export type {
@@ -120,6 +121,8 @@ export interface CoreToolRunContext {
   memoryDefaultScope?: 'user' | 'group';
   memoryUserId?: string;
   memoryBlock?: string;
+  /** The run's prompt, for a permission prompt's "why". */
+  turnPrompt?: string;
   allowedToolRules?: readonly string[];
   autonomousAllowedToolRules?: readonly string[];
   toolRules?: readonly CoreToolRule[];
@@ -322,11 +325,7 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
     ).map(([name, schema]) =>
       define(name, taskDescription(name), schema, async (args) => {
         if (!deps.taskLifecycleBackend) {
-          return errorResult(
-            'Async task runtime is unavailable.',
-            'transient',
-            true,
-          );
+          return errorResult('Async task runtime is unavailable.');
         }
         return coreTaskLifecycleMcpResult(
           await deps.taskLifecycleBackend[name]({ ...args }),
@@ -529,6 +528,7 @@ async function gateCoreTool(
     toolName: gateName,
     displayName: gateName,
     description: 'Start or steer a delegated Gantry task.',
+    ...permissionTurnIntent(deps.context.turnPrompt),
     decisionReason: precheck?.reason ?? decision.reason,
     closestRule: decision.closestRule,
     toolInput: args as Record<string, unknown>,

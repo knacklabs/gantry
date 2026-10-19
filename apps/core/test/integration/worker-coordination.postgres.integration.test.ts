@@ -155,16 +155,6 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
           sourceAgentFolder,
           targetJid: 'tg:worker-coordination',
           toolName: 'Bash',
-          ...(matchKind === 'batch'
-            ? {
-                permissionBatch: {
-                  requestIds: [...input.requestIds],
-                  rows: input.requestIds.map(
-                    (_, index) => `${index + 1}. Bash`,
-                  ),
-                },
-              }
-            : {}),
         },
       },
       ...(input.externalPromptProvider

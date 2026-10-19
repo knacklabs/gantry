@@ -70,6 +70,9 @@ export const jobRunLeaseToken =
 export const jobRunLeaseFencingVersion =
   process.env.GANTRY_JOB_RUN_LEASE_FENCING_VERSION?.trim() || undefined;
 export const threadId = process.env.GANTRY_THREAD_ID?.trim() || undefined;
+/** The person's request this turn; the host shows it as a prompt's "why". */
+export const turnIntentSummary =
+  process.env.GANTRY_TURN_INTENT_SUMMARY?.trim().slice(0, 1_500) || undefined;
 export const memoryUserId =
   process.env.GANTRY_MEMORY_USER_ID?.trim() || undefined;
 export const memoryDefaultScope =

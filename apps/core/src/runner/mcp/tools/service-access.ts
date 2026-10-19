@@ -17,6 +17,7 @@ import {
   providerAccountId,
   TASKS_DIR,
   threadId,
+  turnIntentSummary,
   workspaceFolder,
 } from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
@@ -196,6 +197,7 @@ async function submitScheduledAccessReview(
       permissionLane,
       permissionMode:
         process.env.GANTRY_PERMISSION_MODE === 'auto' ? 'auto' : 'ask',
+      turnIntentSummary,
       resolveWorkspaceIpcDir: () => IPC_DIR,
     },
     {

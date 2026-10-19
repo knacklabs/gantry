@@ -464,16 +464,15 @@ describe('ipc-interaction-handler', () => {
     );
   });
 
-  it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow from a classifier ask before the current call is applied once-only with unchanged events, settles denylist asks once-only without learning, persists a remembered No with the current call denied, persists nothing for an ask, auto_strict, group, batch or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
+  it("persists the remember context before delegating to the durable flow on both the denylist and classifier-ask prompt exits with a lane and effect hash equal to the helper's and a person id and label from the same host source that no callback identity overrides and an undefined label when the host source has none, still recovers a context after a crash between the provider claim and the helper returning, persists an eligible remembered Allow from a classifier ask before the current call is applied once-only with unchanged events, settles denylist asks once-only without learning, saves nothing on Deny with the current call denied, persists nothing for an ask, auto_strict, group or scheduled-job prompt, a blank person, or a persisted context whose lane input re-derives outside interactive_auto, and treats a provider double-delivery as already decided with zero writes", async () => {
     const runRemembered = async (options: {
-      code: 'remember_allow_exact' | 'remember_deny_exact';
+      code: 'remember_allow_exact' | 'cancel';
       permissionMode?: 'ask' | 'auto' | 'auto_strict';
       personId?: string;
       personLabel?: string;
       denylist?: boolean;
       forgedPersonId?: string;
       mutateLane?: 'ask';
-      batch?: boolean;
       crashAfterClaim?: boolean;
       group?: boolean;
       scheduledJob?: boolean;
@@ -513,7 +512,7 @@ describe('ipc-interaction-handler', () => {
       const command = options.denylist ? '[redacted]' : 'git log';
       const targetJid = options.group ? 'tg:group' : 'tg:permission';
       const request = {
-        requestId: `permission-${options.code}-${options.permissionMode ?? 'auto'}-${options.personId ?? 'blank'}-${options.denylist ? 'denylist' : 'classifier'}-${options.batch ? 'batch' : 'single'}-${options.scheduledJob ? 'scheduled' : 'interactive'}`,
+        requestId: `permission-${options.code}-${options.permissionMode ?? 'auto'}-${options.personId ?? 'blank'}-${options.denylist ? 'denylist' : 'classifier'}-${options.scheduledJob ? 'scheduled' : 'interactive'}`,
         appId: 'default',
         agentId: 'agent-one',
         responseKeyId: envelope.responseKeyId,
@@ -533,21 +532,7 @@ describe('ipc-interaction-handler', () => {
               toolInputSanitized: true,
             }
           : {}),
-        ...(options.batch
-          ? {
-              permissionBatch: {
-                requestIds: ['placeholder', 'placeholder-2'],
-                rows: ['one', 'two'],
-              },
-            }
-          : {}),
       };
-      if (options.batch) {
-        request.permissionBatch!.requestIds = [
-          request.requestId,
-          `${request.requestId}-2`,
-        ];
-      }
       const expectedEffectHash = computePermissionEffectHash({
         request,
         workspaceRoot,
@@ -566,36 +551,6 @@ describe('ipc-interaction-handler', () => {
       const requestPermissionApproval = vi.fn(async (currentRequest) => {
         contextBeforeDelegation = durability.member()?.payload
           .rememberContext as Record<string, unknown> | undefined;
-        if (options.batch) {
-          const secondRequestId =
-            currentRequest.permissionBatch!.requestIds[1]!;
-          await (
-            durability.repository as {
-              createPendingInteraction(
-                input: Record<string, unknown>,
-              ): Promise<unknown>;
-            }
-          ).createPendingInteraction({
-            id: `${secondRequestId}-interaction`,
-            appId: 'default',
-            runId: currentRequest.runId ?? null,
-            sourceAgentFolder: 'main_agent',
-            requestId: secondRequestId,
-            runLeaseToken: currentRequest.runLeaseToken ?? null,
-            runLeaseFencingVersion:
-              currentRequest.runLeaseFencingVersion ?? null,
-            kind: 'permission',
-            payload: {},
-            callbackRoute: null,
-            idempotencyKey: pendingInteractionIdempotencyKey({
-              kind: 'permission',
-              sourceAgentFolder: 'main_agent',
-              requestId: secondRequestId,
-              appId: 'default',
-            }),
-            expiresAt: '2026-09-08T00:00:00.000Z',
-          });
-        }
         await bindPendingPermissionInteractionMessage({
           request: currentRequest,
           decisionOptions: [options.code],
@@ -613,7 +568,7 @@ describe('ipc-interaction-handler', () => {
           },
           mode: options.code,
           approverRef: 'callback-person',
-          matchKind: options.batch ? 'batch' : 'individual',
+          matchKind: 'individual',
         });
         if (claimed.status !== 'claimed') throw new Error('claim failed');
         claimedReference = claimed.claim;
@@ -775,12 +730,10 @@ describe('ipc-interaction-handler', () => {
     }
 
     const denied = await runRemembered({
-      code: 'remember_deny_exact',
+      code: 'cancel',
       personId: 'host-person',
     });
-    expect(denied.putHumanDecision).toHaveBeenCalledWith(
-      expect.objectContaining({ outcome: 'deny', scope: 'exact' }),
-    );
+    expect(denied.putHumanDecision).not.toHaveBeenCalled();
     expect(denied.createTransientGrant).not.toHaveBeenCalled();
 
     for (const permissionMode of ['ask', 'auto_strict'] as const) {
@@ -800,12 +753,6 @@ describe('ipc-interaction-handler', () => {
       group: true,
     });
     expect(group.putHumanDecision).not.toHaveBeenCalled();
-    const batch = await runRemembered({
-      code: 'remember_allow_exact',
-      personId: 'host-person',
-      batch: true,
-    });
-    expect(batch.putHumanDecision).not.toHaveBeenCalled();
     const scheduled = await runRemembered({
       code: 'remember_allow_exact',
       personId: 'host-person',

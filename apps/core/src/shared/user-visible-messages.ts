@@ -42,8 +42,8 @@ export function formatNotApprovedMessage(input: {
   name: string;
   reason?: string | null;
 }): string {
-  const reason = input.reason?.trim() || 'not approved';
-  return `Did not ${input.action} ${input.noun} ${input.name}: ${reason}.`;
+  const reason = input.reason?.trim().replace(/\.+$/, '') || 'not approved';
+  return `Did not ${input.action} ${input.noun} ${input.name}: ${reason}. To try again, ask me again and an approver can allow it.`;
 }
 
 export function humanizeTechnicalIdentifier(value: string | undefined): string {

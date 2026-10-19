@@ -66,9 +66,9 @@ export function prepareSlackPermissionCardSend(input: {
         action_id: slackPermissionDecisionActionId(mode),
         text: {
           type: 'plain_text',
-          text: permissionButtonLabel(mode, view.request),
+          text: permissionButtonLabel(mode),
         },
-        ...(mode === 'cancel' || mode === 'remember_deny_exact'
+        ...(mode === 'cancel'
           ? { style: 'danger' as const }
           : { style: 'primary' as const }),
         value: JSON.stringify({ callback, decision: mode }),
@@ -144,7 +144,7 @@ export async function requestSlackPermissionApproval(input: {
   ) => Promise<void>;
   onPromptDelivered?: (messageId: string) => void;
 }): Promise<PermissionApprovalResult> {
-  const parts = buildPermissionPromptParts(input.request, input.timeoutMs);
+  const parts = buildPermissionPromptParts(input.request);
   const decisionOptions = permissionDecisionOptions(input.request);
   const callback = {
     providerAlias: globalThis.crypto.randomUUID(),
@@ -153,9 +153,7 @@ export async function requestSlackPermissionApproval(input: {
       sourceAgentFolder: input.request.sourceAgentFolder,
       interactionId: input.request.requestId,
     },
-    matchKind: input.request.permissionBatch
-      ? ('batch' as const)
-      : ('individual' as const),
+    matchKind: 'individual' as const,
   };
   const contentBlocks = buildPermissionPromptContentBlocks(parts);
   const promptText = formatPermissionPromptPartsText(parts);
@@ -185,9 +183,9 @@ export async function requestSlackPermissionApproval(input: {
         action_id: slackPermissionDecisionActionId(mode),
         text: {
           type: 'plain_text',
-          text: permissionButtonLabel(mode, input.request),
+          text: permissionButtonLabel(mode),
         },
-        ...(mode === 'cancel' || mode === 'remember_deny_exact'
+        ...(mode === 'cancel'
           ? { style: 'danger' as const }
           : { style: 'primary' as const }),
         value: JSON.stringify({
@@ -275,8 +273,6 @@ export async function requestSlackPermissionApproval(input: {
         { jid: input.jid, requestId: input.request.requestId, err: blocksErr },
         'Slack visible permission prompt could not be delivered',
       );
-      const reason =
-        'Approval prompt could not be posted to this Slack thread. Check that the Slack app can post messages here and retry.';
       throw blocksErr;
     }
     const messageTs = response?.ts;

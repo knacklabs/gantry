@@ -34,8 +34,8 @@ import {
   beginDurablePermissionInteraction,
   durablePermissionRequestSnapshot,
 } from '../application/interactions/durable-interaction-handler.js';
+import { permissionTurnIntent } from '../application/interactions/pending-interaction-permission-envelope.js';
 import type {
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   PermissionApprovalResult,
 } from '../domain/types.js';
@@ -194,7 +194,7 @@ export async function processTaskIpc(
     ...deps,
     requestPermissionApproval: (request: PermissionApprovalRequest) =>
       requestDurableTaskPermissionApproval(
-        request,
+        { ...permissionTurnIntent(data.turnIntentSummary), ...request },
         deps.requestPermissionApproval,
       ),
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),

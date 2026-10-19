@@ -50,10 +50,6 @@ export async function bindPendingPermissionInteractionMessage(input: {
   if (!active) return false;
   const { request } = input;
   const appId = request.appId || DEFAULT_APP_ID;
-  const requestIds = request.permissionBatch?.requestIds?.length
-    ? request.permissionBatch.requestIds
-    : [request.requestId];
-  const matchKind = requestIds.length > 1 ? 'batch' : 'individual';
   const envelope: PermissionRecoveryEnvelope = {
     version: 1,
     renderedDecisionOptions: [...input.decisionOptions],
@@ -76,17 +72,19 @@ export async function bindPendingPermissionInteractionMessage(input: {
       setupFingerprint: request.setupFingerprint ?? null,
       sourceAgentFolder: request.sourceAgentFolder,
       interactionId: request.requestId,
-      matchKind,
-      members: requestIds.map((requestId, index) => ({
-        idempotencyKey: pendingInteractionIdempotencyKey({
-          kind: 'permission',
-          sourceAgentFolder: request.sourceAgentFolder,
-          requestId,
-          appId,
-        }),
-        requestId,
-        index,
-      })),
+      matchKind: 'individual',
+      members: [
+        {
+          idempotencyKey: pendingInteractionIdempotencyKey({
+            kind: 'permission',
+            sourceAgentFolder: request.sourceAgentFolder,
+            requestId: request.requestId,
+            appId,
+          }),
+          requestId: request.requestId,
+          index: 0,
+        },
+      ],
       envelope,
       fullView: fullView ? { ...fullView } : null,
       externalPromptProvider: input.provider ?? null,
