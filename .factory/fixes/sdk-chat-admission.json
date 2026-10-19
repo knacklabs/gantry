@@ -3,7 +3,7 @@
   "branch": "fix/sdk-chat-admission",
   "done_when": "A newly created SDK chat is found by a worker without a cached route, its input retains the bound agent identity, and focused Postgres regressions prove the message is taken exactly once without crossing connection or agent boundaries",
   "kind": "fix",
-  "round": 1,
+  "round": 2,
   "status": "working",
   "steps": [
     {
