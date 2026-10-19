@@ -1,7 +1,14 @@
 {
+  "amendments": [
+    {
+      "at": "2026-10-19T10:02:44+00:00",
+      "because": "The owner explicitly asked for the first PR to fix only one bug: omitted agent identity. Defer the independent cold-worker route lookup and all model routing changes.",
+      "done_when": "A newly created SDK chat is found by a worker without a cached route, its input retains the bound agent identity, and focused Postgres regressions prove the message is taken exactly once without crossing connection or agent boundaries"
+    }
+  ],
   "base": "5d682ca4a3c87c67f64daffa5c08d6a59fc51257",
   "branch": "fix/sdk-chat-admission",
-  "done_when": "A newly created SDK chat is found by a worker without a cached route, its input retains the bound agent identity, and focused Postgres regressions prove the message is taken exactly once without crossing connection or agent boundaries",
+  "done_when": "Accepted SDK session input retains its bound agent and session, and real Postgres proves only the matching agent, connection, conversation and thread can take it once",
   "kind": "fix",
   "round": 2,
   "status": "working",
