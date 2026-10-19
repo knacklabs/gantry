@@ -9,13 +9,28 @@
   "base": "5d682ca4a3c87c67f64daffa5c08d6a59fc51257",
   "branch": "fix/sdk-chat-admission",
   "done_when": "Accepted SDK session input retains its bound agent and session, and real Postgres proves only the matching agent, connection, conversation and thread can take it once",
+  "flagged": [],
   "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "964ff8b10e53300d0ba3c1f32066b131c592022e5cec67d51c4d9b34d1bc03a6",
+    "changed": "2e8c4df1cd55fd42dc7b01bc333b2cda14662856a1e2e1e918703c99ea9711ac",
+    "commit": "52aeb198c0efb98f18fffe47010c8594a05ef4f4",
+    "dismissals": [],
+    "findings": [],
+    "id": "f0f09d41-811e-4178-aae8-e3604cc200a0",
+    "status": "clean"
+  },
   "round": 3,
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-19T08:32:13+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-19T10:25:42+00:00",
+      "step": "review"
     }
   ],
   "why": "SDK chat messages can be accepted without ever reaching their agent",
