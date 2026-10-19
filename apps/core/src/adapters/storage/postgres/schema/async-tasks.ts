@@ -9,7 +9,7 @@ import {
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
-import { canonicalJobsPostgres, jobRunsPostgres } from './jobs.js';
+import { canonicalJobsPostgres } from './jobs.js';
 import { agentRunsPostgres } from './runs.js';
 
 export const agentAsyncTasksPostgres = pgTable(
@@ -27,9 +27,6 @@ export const agentAsyncTasksPostgres = pgTable(
     parentRunId: text('parent_run_id').references(() => agentRunsPostgres.id),
     parentJobId: text('parent_job_id').references(
       () => canonicalJobsPostgres.id,
-    ),
-    parentJobRunId: text('parent_job_run_id').references(
-      () => jobRunsPostgres.id,
     ),
     kind: text('kind').notNull(),
     status: text('status').notNull(),
@@ -78,10 +75,6 @@ export const agentAsyncTasksPostgres = pgTable(
     ),
     parentRunIdx: index('idx_agent_async_tasks_parent_run').on(
       table.parentRunId,
-      table.updatedAt,
-    ),
-    parentJobRunIdx: index('idx_agent_async_tasks_parent_job_run').on(
-      table.parentJobRunId,
       table.updatedAt,
     ),
   }),

@@ -1,0 +1,37 @@
+{
+  "branch": "task/JOBRUNS-1-T1",
+  "flagged": [
+    "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "58185eafe34acd276d9dfc9d03f952c915e57299c06777b1116fcb2d749b6d93",
+    "changed": "d513f209cb1e58512af177cf284af97088874972b2b315238816e9c407a02816",
+    "commit": "1a1ad40c200b1a62059e0571235097060f42f922",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "When a job has no persisted run ID, the production spawn tracker generates a telemetry-only `credential-run:` ID (`infrastructure/observability/spawn-turn-tracker.ts:57`). The inline lane forwards that ID as `correlationRunId` (`runtime/agent-inline.ts:466`), and this line then stores it in `parent_run_id`, violating the foreign key to `agent_runs` instead of saving the job link alone. IPC delegation has the same gap: `ipc-agent-task-lifecycle-handlers.ts:521` forwards the sandbox correlation ID to `ipc-delegated-agent-execution.ts:54`. Both paths must distinguish a persisted agent-run ID from a synthetic correlation ID and leave the run link null for the latter. The nullable-edge integration case exercises only commands, and the harness sets correlation IDs directly from input run IDs, so it misses this failure in both delegation lanes.",
+        "file": "apps/core/src/app/bootstrap/inline-agent-task-lifecycle.ts",
+        "line": 91,
+        "priority": "P1",
+        "title": "Not done: job-started subagents without a run save with the job link only"
+      }
+    ],
+    "id": "1731fd99-c3e3-4a8b-a195-aeb10f78d435",
+    "status": "blocked"
+  },
+  "round": 1,
+  "status": "fixing",
+  "steps": [
+    {
+      "at": "2026-10-09T15:59:48+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-09T17:34:46+00:00",
+      "step": "review"
+    }
+  ],
+  "worker": "codex"
+}
