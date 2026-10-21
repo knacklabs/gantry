@@ -3,12 +3,14 @@
   "branch": "fix/cold-worker-sdk-routing",
   "done_when": "A worker with an empty cache and a warm worker resolve the same saved SDK route; wrong agent, connection, conversation and thread remain rejected and a real Postgres regression fails before the fix and passes after it",
   "kind": "fix",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-21T06:05:01+00:00",
       "step": "start"
     }
   ],
-  "why": "A worker with an empty cache misses a saved SDK conversation route"
+  "why": "A worker with an empty cache misses a saved SDK conversation route",
+  "worker": "codex"
 }
