@@ -117,19 +117,31 @@ async function resolveConversationRoute(
 
   const persistedRoute = persistedEntry[1];
   const entriesToCache = [persistedEntry];
-  // A cached conversation fallback must not hide saved overrides on the
-  // worker's next thread. Reuse the selector within the validated scope.
-  for (const key of Object.keys(savedRoutes)) {
+  // Retain thread overrides in the validated scope without rescanning the
+  // entire saved-route projection for each thread.
+  const scopedAgentId = agentIdForFolder(persistedRoute.folder);
+  const threadCandidates = new Map<
+    string,
+    Array<[string, ConversationRoute]>
+  >();
+  for (const entry of Object.entries(savedRoutes)) {
+    const [key, route] = entry;
     const parsed = parseAgentThreadQueueKey(key);
-    if (parsed.chatJid !== chatJid || !parsed.threadId) continue;
-    const threadEntry = selectConversationRouteEntry(
-      savedRoutes,
-      chatJid,
-      agentIdForFolder(persistedRoute.folder),
-      parsed.threadId,
-      persistedRoute.providerAccountId,
-    );
-    if (threadEntry?.[0] === key) entriesToCache.push(threadEntry);
+    if (
+      parsed.chatJid !== chatJid ||
+      !parsed.threadId ||
+      agentIdForFolder(route.folder) !== scopedAgentId ||
+      route.providerAccountId !== persistedRoute.providerAccountId
+    ) {
+      continue;
+    }
+    const candidates = threadCandidates.get(parsed.threadId);
+    if (candidates) candidates.push(entry);
+    else threadCandidates.set(parsed.threadId, [entry]);
+  }
+  for (const candidates of threadCandidates.values()) {
+    const threadEntry = preferAgentQualifiedRoute(candidates);
+    if (threadEntry) entriesToCache.push(threadEntry);
   }
   for (const [routeKey, route] of entriesToCache) {
     const parsed = parseAgentThreadQueueKey(routeKey);
