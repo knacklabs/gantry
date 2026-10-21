@@ -6,24 +6,16 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "136e8cfae324774e301440a260047cf077aa8d944115fa22a1dc067bdceee71f",
-    "changed": "d0eaed7d6e169289d77580d4a1096102fab6c2492956b70b3ae96026fca14cbb",
-    "commit": "dfec338d4d1aad10b94c26d1a6720731f3cb4708",
+    "branch_diff": "a67281c4944ac05a4679d386b9fca1558f45c08034ea92a4b83a3a1e4d5e981d",
+    "changed": "d78c94c50311841a94383b1e17622835b7013a3067f6f59a4259ef01faa2ef80",
+    "commit": "67ce9667ba8d987aa701a0b7308efc0d86f658c5",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "With both a saved SDK conversation route and an exact route for `topic-a`, let an empty worker first handle `topic-b`. This caches only the conversation fallback. Its next admission for `topic-a` returns that cached fallback before consulting persisted routes, while a worker preloaded with all saved routes selects the exact route. The selected trigger therefore depends on the worker's admission history. Keep saved exact-thread routes discoverable when a cached conversation fallback matches, and cover this two-admission sequence in the regression test.",
-        "file": "apps/core/src/runtime/message-loop.ts",
-        "line": 120,
-        "priority": "P2",
-        "title": "Preserve exact-thread precedence after caching a conversation fallback"
-      }
-    ],
-    "id": "62ae3bb8-17c4-47e2-b572-48218b5e0500",
+    "findings": [],
+    "id": "1cc34a7a-1a6d-4a31-9f3d-c9283a3772ba",
     "status": "clean"
   },
   "round": 2,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-21T06:05:01+00:00",
@@ -31,6 +23,10 @@
     },
     {
       "at": "2026-10-21T06:26:49+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-21T06:48:07+00:00",
       "step": "review"
     }
   ],
