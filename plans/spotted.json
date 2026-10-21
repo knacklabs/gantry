@@ -122,6 +122,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+      "line": 1482,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tThe Control API run stays running at the completion assertion on both this branch and origin/main.",
       "kind": "bug",
       "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",
@@ -254,6 +265,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
+      "kind": "bug",
+      "path": "docs/specs/job-background-work-saves.md",
+      "line": 50,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "background-work-started-by-a-job-can-t-b",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/specs/subagents-end-to-end.md\tNot done: proof list\tsubagents-refuse-hang-lose-results-and-i",
       "kind": "bug",
       "path": "docs/specs/subagents-end-to-end.md",
@@ -305,6 +327,17 @@
       "text": "Handle brackets in document names when matching caption triggers",
       "from": "review",
       "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/runtime/message-loop.ts\tPreserve exact-thread precedence after caching a conversation fallback",
+      "kind": "edge",
+      "path": "apps/core/src/runtime/message-loop.ts",
+      "line": 120,
+      "text": "Preserve exact-thread precedence after caching a conversation fallback",
+      "from": "review",
+      "item": "cold-worker-sdk-routing",
       "status": "open",
       "closed_by": null
     },
@@ -371,28 +404,6 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
-      "kind": "bug",
-      "path": "docs/specs/job-background-work-saves.md",
-      "line": 50,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "background-work-started-by-a-job-can-t-b",
-      "status": "open",
-      "closed_by": null
-    },
-    {
-      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tanyone-can-get-a-reply-in-a-thread-an-al",
-      "kind": "bug",
-      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-      "line": 1482,
-      "text": "Not done: proof list",
-      "from": "blocking",
-      "item": "anyone-can-get-a-reply-in-a-thread-an-al",
       "status": "open",
       "closed_by": null
     }

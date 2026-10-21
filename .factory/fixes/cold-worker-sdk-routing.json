@@ -1,0 +1,46 @@
+{
+  "amendments": [
+    {
+      "at": "2026-10-21T07:21:19+00:00",
+      "because": "The owner asked to fix the remaining PR617 check failure: the image scanner reports two high-severity vulnerabilities in the locked follow-redirects package",
+      "done_when": "A worker with an empty cache and a warm worker resolve the same saved SDK route; wrong agent, connection, conversation and thread remain rejected and a real Postgres regression fails before the fix and passes after it"
+    }
+  ],
+  "base": "16769d9b5ead74ff73381e2cccc1293a4c28663b",
+  "branch": "fix/cold-worker-sdk-routing",
+  "done_when": "Cold and warm workers resolve the same saved SDK route without crossing agent, connection, conversation or thread boundaries; the real Postgres regression fails before and passes after repair; the runtime image security scan passes without weakening checks",
+  "flagged": [],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "68ea5e744656f606a54accecfc9d4dcdb05e7d00c11231134a5f53f441e1fb23",
+    "changed": "d343478066cd59abe37e9d53a818be3b8e59a05e58da3887a15aa181447b822e",
+    "commit": "541ba584a45c93d8d5bb913c3d64f15be7e81895",
+    "dismissals": [],
+    "findings": [],
+    "id": "96463c44-a631-4c47-b9dd-9d46ab497a2a",
+    "status": "clean"
+  },
+  "round": 3,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-21T06:05:01+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-21T06:26:49+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-21T06:48:07+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-21T07:32:05+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "A worker with an empty cache misses a saved SDK conversation route",
+  "worker": "codex"
+}

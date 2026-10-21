@@ -104,32 +104,57 @@ async function resolveConversationRoute(
   );
   if (selectedRoute) return selectedRoute[1];
 
-  for (const routeKey of persistedRouteLookupKeys(
+  const savedRoutes = await deps.opsRepository?.getAllConversationRoutes?.();
+  if (!savedRoutes) return undefined;
+  const persistedEntry = selectConversationRouteEntry(
+    savedRoutes,
     chatJid,
     selectedAgentId,
     threadId,
     providerAccountId,
-  )) {
-    const persistedRoute =
-      await deps.opsRepository?.getConversationRoute?.(routeKey);
+  );
+  if (!persistedEntry) return undefined;
+
+  const persistedRoute = persistedEntry[1];
+  const entriesToCache = [persistedEntry];
+  // Retain thread overrides in the validated scope without rescanning the
+  // entire saved-route projection for each thread.
+  const scopedAgentId = agentIdForFolder(persistedRoute.folder);
+  const threadCandidates = new Map<
+    string,
+    Array<[string, ConversationRoute]>
+  >();
+  for (const entry of Object.entries(savedRoutes)) {
+    const [key, route] = entry;
+    const parsed = parseAgentThreadQueueKey(key);
     if (
-      persistedRoute &&
-      (!selectedAgentId ||
-        agentIdForFolder(persistedRoute.folder) === selectedAgentId)
+      parsed.chatJid !== chatJid ||
+      !parsed.threadId ||
+      agentIdForFolder(route.folder) !== scopedAgentId ||
+      route.providerAccountId !== persistedRoute.providerAccountId
     ) {
-      const persistedKey = parseAgentThreadQueueKey(routeKey);
-      conversationRoutes[routeKey] = persistedRoute;
-      const canonicalRouteKey = makeAgentThreadQueueKey(
-        persistedKey.chatJid,
-        agentIdForFolder(persistedRoute.folder),
-        persistedKey.threadId,
-        persistedKey.providerAccountId,
-      );
-      conversationRoutes[canonicalRouteKey] = persistedRoute;
-      return persistedRoute;
+      continue;
     }
+    const candidates = threadCandidates.get(parsed.threadId);
+    if (candidates) candidates.push(entry);
+    else threadCandidates.set(parsed.threadId, [entry]);
   }
-  return undefined;
+  for (const candidates of threadCandidates.values()) {
+    const threadEntry = preferAgentQualifiedRoute(candidates);
+    if (threadEntry) entriesToCache.push(threadEntry);
+  }
+  for (const [routeKey, route] of entriesToCache) {
+    const parsed = parseAgentThreadQueueKey(routeKey);
+    conversationRoutes[routeKey] = route;
+    const canonicalRouteKey = makeAgentThreadQueueKey(
+      parsed.chatJid,
+      agentIdForFolder(route.folder),
+      parsed.threadId,
+      route.providerAccountId,
+    );
+    conversationRoutes[canonicalRouteKey] = route;
+  }
+  return persistedRoute;
 }
 
 function selectConversationRouteEntry(
@@ -182,42 +207,6 @@ function preferAgentQualifiedRoute(
     fallback ??= entry;
   }
   return fallback;
-}
-
-function persistedRouteLookupKeys(
-  chatJid: string,
-  selectedAgentId?: string | null,
-  threadId?: string | null,
-  providerAccountId?: string | null,
-): string[] {
-  const keys: string[] = [];
-  if (selectedAgentId && normalizeThreadQueueId(threadId)) {
-    keys.push(
-      makeAgentThreadQueueKey(
-        chatJid,
-        selectedAgentId,
-        threadId,
-        providerAccountId,
-      ),
-    );
-  }
-  if (normalizeThreadQueueId(threadId)) {
-    keys.push(
-      makeAgentThreadQueueKey(chatJid, null, threadId, providerAccountId),
-    );
-  }
-  if (selectedAgentId) {
-    keys.push(
-      makeAgentThreadQueueKey(
-        chatJid,
-        selectedAgentId,
-        null,
-        providerAccountId,
-      ),
-    );
-  }
-  keys.push(makeAgentThreadQueueKey(chatJid, null, null, providerAccountId));
-  return [...new Set(keys)];
 }
 
 async function enqueueMessageCheck(
