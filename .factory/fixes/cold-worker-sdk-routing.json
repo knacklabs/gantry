@@ -1,7 +1,14 @@
 {
+  "amendments": [
+    {
+      "at": "2026-10-21T07:21:19+00:00",
+      "because": "The owner asked to fix the remaining PR617 check failure: the image scanner reports two high-severity vulnerabilities in the locked follow-redirects package",
+      "done_when": "A worker with an empty cache and a warm worker resolve the same saved SDK route; wrong agent, connection, conversation and thread remain rejected and a real Postgres regression fails before the fix and passes after it"
+    }
+  ],
   "base": "16769d9b5ead74ff73381e2cccc1293a4c28663b",
   "branch": "fix/cold-worker-sdk-routing",
-  "done_when": "A worker with an empty cache and a warm worker resolve the same saved SDK route; wrong agent, connection, conversation and thread remain rejected and a real Postgres regression fails before the fix and passes after it",
+  "done_when": "Cold and warm workers resolve the same saved SDK route without crossing agent, connection, conversation or thread boundaries; the real Postgres regression fails before and passes after repair; the runtime image security scan passes without weakening checks",
   "flagged": [],
   "kind": "fix",
   "review": {
