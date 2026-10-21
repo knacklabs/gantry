@@ -104,32 +104,28 @@ async function resolveConversationRoute(
   );
   if (selectedRoute) return selectedRoute[1];
 
-  for (const routeKey of persistedRouteLookupKeys(
+  const savedRoutes = await deps.opsRepository?.getAllConversationRoutes?.();
+  if (!savedRoutes) return undefined;
+  const persistedEntry = selectConversationRouteEntry(
+    savedRoutes,
     chatJid,
     selectedAgentId,
     threadId,
     providerAccountId,
-  )) {
-    const persistedRoute =
-      await deps.opsRepository?.getConversationRoute?.(routeKey);
-    if (
-      persistedRoute &&
-      (!selectedAgentId ||
-        agentIdForFolder(persistedRoute.folder) === selectedAgentId)
-    ) {
-      const persistedKey = parseAgentThreadQueueKey(routeKey);
-      conversationRoutes[routeKey] = persistedRoute;
-      const canonicalRouteKey = makeAgentThreadQueueKey(
-        persistedKey.chatJid,
-        agentIdForFolder(persistedRoute.folder),
-        persistedKey.threadId,
-        persistedKey.providerAccountId,
-      );
-      conversationRoutes[canonicalRouteKey] = persistedRoute;
-      return persistedRoute;
-    }
-  }
-  return undefined;
+  );
+  if (!persistedEntry) return undefined;
+
+  const [routeKey, persistedRoute] = persistedEntry;
+  const persistedKey = parseAgentThreadQueueKey(routeKey);
+  conversationRoutes[routeKey] = persistedRoute;
+  const canonicalRouteKey = makeAgentThreadQueueKey(
+    persistedKey.chatJid,
+    agentIdForFolder(persistedRoute.folder),
+    persistedKey.threadId,
+    persistedRoute.providerAccountId,
+  );
+  conversationRoutes[canonicalRouteKey] = persistedRoute;
+  return persistedRoute;
 }
 
 function selectConversationRouteEntry(
@@ -182,42 +178,6 @@ function preferAgentQualifiedRoute(
     fallback ??= entry;
   }
   return fallback;
-}
-
-function persistedRouteLookupKeys(
-  chatJid: string,
-  selectedAgentId?: string | null,
-  threadId?: string | null,
-  providerAccountId?: string | null,
-): string[] {
-  const keys: string[] = [];
-  if (selectedAgentId && normalizeThreadQueueId(threadId)) {
-    keys.push(
-      makeAgentThreadQueueKey(
-        chatJid,
-        selectedAgentId,
-        threadId,
-        providerAccountId,
-      ),
-    );
-  }
-  if (normalizeThreadQueueId(threadId)) {
-    keys.push(
-      makeAgentThreadQueueKey(chatJid, null, threadId, providerAccountId),
-    );
-  }
-  if (selectedAgentId) {
-    keys.push(
-      makeAgentThreadQueueKey(
-        chatJid,
-        selectedAgentId,
-        null,
-        providerAccountId,
-      ),
-    );
-  }
-  keys.push(makeAgentThreadQueueKey(chatJid, null, null, providerAccountId));
-  return [...new Set(keys)];
 }
 
 async function enqueueMessageCheck(
