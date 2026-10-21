@@ -180,6 +180,7 @@ function context(input: {
   broker: AgentCredentialBroker;
   scopes?: Scope[];
   consume?: boolean;
+  rateLimiter?: ControlRouteContext['triggerRateLimiter'];
   maxTokens?: number;
   identity?: { appId: string; kid: string; token: string };
   admissionLimits?: {
@@ -211,7 +212,7 @@ function context(input: {
     maxConcurrentWaits: 50,
     maxConcurrentTriggerWaits: 50,
     state: { activeStreams: 0, activeWaits: 0, activeTriggerWaits: 0 },
-    triggerRateLimiter: {
+    triggerRateLimiter: input.rateLimiter ?? {
       consume: vi.fn(() => input.consume ?? true),
     },
     getRuntimeSettings: () => ({}) as never,
@@ -234,6 +235,33 @@ function context(input: {
 }
 
 describe('direct LLM control routes', () => {
+  it('does not leave the per-key rate gate below configured LLM concurrency', async () => {
+    const rateLimiter = { consume: vi.fn(() => true) };
+    const fetchMock = vi.fn(async () =>
+      new Response('{"id":"msg_rate_contract"}', { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await handleLlmRoutes(
+      request({ body: { model: 'sonnet' } }),
+      new TestResponse() as unknown as ServerResponse,
+      context({
+        broker: broker(),
+        rateLimiter,
+        admissionLimits: {
+          globalMaxInFlight: 150,
+          perAppKeyMaxInFlight: 150,
+        },
+      }),
+      '/llm/v1/messages',
+    );
+
+    expect(rateLimiter.consume).toHaveBeenCalledWith(
+      'llm:app-one:llm-key',
+      150,
+    );
+  });
+
   it('admits only the global and per-app/key limits before reading request bodies', async () => {
     const gatewayBroker = broker();
     let releaseUpstream!: () => void;
@@ -509,6 +537,39 @@ describe('direct LLM control routes', () => {
       }
     },
   );
+
+  it('forwards explicit cache boundaries and provider usage without alteration', async () => {
+    const usage = { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105,
+      prompt_tokens_details: { cached_tokens: 60, cache_write_tokens: 20 } };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'cache-test', usage }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const body = { model: 'gpt', max_completion_tokens: 32,
+      prompt_cache_options: { mode: 'explicit', ttl: '30m' },
+      messages: [{ role: 'system', content: [{ type: 'text', text: 'Reusable instructions', prompt_cache_breakpoint: { mode: 'explicit' } }] },
+        { role: 'user', content: 'Changing evidence' }] };
+    const res = new TestResponse();
+    await handleLlmRoutes(request({ body }), res as unknown as ServerResponse, context({ broker: broker(), maxTokens: 32 }), '/llm/v1/chat/completions');
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({ ...body, model: 'gpt-5.5' });
+    expect(JSON.parse(res.body()).usage).toEqual(usage);
+  });
+
+  it.each([
+    { prompt_cache_options: { mode: 'explicit', ttl: '12h' } },
+    { prompt_cache_options: { mode: 'warm' } },
+    { prompt_cache_options: { mode: ['explicit'] } },
+    { prompt_cache_options: { mode: 'explicit', prewarm: true } },
+    { messages: [{ role: 'user', content: [{ type: 'image_url', prompt_cache_breakpoint: { mode: 'explicit' } }] }] },
+    { messages: [{ role: 'system', content: [{ type: 'text', text: 'prefix', prompt_cache_breakpoint: { mode: 'implicit' } }] }] },
+  ])('rejects unsupported Chat cache declarations: %j', async (cacheFields) => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = new TestResponse();
+    await handleLlmRoutes(request({ body: { model: 'gpt', ...cacheFields } }), res as unknown as ServerResponse,
+      context({ broker: broker() }), '/llm/v1/chat/completions');
+    expect(res.statusCode).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('forwards OpenAI Chat Completions streaming responses without buffering', async () => {
     const gatewayBroker = broker();

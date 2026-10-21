@@ -1,0 +1,47 @@
+{
+  "bom-ref": "pkg:generic/google-chrome-for-testing@156.0.8078.47?download_url=https%3A%2F%2Fstorage.googleapis.com%2Fchrome-for-testing-public%2F156.0.8078.47%2Flinux64%2Fchrome-linux64.zip",
+  "type": "application",
+  "name": "Google Chrome for Testing",
+  "group": "Google",
+  "version": "156.0.8078.47",
+  "cpe": "cpe:2.3:a:google:chrome:156.0.8078.47:*:*:*:*:*:*:*",
+  "purl": "pkg:generic/google-chrome-for-testing@156.0.8078.47",
+  "hashes": [
+    {
+      "alg": "SHA-256",
+      "content": "230f0db8c5086182f46c59c867c0d461eb525d6552dfad226ea6b4d9ec249db2"
+    }
+  ],
+  "externalReferences": [
+    {
+      "type": "distribution",
+      "url": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux64/chrome-linux64.zip"
+    },
+    {
+      "type": "release-notes",
+      "url": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+    }
+  ],
+  "properties": [
+    {
+      "name": "cdx:chrome-for-testing:platform",
+      "value": "linux64"
+    },
+    {
+      "name": "cdx:chrome-for-testing:revision",
+      "value": "1706539"
+    },
+    {
+      "name": "cdx:chrome-for-testing:archive-sha256",
+      "value": "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50"
+    },
+    {
+      "name": "gantry:browser-entrypoint",
+      "value": "/usr/bin/chromium"
+    },
+    {
+      "name": "gantry:browser-binary-sha256",
+      "value": "230f0db8c5086182f46c59c867c0d461eb525d6552dfad226ea6b4d9ec249db2"
+    }
+  ]
+}

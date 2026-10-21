@@ -84,21 +84,21 @@ export async function handleLlmRoutes(
   }
   const auth = authorizeControlRequest(req, res, ctx.keys, ['llm:invoke']);
   if (!auth) return true;
+  const limits = (
+    ctx.getEffectiveRuntimeSettings() as unknown as {
+      runtime: { llmAdmission: LlmAdmissionLimits };
+    }
+  ).runtime.llmAdmission;
   if (
     !ctx.triggerRateLimiter.consume(
       `llm:${auth.appId}:${auth.kid}`,
-      LLM_RATE_LIMIT_PER_KEY,
+      Math.max(LLM_RATE_LIMIT_PER_KEY, limits.perAppKeyMaxInFlight),
     )
   ) {
     sendError(res, 429, 'RATE_LIMITED', 'Too many LLM requests');
     return true;
   }
 
-  const limits = (
-    ctx.getEffectiveRuntimeSettings() as unknown as {
-      runtime: { llmAdmission: LlmAdmissionLimits };
-    }
-  ).runtime.llmAdmission;
   const admissionKey = `${auth.appId}:${auth.kid}`;
   // Deliberately process-local per decision 0046. SPS-4 owns any future
   // cluster-wide admission authority.

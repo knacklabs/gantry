@@ -289,6 +289,10 @@ export const llmOpenApiSchemas: Record<string, JsonSchema> = {
         properties: {
           type: { type: 'string', enum: ['text'] },
           text: { type: 'string' },
+          prompt_cache_breakpoint: {
+            type: 'object', required: ['mode'], additionalProperties: false,
+            properties: { mode: { type: 'string', enum: ['explicit'] } },
+          },
         },
       },
       {
@@ -428,6 +432,13 @@ export const llmOpenApiSchemas: Record<string, JsonSchema> = {
         description: 'Registered Gantry model alias.',
       },
       messages: { type: 'array', items: ref('LlmChatInputMessage') },
+      prompt_cache_options: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          mode: { type: 'string', enum: ['implicit', 'explicit'] },
+          ttl: { type: 'string', enum: ['30m'] },
+        },
+      },
       max_tokens: { type: 'integer', minimum: 1 },
       max_completion_tokens: { type: 'integer', minimum: 1 },
       stream: { type: 'boolean' },

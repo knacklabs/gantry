@@ -18,6 +18,7 @@ export function resolveWorkspaceIpcDir(agentFolder: string): string {
   if (!base) {
     throw new Error('Missing required environment variable: GANTRY_IPC_DIR');
   }
+  if (path.basename(base) === agentFolder) return base;
   return path.join(base, agentFolder);
 }
 

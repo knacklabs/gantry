@@ -1,6 +1,7 @@
 import { createDeepAgent, StateBackend } from 'deepagents';
 import type { FileData, FilesystemPermission } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
+import { projectSandboxToolNetworkEnv } from '../../../../shared/tool-network-env.js';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { ProviderStrategy, ToolStrategy } from 'langchain';
@@ -223,7 +224,9 @@ export async function runDeepAgentTurn(input: {
             },
           }
         : {}),
-      toolNetworkEnv: input.agentInput.toolNetworkEnv,
+      toolNetworkEnv: projectSandboxToolNetworkEnv(
+        input.agentInput.toolNetworkEnv,
+      ),
       hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
       callableAgentManifest: input.agentInput.callableAgentManifest,
       // The gated shell tool (when projected) runs commands as a child of this

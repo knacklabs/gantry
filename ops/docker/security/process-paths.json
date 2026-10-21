@@ -1,0 +1,12 @@
+{
+  "maskedPaths": [
+    "/sys/devices/virtual/powercap",
+    "/sys/firmware",
+    "/proc/acpi",
+    "/proc/asound",
+    "/proc/latency_stats",
+    "/proc/sched_debug",
+    "/proc/timer_stats"
+  ],
+  "readonlyPaths": []
+}

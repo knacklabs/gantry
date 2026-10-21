@@ -1,6 +1,7 @@
 .git
 .claude
 .factory
+.local
 .env
 .env.*
 node_modules
@@ -8,6 +9,8 @@ dist
 coverage
 __MACOSX
 *.tgz
+!vendor/braces-3.0.3.tgz
+!vendor/node-forge-1.4.0.tgz
 *.tar
 *.tar.gz
 *.zip
