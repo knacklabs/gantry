@@ -115,16 +115,33 @@ async function resolveConversationRoute(
   );
   if (!persistedEntry) return undefined;
 
-  const [routeKey, persistedRoute] = persistedEntry;
-  const persistedKey = parseAgentThreadQueueKey(routeKey);
-  conversationRoutes[routeKey] = persistedRoute;
-  const canonicalRouteKey = makeAgentThreadQueueKey(
-    persistedKey.chatJid,
-    agentIdForFolder(persistedRoute.folder),
-    persistedKey.threadId,
-    persistedRoute.providerAccountId,
-  );
-  conversationRoutes[canonicalRouteKey] = persistedRoute;
+  const persistedRoute = persistedEntry[1];
+  const entriesToCache = [persistedEntry];
+  // A cached conversation fallback must not hide saved overrides on the
+  // worker's next thread. Reuse the selector within the validated scope.
+  for (const key of Object.keys(savedRoutes)) {
+    const parsed = parseAgentThreadQueueKey(key);
+    if (parsed.chatJid !== chatJid || !parsed.threadId) continue;
+    const threadEntry = selectConversationRouteEntry(
+      savedRoutes,
+      chatJid,
+      agentIdForFolder(persistedRoute.folder),
+      parsed.threadId,
+      persistedRoute.providerAccountId,
+    );
+    if (threadEntry?.[0] === key) entriesToCache.push(threadEntry);
+  }
+  for (const [routeKey, route] of entriesToCache) {
+    const parsed = parseAgentThreadQueueKey(routeKey);
+    conversationRoutes[routeKey] = route;
+    const canonicalRouteKey = makeAgentThreadQueueKey(
+      parsed.chatJid,
+      agentIdForFolder(route.folder),
+      parsed.threadId,
+      route.providerAccountId,
+    );
+    conversationRoutes[canonicalRouteKey] = route;
+  }
   return persistedRoute;
 }
 

@@ -240,6 +240,29 @@ maybeDescribe('SDK saved-route parity (Postgres)', () => {
     expect(exactWarm.wakes).toEqual([first.queueJid]);
     expect(parsedTriggers).toEqual(['@topic']);
 
+    // Loading a conversation fallback for topic-b must also retain topic-a's
+    // saved override, so the next admission has the fully warm precedence.
+    const sequential = worker();
+    const sequentialTriggers: Array<string | undefined> = [];
+    sequential.deps.handleActiveControlCommand = async () => false;
+    sequential.deps.getTriggerPattern = (trigger) => {
+      sequentialTriggers.push(trigger);
+      return getTriggerPattern(trigger);
+    };
+    for (const item of [second, first]) {
+      expect(await processLiveAdmissionWorkItem(sequential.deps, item)).toBe(
+        'completed',
+      );
+    }
+    expect(sequential.wakes).toEqual([second.queueJid, first.queueJid]);
+    expect(sequentialTriggers).toEqual([route.trigger, ...parsedTriggers]);
+    expect(sequentialTriggers[1]).toBe('@topic');
+    expect(sequential.cache).toEqual({
+      [session.conversationJid]: route,
+      [canonicalKey]: route,
+      [exactKey]: persistedExact,
+    });
+
     await runtime.ops.deleteConversationRoute(session.conversationJid);
     const threadRoutes = await runtime.ops.getAllConversationRoutes();
     for (const cache of [{}, { ...threadRoutes }]) {
