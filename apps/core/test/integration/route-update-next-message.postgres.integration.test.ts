@@ -118,8 +118,10 @@ maybeDescribe('Route update next-message settings (Postgres)', () => {
       expect(accepted.accepted).toBe(true);
       // Advance only the database-owned batching deadline, never admission or
       // consumption state, so real ingress and takeInput still own execution.
+      // Deliberately expire it to avoid the Postgres-microseconds/application-
+      // milliseconds edge when the claim falls in the same millisecond.
       await runtime.service.pool.query(
-        `UPDATE "${runtime.schemaName}".live_admission_work_items SET defer_until = clock_timestamp() WHERE conversation_id = $1 AND state = 'deferred' AND deferred_reason = 'quiet_window'`,
+        `UPDATE "${runtime.schemaName}".live_admission_work_items SET defer_until = clock_timestamp() - interval '1 second' WHERE conversation_id = $1 AND state = 'deferred' AND deferred_reason = 'quiet_window'`,
         [session.conversationJid],
       );
       const items =
