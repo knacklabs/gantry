@@ -1,12 +1,13 @@
 {
   "branch": "task/TEAMS-1-T1",
   "round": 1,
-  "status": "working",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-22T18:22:05+00:00",
       "step": "start"
     }
   ],
+  "tests": "`npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck'` exited with status 2 on this machine.\nci: -c: line 1: unexpected EOF while looking for matching `''",
   "worker": "codex"
 }
