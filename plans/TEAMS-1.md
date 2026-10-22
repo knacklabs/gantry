@@ -44,6 +44,7 @@ Gantry already has Teams setup, routing, rendering, and approval behavior, but t
 - `apps/core/src/channels/teams/**` and `apps/core/src/channels/register-builtins.ts` for the Gantry-owned route-store port, BotBuilder adapter, inbound registry, internal Teams seam, and removal of the runtime-placeholder flag.
 - `apps/core/src/adapters/storage/postgres/repositories/teams-conversation-route-store.postgres.ts`, `apps/core/src/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.ts`, and `apps/core/src/adapters/storage/postgres/runtime-store.ts` for merging and reading Teams routing metadata through the existing canonical conversation record while preserving transport-owned keys during ordinary conversation saves.
 - `apps/core/src/app/index.ts`, `apps/core/src/control/server/index.ts`, `apps/core/src/control/server/handler-context.ts`, `apps/core/src/control/server/routes/teams-activities.ts`, and `apps/core/src/control/server/openapi-routes-core.ts` for app-root composition, the authenticated Teams activity endpoint, and its OpenAPI description.
+- The existing shared inbound-event repository, runtime routing/persistence/unpack loop, provider-account connection wiring, and their focused tests for the minimum durable save-and-recovery path required by Teams. Other channel adapters are not converted in this pull request.
 - `apps/core/src/cli/teams.ts` and new `docs/operations/microsoft-teams.md` for the live endpoint and removal of scaffold-only wording.
 - `apps/core/test/**`, `package.json`, and `package-lock.json` for focused proof and the BotBuilder dependency.
 
@@ -73,7 +74,7 @@ Gantry already has Teams setup, routing, rendering, and approval behavior, but t
 - `TeamsChannel`, application services, domain code, settings, and public contracts continue to depend only on the existing Gantry-owned Teams types.
 - Port from `manipal-changes`, using its legacy `BotFrameworkAdapter` behavior rather than introducing `CloudAdapter`. Existing `client_id`, `client_secret`, and `tenant_id` secrets are the single-tenant Teams bot app registration; no second bot credential set is added.
 - The test harness supplies a local RSA signing-key/OpenID metadata service, OAuth token endpoint, and connector endpoint through BotBuilder's configurable authentication and connector seams. CI performs no Microsoft network calls.
-- MSG-1/T16 lands first. This story consumes its Teams save-before-reading seam and does not reintroduce direct message handling.
+- This consolidated pull request includes the minimum shared inbox worker/routing prerequisites and the Teams save-before-reading edge that were previously assigned to MSG-1/T16. It activates that path only for Teams and does not convert Slack, Telegram, or Discord.
 - This story ports behavior, not source wholesale: historical code is reused only where it matches current main's provider-account isolation, control-server profiles, action pipeline, and schema conventions.
 
 ### Cleanup and verification
@@ -90,7 +91,7 @@ Gantry already has Teams setup, routing, rendering, and approval behavior, but t
 
 | ID | Name | What it delivers | Covers | Scope | Tests | After | User-facing |
 |---|---|---|---|---|---|---|---|
-| T5 | Deliver the complete Teams transport | Delivers all four implementation parts together: durable conversation routes, authenticated inbound activities and Adaptive Card actions, stored-route outbound and proactive delivery, and the mounted endpoint, CLI/docs, and end-to-end proof. It selectively restores the valid reverted T1 implementation rather than rebuilding it. | 1, 2, 3 | The full bounded write scope above | All focused adapter, control-route, Postgres repository, and `teams-live-transport` end-to-end proof named above; the pull request must also pass the Trivy image workflow | MSG-1/T16 | Yes |
+| T5 | Deliver the complete Teams transport | Delivers all four implementation parts together: the minimum shared durable save-and-recovery path activated only for Teams, durable conversation routes, authenticated inbound activities and Adaptive Card actions, stored-route outbound and proactive delivery, and the mounted endpoint, CLI/docs, and end-to-end proof. It selectively restores the valid reverted T1 implementation rather than rebuilding it. | 1, 2, 3 | The full bounded write scope above | All focused shared-inbox, adapter, control-route, Postgres repository, and `teams-live-transport` end-to-end proof named above; the pull request must also pass the Trivy image workflow | - | Yes |
 
 New moving parts: `botbuilder` dependency (items 1-3). No new Postgres table or migration is required; item 2 reuses the existing canonical conversation record.
 
