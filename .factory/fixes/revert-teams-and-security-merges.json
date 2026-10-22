@@ -1,0 +1,14 @@
+{
+  "base": "e38bac8be88d1e509690d59ec2aefafc7818916b",
+  "branch": "fix/revert-teams-and-security-merges",
+  "done_when": "The changes introduced by pull requests 621 and 622 are reverted together, without reverting later unrelated main-branch work",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-22T22:09:43+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Revert the two pull requests merged without the owner's approval"
+}
