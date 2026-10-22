@@ -298,17 +298,6 @@
       "closed_by": null
     },
     {
-      "key": "bug\tpackage.json\tThe prepare command sets Git hooks to =1/_ on this Windows npm shell instead of .husky/_.",
-      "kind": "bug",
-      "path": "package.json",
-      "line": 80,
-      "text": "The prepare command sets Git hooks to =1/_ on this Windows npm shell instead of .husky/_.",
-      "from": "worker",
-      "item": "TEAMS-1/T1",
-      "status": "open",
-      "closed_by": null
-    },
-    {
       "key": "edge\tapps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts\tPreserve bot reply references across the remaining delivery paths",
       "kind": "edge",
       "path": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",
