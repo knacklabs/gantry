@@ -2,13 +2,28 @@
   "base": "e38bac8be88d1e509690d59ec2aefafc7818916b",
   "branch": "fix/revert-teams-and-security-merges",
   "done_when": "The changes introduced by pull requests 621 and 622 are reverted together, without reverting later unrelated main-branch work",
+  "flagged": [],
   "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "56cdd677258a49b504577e6b0b4cac317dc9787963aab39af3086451b7f98738",
+    "changed": "58b5d60f4a169366835bb2ab70047fc778fef105dd85509f2e767ea2a91aa901",
+    "commit": "1747fce3efd2c20fd8fbb3698ec8b2360c391c1f",
+    "dismissals": [],
+    "findings": [],
+    "id": "0f236f4f-ccb0-4f99-8684-f32af5e22d72",
+    "status": "clean"
+  },
   "round": 1,
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-22T22:09:43+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-22T22:38:50+00:00",
+      "step": "review"
     }
   ],
   "why": "Revert the two pull requests merged without the owner's approval",
