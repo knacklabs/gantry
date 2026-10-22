@@ -2,13 +2,28 @@
   "base": "3dc66a1f7aaf2a0c6d4453e4cfbb0e33122d7014",
   "branch": "fix/recovered-route-settings",
   "done_when": "After a successful route update, the next message uses the current permission mode and route settings without restart; other agents, accounts, conversations and thread overrides stay unchanged; a real Postgres regression fails before the repair and passes after it",
+  "flagged": [],
   "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "0e998d3dfb68f3c5f5b4d5c916fcfa236ac09d8177c984d463edf2526abb40eb",
+    "changed": "5288d43e1c7d054639a80a41ed83545047a68f912b2152de2ff5177196c4c5f7",
+    "commit": "5f062e7031bc00eae95affb1fa53aae66f2b40b1",
+    "dismissals": [],
+    "findings": [],
+    "id": "a1298d1a-da16-46f4-a26f-e2b12380b330",
+    "status": "clean"
+  },
   "round": 1,
-  "status": "working",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-22T06:44:45+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-22T07:12:05+00:00",
+      "step": "review"
     }
   ],
   "why": "Recovered workers can keep old route settings after an update",
