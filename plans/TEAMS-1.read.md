@@ -1,12 +1,12 @@
 ---
 reader: claude (opus)
-read_at: 2026-10-22T17:34:19+00:00
-read_hash: 7bf50a1892e55417c0341bf414594c9f595bfe3f
-round: 4
+read_at: 2026-10-22T18:07:19+00:00
+read_hash: 78569e1b867b5bdf553b465dd0d663ee6288a5f6
+round: 6
 passed: yes
-doc_seen: 7bf50a1892e55417c0341bf414594c9f595bfe3f
+doc_seen: 78569e1b867b5bdf553b465dd0d663ee6288a5f6
 spec_seen: e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-notes_seen: cc62909feef57575b6de21b69d01c0f7b7b6b142
+notes_seen: 59ea7d2096c7fecf7327dac7076b231a07477e3c
 ---
 # Cold read notes
 
@@ -165,5 +165,34 @@ Only a genuine trade-off goes to the human, as a question with options.
     Disposition: keep T4 and verification now pin the Postgres end-to-end file and `test:e2e:postgres` command.
 
 ## Round 4
+
+No findings.
+
+## Round 5
+
+21. Unproven: item 2: Gantry's existing conversation save replaces the whole external reference, so the next inbound message wipes the Teams routing fields.
+    - `ensureConversation` in `canonical-graph-repository.postgres.ts:368-375` overwrites `externalRefJson` with the canonical identity shape on every conflict. That path runs for every stored message and every chat-metadata update.
+    - Here is the failure: an activity merges `serviceUrl` and the other routing fields, then the same message is saved and the fields are gone. A proactive send or a send after restart then reports a missing route.
+    - T1's "refresh without losing existing external-reference fields" test checks only the other direction, so it passes while this is broken.
+    - Pin the rule in T1: the canonical upsert keeps keys it doesn't own. One way is a `jsonb` merge, `existing::jsonb || new::jsonb`; the column is `text`, so it needs the cast.
+    - Add one T1 test: merge the route, run the ordinary conversation upsert for the same conversation, and `get` still returns the route.
+
+    Disposition: keep T1 now requires canonical conversation upserts to preserve unowned external-reference keys and proves that an ordinary save cannot erase a captured Teams route.
+
+22. Unproven: item 2: nothing says what `upsertForProviderAccounts` does when an account has no conversation row yet.
+    - The route is stored before the message enters Gantry, and MSG-1 saves messages to its inbox first. A sibling account whose route copy is dropped or not yet processed may have no row at all.
+    - If the merge is a plain `UPDATE`, the first message of a new conversation, or any sibling alias, gets no route, and proactive sends fail. The current "sibling aliases" test passes as long as its fixture creates rows first.
+    - Pin the rule: when the row is missing, the store creates it through the existing `ensureConversation` path (same deterministic id, provider-account and agent rows), then merges. T1's test should start with no conversation row.
+
+    Disposition: keep the route store now creates a missing canonical conversation through `ensureConversation` before merging, and the repository test starts without pre-created rows, including sibling aliases.
+
+23. Trap: the repository's line budget: item 2. T1's scope doesn't name the file it changes, and the likely file is near its limit.
+    - "Existing canonical conversation Postgres repository" means `canonical-graph-repository.postgres.ts`. It is 655 lines, and `scripts/architecture-map.json` sets `defaultLineBudget: 700`.
+    - Adding the store methods there will likely fail `check_architecture.py`.
+    - Name the files: put the store in a new `repositories/teams-conversation-route-store.postgres.ts`, and change only the upsert's set clause in `canonical-graph-repository.postgres.ts`.
+
+    Disposition: keep the plan now names a new focused Teams route-store repository and limits the existing near-budget canonical repository change to its external-reference merge clause.
+
+## Round 6
 
 No findings.
