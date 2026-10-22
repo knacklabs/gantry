@@ -362,8 +362,7 @@ export class PostgresCanonicalGraphRepository {
         set: {
           ...(input.name ? { title } : {}),
           ...(hasKnownKind ? { kind: input.isGroup ? 'group' : 'direct' } : {}),
-          // Canonical saves own identity fields; transport metadata survives.
-          externalRefJson: sql`(COALESCE(${pgSchema.conversationsPostgres.externalRefJson}::jsonb, '{}'::jsonb) || ${externalRefJson}::jsonb)::text`,
+          externalRefJson,
           updatedAt: sql`GREATEST(${pgSchema.conversationsPostgres.updatedAt}, ${now})`,
         },
       });
