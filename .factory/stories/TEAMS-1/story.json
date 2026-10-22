@@ -1,6 +1,15 @@
 {
+  "approval": {
+    "at": "2026-10-22T18:21:42+00:00",
+    "by": "human-via-Codex",
+    "event": "request-user-input-f61cc595b96c2a97",
+    "hash": "f61cc595b96c2a975f36cc42732ee8d4634755e3ebd1b1fb5af262e61e737a2c",
+    "round": 6,
+    "runtime": "codex",
+    "session": "01a16479-15f5-7812-8804-6897a808b512"
+  },
   "doc": "plans/TEAMS-1.md",
-  "status": "read",
+  "status": "approved",
   "steps": [
     {
       "at": "2026-10-22T17:10:23+00:00",
@@ -29,8 +38,12 @@
     {
       "at": "2026-10-22T18:07:19+00:00",
       "step": "read"
+    },
+    {
+      "at": "2026-10-22T18:21:42+00:00",
+      "step": "approved"
     }
   ],
   "title": "Microsoft Teams live transport",
-  "touches": 0
+  "touches": 1
 }
