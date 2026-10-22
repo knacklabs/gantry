@@ -657,7 +657,6 @@ describe('TeamsChannel adapter', () => {
         tenantId: 'tenant-id',
       },
       onMessage: expect.any(Function),
-      inbound: false,
       inbound: true,
     });
 
@@ -2623,6 +2622,7 @@ describe('TeamsChannel adapter', () => {
         tenantId: 'tenant-id',
       },
       onMessage: expect.any(Function),
+      inbound: false,
     });
     await startInput?.onMessage({
       conversationId: '19:abc@thread.v2',

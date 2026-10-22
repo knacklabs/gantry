@@ -41,7 +41,7 @@ const activitySchema = z.object({
   recipient: z.object({ id: identifier }),
   from: z.object({ id: identifier, name: z.string().optional() }).optional(),
   channelData: z
-    .object({ tenant: z.object({ id: identifier }) })
+    .object({ tenant: z.object({ id: identifier }).optional() })
     .passthrough()
     .optional(),
   text: z.string().optional(),
@@ -167,7 +167,12 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
     response: ServerResponse,
   ): Promise<void> {
     const authorization = request.headers.authorization;
-    if (!authorization?.startsWith('Bearer ')) {
+    if (
+      !authorization ||
+      !/^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(
+        authorization,
+      )
+    ) {
       respond(response, 401, { error: 'Teams authentication failed.' });
       return;
     }
@@ -204,7 +209,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
     }
     const activity = parsed.data;
     const tenantId =
-      activity.channelData?.tenant.id ?? activity.conversation.tenantId;
+      activity.channelData?.tenant?.id ?? activity.conversation.tenantId;
     if (
       tenantId !== this.credentials.tenantId ||
       (activity.conversation.tenantId &&
@@ -347,7 +352,16 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
           externalMessageId = result?.id;
         },
       );
-    } catch {
+    } catch (error) {
+      logger.warn(
+        {
+          providerId: 'teams',
+          outcome:
+            error instanceof Error ? 'provider_error' : 'provider_failure',
+        },
+        'Teams delivery failed',
+      );
+      // eslint-disable-next-line preserve-caught-error -- SDK causes can carry credentials or activity values; expose static errors only.
       throw new Error(
         'Teams delivery failed. Check the bot credentials and Teams connection, then retry.',
       );

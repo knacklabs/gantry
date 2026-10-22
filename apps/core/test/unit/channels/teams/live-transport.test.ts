@@ -365,4 +365,30 @@ describe('authenticated Teams transport', () => {
     ).rejects.toThrow(/Send a message.*Teams/i);
     expect(sent).toEqual([]);
   });
+
+  it('refreshes routing from an authenticated non-message activity with conversation tenant metadata', async () => {
+    const received = vi.fn(async () => {});
+    await start('teams_one', received);
+    const base = await listen();
+    const response = await fetch(`${base}/teams_one`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${await token()}` },
+      body: JSON.stringify(
+        activity({
+          type: 'conversationUpdate',
+          conversation: {
+            id: '19:chat@thread.tacv2',
+            tenantId: credentials.tenantId,
+          },
+          channelData: { team: { id: 'team' } },
+        }),
+      ),
+    });
+    expect(response.status).toBe(200);
+    expect(routes.get('teams_one')).toMatchObject({
+      tenantId: credentials.tenantId,
+      conversationType: null,
+    });
+    expect(received).not.toHaveBeenCalled();
+  });
 });

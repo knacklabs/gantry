@@ -32,6 +32,7 @@ import {
   RUNTIME_SETTINGS_PATH,
 } from '@core/config/index.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
+import type { ExecutionProviderId } from '@core/domain/sessions/sessions.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
@@ -267,7 +268,7 @@ memory:
         trigger: '@Gantry',
         added_at: new Date().toISOString(),
         requiresTrigger: false,
-        conversationKind: 'group',
+        conversationKind: 'channel',
         agentConfig: { model: 'opus' },
       });
       const persistenceQueue = new AsyncTaskQueue(1, 16);
@@ -277,7 +278,7 @@ memory:
           appId,
           getTriggerPattern,
           logger: quietLogger,
-        } as ChannelWiringDeps,
+        } as unknown as ChannelWiringDeps,
         ops: () => runtime.ops,
         persistenceQueue,
         runtimeSettings: () => ({}) as never,
@@ -362,7 +363,9 @@ memory:
         liveTurnAuthority: authority,
         app,
         opsRepository: runtime.ops,
-        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk' as ExecutionProviderId,
+        },
         messageFetchPageSize: 50,
         timezone: 'UTC',
         getTriggerPattern,
