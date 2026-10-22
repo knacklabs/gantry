@@ -1,10 +1,12 @@
 {
   "branch": "task/TEAMS-1-T5",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
       "step": "start"
     }
-  ]
+  ],
+  "worker": "codex"
 }
