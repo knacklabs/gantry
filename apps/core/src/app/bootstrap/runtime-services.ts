@@ -1131,6 +1131,7 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
   };
   activeLiveExecutionServices = startLiveExecutionServices({
+    recoverInboundMessages: channelWiring.recoverInboundMessages,
     appId: channelWiring.getRuntimeAppId(),
     processRole,
     app,

@@ -89,11 +89,15 @@ function makeDeps(
 }
 
 describe('startLiveAdmissionWorkLoop', () => {
-  it('settles a claimed work item after queue-scoped replay succeeds', async () => {
+  it('settles durable admissions even when inbound recovery is unavailable', async () => {
     const settleLiveAdmissionWorkItem = vi.fn(async () => true);
     const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
     const claimLiveAdmissionWorkItems = vi.fn(async () => [baseItem]);
+    const beforePoll = vi.fn(async () => {
+      throw new Error('Inbound recovery unavailable');
+    });
     const loop = startLiveAdmissionWorkLoop({
+      beforePoll,
       liveAdmissions: {
         claimLiveAdmissionWorkItems,
         renewLiveAdmissionWorkItemClaim,
@@ -121,6 +125,7 @@ describe('startLiveAdmissionWorkLoop', () => {
     expect(claimLiveAdmissionWorkItems).toHaveBeenCalledWith(
       expect.objectContaining({ appId: 'default' }),
     );
+    expect(beforePoll).toHaveBeenCalled();
     expect(renewLiveAdmissionWorkItemClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'admission-1',

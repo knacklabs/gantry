@@ -20,7 +20,6 @@ import type {
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { resolveTeamsInboundIdentity } from './conversation-context.js';
 import {
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
@@ -172,6 +171,7 @@ export class TeamsChannel implements ChannelAdapter {
       options.interactionCallbacks ?? inboundEnabled;
     await this.sdkClient.start({
       credentials: this.credentials,
+      inbound: inboundEnabled,
       onMessage: async (message) => {
         if (inboundEnabled) {
           await this.ingestMessage(message);
@@ -405,19 +405,11 @@ export class TeamsChannel implements ChannelAdapter {
     if (!content && attachments.length === 0) return;
 
     const isGroup = message.conversationType !== 'personal';
-    const messageIdentity = await resolveTeamsInboundIdentity({
-      opts: this.opts,
-      jid,
-      timestamp,
-      conversationName: message.conversationName,
-      threadId: message.threadId,
-      isGroup,
-    });
-
     const normalized: NewMessage = {
       id: message.id || `teams:${message.conversationId}:${timestamp}`,
       chat_jid: jid,
-      ...messageIdentity,
+      name: message.conversationName,
+      isGroup,
       provider: 'teams',
       sender,
       sender_name: senderName,

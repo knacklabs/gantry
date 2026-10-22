@@ -86,6 +86,11 @@ export type ControlModelProviderPreflightResult = {
 };
 
 export type ControlRouteContext = {
+  processTeamsActivity?: (input: {
+    providerAccountId: string;
+    request: IncomingMessage;
+    response: ServerResponse;
+  }) => Promise<void>;
   app: RuntimeApp;
   sessionInteraction: SessionInteractionModule;
   /** The route-trigger pattern turn start parses session commands with. */

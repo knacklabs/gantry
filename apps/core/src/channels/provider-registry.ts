@@ -38,6 +38,8 @@ export interface Provider {
   id: string;
   label: string;
   internal?: boolean;
+  /** Save to the shared durable inbox before routing; other adapters keep their ingress. */
+  durableInbound?: boolean;
   extractsGroupInstaller?: boolean;
   controlCapabilityFlags?: readonly string[];
   jidPrefix: string;

@@ -544,7 +544,7 @@ describe('Teams Adaptive Card payloads', () => {
   });
 });
 
-describe('TeamsChannel adapter scaffold', () => {
+describe('TeamsChannel adapter', () => {
   it('truthfully declares Teams reactions unsupported', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -657,6 +657,8 @@ describe('TeamsChannel adapter scaffold', () => {
         tenantId: 'tenant-id',
       },
       onMessage: expect.any(Function),
+      inbound: false,
+      inbound: true,
     });
 
     await startInput?.onMessage({
@@ -673,14 +675,9 @@ describe('TeamsChannel adapter scaffold', () => {
       conversationType: 'channel',
     });
 
-    expect(opts.onChatMetadata).toHaveBeenCalledWith(
-      'teams:19:abc@thread.v2',
-      '2026-04-30T00:00:00.000Z',
-      'Engineering',
-      'teams',
-      true,
-      { providerAccountId: 'teams_default' },
-    );
+    // Conversation identity travels in the durable message. A separate metadata
+    // write before saving could reject an inbound message before it is safe.
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
     expect(opts.onMessage).toHaveBeenCalledWith(
       'teams:19:abc@thread.v2',
       expect.objectContaining({
@@ -690,6 +687,8 @@ describe('TeamsChannel adapter scaffold', () => {
         sender: 'user-1',
         sender_name: 'Ravi',
         content: 'hello from Teams',
+        name: 'Engineering',
+        isGroup: true,
         thread_id: 'root-message',
       }),
     );

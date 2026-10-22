@@ -1,5 +1,33 @@
 [
   {
+    "file": "apps/core/src/app/index.ts",
+    "rule": "provider_specific_path",
+    "reason": "The approved Teams transport injects its adapter-owned activity processor into the Control context at the app composition root. Only this import names the provider; no SDK shapes or channel behavior live here.",
+    "removeByPhase": "provider-activity-composition-extraction",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/control/server/index.ts",
+    "rule": "provider_specific_path",
+    "reason": "Mount the approved Teams activity HTTP route in full and ops profiles. Authentication and normalized messages stay in the channel adapter; this exception covers only the route import.",
+    "removeByPhase": "provider-activity-composition-extraction",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/control/server/routes/teams-activities.ts",
+    "rule": "provider_specific_path",
+    "reason": "Adapter-owned public HTTP path and static unavailable/method copy required by the approved Teams activity endpoint; the route only forwards raw Node streams through the injected processor.",
+    "removeByPhase": "provider-activity-composition-extraction",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/control/server/openapi.ts",
+    "rule": "provider_specific_path",
+    "reason": "Document the approved Teams protocol endpoint and Bot Framework authentication scheme in the adapter-owned OpenAPI document. No SDK types, routing or business logic live in the document.",
+    "removeByPhase": "provider-activity-composition-extraction",
+    "maxViolations": 6
+  },
+  {
     "file": "apps/core/src/cli/auth.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Local UI authorization is a CLI composition seam: it resolves the runtime settings and initializes durable storage before issuing the one-time browser code. Capped to the auth command.",
@@ -142,9 +170,9 @@
   {
     "file": "apps/core/src/app/index.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Runtime composition wires infrastructure adapters, including the bounded MCP DNS lookup adapter, into application/runtime ports.",
+    "reason": "Runtime composition wires infrastructure adapters, including bounded MCP DNS lookup and the approved Teams inbound activity processor, into application/runtime and Control ports.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 6
+    "maxViolations": 7
   },
   {
     "file": "apps/core/src/channels/channel-provider.ts",

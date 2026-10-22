@@ -252,7 +252,8 @@ export async function runTeamsConnectCommand(
     [
       'Create or reuse a Microsoft Entra app for Teams Graph discovery.',
       'Grant Microsoft Graph application permissions for reading Teams and channels, then complete tenant admin consent.',
-      'This setup registers a Teams channel for Gantry. Live Teams message transport still requires a TeamsSdkClient adapter.',
+      'Create an Azure Bot using this app, enable its Microsoft Teams channel, and install the bot in Teams.',
+      'Set its public HTTPS messaging endpoint to /v1/providers/teams/{providerAccountId}/activities on the Gantry live worker or all-in-one process.',
       'Docs: https://learn.microsoft.com/en-us/graph/teams-concept-overview',
     ].join('\n'),
     'Teams app setup',
@@ -466,6 +467,10 @@ export async function runTeamsConnectCommand(
     settings,
     previousSettings,
   });
+
+  p.log.info(
+    `Azure Bot messaging endpoint: https://<your-public-host>/v1/providers/teams/${encodeURIComponent(providerAccountId)}/activities. Send the bot a message in Teams to save its reply route.`,
+  );
 
   if (channelChoice.type === 'selected') {
     p.outro('Teams connected. Secret stored encrypted in Gantry.');
