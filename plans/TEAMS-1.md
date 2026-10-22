@@ -90,7 +90,7 @@ Gantry already has Teams setup, routing, rendering, and approval behavior, but t
 
 | ID | Name | What it delivers | Covers | Scope | Tests | After | User-facing |
 |---|---|---|---|---|---|---|---|
-| T1 | Deliver the complete Teams transport | Delivers all four implementation parts together: durable conversation routes, authenticated inbound activities and Adaptive Card actions, stored-route outbound and proactive delivery, and the mounted endpoint, CLI/docs, and end-to-end proof. | 1, 2, 3 | The full bounded write scope above | All focused adapter, control-route, Postgres repository, and `teams-live-transport` end-to-end proof named above; the pull request must also pass the Trivy image workflow | MSG-1/T16 | Yes |
+| T5 | Deliver the complete Teams transport | Delivers all four implementation parts together: durable conversation routes, authenticated inbound activities and Adaptive Card actions, stored-route outbound and proactive delivery, and the mounted endpoint, CLI/docs, and end-to-end proof. It selectively restores the valid reverted T1 implementation rather than rebuilding it. | 1, 2, 3 | The full bounded write scope above | All focused adapter, control-route, Postgres repository, and `teams-live-transport` end-to-end proof named above; the pull request must also pass the Trivy image workflow | MSG-1/T16 | Yes |
 
 New moving parts: `botbuilder` dependency (items 1-3). No new Postgres table or migration is required; item 2 reuses the existing canonical conversation record.
 
