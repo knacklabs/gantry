@@ -1,0 +1,31 @@
+{
+  "branch": "task/TEAMS-1-T1",
+  "flagged": [],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "bb0ae577c0587d1cee207eea4f4815abc998ca908353145a20bed625b8bd9bd2",
+    "changed": "3c9fd313862cd0cf974dae7c8f7fdc3bee52b0f59f5824263fa9bea1988c5e5f",
+    "commit": "716254166007fa282e5589c2e91cc1a97b09d49f",
+    "dismissals": [],
+    "findings": [],
+    "id": "fb50f729-266d-40a0-a006-59fc0814f3ab",
+    "status": "clean"
+  },
+  "round": 4,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-22T18:22:05+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-22T20:05:27+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-22T20:56:16+00:00",
+      "step": "review"
+    }
+  ],
+  "worker": "codex"
+}
