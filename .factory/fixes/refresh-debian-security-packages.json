@@ -1,0 +1,14 @@
+{
+  "base": "3dc66a1f7aaf2a0c6d4453e4cfbb0e33122d7014",
+  "branch": "fix/refresh-debian-security-packages",
+  "done_when": "The runtime image contains the fixed libexpat1 package and the Trivy HIGH/CRITICAL vulnerability gate passes.",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-22T20:14:19+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Refresh the runtime image's cached Debian security packages"
+}
