@@ -1,18 +1,20 @@
 import { and, eq, sql } from 'drizzle-orm';
 
+import { getRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
+
 import type {
   TeamsConversationRoute,
   TeamsConversationRouteStore,
-} from '../../../../channels/teams/conversation-route-store.js';
-import { teamsConversationIdFromJid } from '../../../../channels/teams/types.js';
-import { conversationsPostgres as conversations } from '../schema/schema.js';
+} from './conversation-route-store.js';
+import { teamsConversationIdFromJid } from './types.js';
+import { conversationsPostgres as conversations } from '../../adapters/storage/postgres/schema/schema.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
   conversationIdForJid,
   parseJson,
   PostgresCanonicalGraphRepository,
-} from './canonical-graph-repository.postgres.js';
+} from '../../adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 
 function canonicalJid(jid: string): string {
   const conversationId =
@@ -117,4 +119,10 @@ export class PostgresTeamsConversationRouteStore implements TeamsConversationRou
       conversationType: ref.conversationType,
     };
   }
+}
+
+export function getRuntimeTeamsConversationRouteStore(): TeamsConversationRouteStore {
+  return new PostgresTeamsConversationRouteStore(
+    getRuntimeStorage().service.db,
+  );
 }

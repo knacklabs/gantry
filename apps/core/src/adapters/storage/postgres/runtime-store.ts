@@ -38,8 +38,6 @@ import {
 } from '../../../application/identity/person-identity-service.js';
 import { PostgresPersonIdentityRepository } from './repositories/person-identity-repository.postgres.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
-import type { TeamsConversationRouteStore } from '../../../channels/teams/conversation-route-store.js';
-import { PostgresTeamsConversationRouteStore } from './repositories/teams-conversation-route-store.postgres.js';
 
 let runtime: StorageRuntime | null = null;
 let runtimeScopeKey: string | undefined;
@@ -322,12 +320,6 @@ export function getRuntimeRepositories(): RuntimeOpsRepositories {
 
 export function getRuntimeControlRepository(): PostgresControlPlaneRepository {
   return getRuntimeStorage().control;
-}
-
-export function getRuntimeTeamsConversationRouteStore(): TeamsConversationRouteStore {
-  return new PostgresTeamsConversationRouteStore(
-    getRuntimeStorage().service.db,
-  );
 }
 
 export function getRuntimeEventExchange(): RuntimeEventExchange {

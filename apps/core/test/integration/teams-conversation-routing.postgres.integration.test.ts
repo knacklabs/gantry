@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
-import { PostgresTeamsConversationRouteStore } from '@core/adapters/storage/postgres/repositories/teams-conversation-route-store.postgres.js';
+import { PostgresTeamsConversationRouteStore } from '@core/channels/teams/conversation-route-store.postgres.js';
 import type { TeamsConversationRoute } from '@core/channels/teams/conversation-route-store.js';
 
 import {

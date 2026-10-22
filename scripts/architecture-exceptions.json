@@ -1,19 +1,5 @@
 [
   {
-    "file": "apps/core/src/adapters/storage/postgres/repositories/teams-conversation-route-store.postgres.ts",
-    "rule": "provider_specific_path",
-    "reason": "The approved Teams transport story places its Gantry-shaped route metadata repository beside the canonical Postgres conversation owner. Capped to route types, JID normalization, and the Teams provider discriminator; SDK objects remain outside storage.",
-    "removeByPhase": "teams-route-storage-relocation",
-    "maxViolations": 5
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/runtime-store.ts",
-    "rule": "provider_specific_path",
-    "reason": "The approved Teams route-store runtime getter composes its Gantry-owned storage contract and Postgres implementation. Capped to these two imports without granting provider behavior to the runtime store.",
-    "removeByPhase": "teams-route-storage-composition-relocation",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/cli/auth.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Local UI authorization is a CLI composition seam: it resolves the runtime settings and initializes durable storage before issuing the one-time browser code. Capped to the auth command.",
