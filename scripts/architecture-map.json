@@ -204,6 +204,8 @@
     "@slack/bolt",
     "grammy",
     "@grammyjs/",
+    "botbuilder",
+    "botframework-connector",
     "playwright",
     "dockerode"
   ],

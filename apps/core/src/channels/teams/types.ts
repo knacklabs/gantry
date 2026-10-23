@@ -66,6 +66,7 @@ export interface TeamsSdkReplyListInput extends TeamsSdkMessageListInput {
 
 export interface TeamsSdkStartInput {
   credentials: TeamsChannelCredentials;
+  inbound?: boolean;
   onMessage: (message: TeamsInboundMessage) => Promise<void>;
 }
 
@@ -127,6 +128,7 @@ export type TeamsChannelOpts = Pick<
   | 'isControlApproverAllowed'
   | 'onMessageAction'
   | 'providerAccountId'
+  | 'inboundProviderAccountIds'
   | 'agentId'
   | 'conversationRoutes'
 >;

@@ -1,0 +1,43 @@
+{
+  "branch": "task/TEAMS-1-T5",
+  "flagged": [
+    "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
+    "apps/core/src/channels/teams/sdk-client.ts",
+    "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "63dca8f6ff87cfe8345a1ee37f23671ca99f81fb4ff3d70778363ef2dc926f16",
+    "changed": "fa83de59f91934af4a54499e51674886a7f327b8e51d33574cbc493b4eb27678",
+    "commit": "ec237e67b661ccbec9a0a402095dd6f6e83a16c6",
+    "dismissals": [],
+    "findings": [],
+    "id": "ca47f84a-fed6-4c52-a6b4-739ba8bcae3f",
+    "status": "clean"
+  },
+  "round": 6,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-22T23:16:15+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-23T00:41:28+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-23T01:12:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-23T01:54:52+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-23T02:27:30+00:00",
+      "step": "review"
+    }
+  ],
+  "worker": "codex"
+}
