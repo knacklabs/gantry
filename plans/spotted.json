@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/app/bootstrap/durable-inbound-messages.ts\tNot done: functional check\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
+      "line": 41,
+      "text": "Not done: functional check",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/channels/teams/sdk-client.ts\tNot done: Teams-compatible invoke failure responses\tTEAMS-1/T5",
       "kind": "bug",
       "path": "apps/core/src/channels/teams/sdk-client.ts",
@@ -140,6 +151,28 @@
       "text": "Not done: proof list",
       "from": "blocking",
       "item": "anyone-can-get-a-reply-in-a-thread-an-al",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts\tNot done: automatic Teams ingress recovery end-to-end proof\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+      "line": 425,
+      "text": "Not done: automatic Teams ingress recovery end-to-end proof",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts\tNot done: functional check\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+      "line": 468,
+      "text": "Not done: functional check",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
       "status": "open",
       "closed_by": null
     },
