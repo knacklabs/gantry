@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/src/channels/teams/sdk-client.ts\tNot done: Teams-compatible invoke failure responses\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/src/channels/teams/sdk-client.ts",
+      "line": 288,
+      "text": "Not done: Teams-compatible invoke failure responses",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
       "kind": "bug",
       "path": "apps/core/src/domain/ports/inbound-events.ts",
@@ -320,6 +331,17 @@
       "closed_by": null
     },
     {
+      "key": "edge\tapps/core/src/channels/teams/sdk-client.ts\tPreserve safe provider status codes when sanitizing delivery errors",
+      "kind": "edge",
+      "path": "apps/core/src/channels/teams/sdk-client.ts",
+      "line": 365,
+      "text": "Preserve safe provider status codes when sanitizing delivery errors",
+      "from": "review",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "edge\tapps/core/src/runtime/group-trigger-policy.ts\tHandle brackets in document names when matching caption triggers",
       "kind": "edge",
       "path": "apps/core/src/runtime/group-trigger-policy.ts",
@@ -404,6 +426,28 @@
       "text": "Completed App streams return a boolean despite having an event id; no current App reply-reference input was found, so this is outside the long-answer fallback repair.",
       "from": "worker",
       "item": "TURN-1/T6",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "improve\tapps/core/test/harness/control-http-server.ts\tThe shared harness accepts unknown runtimeApp input that fails auxiliary strict test-file compilation; the same error reproduces in the unchanged default-branch snapshot.",
+      "kind": "improve",
+      "path": "apps/core/test/harness/control-http-server.ts",
+      "line": 59,
+      "text": "The shared harness accepts unknown runtimeApp input that fails auxiliary strict test-file compilation; the same error reproduces in the unchanged default-branch snapshot.",
+      "from": "worker",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "improve\tapps/core/test/harness/postgres-integration-runtime.ts\tThe shared StorageRuntime fixture omits three required fields in auxiliary strict test-file compilation; the same error reproduces in the unchanged default-branch snapshot.",
+      "kind": "improve",
+      "path": "apps/core/test/harness/postgres-integration-runtime.ts",
+      "line": 97,
+      "text": "The shared StorageRuntime fixture omits three required fields in auxiliary strict test-file compilation; the same error reproduces in the unchanged default-branch snapshot.",
+      "from": "worker",
+      "item": "TEAMS-1/T5",
       "status": "open",
       "closed_by": null
     }

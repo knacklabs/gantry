@@ -1,13 +1,44 @@
 {
   "branch": "task/TEAMS-1-T5",
+  "flagged": [
+    "apps/core/src/channels/teams/sdk-client.ts"
+  ],
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "dac9a791e7e3634c8c1aa29fcaaf87dfa64e8b7ee7a5c416d3eaaf70bba9aeb7",
+    "changed": "d6bc8f2227a8e491a9470229d2c42950195e81946bc19b5ef21a0c98ca72fc75",
+    "commit": "376ee2ac9d3c3f8eb3166c72da5c935abf3f3583",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "chunk 2/3:\n\nWhen Adaptive Card handling fails, this sends HTTP 500 even though it constructs an invoke error envelope. Microsoft's [Universal Action Model contract](https://learn.microsoft.com/adaptive-cards/authoring-cards/universal-action-model#response-format) requires HTTP 200 for handled invokes, with the failure carried in the body's `statusCode`. Teams therefore receives a transport failure instead of the intended actionable error response. Use HTTP 200 for invoke error envelopes while retaining non-2xx responses for failed message saves, and correct the focused test that currently expects HTTP 500.",
+        "file": "apps/core/src/channels/teams/sdk-client.ts",
+        "line": 288,
+        "priority": "P1",
+        "title": "Not done: Teams-compatible invoke failure responses"
+      },
+      {
+        "body": "chunk 2/3:\n\nEvery connector failure becomes a plain Error without its status code. Consequently, a Microsoft 413 response cannot reach the existing payload-splitting retry contract demonstrated by the supplied `teams.test.ts` cases, so oversized messages fail instead of being split and delivered. Those tests inject 413 directly through a fake SDK and miss this loss at the new transport boundary. Preserve an allowlisted numeric status on the sanitized error and exercise the connector-to-channel failure path.",
+        "file": "apps/core/src/channels/teams/sdk-client.ts",
+        "line": 365,
+        "priority": "P2",
+        "title": "Preserve safe provider status codes when sanitizing delivery errors"
+      }
+    ],
+    "id": "b3f5ca09-0005-49c2-bc23-fce30a7d0261",
+    "status": "blocked"
+  },
   "round": 3,
   "status": "fixing",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-10-23T00:41:28+00:00",
+      "step": "review"
     }
   ],
-  "tests": "`npx --yes -p node@24 -- sh -c 'npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck'` exited with status 9009 on this machine.\n\n> @gantry/runtime@1.2.52 prepare\n> husky\n\n\nadded 890 packages, and audited 899 packages in 2m\n\n232 packages are looking for funding\n  run `npm fund` for details\n\n38 vulnerabilities (5 low, 18 moderate, 14 high, 1 critical)\n\nTo address issues that do not require attention, run:\n  npm audit fix\n\nTo address all issues (including breaking changes), run:\n  npm audit fix --force\n\nRun `npm audit` for details.\n\n> @gantry/runtime@1.2.52 format:check\n> prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"\n\nChecking formatting...\nAll matched files use Prettier code style!\n\n> @gantry/runtime@1.2.52 check:architecture\n> python3 scripts/check_architecture.py\n\nPython was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.",
   "worker": "codex"
 }
