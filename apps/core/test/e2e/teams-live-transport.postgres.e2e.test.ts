@@ -9,32 +9,34 @@ import { SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
-import { PostgresInboundEventRepository } from '@core/adapters/storage/postgres/repositories/inbound-event-repository.postgres.js';
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
-import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
-import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
-import type { ChannelWiringDeps } from '@core/app/bootstrap/channel-wiring-types.js';
-import { createDurableInboundMessages } from '@core/app/bootstrap/durable-inbound-messages.js';
-import { buildLiveAdmissionProcessor } from '@core/app/bootstrap/live-execution.js';
+import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
+import type { ChannelWiring } from '@core/app/bootstrap/channel-wiring-types.js';
+import {
+  startRuntimeServices,
+  stopLiveAdmissionLoop,
+  stopLiveTurnRecoveryLoop,
+  shutdownLiveTurnAuthority,
+  stopAsyncTaskRecoveryLoop,
+} from '@core/app/bootstrap/runtime-services.js';
 import { createRuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { beginDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
-import { TeamsChannel } from '@core/channels/teams/index.js';
+import '@core/channels/register-builtins.js';
+import { getProvider } from '@core/channels/provider-registry.js';
 import type { TeamsAdaptiveCardPayload } from '@core/channels/teams/cards.js';
-import { PostgresTeamsConversationRouteStore } from '@core/channels/teams/conversation-route-store.postgres.js';
-import {
-  createMicrosoftTeamsSdkClient,
-  processTeamsActivity,
-} from '@core/channels/teams/sdk-client.js';
+import { processTeamsActivity } from '@core/channels/teams/sdk-client.js';
 import {
   getTriggerPattern,
   RUNTIME_SETTINGS_PATH,
 } from '@core/config/index.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
-import type { ExecutionProviderId } from '@core/domain/sessions/sessions.js';
+import { loadRuntimeSettingsFromPath } from '@core/config/settings/runtime-settings.js';
+import { SettingsDesiredStateService } from '@core/config/settings/desired-state-service.js';
+import { stopWorkerHeartbeat } from '@core/jobs/worker-identity.js';
+import { stopOutboundDeliveryRecoveryLoop } from '@core/jobs/outbound-delivery-recovery.js';
 import { GroupQueue } from '@core/runtime/group-queue.js';
-import { LiveTurnAuthority } from '@core/runtime/live-turn-authority.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
 import {
   createPostgresIntegrationRuntime,
@@ -56,11 +58,6 @@ const appId = 'default';
 const folder = 'main_agent';
 const agentId = 'agent:main_agent';
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
-const scope = {
-  appId,
-  providerId: 'teams',
-  connectionId: 'teams-live-connection',
-};
 const quietLogger = { info() {}, warn() {}, debug() {}, error() {} };
 
 type MicrosoftMessage = {
@@ -77,11 +74,9 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
   () => {
     let runtime: PostgresIntegrationRuntime;
     let server: Awaited<ReturnType<typeof startTestControlServer>>;
-    let channel: TeamsChannel;
+    let wiring: ChannelWiring;
     let queue: GroupQueue;
-    let authority: LiveTurnAuthority;
     let originalSettings: string;
-    let recover: () => Promise<void>;
     const sent: Array<{ conversationId: string; message: MicrosoftMessage }> =
       [];
     const updated: MicrosoftMessage[] = [];
@@ -151,7 +146,18 @@ provider_accounts:
     agent: ${folder}
     provider: teams
     label: Teams live
-    runtime_secret_refs: {}
+    runtime_secret_refs:
+      client_id: env:TEAMS_CLIENT_ID
+      client_secret: env:TEAMS_CLIENT_SECRET
+      tenant_id: env:TEAMS_TENANT_ID
+  ${alias}:
+    agent: ${folder}
+    provider: teams
+    label: Teams sibling
+    runtime_secret_refs:
+      client_id: env:TEAMS_CLIENT_ID
+      client_secret: env:TEAMS_CLIENT_SECRET
+      tenant_id: env:TEAMS_TENANT_ID
 conversations:
   teams_live_chat:
     provider_account: ${account}
@@ -231,6 +237,34 @@ memory:
         ConfigurationBotFrameworkAuthentication.prototype,
         'createUserTokenClient',
       ).mockResolvedValue({} as never);
+      const realFetch = globalThis.fetch;
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = new URL(
+          input instanceof Request ? input.url : String(input),
+        );
+        if (url.origin === 'https://login.microsoftonline.com') {
+          expect(url.pathname).toBe(
+            `/${credentials.tenantId}/oauth2/v2.0/token`,
+          );
+          return Response.json({ access_token: 'teams-graph-test-token' });
+        }
+        if (url.origin === 'https://graph.microsoft.com') {
+          expect(url.pathname).toBe(
+            `/v1.0/chats/${encodeURIComponent(chat)}/members`,
+          );
+          return Response.json({
+            value: [
+              { userId: 'permitted-person' },
+              { userId: 'unpermitted-person' },
+            ],
+          });
+        }
+        return realFetch(input, init);
+      });
+
+      vi.stubEnv('TEAMS_CLIENT_ID', credentials.clientId);
+      vi.stubEnv('TEAMS_CLIENT_SECRET', credentials.clientSecret);
+      vi.stubEnv('TEAMS_TENANT_ID', credentials.tenantId);
 
       await runtime.control.ensureAppSession({
         appId,
@@ -238,6 +272,12 @@ memory:
         chatJid: jid,
         workspaceFolder: folder,
       });
+      const settings = loadRuntimeSettingsFromPath(RUNTIME_SETTINGS_PATH);
+      const projection = await new SettingsDesiredStateService({
+        ops: runtime.ops,
+        repositories: runtime.repositories,
+      }).reconcile(settings);
+      expect(projection.invalidReferences).toEqual([]);
       queue = new GroupQueue({ maxMessageRuns: 1, maxRetries: 0 });
       const app = createRuntimeApp({
         queue,
@@ -271,117 +311,59 @@ memory:
         conversationKind: 'channel',
         agentConfig: { model: 'opus' },
       });
-      const persistenceQueue = new AsyncTaskQueue(1, 16);
-      const persistence = createChannelPersistenceHandlers({
-        app,
-        resolved: {
-          appId,
-          getTriggerPattern,
-          logger: quietLogger,
-        } as unknown as ChannelWiringDeps,
-        ops: () => runtime.ops,
-        persistenceQueue,
-        runtimeSettings: () => ({}) as never,
-      });
-      const inbox = createDurableInboundMessages({
-        repository: () =>
-          new PostgresInboundEventRepository(runtime.service.db),
-        processMessage: persistence.onMessage,
-        warn() {},
-      });
-      recover = () => inbox.recover(scope);
-      const admin = new ConversationAdministrationService(runtime.repositories);
-      const opts = {
-        providerAccountId: account,
-        agentId,
-        onChatMetadata: persistence.onChatMetadata,
-        onMessage: (
-          chatJid: string,
-          message: Parameters<typeof persistence.onMessage>[1],
-        ) =>
-          inbox.save(scope, chatJid, {
-            ...message,
-            providerAccountId: account,
-            agentId,
-          }),
-        conversationRoutes: () => app.getConversationRoutes(),
-        isControlApproverAllowed: (input: {
-          userId: string;
-          conversationJid: string;
-          threadId?: string;
-        }) =>
-          admin.isControlApproverAllowed({
-            appId: appId as never,
-            providerId: 'teams' as never,
-            providerAccountId: account as never,
-            agentId: agentId as never,
-            conversationJid: input.conversationJid,
-            threadId: input.threadId,
-            userId: input.userId,
-          }),
-      };
-      const makeChannel = () => {
-        const sdk = createMicrosoftTeamsSdkClient(credentials, {
-          providerAccountId: account,
-          inboundProviderAccountIds: [account, alias],
-          routeStore: new PostgresTeamsConversationRouteStore(
-            runtime.service.db,
-          ),
-        });
-        if (!sdk) throw new Error('Teams transport could not start');
-        return new TeamsChannel(credentials, opts, sdk);
-      };
-      channel = makeChannel();
-      await channel.connect();
-      app.setChannelRuntime({
-        hasChannel: (chatJid) => channel.ownsJid(chatJid),
-        supportsStreaming: () => false,
-        supportsProgress: () => false,
-        sendMessage: async (chatJid, text, options) => {
-          await channel.sendMessage(chatJid, text, options);
-        },
-        sendStreamingChunk: async () => false,
-        resetStreaming() {},
-        setTyping: async () => {},
-        sendProgressUpdate: async () => {},
-      });
-      await runtime.repositories.workerCoordination.registerWorker({
-        id: 'teams-live-worker',
-        bootNonce: 'teams-live-worker',
-      });
-      authority = new LiveTurnAuthority({
-        leaseDeps: {
-          liveTurns: runtime.repositories.liveTurns,
-          coordination: runtime.repositories.workerCoordination,
-          workerInstanceId: 'teams-live-worker',
-        },
-        slotCapacity: () => 1,
-      });
-      const processor = buildLiveAdmissionProcessor({
-        appId,
-        inputRepository: runtime.repositories.liveTurns,
-        liveTurnAuthority: authority,
-        app,
-        opsRepository: runtime.ops,
-        executionAdapter: {
-          id: 'anthropic:claude-agent-sdk' as ExecutionProviderId,
-        },
-        messageFetchPageSize: 50,
-        timezone: 'UTC',
+      const teamsProvider = getProvider('teams');
+      if (!teamsProvider) throw new Error('Teams provider is not registered');
+      wiring = createChannelWiring(app, {
         getTriggerPattern,
-        enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
-        warn() {},
+        providerIds: [teamsProvider],
+        opsRepository: runtime.ops,
+        logger: quietLogger,
       });
-      queue.setLiveTurnRunnerRegistrar((chatJid, hooks, routing) =>
-        authority.registerLocalRunner(chatJid, hooks, routing),
-      );
-      queue.setProcessMessagesFn((chatJid, context) =>
-        processor(chatJid, context),
+      await wiring.connectEnabledChannels(settings, { providerInbound: true });
+      expect(wiring.hasConnectedChannels()).toBe(true);
+      app.setChannelRuntime({
+        hasChannel: wiring.hasChannel,
+        supportsStreaming: wiring.supportsStreaming,
+        supportsProgress: wiring.supportsProgress,
+        sendMessage: (chatJid, text, options) =>
+          wiring.sendMessage(chatJid, text, {
+            durability: 'required',
+            messageOptions: options,
+          }),
+        sendStreamingChunk: wiring.sendStreamingChunk,
+        resetStreaming: wiring.resetStreaming,
+        setTyping: wiring.setTyping,
+        sendProgressUpdate: async (chatJid, text, options) => {
+          await wiring.sendProgressUpdate(chatJid, text, options);
+        },
+      });
+      // Use the same bootstrap as the live worker. Its polling loop owns inbox
+      // recovery, quiet-window eligibility and admission; this test only submits
+      // an HTTP activity. Removing the production recovery callback strands it.
+      await startRuntimeServices(
+        {
+          app,
+          channelWiring: wiring,
+          processRole: 'live-worker',
+          jobExecution: false,
+        },
+        {
+          opsRepository: runtime.ops,
+          getToolRepository: () => runtime.repositories.tools,
+          getWorkerCoordinationRepository: () =>
+            runtime.repositories.workerCoordination,
+          getLiveTurnRepository: () => runtime.repositories.liveTurns,
+          getOutboundDeliveryRepository: () =>
+            runtime.repositories.outboundDeliveries,
+          startIpcWatcher: () => {},
+          writeGroupsSnapshot: async () => {},
+          logger: { ...quietLogger, fatal: quietLogger.error },
+        },
       );
       server = await startTestControlServer({
         token: 'teams-control-token',
         appId,
-        scopes: ['*'],
+        scopes: ['providers:read'],
         runtimeApp: app,
         routeProfile: 'ops',
         processRole: 'live-worker',
@@ -389,24 +371,46 @@ memory:
       });
 
       restartChannel = async () => {
-        await channel.disconnect();
-        channel = makeChannel();
-        await channel.connect();
+        await wiring.disconnectChannels();
+        await wiring.connectEnabledChannels(settings, {
+          providerInbound: true,
+        });
       };
     }, 60_000);
 
     let restartChannel: () => Promise<void>;
 
     afterAll(async () => {
-      await server?.close();
-      await channel?.disconnect();
-      await authority?.shutdown();
-      await queue?.shutdown(500);
-      configurePendingInteractionDurability(null);
-      vi.restoreAllMocks();
-      if (originalSettings !== undefined)
-        fs.writeFileSync(RUNTIME_SETTINGS_PATH, originalSettings, 'utf-8');
-      await runtime?.cleanup();
+      const failures: unknown[] = [];
+      // Continue cleanup after a failed setup/stop so no worker can retain the
+      // disposable database, provider registration or developer settings.
+      for (const cleanup of [
+        () => server?.close(),
+        () => stopLiveAdmissionLoop(5_000),
+        () => stopLiveTurnRecoveryLoop(),
+        () => stopAsyncTaskRecoveryLoop(),
+        () => stopOutboundDeliveryRecoveryLoop(),
+        () => shutdownLiveTurnAuthority(),
+        () => stopWorkerHeartbeat(),
+        () => wiring?.disconnectChannels(),
+        () => queue?.shutdown(500),
+        () => configurePendingInteractionDurability(null),
+        () => vi.restoreAllMocks(),
+        () => vi.unstubAllEnvs(),
+        () => {
+          if (originalSettings !== undefined)
+            fs.writeFileSync(RUNTIME_SETTINGS_PATH, originalSettings, 'utf-8');
+        },
+        () => runtime?.cleanup(),
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length)
+        throw new AggregateError(failures, 'Teams test cleanup failed');
     });
 
     it('answers inbound text in the originating Teams conversation and thread', async () => {
@@ -422,7 +426,28 @@ memory:
         ],
       });
       expect(response.status).toBe(200);
-      await recover();
+      await vi.waitFor(
+        () =>
+          expect(sent).toContainEqual({
+            conversationId: chat,
+            message: expect.objectContaining({
+              replyToId: root,
+              attachments: expect.arrayContaining([
+                expect.objectContaining({
+                  content: expect.objectContaining({
+                    body: expect.arrayContaining([
+                      expect.objectContaining({
+                        type: 'TextBlock',
+                        text: 'The Teams agent reply.',
+                      }),
+                    ]),
+                  }),
+                }),
+              ]),
+            }),
+          }),
+        { timeout: 15_000 },
+      );
       const persisted = await runtime.ops.getMessagesSince(jid, '', 20, {
         providerAccountId: account,
         threadId: root,
@@ -434,25 +459,6 @@ memory:
           thread_id: root,
           providerAccountId: account,
         }),
-      );
-      // Advance the quiet window via the database clock, then wake the real loop.
-      await runtime.service.pool.query(
-        "UPDATE live_admission_work_items SET defer_until = clock_timestamp() WHERE state = 'deferred' AND deferred_reason = 'quiet_window'",
-      );
-      for (const queueJid of await runtime.repositories.liveTurns.listUnconsumedLiveAdmissionQueueJids(
-        { appId },
-      ))
-        queue.enqueueMessageCheck(queueJid);
-      await vi.waitFor(
-        () =>
-          expect(sent).toContainEqual({
-            conversationId: chat,
-            message: expect.objectContaining({
-              text: 'The Teams agent reply.',
-              replyToId: root,
-            }),
-          }),
-        { timeout: 15_000 },
       );
       expect(prompts).toHaveLength(1);
       expect(prompts[0]).toContain('explain the release');
@@ -468,8 +474,9 @@ memory:
     it('delivers a proactive message through a fresh client using the previously saved Teams route', async () => {
       expect((await post({ type: 'conversationUpdate' })).status).toBe(200);
       await restartChannel();
-      await channel.sendMessage(jid, 'Scheduled update after restart.', {
-        threadId: root,
+      await wiring.sendMessage(jid, 'Scheduled update after restart.', {
+        durability: 'required',
+        messageOptions: { threadId: root, providerAccountId: account },
       });
       expect(sent).toContainEqual({
         conversationId: chat,
@@ -479,9 +486,13 @@ memory:
         }),
       });
       await expect(
-        channel.sendMessage(
+        wiring.sendMessage(
           'teams:19:unseen@thread.tacv2',
           'Unseen destination',
+          {
+            durability: 'best_effort',
+            messageOptions: { providerAccountId: account },
+          },
         ),
       ).rejects.toThrow(/Send a message.*Teams/i);
     });
@@ -495,26 +506,6 @@ memory:
         providerId: 'teams',
         providerAccountId: account,
         externalUserId: 'permitted-person',
-      });
-      await runtime.repositories.providerAccounts.saveConversationInstall({
-        id: 'teams-live-install' as never,
-        appId: appId as never,
-        agentId: agentId as never,
-        providerAccountId: account as never,
-        conversationId: conversationId as never,
-        displayName: 'Teams live',
-        status: 'active',
-        senderPolicy: 'provider_native',
-        controlPolicy: 'conversation_approvers',
-        memoryScope: 'conversation',
-        memorySubject: {
-          kind: 'conversation',
-          appId: appId as never,
-          conversationId: conversationId as never,
-        },
-        permissionPolicyIds: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       });
       await new ConversationAdministrationService(
         runtime.repositories,
@@ -548,8 +539,8 @@ memory:
         delivered = resolve;
       });
       let decided = false;
-      const waiting = channel
-        .requestPermissionApproval(jid, request, () => delivered())
+      const waiting = wiring
+        .requestPermissionApproval(request, () => delivered())
         .then((result) => {
           decided = true;
           return result;
@@ -557,6 +548,10 @@ memory:
       await promptDelivered;
       const card = sent.at(-1)?.message.attachments?.[0]?.content;
       expect(card?.type).toBe('AdaptiveCard');
+      expect(card?.actions.map((candidate) => candidate.title)).toEqual([
+        'Allow once',
+        'Deny',
+      ]);
       const action = card?.actions.find(
         (candidate) =>
           'data' in candidate &&
