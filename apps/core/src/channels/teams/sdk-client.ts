@@ -283,9 +283,10 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         },
         'Teams activity could not be handled',
       );
+      // Teams reads handled invoke failures from the envelope's statusCode.
       respond(
         response,
-        500,
+        isInvoke ? 200 : 500,
         isInvoke
           ? {
               statusCode: 500,
@@ -361,9 +362,28 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         },
         'Teams delivery failed',
       );
-      // eslint-disable-next-line preserve-caught-error -- SDK causes can carry credentials or activity values; expose static errors only.
-      throw new Error(
-        'Teams delivery failed. Check the bot credentials and Teams connection, then retry.',
+      const status =
+        error && typeof error === 'object'
+          ? 'statusCode' in error
+            ? error.statusCode
+            : 'status' in error
+              ? error.status
+              : undefined
+          : undefined;
+      // Only numeric HTTP error status may cross this boundary, so the channel
+      // can split 413 payloads without retaining SDK request/response data.
+      const safeStatus =
+        typeof status === 'number' &&
+        Number.isInteger(status) &&
+        status >= 400 &&
+        status <= 599
+          ? { status }
+          : {};
+      throw Object.assign(
+        new Error(
+          'Teams delivery failed. Check the bot credentials and Teams connection, then retry.',
+        ),
+        safeStatus,
       );
     }
     return { externalMessageId };

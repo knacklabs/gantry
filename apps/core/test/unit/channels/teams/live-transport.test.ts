@@ -15,6 +15,7 @@ import type {
   TeamsSdkStartInput,
 } from '@core/channels/teams/types.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
+import { createTeamsChannel } from '@core/channels/teams/factory.js';
 import type { TeamsConversationRoute } from '@core/channels/teams/conversation-route-store.js';
 
 const credentials = {
@@ -26,6 +27,10 @@ const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const clients: TeamsSdkClient[] = [];
 const servers: Server[] = [];
 const sent: Record<string, unknown>[] = [];
+const providerSend = vi.fn(async (message: Record<string, unknown>) => {
+  sent.push(message);
+  return { id: 'reply' };
+});
 const routes = new Map<string, TeamsConversationRoute>();
 const routeStore = {
   async upsertForProviderAccounts(input: {
@@ -61,6 +66,20 @@ const activity = (overrides: Record<string, unknown> = {}) => ({
   ],
   ...overrides,
 });
+
+async function rememberConversation() {
+  await routeStore.upsertForProviderAccounts({
+    providerAccountIds: ['teams_one'],
+    route: {
+      conversationJid: 'teams:19:chat@thread.tacv2',
+      serviceUrl: activity().serviceUrl,
+      tenantId: credentials.tenantId,
+      botId: '28:bot-app',
+      channelId: 'msteams',
+      conversationType: 'channel',
+    },
+  });
+}
 
 async function token(audience = credentials.clientId) {
   return new SignJWT({ serviceurl: activity().serviceUrl })
@@ -110,6 +129,10 @@ async function start(
 beforeEach(() => {
   sent.length = 0;
   routes.clear();
+  providerSend.mockReset().mockImplementation(async (message) => {
+    sent.push(message);
+    return { id: 'reply' };
+  });
   vi.spyOn(OpenIdMetadata.prototype, 'getKey').mockResolvedValue({
     key: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
     endorsements: ['msteams'],
@@ -118,8 +141,7 @@ beforeEach(() => {
     conversations: {
       sendToConversation: vi.fn(
         async (_conversation: string, message: Record<string, unknown>) => {
-          sent.push(message);
-          return { id: 'reply' };
+          return providerSend(message);
         },
       ),
       replyToActivity: vi.fn(
@@ -128,8 +150,7 @@ beforeEach(() => {
           _root: string,
           message: Record<string, unknown>,
         ) => {
-          sent.push(message);
-          return { id: 'reply' };
+          return providerSend(message);
         },
       ),
       updateActivity: vi.fn(async () => ({ id: 'updated' })),
@@ -341,8 +362,11 @@ describe('authenticated Teams transport', () => {
           }),
         ),
       });
-      expect(response.status).toBe(fails ? 500 : 200);
-      expect(await response.json()).toMatchObject({
+      // Handled invokes use HTTP 200; Teams reads failures from the envelope.
+      expect(response.status).toBe(200);
+      const envelope = await response.json();
+      expect(JSON.stringify(envelope)).not.toContain('private card value');
+      expect(envelope).toMatchObject({
         statusCode: fails ? 500 : 200,
         type: fails
           ? 'application/vnd.microsoft.error'
@@ -351,6 +375,116 @@ describe('authenticated Teams transport', () => {
       expect(received).toHaveBeenCalledWith(
         expect.objectContaining({ value: { decision: 'allow_once' } }),
       );
+    },
+  );
+
+  it('splits an oversized Microsoft connector payload and delivers all text in the originating thread', async () => {
+    const client = await start(
+      'teams_one',
+      vi.fn(async () => {}),
+      false,
+    );
+    await rememberConversation();
+    const channel = await createTeamsChannel(
+      {
+        providerAccountId: 'teams_one',
+        onMessage: async () => 'stored',
+        onChatMetadata: async () => {},
+        conversationRoutes: () => ({}),
+      },
+      { credentials, sdkClient: client },
+    );
+    if (!channel) throw new Error('Expected configured Teams channel');
+    await channel.connect({ inbound: false });
+    const text = '🙂'.repeat(2501);
+    providerSend.mockRejectedValueOnce(
+      Object.assign(new Error('private Microsoft response'), {
+        statusCode: 413,
+      }),
+    );
+
+    try {
+      const result = await channel.sendMessage(
+        'teams:19:chat@thread.tacv2',
+        text,
+        { threadId: 'root' },
+      );
+      expect(result).toMatchObject({
+        deliveredParts: 3,
+        totalParts: 3,
+        warnings: ['teams.payload_413_split_retry'],
+      });
+      expect(providerSend).toHaveBeenCalledTimes(4);
+      expect(providerSend.mock.calls[0]![0]).toMatchObject({ text });
+      expect(sent.map((message) => message.text).join('')).toBe(text);
+      expect(sent).toHaveLength(3);
+      for (const message of sent) {
+        expect(message).toMatchObject({
+          conversation: { id: '19:chat@thread.tacv2' },
+          replyToId: 'root',
+        });
+        expect(
+          Buffer.byteLength(String(message.text), 'utf8'),
+        ).toBeLessThanOrEqual(5002);
+        expect(String(message.text)).not.toContain('\uFFFD');
+      }
+    } finally {
+      await channel.disconnect();
+    }
+  });
+
+  it.each([
+    { providerStatus: { statusCode: 413 }, expectedStatus: 413 },
+    { providerStatus: { status: 429 }, expectedStatus: 429 },
+    { providerStatus: { statusCode: 400 }, expectedStatus: 400 },
+    { providerStatus: { statusCode: 599 }, expectedStatus: 599 },
+    { providerStatus: { statusCode: '413' }, expectedStatus: undefined },
+    { providerStatus: { status: 413.5 }, expectedStatus: undefined },
+    { providerStatus: { statusCode: 399 }, expectedStatus: undefined },
+    { providerStatus: { status: 600 }, expectedStatus: undefined },
+    { providerStatus: { statusCode: NaN }, expectedStatus: undefined },
+    { providerStatus: { status: Infinity }, expectedStatus: undefined },
+    {
+      providerStatus: { statusCode: { private: 'secret payload' } },
+      expectedStatus: undefined,
+    },
+  ])(
+    'sanitizes connector delivery errors with provider status $providerStatus',
+    async ({ providerStatus, expectedStatus }) => {
+      const warning = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+      const client = await start(
+        'teams_one',
+        vi.fn(async () => {}),
+        false,
+      );
+      await rememberConversation();
+      providerSend.mockRejectedValueOnce(
+        Object.assign(new Error('secret payload'), providerStatus, {
+          request: { headers: { authorization: credentials.clientSecret } },
+          response: { body: 'secret payload' },
+        }),
+      );
+
+      const error: unknown = await client
+        .sendMessage({
+          conversationId: '19:chat@thread.tacv2',
+          text: 'hello',
+          threadId: 'root',
+        })
+        .catch((failure: unknown) => failure);
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) throw new Error('Expected delivery error');
+      expect(error.message).toMatch(/Teams delivery failed.*retry/i);
+      expect(Reflect.get(error, 'status')).toBe(expectedStatus);
+      expect(Object.keys(error)).toEqual(
+        expectedStatus === undefined ? [] : ['status'],
+      );
+      expect(error).not.toHaveProperty('cause');
+      expect(error.stack).not.toContain('secret payload');
+      const exposed = JSON.stringify({ error, warnings: warning.mock.calls });
+      expect(exposed).not.toContain('secret payload');
+      expect(exposed).not.toContain(credentials.clientSecret);
+      expect(sent).toEqual([]);
     },
   );
 
