@@ -7,38 +7,16 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "45f4af6a6b608bf718ecca698de21896e6964f5113f4d27b4f64fc547eab22d3",
-    "changed": "f4889b9eb0f5a26f187137c0b703db3de0fa5dc797bfe8a656d3a0f8e3ac0548",
-    "commit": "c19344e3354b187ab0287647efc3c61c03728e5a",
+    "branch_diff": "3a40d3a7626cb49f5061e676336d7cf36cf19ec8def8c51b597936c8ae4a2790",
+    "changed": "de7d1b4e00b6f4afe876564932600aaaf087a8b7219e7435853a4e4560693387",
+    "commit": "217025c828cc8b643c9a0c44cdeb1463be6d5324",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "chunk 1/3:\n\nThe supplied Functional check exercises invoke failures, oversized outbound messages and error redaction, but skips the covered user journeys: authenticated inbound text receiving an agent reply, proactive delivery after restart, and an unauthorized approval followed by a permitted decision. The brief explicitly requires the functional check to walk every covered Done-when item. Exercise those journeys and record what happened; a live Teams tenant is not necessary if the real application boundaries are exercised with Microsoft faked at its edge.",
-        "file": "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
-        "line": 41,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "chunk 2/3:\n\nThe inbound-text end-to-end case explicitly calls `recover()` and later calls `queue.enqueueMessageCheck()` itself. These steps bypass the production recovery and admission-loop wiring that must turn an acknowledged Teams message into an agent reply. The test can therefore pass while that wiring is disconnected. Start the production recovery/admission path in this case and assert that the HTTP submission produces the reply without manually advancing messages through internal services.",
-        "file": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
-        "line": 425,
-        "priority": "P1",
-        "title": "Not done: automatic Teams ingress recovery end-to-end proof"
-      },
-      {
-        "body": "chunk 2/3:\n\nThe supplied Functional check describes invoke failure envelopes, connector 413 splitting, and error redaction, but does not exercise the covered proactive delivery after restart or unauthorized-then-authorized approval flow. The review contract explicitly requires the functional check to walk every covered Done-when item. Exercise those flows and record their observed outcomes; the automated cases' existence alone does not establish that this walkthrough happened.",
-        "file": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
-        "line": 468,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      }
-    ],
-    "id": "90ee52b1-f1f1-47c9-9ba0-4fc6d32062d6",
-    "status": "blocked"
+    "findings": [],
+    "id": "53464b08-fa0b-4867-9143-3b9867fc3abb",
+    "status": "clean"
   },
   "round": 5,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -50,6 +28,10 @@
     },
     {
       "at": "2026-10-23T01:12:59+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-23T01:54:52+00:00",
       "step": "review"
     }
   ],
