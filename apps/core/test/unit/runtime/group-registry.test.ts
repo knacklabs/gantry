@@ -128,6 +128,60 @@ describe('registerGroup', () => {
     );
   });
 
+  it.each([undefined, 'topic-a'])(
+    'refreshes only aliases of the same route identity for thread %s',
+    async (threadId) => {
+      const route = makeGroup({
+        providerAccountId: 'account-a',
+        conversationId: 'conversation-a',
+      });
+      const key = makeAgentThreadQueueKey('chat', undefined, threadId);
+      const alias = makeAgentThreadQueueKey(
+        'chat',
+        'agent:test-group',
+        threadId,
+        'account-a',
+      );
+      const unrelated: Record<string, ConversationRoute> = {
+        [makeAgentThreadQueueKey(
+          'other-chat',
+          'agent:test-group',
+          threadId,
+          'account-a',
+        )]: route,
+        [makeAgentThreadQueueKey('chat', 'agent:other', threadId, 'account-a')]:
+          { ...route, folder: 'other' },
+        [makeAgentThreadQueueKey(
+          'chat',
+          'agent:test-group',
+          threadId,
+          'account-b',
+        )]: { ...route, providerAccountId: 'account-b' },
+        [makeAgentThreadQueueKey('chat', undefined, threadId, 'account-a')]: {
+          ...route,
+          conversationId: 'other-conversation',
+        },
+        [makeAgentThreadQueueKey(
+          'chat',
+          'agent:test-group',
+          threadId ? undefined : 'topic-b',
+          'account-a',
+        )]: route,
+      };
+      Object.assign(groups, unrelated, { [key]: route, [alias]: { ...route } });
+      const updated = { ...route, trigger: '@updated' };
+      await registerGroup(groups, key, updated, {
+        persist,
+        ensureCredentialBinding,
+      });
+      expect(groups).toEqual({
+        ...unrelated,
+        [key]: updated,
+        [alias]: updated,
+      });
+    },
+  );
+
   it('rejects registration when resolveWorkspaceFolderPath throws', async () => {
     mockResolve.mockImplementation(() => {
       throw new Error('invalid folder');
