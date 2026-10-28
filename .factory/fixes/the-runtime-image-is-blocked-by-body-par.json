@@ -1,0 +1,14 @@
+{
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/the-runtime-image-is-blocked-by-body-par",
+  "done_when": "The runtime dependency tree resolves the flagged body-parser and Zod copies to patched releases without breaking schema, MCP or sandbox behavior; the rebuilt runtime image passes the unchanged high and critical Trivy scan and existing PR checks",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-10-28T06:38:59+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "The runtime image is blocked by body-parser and Zod security findings"
+}
