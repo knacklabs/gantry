@@ -1,0 +1,45 @@
+{
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/the-runtime-image-is-blocked-by-body-par",
+  "done_when": "The runtime dependency tree resolves the flagged body-parser and Zod copies to patched releases without breaking schema, MCP or sandbox behavior; the rebuilt runtime image passes the unchanged high and critical Trivy scan and existing PR checks",
+  "flagged": [
+    "package.json"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "413be8b94ec13d660b459b69d02994e3366e8ea1a5b5f59d5f887e012238f89f",
+    "changed": "a73562ed2458910b651d5c1dfb8f9c2dc3374a3b8be03f977ac440ddae7c1b27",
+    "commit": "4a16cb8954386c3d3e97b2f0e213e9035b2a08cf",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The supplied proof explicitly says the real sandbox smoke exited before its protected-file assertions because namespace setup failed. The changed test validates configuration parsing, which cannot detect failures to execute commands or enforce filesystem restrictions. This leaves the promised sandbox compatibility unproven after upgrading a dependency that changes Linux namespace and filesystem enforcement defaults ([release notes](https://github.com/anthropics/sandbox-runtime/releases/tag/v0.0.80)). Add a focused repository-suite test through the real runner boundary that verifies successful permitted operations and refused protected reads/writes, and run it on a supported namespace-capable host. This does not require the prohibited broad local suite or local image build.",
+        "file": "package.json",
+        "line": 100,
+        "priority": "P1",
+        "title": "Not done: sandbox execution and protected-file enforcement"
+      }
+    ],
+    "id": "821176fc-7b9f-4c0f-8b6f-739efcb55275",
+    "status": "blocked"
+  },
+  "round": 2,
+  "status": "fixing",
+  "steps": [
+    {
+      "at": "2026-10-28T06:38:59+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-28T06:56:38+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-29T08:30:17+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The runtime image is blocked by body-parser and Zod security findings",
+  "worker": "codex"
+}

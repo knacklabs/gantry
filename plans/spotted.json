@@ -298,6 +298,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tpackage.json\tNot done: sandbox execution and protected-file enforcement\tthe-runtime-image-is-blocked-by-body-par",
+      "kind": "bug",
+      "path": "package.json",
+      "line": 100,
+      "text": "Not done: sandbox execution and protected-file enforcement",
+      "from": "blocking",
+      "item": "the-runtime-image-is-blocked-by-body-par",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "edge\tapps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts\tPreserve bot reply references across the remaining delivery paths",
       "kind": "edge",
       "path": "apps/core/src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.ts",

@@ -97,7 +97,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.156",
-    "@anthropic-ai/sandbox-runtime": "0.0.52",
+    "@anthropic-ai/sandbox-runtime": "0.0.81",
     "@anthropic-ai/sdk": "^0.100.1",
     "@aws-sdk/client-s3": "3.1066.0",
     "@aws-sdk/client-secrets-manager": "^3.1066.0",
@@ -130,7 +130,7 @@
     "pg-boss": "^12.16.0",
     "playwright-core": "1.60.0-alpha-2026-04-27",
     "tldts": "^7.0.30",
-    "zod": "^4.0.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
@@ -154,12 +154,21 @@
     "node": ">=24 <25"
   },
   "overrides": {
+    "@anthropic-ai/sandbox-runtime@0.0.81": {
+      "zod": "$zod"
+    },
+    "@gantry/web": {
+      "zod": "$zod"
+    },
+    "express": {
+      "body-parser": "2.4.0"
+    },
     "esbuild": "0.28.0",
     "form-data": "4.0.6",
-    "hono": "4.12.26",
+    "hono": "4.13.11",
     "ws": "8.21.0",
-    "qs": "6.15.2",
-    "fast-uri": "^3.1.6",
+    "qs": "6.16.1",
+    "fast-uri": "^3.1.9",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
     "@emnapi/wasi-threads": "^1.2.3",
