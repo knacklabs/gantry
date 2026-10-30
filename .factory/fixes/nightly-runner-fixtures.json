@@ -3,12 +3,14 @@
   "branch": "fix/nightly-runner-fixtures",
   "done_when": "The two reproduced nightly failures pass with real saved sender policy, both denied and allowed follow-ups checked, and the compiled prompt plus appended tool availability verified. Keep strict assertions, use disposable Postgres, change tests only in a separate draft PR, and do not merge.",
   "kind": "fix",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-30T09:32:02+00:00",
       "step": "start"
     }
   ],
-  "why": "Nightly runner tests use an outdated prompt expectation and a policy mock bound to the wrong runtime home"
+  "why": "Nightly runner tests use an outdated prompt expectation and a policy mock bound to the wrong runtime home",
+  "worker": "codex"
 }
