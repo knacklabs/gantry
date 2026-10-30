@@ -3,12 +3,14 @@
   "branch": "fix/independent-ci-reliability",
   "done_when": "Scheduler dispatch and ordering assertions remain strict and pass with explicit CPU fixtures covering one, two and four CPUs; the unchanged full Forge gate has a finite thirty-minute budget. Keep dependency updates out of this separate draft PR and do not merge.",
   "kind": "fix",
-  "status": "started",
+  "round": 1,
+  "status": "working",
   "steps": [
     {
       "at": "2026-10-30T09:22:19+00:00",
       "step": "start"
     }
   ],
-  "why": "CI capacity tests depend on host CPU count and the full gate exceeds ten minutes"
+  "why": "CI capacity tests depend on host CPU count and the full gate exceeds ten minutes",
+  "worker": "codex"
 }
