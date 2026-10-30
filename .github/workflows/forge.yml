@@ -22,7 +22,9 @@ jobs:
     runs-on: "ubuntu-latest"
     env:
       UV_FROZEN: '1'
-    timeout-minutes: 10
+    # Main CI measured 18m42s; unit tests alone took 654.93s.
+    # forge sync resets this local budget; retain it when regenerating.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
