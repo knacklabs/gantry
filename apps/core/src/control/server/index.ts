@@ -64,6 +64,7 @@ import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
+import { handleTeamsActivityRoutes } from './routes/teams-activities.js';
 import { handleGuidedActionRoutes } from './routes/guided-actions.js';
 import { createJobManagementService, handleJobRoutes } from './routes/jobs.js';
 import { handleLlmRoutes } from './routes/llm.js';
@@ -123,6 +124,7 @@ function createControlRequestHandler(
         );
         return;
       }
+      if (await handleTeamsActivityRoutes(req, res, ctx, pathname)) return;
       // Ops profile (live-worker, job-worker) serves only operational and
       // read-only diagnostic routes; every admin/mutation route is unmounted and
       // falls through to the 404 fallback below.
@@ -238,6 +240,7 @@ export function startControlServer(input: {
   /** Built SPA directory. Defaults to the package's bundled `dist/ui`. */
   uiDistDir?: string;
   sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
+  processTeamsActivity?: ControlRouteContext['processTeamsActivity'];
   addMessageReaction?: ControlRouteContext['addMessageReaction'];
   /**
    * Which control routes to mount. `'full'` (default) mounts every route, the
@@ -373,6 +376,7 @@ export function startControlServer(input: {
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
   });
   const ctx: ControlRouteContext = {
+    processTeamsActivity: input.processTeamsActivity,
     app: input.app,
     sessionInteraction,
     getTriggerPattern: (trigger) => getTriggerPattern(trigger),

@@ -408,7 +408,18 @@ describe('source-local development', () => {
       );
       vi.doMock('node:child_process', () => ({
         spawn,
-        execFileSync: vi.fn(() => ''),
+        execFileSync: vi.fn((command: string, args: string[]) => {
+          if (command === 'taskkill') {
+            const child = children.find(
+              (entry) => entry.pid === Number(args[1]),
+            )!;
+            queueMicrotask(() => {
+              child.signalCode = 'SIGTERM';
+              child.emit('exit', null);
+            });
+          }
+          return '';
+        }),
       }));
       vi.spyOn(process, 'kill').mockImplementation((pid) => {
         const child = children.find((entry) => entry.pid === -pid)!;
@@ -479,8 +490,12 @@ describe('source-local development', () => {
       expect(fs.existsSync(path.join(home, 'unknown'))).toBe(true);
       expect(await stopLocalDevelopment(home)).toBe(true);
       expect(await running).toBe(0);
-      expect(process.kill).toHaveBeenCalledWith(-children[1].pid, 'SIGTERM');
-      expect(process.kill).toHaveBeenCalledWith(-children[2].pid, 'SIGTERM');
+      if (process.platform !== 'win32') {
+        expect(process.kill).toHaveBeenCalledWith(-children[1].pid, 'SIGTERM');
+        expect(process.kill).toHaveBeenCalledWith(-children[2].pid, 'SIGTERM');
+      }
+      expect(children[1].signalCode).toBe('SIGTERM');
+      expect(children[2].signalCode).toBe('SIGTERM');
     },
   );
 

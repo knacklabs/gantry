@@ -127,7 +127,8 @@ function normalizeStorageRef(value: string): string {
 
 function sanitizeSegment(value: string): string {
   const safe = value
-    .replace(/[^A-Za-z0-9._:-]+/g, '_')
+    // Canonical IDs contain colons, which are invalid path segments on Windows.
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^\.+/, '')
     .slice(0, 160);

@@ -453,7 +453,7 @@ describe('BuiltInControlChannelProviderCatalog', () => {
     expect(discord?.capabilityFlags).not.toContain('runtime-placeholder');
   });
 
-  it('does not advertise Teams runtime as installable while the transport is stubbed', () => {
+  it('advertises Teams setup and discovery without an automatic install action', () => {
     const catalog = new BuiltInControlChannelProviderCatalog();
 
     const teams = catalog
@@ -464,11 +464,7 @@ describe('BuiltInControlChannelProviderCatalog', () => {
       expect.objectContaining({
         id: 'teams',
         displayName: 'Teams',
-        capabilityFlags: expect.arrayContaining([
-          'setup',
-          'discover',
-          'runtime-placeholder',
-        ]),
+        capabilityFlags: expect.arrayContaining(['setup', 'discover']),
       }),
     );
     expect(teams?.capabilityFlags).not.toContain('install');

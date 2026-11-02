@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import pg from 'pg';
@@ -23,6 +23,12 @@ import {
   localUrlAtPort,
   resolveLocalUiOrigin,
 } from './local-doctor.js';
+import {
+  recordChildPid,
+  recordedPidsPath,
+  signalLocalChild,
+  stopRecordedChildren,
+} from './local-process.js';
 export const LOCAL_DATABASE_URL =
   'postgres://gantry_app:gantry_app_password@127.0.0.1:5432/gantry?schema=gantry';
 export const LOCAL_RESET_PATHS = [
@@ -37,7 +43,6 @@ export const LOCAL_RESET_PATHS = [
 ] as const;
 const OWNERSHIP_MARKER = '.gantry-owned';
 const RESET_MARKER = '.gantry-reset-in-progress';
-const PID_FILE = '.gantry-local-pids';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 export function validateLocalNode(version = process.versions.node): void {
   if (version.split('.')[0] !== '24')
@@ -195,47 +200,6 @@ function clearStaleResetMarker(home: string, acknowledged: boolean): void {
 function writeResetMarker(home: string, variant: 'reset' | 'reset-db'): void {
   fs.writeFileSync(resetMarkerPath(home), variant, { mode: 0o600 });
 }
-function recordedPidsPath(home: string): string {
-  return path.join(home, PID_FILE);
-}
-function recordChildPid(home: string, pid: number): void {
-  const file = recordedPidsPath(home);
-  const pids = fs.existsSync(file)
-    ? JSON.parse(fs.readFileSync(file, 'utf8'))
-    : [];
-  fs.writeFileSync(file, JSON.stringify([...new Set([...pids, pid])]), {
-    mode: 0o600,
-  });
-}
-function stopRecordedChildren(home: string): void {
-  const file = recordedPidsPath(home);
-  if (!fs.existsSync(file)) return;
-  const pids: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!Array.isArray(pids)) throw new Error(`Invalid local PID file: ${file}`);
-  for (const pid of pids) {
-    if (!Number.isSafeInteger(pid) || pid <= 1) continue;
-    let command = '';
-    try {
-      command = execFileSync('ps', ['-p', String(pid), '-o', 'command='], {
-        encoding: 'utf8',
-      });
-    } catch {
-      continue;
-    }
-    if (
-      !/apps\/core\/src\/index\.ts|node_modules\/vite\/bin\/vite\.js/.test(
-        command,
-      )
-    )
-      continue;
-    try {
-      process.kill(-pid, 'SIGTERM');
-    } catch {
-      // The child may have exited between inspection and signalling.
-    }
-  }
-  fs.unlinkSync(file);
-}
 async function databaseReachable(url: string): Promise<boolean> {
   const client = new pg.Client({
     connectionString: url,
@@ -389,11 +353,20 @@ export async function resetLocalDatabase(url: string): Promise<void> {
     await client.end();
   }
 }
+function localSupervisorEndpoint(home: string): string {
+  if (process.platform !== 'win32') return path.join(home, '.local-dev.sock');
+  const key = createHash('sha256')
+    .update(path.resolve(home).toLowerCase())
+    .digest('hex');
+  return `\\\\.\\pipe\\gantry-local-${key}`;
+}
 export async function stopLocalDevelopment(home: string): Promise<boolean> {
-  const socketPath = path.join(home, '.local-dev.sock');
-  if (!fs.existsSync(socketPath)) return false;
-  if (!fs.lstatSync(socketPath).isSocket())
-    throw new Error(`Refusing non-socket supervisor path: ${socketPath}`);
+  const socketPath = localSupervisorEndpoint(home);
+  if (process.platform !== 'win32') {
+    if (!fs.existsSync(socketPath)) return false;
+    if (!fs.lstatSync(socketPath).isSocket())
+      throw new Error(`Refusing non-socket supervisor path: ${socketPath}`);
+  }
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
     let response = '';
@@ -416,8 +389,11 @@ export async function stopLocalDevelopment(home: string): Promise<boolean> {
           ),
     );
     socket.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ECONNREFUSED') {
-        fs.unlinkSync(socketPath);
+      if (
+        error.code === 'ECONNREFUSED' ||
+        (process.platform === 'win32' && error.code === 'ENOENT')
+      ) {
+        if (process.platform !== 'win32') fs.unlinkSync(socketPath);
         resolve(false);
       } else reject(error);
     });
@@ -437,7 +413,7 @@ export async function superviseLocal(
     finish = resolve;
   });
   const control = net.createServer();
-  const socketPath = path.join(home, '.local-dev.sock');
+  const socketPath = localSupervisorEndpoint(home);
   const shutdown = async (code: number) => {
     if (stopping) return;
     stopping = true;
@@ -448,14 +424,15 @@ export async function superviseLocal(
           child.once('exit', () => resolve()),
         );
         try {
-          process.kill(-child.pid!, 'SIGTERM');
-        } catch {
+          signalLocalChild(child.pid!, 'SIGTERM');
+        } catch (error) {
+          if (process.platform === 'win32') throw error;
           // The child may have exited between inspection and signalling.
         }
         await Promise.race([exited, delay(5000, undefined, { ref: false })]);
         if (child.exitCode === null && child.signalCode === null) {
           try {
-            process.kill(-child.pid!, 'SIGKILL');
+            signalLocalChild(child.pid!, 'SIGKILL');
           } catch {
             // The child may have exited between inspection and signalling.
           }
@@ -485,7 +462,7 @@ export async function superviseLocal(
     control.once('error', reject);
     control.listen(socketPath, resolve);
   });
-  fs.chmodSync(socketPath, 0o600);
+  if (process.platform !== 'win32') fs.chmodSync(socketPath, 0o600);
   const onSignal = () => void shutdown(0);
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
@@ -499,7 +476,8 @@ export async function superviseLocal(
       cwd: repo,
       env: childEnv,
       stdio,
-      detached: true,
+      detached: process.platform !== 'win32',
+      windowsHide: true,
     });
     children.add(child);
     const recordsPid =

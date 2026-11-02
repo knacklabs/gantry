@@ -25,6 +25,7 @@ import {
   tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { startControlServer } from '../control/server/index.js';
+import { processTeamsActivity } from '../channels/teams/sdk-client.js';
 import { startSchedulerLoop, stopSchedulerLoop } from '../jobs/scheduler.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
@@ -431,6 +432,7 @@ export async function startGantryRuntime(
     }
 
     controlServerRef.current = startControlServer({
+      processTeamsActivity,
       app,
       getBrowserStatus,
       routeProfile: roleCaps.controlApi,

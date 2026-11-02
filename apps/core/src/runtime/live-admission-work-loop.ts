@@ -23,6 +23,7 @@ export interface LiveAdmissionWorkLoopHandle {
 }
 
 export interface StartLiveAdmissionWorkLoopInput {
+  beforePoll?: () => Promise<void>;
   liveAdmissions: LiveAdmissionWorkItemRepository;
   appId: string;
   workerInstanceId: string;
@@ -315,6 +316,14 @@ export function startLiveAdmissionWorkLoop(
   const done = (async () => {
     while (!stopped) {
       wakeRequested = false;
+      try {
+        await input.beforePoll?.();
+      } catch (err) {
+        input.warn(
+          { err },
+          'Inbound recovery failed; continuing durable admission',
+        );
+      }
       try {
         await drainOnce();
       } catch (err) {

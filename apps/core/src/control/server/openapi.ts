@@ -96,6 +96,59 @@ function buildPaths(): Record<string, Record<string, Record<string, unknown>>> {
     paths[route.path] ??= {};
     paths[route.path][route.method] = operationFromDoc(route);
   }
+  paths['/v1/providers/teams/{providerAccountId}/activities'] = {
+    post: {
+      operationId: 'receiveTeamsActivity',
+      tags: ['Providers'],
+      summary: 'Receive an authenticated Microsoft Teams activity.',
+      description:
+        'Available in full and ops profiles only for an account registered by an inbound Teams client. Authentication uses the Bot Framework JWT signature, issuer and bot audience, followed by the configured tenant check. A success response follows durable message saving. Outbound-only processes return 503 without consuming the body.',
+      security: [{ botFrameworkAuth: [] }],
+      'x-gantry-required-scopes': [],
+      parameters: [
+        {
+          name: 'providerAccountId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string' },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              description:
+                'Microsoft Bot Framework activity. Gantry accepts text messages and Adaptive Card submits; other authenticated activities refresh routing.',
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          description:
+            'Activity saved or action handled. Adaptive Card invokes return the Microsoft invoke response envelope.',
+        },
+        '400': { description: 'Invalid activity.' },
+        '401': {
+          description:
+            'Missing or invalid Bot Framework token, signature or audience.',
+        },
+        '403': {
+          description: 'Activity tenant does not match the configured tenant.',
+        },
+        '500': {
+          description:
+            'Message could not be saved or action handling failed. Retry the activity.',
+        },
+        '503': {
+          description:
+            'No inbound Teams client is registered for this account.',
+        },
+      },
+    },
+  };
   return paths;
 }
 
@@ -142,6 +195,13 @@ export const GANTRY_OPENAPI_DOCUMENT = {
   paths: buildPaths(),
   components: {
     securitySchemes: {
+      botFrameworkAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'Bot Framework JWT',
+        description:
+          'Microsoft Bot Connector service token for the configured bot app ID. Gantry control tokens do not authenticate Teams activities.',
+      },
       bearerAuth: {
         type: 'http',
         scheme: 'bearer',
