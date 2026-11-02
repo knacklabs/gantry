@@ -3,13 +3,15 @@
   "branch": "fix/windows-local-supervisor",
   "done_when": "On Windows, npm run dev starts Gantry and prints a working browser authorization link; npm run dev:stop stops the source core, Vite, and owned Postgres without leaving child processes; Linux and macOS behavior is unchanged; focused CLI tests pass.",
   "kind": "fix",
+  "round": 1,
   "stacked_on": "TEAMS-1/T5",
-  "status": "started",
+  "status": "working",
   "steps": [
     {
       "at": "2026-11-02T20:42:29+00:00",
       "step": "start"
     }
   ],
-  "why": "Windows local development cannot create its supervisor endpoint"
+  "why": "Windows local development cannot create its supervisor endpoint",
+  "worker": "codex"
 }
