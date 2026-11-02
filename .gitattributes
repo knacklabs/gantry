@@ -1,3 +1,4 @@
+* text=auto eol=lf
 plans/roadmap.json merge=forge-roadmap
 apps/core/src/adapters/storage/postgres/schema/migrations/meta/*_snapshot.json linguist-generated
 plans/spotted.json merge=forge-roadmap

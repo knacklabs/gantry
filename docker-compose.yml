@@ -19,7 +19,7 @@ services:
       - ${GANTRY_POSTGRES_DATA:-${HOME}/gantry/postgres}:/var/lib/postgresql/data
       - ./ops/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d gantry']
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d gantry']
       interval: 2s
       timeout: 3s
       retries: 30
