@@ -1,0 +1,44 @@
+{
+  "amendments": [
+    {
+      "at": "2026-11-02T07:22:56+00:00",
+      "because": "The owner explicitly requires the job timeout to remain ten minutes; remove the proposed thirty-minute override and keep the CPU fixture correction only.",
+      "done_when": "Scheduler dispatch and ordering assertions remain strict and pass with explicit CPU fixtures covering one, two and four CPUs; the unchanged full Forge gate has a finite thirty-minute budget. Keep dependency updates out of this separate draft PR and do not merge."
+    }
+  ],
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/independent-ci-reliability",
+  "done_when": "Scheduler dispatch and ordering assertions remain strict and pass with explicit CPU fixtures covering one, two and four CPUs. Preserve the existing ten-minute Forge job limit. Keep dependency updates out of this separate draft PR and do not merge.",
+  "flagged": [
+    "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "ca4856b6fbe2b094079d70166d19c6f68a3a9d71697e806decb220efb18a44da",
+    "changed": "b7dd1d5123955a70940b4d1a0ff95ea6742f92d93e10921eb98af1424e5c1b1b",
+    "commit": "f9129b9186ef11f887b7a2c6bfd730697c55de33",
+    "dismissals": [],
+    "findings": [],
+    "id": "0098be30-9a37-4651-a87c-82b1f6a827ae",
+    "status": "clean"
+  },
+  "round": 1,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-30T09:22:19+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-11-02T07:32:00+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-02T07:48:47+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "CI capacity tests depend on host CPU count and the full gate exceeds ten minutes",
+  "worker": "codex"
+}
