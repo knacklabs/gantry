@@ -199,6 +199,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/unit/runtime/task-scheduler-pgboss.test.ts\tNot done: proof list\tindependent-ci-reliability",
+      "kind": "bug",
+      "path": "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts",
+      "line": 832,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "independent-ci-reliability",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/architecture/README.md\tNot done: proof list\tthere-is-no-architecture-or-flow-documen",
       "kind": "bug",
       "path": "docs/architecture/README.md",

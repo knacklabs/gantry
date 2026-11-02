@@ -9,13 +9,38 @@
   "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
   "branch": "fix/independent-ci-reliability",
   "done_when": "Scheduler dispatch and ordering assertions remain strict and pass with explicit CPU fixtures covering one, two and four CPUs. Preserve the existing ten-minute Forge job limit. Keep dependency updates out of this separate draft PR and do not merge.",
+  "flagged": [
+    "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts"
+  ],
   "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "6deffc5c013fcfe41a5fc5944f0088328bef809684acb1d419bfba2e04e8fbf8",
+    "changed": "76e1c811c59e6a89ae32f2a148477814177c81311572877e6d9bbc4db1927e41",
+    "commit": "5aa64fac076d269c403ec57b961f62501aadbbf2",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The supplied proof list is missing. Add the required list identifying proof for strict scheduler dispatch and ordering assertions, the explicit one-, two-, and four-CPU fixtures, the preserved ten-minute Forge limit, and the dependency and draft/no-merge constraints. The reported close command checks formatting, architecture, lint, and types; it does not establish that the scheduler tests pass.",
+        "file": "apps/core/test/unit/runtime/task-scheduler-pgboss.test.ts",
+        "line": 832,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "873706ea-ab09-4a1d-b2c3-9a99cab9b492",
+    "status": "blocked"
+  },
   "round": 1,
-  "status": "working",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-30T09:22:19+00:00",
       "step": "start"
+    },
+    {
+      "at": "2026-11-02T07:32:00+00:00",
+      "step": "review"
     }
   ],
   "why": "CI capacity tests depend on host CPU count and the full gate exceeds ten minutes",
