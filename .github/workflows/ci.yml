@@ -95,7 +95,38 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
 
+      # Diagnostics must not change host policy or replace the enforcement check.
+      - name: Record sandbox host diagnostics
+        run: |
+          echo '=== Sandbox host (read-only diagnostics, not enforcement proof) ==='
+          uname -sr
+          cat /etc/os-release
+          id -u
+          cat /proc/self/attr/current || true
+          grep -E '^(NoNewPrivs|Seccomp|Cap(Inh|Prm|Eff|Bnd|Amb)):' /proc/self/status
+          bwrap --version
+          dpkg-query -W bubblewrap apparmor 2>&1 || true
+          for setting in kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone user.max_user_namespaces; do
+            sysctl "$setting" 2>&1 || true
+          done
+          echo '=== Relevant loaded AppArmor profiles ==='
+          sudo -n timeout 5s cat /sys/kernel/security/apparmor/profiles |
+            grep -E 'bwrap|unprivileged_userns|apply-seccomp' | head -n 40 || true
+
+          namespace_probe() {
+            label="$1"
+            shift
+            if timeout 5s bwrap --unshare-user --unshare-pid --cap-drop ALL "$@" --ro-bind / / --proc /proc --dev /dev /bin/true; then
+              printf 'DIAGNOSTIC %s exit=0\n' "$label"
+            else
+              printf 'DIAGNOSTIC %s exit=%s\n' "$label" "$?"
+            fi
+          }
+          namespace_probe user-pid
+          namespace_probe user-pid-network --unshare-net
+
       - name: Verify real sandbox file protection
+        id: sandbox_smoke
         run: |
           timeout 40s node --import tsx --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
@@ -170,6 +201,16 @@ jobs:
             fs.rmSync(root, { recursive: true, force: true });
           }
           NODE
+
+      - name: Record sandbox kernel denials
+        if: ${{ always() && steps.sandbox_smoke.outcome == 'failure' }}
+        run: |
+          echo '=== Recent sandbox-specific kernel denials (read-only) ==='
+          if ! sudo -n timeout 5s dmesg --since '5 minutes ago' --color=never |
+            grep -E 'apparmor="DENIED".*(bwrap|apply-seccomp|unprivileged_userns|capname="(net_admin|sys_admin)")' |
+            tail -n 80; then
+            echo 'No matching denials were readable; this does not rule out host security policy.'
+          fi
 
       - name: Bootstrap Postgres test DB
         run: |
