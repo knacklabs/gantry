@@ -18,7 +18,11 @@ import { AvailableGroup } from './agent-spawn.js';
 import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 import { resolveAgentLockStatus } from '../config/profiles.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
-import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
+import {
+  makeAgentThreadQueueKey,
+  parseAgentThreadQueueKey,
+} from '../shared/thread-queue-key.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 
 interface ChatRow {
   jid: string;
@@ -48,6 +52,36 @@ function isPromiseLike(value: unknown): value is Promise<void> {
   );
 }
 
+function commitConversationRoute(
+  conversationRoutes: Record<string, ConversationRoute>,
+  key: string,
+  group: ConversationRoute,
+): void {
+  const identityKey = (routeKey: string, route: ConversationRoute) => {
+    const parsed = parseAgentThreadQueueKey(routeKey);
+    return makeAgentThreadQueueKey(
+      parsed.chatJid,
+      parsed.agentId ?? agentIdForFolder(route.folder),
+      parsed.threadId,
+      parsed.providerAccountId ?? route.providerAccountId,
+    );
+  };
+  const identity = identityKey(key, group);
+  // Cold recovery retains the saved key and a qualified execution alias.
+  // Keep both current without touching another thread or binding's route.
+  for (const [alias, route] of Object.entries(conversationRoutes)) {
+    if (
+      route.conversationId === group.conversationId &&
+      agentIdForFolder(route.folder) === agentIdForFolder(group.folder) &&
+      route.providerAccountId === group.providerAccountId &&
+      identityKey(alias, route) === identity
+    ) {
+      conversationRoutes[alias] = group;
+    }
+  }
+  conversationRoutes[key] = group;
+}
+
 function commitGroupOverride(
   conversationRoutes: Record<string, ConversationRoute>,
   chatJid: string,
@@ -57,7 +91,7 @@ function commitGroupOverride(
   logMessage: string,
 ): void | Promise<void> {
   const commit = () => {
-    conversationRoutes[chatJid] = updatedGroup;
+    commitConversationRoute(conversationRoutes, chatJid, updatedGroup);
     logger.info(logContext, logMessage);
   };
   if (isPromiseLike(persisted)) {
@@ -116,8 +150,8 @@ export async function registerGroup(
     getFileArtifactStore: options.getFileArtifactStore,
   });
 
-  conversationRoutes[jid] = group;
   await options.persist(jid, group);
+  commitConversationRoute(conversationRoutes, jid, group);
   options.ensureCredentialBinding(jid, group);
 
   logger.info(
