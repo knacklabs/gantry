@@ -61,8 +61,8 @@ this endpoint, binding their signed service URL to the activity; Agent365 Entra
 activity ingress is outside this bot transport's scope. SDK diagnostic output is
 suppressed because it can include entire activities; Gantry logs fixed outcomes.
 
-The SDK sends to the persisted service URL, adding the thread suffix for channel
-replies and encoding conversation and activity IDs in URL paths. Cards, streaming
+The SDK sends to the persisted service URL, adding the thread suffix whenever
+Gantry supplies a thread ID and encoding conversation and activity IDs in URL paths. Cards, streaming
 edits, and proactive delivery use the same saved route after restart. No SDK
 conversation object is persisted.
 
@@ -103,7 +103,7 @@ Proof list:
 | Restart-safe proactive delivery | Same end-to-end file: `delivers a proactive message through a fresh client using the previously saved Teams route`. `apps/core/test/integration/teams-conversation-routing.postgres.integration.test.ts`: `remembers refreshed routes for sibling accounts across canonical saves and reloads without crossing connections` owns route refresh, aliases, reload and isolation. | Both passed on disposable Postgres. |
 | Authorized approval/action | Same end-to-end file: `keeps an approval pending after an unauthorized card submit and lets a permitted person decide`; distinct bot-scoped and Entra identities, missing/spoofed card identity denial, authorized resolution and card update. | Passed. |
 | Authenticated ingress and durable acknowledgement | `apps/core/test/unit/channels/teams/live-transport.test.ts`: token rejection cases cover unsigned, wrong audience, issuer, expiry, service URL and signature; tenant refusal, outbound-only/stopped aliases, and `waits for inbound save and returns a safe non-success response when saving fails`. Real SDK validation is used. | Passed. |
-| Delivery, card protocol and private errors | Same transport file: message/invoke envelope cases, HTTP error redaction, 413 split retry and `updates the sent Adaptive Card at its exact conversation, thread and activity path`. | Passed. |
+| Delivery, card protocol and private errors | Same transport file: message/invoke envelope cases, HTTP error redaction, 413 split retry, `updates the sent Adaptive Card at its exact conversation, thread and activity path`, and `keeps threaded delivery after refreshing routing without conversation type`. | Passed. |
 | SDK dependency image gate | Required `.github/workflows/image.yml` Trivy `image` job on [the pull request](https://github.com/knacklabs/gantry/pull/625). Patched MSAL, body-parser, follow-redirects and node-forge pins address its previously reported vulnerabilities. | GitHub scan remains required; its final result must be checked on the latest commit. |
 
 The full local test run passed 9,393 unit tests and 96 integration tests.
@@ -112,3 +112,8 @@ all three Teams end-to-end scenarios above were run separately with a real test
 URL. The full build, architecture, formatting, changed-file lint, TypeScript and
 migration-history checks passed. Temporarily removing either identity or mention
 repair made its end-to-end regression fail; repaired files were restored.
+
+The route-refresh threading regression failed before its repair: a saved route
+with omitted conversation type sent to the flat conversation despite a thread ID.
+After repair, Gantry preserves the threaded destination independently of that
+optional metadata, matching the SDK's [threading contract](https://microsoft.github.io/teams-sdk/blog/quoted-and-threaded-replies/).

@@ -387,10 +387,10 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
     let externalMessageId: string | undefined;
     try {
       const api = this.app.api.fromServiceUrl({ serviceUrl: route.serviceUrl });
-      const destination =
-        route.conversationType === 'channel' && threadId
-          ? `${canonicalId};messageid=${threadId}`
-          : canonicalId;
+      // Thread addressing must survive activities that omit conversation type.
+      const destination = threadId
+        ? `${canonicalId};messageid=${threadId}`
+        : canonicalId;
       const payload = {
         ...activity,
         channelId: route.channelId,

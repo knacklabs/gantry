@@ -540,9 +540,9 @@ describe('authenticated Teams transport', () => {
     expect(sent).toEqual([]);
   });
 
-  it('refreshes routing from an authenticated non-message activity with conversation tenant metadata', async () => {
+  it('keeps threaded delivery after refreshing routing without conversation type', async () => {
     const received = vi.fn(async () => {});
-    await start('teams_one', received);
+    const client = await start('teams_one', received);
     const base = await listen();
     const response = await fetch(`${base}/teams_one`, {
       method: 'POST',
@@ -564,5 +564,20 @@ describe('authenticated Teams transport', () => {
       conversationType: null,
     });
     expect(received).not.toHaveBeenCalled();
+    await client.sendMessage({
+      conversationId: '19:chat@thread.tacv2',
+      threadId: 'root',
+      text: 'reply after route refresh',
+    });
+    expect(sent).toEqual([
+      expect.objectContaining({
+        conversation: {
+          id: '19:chat@thread.tacv2;messageid=root',
+          tenantId: credentials.tenantId,
+        },
+        replyToId: 'root',
+        text: 'reply after route refresh',
+      }),
+    ]);
   });
 });
