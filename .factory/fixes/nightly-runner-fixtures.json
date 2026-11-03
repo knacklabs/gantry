@@ -8,24 +8,16 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "5644ed9b8be16bff64ddd1d659003a3142ac31966c17ee96d1523aeb5030a777",
+    "branch_diff": "b98605dd24fa5bc3cddf17d56bf685cf5c290215829450cecc69f4735fda6fb6",
     "changed": "c042f2e6788d493888eac8025065d93f7868fdcfcf801be2e52f5176b517fd54",
-    "commit": "65afe6597927470077f297d4b92f500ce7a34aec",
+    "commit": "6c8de46b803595a21b136be9bd85969cc56d6f16",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The supplied proof list is explicitly missing. Provide the required latest-commit list mapping every Done-when detail to its named proof: both nightly failures, saved sender policy with denied and allowed follow-ups, compiled prompt and appended tool availability, and bounded verification using disposable Postgres. The successful formatting, lint and typecheck gate does not supply this mapping.",
-        "file": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
-        "line": 56,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      }
-    ],
-    "id": "7f23bdec-043c-46a7-bf73-612a4974b7a2",
-    "status": "blocked"
+    "findings": [],
+    "id": "3a3bd5b9-b0d7-46f2-a19f-bd8a2e410dc4",
+    "status": "clean"
   },
   "round": 1,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-30T09:32:02+00:00",
@@ -33,6 +25,10 @@
     },
     {
       "at": "2026-11-03T07:14:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T07:24:34+00:00",
       "step": "review"
     }
   ],
