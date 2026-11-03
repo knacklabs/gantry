@@ -133,6 +133,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts\tNot done: proof list\tnightly-runner-fixtures",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts",
+      "line": 56,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "nightly-runner-fixtures",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/integration/inline-agent-runtime.integration.test.ts\tThe Control API run stays running at the completion assertion on both this branch and origin/main.",
       "kind": "bug",
       "path": "apps/core/test/integration/inline-agent-runtime.integration.test.ts",

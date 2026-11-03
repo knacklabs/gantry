@@ -1,0 +1,37 @@
+{
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/nightly-runner-fixtures",
+  "done_when": "The two reproduced nightly failures pass with real saved sender policy, both denied and allowed follow-ups checked, and the compiled prompt plus appended tool availability verified. Keep strict assertions, use disposable Postgres, change tests only in a separate draft PR, and do not merge.",
+  "flagged": [
+    "apps/core/test/e2e/claim-protocol-two-process.postgres.e2e.test.ts"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "b98605dd24fa5bc3cddf17d56bf685cf5c290215829450cecc69f4735fda6fb6",
+    "changed": "c042f2e6788d493888eac8025065d93f7868fdcfcf801be2e52f5176b517fd54",
+    "commit": "6c8de46b803595a21b136be9bd85969cc56d6f16",
+    "dismissals": [],
+    "findings": [],
+    "id": "3a3bd5b9-b0d7-46f2-a19f-bd8a2e410dc4",
+    "status": "clean"
+  },
+  "round": 1,
+  "status": "waiting for checks",
+  "steps": [
+    {
+      "at": "2026-10-30T09:32:02+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-11-03T07:14:16+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T07:24:34+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "Nightly runner tests use an outdated prompt expectation and a policy mock bound to the wrong runtime home",
+  "worker": "codex"
+}
