@@ -3,17 +3,40 @@
   "flagged": [
     "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
     "apps/core/src/channels/teams/sdk-client.ts",
-    "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts"
+    "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+    "docs/operations/teams-live-transport.md"
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "63dca8f6ff87cfe8345a1ee37f23671ca99f81fb4ff3d70778363ef2dc926f16",
-    "changed": "fa83de59f91934af4a54499e51674886a7f327b8e51d33574cbc493b4eb27678",
-    "commit": "ec237e67b661ccbec9a0a402095dd6f6e83a16c6",
+    "branch_diff": "542cf7fb7269babd34fec7751ef52a1cce355e7be8278c7a9c0c5e428acc7398",
+    "changed": "4c72499c7fa29c7c56b762ba0eaef73a113e39d5b022506ee72ba0b548ac24b9",
+    "commit": "c87a7070250cbe170b7968f0756a4a71bab63b7e",
     "dismissals": [],
-    "findings": [],
-    "id": "ca47f84a-fed6-4c52-a6b4-739ba8bcae3f",
-    "status": "clean"
+    "findings": [
+      {
+        "body": "The supplied commit evidence explicitly reports no `Functional check:` paragraph. Record an actual exercise and observed results for all three covered outcomes: a same-thread reply, proactive delivery after restart, and an unauthorized approval followed by a permitted decision. Existing test declarations do not supply the required execution report.",
+        "file": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+        "line": 66,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "The supplied latest-commit evidence marks the proof list as missing. Add the required mapping from all three Done-when items and their detailed requirements to named tests, including authentication, durable saving/recovery, route isolation/reload, and approval authorization, plus the Trivy PR check. The general automated-proof description here does not provide that mapping.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 78,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      },
+      {
+        "body": "A clean `npm ci --omit=dev` still runs `prepare`, but Husky is a devDependency and therefore its executable is absent. This unconditional command aborts installation with `husky: not found`; the reported close run includes devDependencies and cannot detect it. Use a portable prepare wrapper that skips loading Husky for production installs. [Husky documents this failure](https://typicode.github.io/husky/how-to.html#ci-server-and-docker).",
+        "file": "package.json",
+        "line": 80,
+        "priority": "P2",
+        "title": "Keep production-only installs independent of Husky"
+      }
+    ],
+    "id": "eecb122c-c761-416a-b742-24ed9ef0c337",
+    "status": "blocked"
   },
   "round": 6,
   "status": "fixing",
@@ -37,8 +60,11 @@
     {
       "at": "2026-10-23T02:27:30+00:00",
       "step": "review"
+    },
+    {
+      "at": "2026-11-03T09:47:48+00:00",
+      "step": "review"
     }
   ],
-  "tests": "`npx --yes -p node@24 -- sh -c \"npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck\"` exited with status 217 on this machine.\nnpm error code ENOTEMPTY\nnpm error syscall rmdir\nnpm error path /home/caw/Desktop/gantry-teams-sdk/node_modules/@langchain/langgraph-checkpoint-postgres/dist\nnpm error errno -39\nnpm error ENOTEMPTY: directory not empty, rmdir '/home/caw/Desktop/gantry-teams-sdk/node_modules/@langchain/langgraph-checkpoint-postgres/dist'\nnpm error A complete log of this run can be found in: /home/caw/.npm/_logs/2026-11-03T09_29_25_469Z-debug-0.log",
   "worker": "codex"
 }

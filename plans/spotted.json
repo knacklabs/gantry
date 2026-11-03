@@ -309,6 +309,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/operations/teams-live-transport.md\tNot done: proof list\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "docs/operations/teams-live-transport.md",
+      "line": 78,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tdocs/specs/job-background-work-saves.md\tNot done: proof list\tbackground-work-started-by-a-job-can-t-b",
       "kind": "bug",
       "path": "docs/specs/job-background-work-saves.md",
@@ -448,6 +459,17 @@
       "text": "Repair the remaining broken research citations",
       "from": "review",
       "item": "subagents-refuse-hang-lose-results-and-i",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tpackage.json\tKeep production-only installs independent of Husky",
+      "kind": "edge",
+      "path": "package.json",
+      "line": 80,
+      "text": "Keep production-only installs independent of Husky",
+      "from": "review",
+      "item": "TEAMS-1/T5",
       "status": "open",
       "closed_by": null
     },
