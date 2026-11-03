@@ -1,12 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import {
-  CloudAdapter,
-  ConfigurationBotFrameworkAuthentication,
-  TurnContext,
-  type Activity,
-  type ConversationReference,
-} from 'botbuilder';
+import { App, type HttpRouteHandler } from '@microsoft/teams.apps';
+import { PUBLIC, type IMessageActivityInput } from '@microsoft/teams.api';
 import { z } from 'zod';
 
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -39,7 +34,24 @@ const activitySchema = z.object({
     tenantId: z.string().optional(),
   }),
   recipient: z.object({ id: identifier }),
-  from: z.object({ id: identifier, name: z.string().optional() }).optional(),
+  from: z
+    .object({
+      id: identifier,
+      aadObjectId: z.uuid().optional(),
+      name: z.string().optional(),
+    })
+    .optional(),
+  entities: z
+    .array(
+      z
+        .object({
+          type: z.string(),
+          mentioned: z.object({ id: z.string() }).optional(),
+          text: z.string().optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
   channelData: z
     .object({ tenant: z.object({ id: identifier }).optional() })
     .passthrough()
@@ -108,8 +120,8 @@ function cardValue(value: unknown): unknown {
 }
 
 class MicrosoftTeamsSdkClient implements TeamsSdkClient {
-  private readonly authentication: ConfigurationBotFrameworkAuthentication;
-  private readonly adapter: CloudAdapter;
+  private readonly app: App;
+  private httpHandler?: HttpRouteHandler;
   private onMessage?: TeamsSdkStartInput['onMessage'];
   private started = false;
   private readonly accountIds: string[];
@@ -128,13 +140,34 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         ...(options.inboundProviderAccountIds ?? []),
       ]),
     ];
-    this.authentication = new ConfigurationBotFrameworkAuthentication({
-      MicrosoftAppType: 'SingleTenant',
-      MicrosoftAppId: credentials.clientId,
-      MicrosoftAppPassword: credentials.clientSecret,
-      MicrosoftAppTenantId: credentials.tenantId,
+    // SDK logs include entire activities and credential-bearing HTTP errors.
+    // Gantry logs only fixed, redacted outcomes at this boundary.
+    const sdkLogger = {
+      debug() {},
+      info() {},
+      warn() {},
+      error() {},
+      trace() {},
+      log() {},
+      child() {
+        return this;
+      },
+    };
+    this.app = new App({
+      ...credentials,
+      cloud: PUBLIC,
+      dangerouslyAllowUnauthenticatedRequests: false,
+      logger: sdkLogger,
+      httpServerAdapter: {
+        registerRoute: (_method, _path, handler) => {
+          this.httpHandler = handler;
+        },
+      },
     });
-    this.adapter = new CloudAdapter(this.authentication);
+    // The SDK owns Microsoft authentication. Gantry owns durable storage,
+    // agent execution and authorization, without SDK turn state.
+    this.app.server.onRequest = ({ body }) =>
+      this.handleAuthenticatedActivity(body);
   }
 
   private get routeStore(): TeamsConversationRouteStore {
@@ -143,6 +176,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
 
   async start(input: TeamsSdkStartInput): Promise<void> {
     if (this.started) return;
+    await this.app.initialize();
     if (input.inbound !== false) {
       if (this.accountIds.some((id) => inboundClients.has(id))) {
         throw new Error(
@@ -187,25 +221,38 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
       respond(response, 400, { error: 'Invalid Teams activity.' });
       return;
     }
-    // JSON parsing is not normalization. No Gantry data or route exists until
-    // Bot Framework has verified the token's signature, issuer and audience.
+    // Connector tokens bind serviceUrl. Agent365 Entra tokens do not and
+    // belong to a different ingress, outside this bot transport's scope.
+    let issuer: unknown;
     try {
-      await this.authentication.authenticateRequest(
-        raw as Activity,
-        authorization,
-      );
+      issuer = JSON.parse(
+        Buffer.from(authorization.split('.')[1]!, 'base64url').toString('utf8'),
+      ).iss;
     } catch {
+      /* The SDK verifies every accepted token below. */
+    }
+    if (issuer !== PUBLIC.tokenIssuer) {
+      respond(response, 401, { error: 'Teams authentication failed.' });
+      return;
+    }
+    // Never project the SDK's preauthenticated token field from HTTP input.
+    const result = await this.httpHandler!({
+      body: raw,
+      headers: { authorization },
+    });
+    if (result.status === 401) {
       logger.debug(
         { providerId: 'teams', outcome: 'unauthenticated' },
         'Teams activity refused',
       );
       respond(response, 401, { error: 'Teams authentication failed.' });
-      return;
-    }
+    } else respond(response, result.status, result.body);
+  }
+
+  private async handleAuthenticatedActivity(raw: unknown) {
     const parsed = activitySchema.safeParse(raw);
     if (!parsed.success) {
-      respond(response, 400, { error: 'Invalid Teams activity.' });
-      return;
+      return { status: 400, body: { error: 'Invalid Teams activity.' } };
     }
     const activity = parsed.data;
     const tenantId =
@@ -215,8 +262,10 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
       (activity.conversation.tenantId &&
         activity.conversation.tenantId !== tenantId)
     ) {
-      respond(response, 403, { error: 'This Teams tenant is not allowed.' });
-      return;
+      return {
+        status: 403,
+        body: { error: 'This Teams tenant is not allowed.' },
+      };
     }
     const [conversationId, suffixRoot] =
       activity.conversation.id.split(';messageid=');
@@ -225,8 +274,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
       ((activity.type === 'message' || activity.type === 'invoke') &&
         (!activity.id || !activity.from))
     ) {
-      respond(response, 400, { error: 'Invalid Teams activity.' });
-      return;
+      return { status: 400, body: { error: 'Invalid Teams activity.' } };
     }
     const isInvoke = activity.type === 'invoke';
     try {
@@ -248,13 +296,23 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
           (activity.conversation.conversationType === 'channel'
             ? activity.id
             : undefined);
+        const botMentions = (activity.entities ?? []).filter(
+          (entity) =>
+            entity.type === 'mention' &&
+            entity.mentioned?.id === activity.recipient.id,
+        );
+        let text = activity.text;
+        for (const mention of botMentions) {
+          if (mention.text) text = text?.split(mention.text).join('');
+        }
         const message: TeamsInboundMessage = {
           conversationId,
           id: activity.id,
-          text:
-            TurnContext.removeRecipientMention(raw as Activity)?.trim() ??
-            activity.text,
-          senderId: activity.from?.id,
+          text: text?.trim(),
+          mentionsBot: botMentions.length > 0,
+          // Graph membership, sender policies and configured approvers use
+          // Entra IDs. A bot-scoped ID alone cannot match a GUID allowlist.
+          senderId: activity.from?.aadObjectId ?? activity.from?.id,
           senderName: activity.from?.name,
           timestamp: activity.timestamp,
           threadId,
@@ -268,12 +326,15 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         await this.onMessage!(message);
       }
       if (isInvoke)
-        respond(response, 200, {
-          statusCode: 200,
-          type: 'application/vnd.microsoft.activity.message',
-          value: 'Action received.',
-        });
-      else respond(response, 200);
+        return {
+          status: 200,
+          body: {
+            statusCode: 200,
+            type: 'application/vnd.microsoft.activity.message',
+            value: 'Action received.',
+          },
+        };
+      return { status: 200 };
     } catch {
       logger.warn(
         {
@@ -284,10 +345,9 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         'Teams activity could not be handled',
       );
       // Teams reads handled invoke failures from the envelope's statusCode.
-      respond(
-        response,
-        isInvoke ? 200 : 500,
-        isInvoke
+      return {
+        status: isInvoke ? 200 : 500,
+        body: isInvoke
           ? {
               statusCode: 500,
               type: 'application/vnd.microsoft.error',
@@ -297,14 +357,14 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
               },
             }
           : { error: 'The message could not be saved. Try again.' },
-      );
+      };
     }
   }
 
   private async deliver(
     conversationId: string,
     threadId: string | undefined,
-    activity: Partial<Activity>,
+    activity: IMessageActivityInput,
     update = false,
   ): Promise<TeamsSdkSendResult> {
     if (!this.started)
@@ -324,35 +384,30 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
       throw new Error(
         'The saved Teams route belongs to another tenant. Send a new message to this bot in Teams.',
       );
-    const reference: Partial<ConversationReference> = {
-      serviceUrl: route.serviceUrl,
-      channelId: route.channelId,
-      bot: { id: route.botId, name: '' },
-      conversation: {
-        id: canonicalId,
-        name: '',
-        isGroup: route.conversationType !== 'personal',
-        conversationType: route.conversationType ?? '',
-        tenantId: route.tenantId,
-      },
-      ...(threadId ? { activityId: threadId } : {}),
-    };
     let externalMessageId: string | undefined;
     try {
-      await this.adapter.continueConversationAsync(
-        this.credentials.clientId,
-        reference,
-        async (context) => {
-          // SDK continuation events have a synthetic id. Only the Gantry thread
-          // may become replyToId; a root proactive send has no reply target.
-          if (threadId) context.activity.id = threadId;
-          else delete context.activity.id;
-          const result = update
-            ? await context.updateActivity(activity)
-            : await context.sendActivity(activity);
-          externalMessageId = result?.id;
-        },
-      );
+      const api = this.app.api.fromServiceUrl({ serviceUrl: route.serviceUrl });
+      const destination =
+        route.conversationType === 'channel' && threadId
+          ? `${canonicalId};messageid=${threadId}`
+          : canonicalId;
+      const payload = {
+        ...activity,
+        channelId: route.channelId,
+        from: { id: route.botId, name: '' },
+        conversation: { id: destination, tenantId: route.tenantId },
+        ...(threadId ? { replyToId: threadId } : {}),
+      };
+      // The SDK's low-level API interpolates IDs directly into URL paths.
+      const encodedConversation = encodeURIComponent(destination);
+      const result = update
+        ? await api.conversations.updateActivity(
+            encodedConversation,
+            encodeURIComponent(activity.id!),
+            payload,
+          )
+        : await api.conversations.createActivity(encodedConversation, payload);
+      externalMessageId = result.id;
     } catch (error) {
       logger.warn(
         {
@@ -363,12 +418,13 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
         'Teams delivery failed',
       );
       const status =
-        error && typeof error === 'object'
-          ? 'statusCode' in error
-            ? error.statusCode
-            : 'status' in error
-              ? error.status
-              : undefined
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object' &&
+        'status' in error.response
+          ? error.response.status
           : undefined;
       // Only numeric HTTP error status may cross this boundary, so the channel
       // can split 413 payloads without retaining SDK request/response data.

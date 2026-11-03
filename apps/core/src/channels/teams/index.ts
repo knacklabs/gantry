@@ -420,6 +420,7 @@ export class TeamsChannel implements ChannelAdapter {
       thread_id: message.threadId,
       reply_to_message_id: message.replyToId,
       external_message_id: message.id,
+      mentionsBot: message.mentionsBot,
       ...(attachments.length > 0 ? { attachments } : {}),
     };
     await this.opts.onMessage(jid, normalized);

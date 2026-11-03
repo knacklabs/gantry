@@ -16,7 +16,7 @@
     "status": "clean"
   },
   "round": 6,
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -39,5 +39,6 @@
       "step": "review"
     }
   ],
+  "tests": "`npx --yes -p node@24 -- sh -c \"npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck\"` exited with status 217 on this machine.\nnpm error code ENOTEMPTY\nnpm error syscall rmdir\nnpm error path /home/caw/Desktop/gantry-teams-sdk/node_modules/@langchain/langgraph-checkpoint-postgres/dist\nnpm error errno -39\nnpm error ENOTEMPTY: directory not empty, rmdir '/home/caw/Desktop/gantry-teams-sdk/node_modules/@langchain/langgraph-checkpoint-postgres/dist'\nnpm error A complete log of this run can be found in: /home/caw/.npm/_logs/2026-11-03T09_29_25_469Z-debug-0.log",
   "worker": "codex"
 }
