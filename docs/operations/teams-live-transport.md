@@ -82,3 +82,33 @@ live Teams tenant, Slack or Telegram check is included.
 SDK selection follows Microsoft's
 [successor guidance](https://learn.microsoft.com/en-us/microsoftteams/platform/legacy-tools-sdks)
 and [custom HTTP server support](https://microsoft.github.io/teams-sdk/typescript/in-depth-guides/server/http-server/).
+
+## Verification record — 2026-11-03
+
+Functional check: The final SDK dependency tree was exercised through real Gantry
+HTTP, the production inbox/recovery/admission path and a disposable Postgres
+instance. An initial native mention in a trigger-required conversation produced
+one same-thread agent reply. After disconnect/reconnect, a fresh client sent a
+proactive update using the previously stored route. Missing Entra identity and
+another member's approval submits left the prompt pending and its card unchanged;
+the configured Entra approver then resolved the decision and updated the card.
+Only Microsoft's HTTP services and the model runner were faked. All three
+end-to-end scenarios passed; no live tenant check was performed.
+
+Proof list:
+
+| Promised result | Owner proof and detailed requirements | Observed result |
+|---|---|---|
+| Inbound text and same-thread reply | `apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts`: `answers inbound text in the originating Teams conversation and thread`; requires a native mention and a permitted Entra sender, observes persistence and production recovery/admission. | Passed. |
+| Restart-safe proactive delivery | Same end-to-end file: `delivers a proactive message through a fresh client using the previously saved Teams route`. `apps/core/test/integration/teams-conversation-routing.postgres.integration.test.ts`: `remembers refreshed routes for sibling accounts across canonical saves and reloads without crossing connections` owns route refresh, aliases, reload and isolation. | Both passed on disposable Postgres. |
+| Authorized approval/action | Same end-to-end file: `keeps an approval pending after an unauthorized card submit and lets a permitted person decide`; distinct bot-scoped and Entra identities, missing/spoofed card identity denial, authorized resolution and card update. | Passed. |
+| Authenticated ingress and durable acknowledgement | `apps/core/test/unit/channels/teams/live-transport.test.ts`: token rejection cases cover unsigned, wrong audience, issuer, expiry, service URL and signature; tenant refusal, outbound-only/stopped aliases, and `waits for inbound save and returns a safe non-success response when saving fails`. Real SDK validation is used. | Passed. |
+| Delivery, card protocol and private errors | Same transport file: message/invoke envelope cases, HTTP error redaction, 413 split retry and `updates the sent Adaptive Card at its exact conversation, thread and activity path`. | Passed. |
+| SDK dependency image gate | Required `.github/workflows/image.yml` Trivy `image` job on [the pull request](https://github.com/knacklabs/gantry/pull/625). Patched MSAL, body-parser, follow-redirects and node-forge pins address its previously reported vulnerabilities. | GitHub scan remains required; its final result must be checked on the latest commit. |
+
+The full local test run passed 9,393 unit tests and 96 integration tests.
+Database-dependent suites were skipped in that default run; the route test and
+all three Teams end-to-end scenarios above were run separately with a real test
+URL. The full build, architecture, formatting, changed-file lint, TypeScript and
+migration-history checks passed. Temporarily removing either identity or mention
+repair made its end-to-end regression fail; repaired files were restored.

@@ -77,7 +77,7 @@
     "security:sbom": "npm sbom --omit=dev --sbom-format=cyclonedx",
     "security:package": "python3 scripts/check_package_contents.py",
     "security:images": "python3 scripts/check_runtime_images.py",
-    "prepare": "husky",
+    "prepare": "node -e \"if (process.env.NODE_ENV !== 'production') import('husky').then(husky => husky.default())\"",
     "prepublishOnly": "npm run build",
     "lint": "eslint apps/core/src packages/contracts/src packages/sdk/src",
     "lint:changed": "node scripts/lint-changed.mjs",
