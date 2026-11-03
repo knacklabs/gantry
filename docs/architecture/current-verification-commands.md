@@ -40,8 +40,12 @@ Runtime and deployment migration application remain `npm run db:migrate`.
 
 Every workflow defaults `GITHUB_TOKEN` contents access to read-only, with
 job-local write permissions only where an existing publishing action requires
-them. All jobs run on GitHub-hosted `ubuntu-latest` runners; no pull-request
-job uses a persistent self-hosted runner.
+them. Jobs run on GitHub-hosted runners; no pull-request job uses a persistent
+self-hosted runner. The main CI job temporarily pins `ubuntu-22.04` to run the
+real sandbox file-protection check without an AppArmor override. Other jobs
+remain on `ubuntu-latest`. This proves enforcement only on the selected host,
+not compatibility with newer Ubuntu releases or a deployed server. Replace the
+pin before GitHub's [announced retirement on 2027-04-17](https://github.com/actions/runner-images/issues/14254).
 
 The main CI workflow remains a `pull_request` check and includes the agent E2E
 real-model turn. `E2E_MODEL_API_KEY` is mapped only into that step, which exits
