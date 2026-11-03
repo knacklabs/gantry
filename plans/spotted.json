@@ -386,6 +386,17 @@
       "closed_by": null
     },
     {
+      "key": "edge\tapps/core/src/channels/teams/sdk-client.ts\t[P2] Preserve thread targeting when conversation type is absent",
+      "kind": "edge",
+      "path": "apps/core/src/channels/teams/sdk-client.ts",
+      "line": 391,
+      "text": "[P2] Preserve thread targeting when conversation type is absent",
+      "from": "review",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "edge\tapps/core/src/runtime/group-trigger-policy.ts\tHandle brackets in document names when matching caption triggers",
       "kind": "edge",
       "path": "apps/core/src/runtime/group-trigger-policy.ts",

@@ -8,38 +8,24 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "542cf7fb7269babd34fec7751ef52a1cce355e7be8278c7a9c0c5e428acc7398",
-    "changed": "4c72499c7fa29c7c56b762ba0eaef73a113e39d5b022506ee72ba0b548ac24b9",
-    "commit": "c87a7070250cbe170b7968f0756a4a71bab63b7e",
+    "branch_diff": "7346f81e5ee2961571f8e6ce70b39945533c02d58f800c3167fb3241e4076d74",
+    "changed": "b948f7a9f16a60132c17b8de7b6952636dc4872f3188c5ec4521973df7b16420",
+    "commit": "657adbc603bcd905f0ebe95dddde605bc5e247aa",
     "dismissals": [],
     "findings": [
       {
-        "body": "The supplied commit evidence explicitly reports no `Functional check:` paragraph. Record an actual exercise and observed results for all three covered outcomes: a same-thread reply, proactive delivery after restart, and an unauthorized approval followed by a permitted decision. Existing test declarations do not supply the required execution report.",
-        "file": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
-        "line": 66,
-        "priority": "P1",
-        "title": "Not done: functional check"
-      },
-      {
-        "body": "The supplied latest-commit evidence marks the proof list as missing. Add the required mapping from all three Done-when items and their detailed requirements to named tests, including authentication, durable saving/recovery, route isolation/reload, and approval authorization, plus the Trivy PR check. The general automated-proof description here does not provide that mapping.",
-        "file": "docs/operations/teams-live-transport.md",
-        "line": 78,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      },
-      {
-        "body": "A clean `npm ci --omit=dev` still runs `prepare`, but Husky is a devDependency and therefore its executable is absent. This unconditional command aborts installation with `husky: not found`; the reported close run includes devDependencies and cannot detect it. Use a portable prepare wrapper that skips loading Husky for production installs. [Husky documents this failure](https://typicode.github.io/husky/how-to.html#ci-server-and-docker).",
-        "file": "package.json",
-        "line": 80,
+        "body": "An authenticated activity without `conversation.conversationType` refreshes the saved route to `conversationType: null`, a case the new transport tests explicitly accept. Subsequent delivery with a Gantry thread ID then omits `;messageid=<root>` from the destination. Microsoft's [SDK documentation](https://microsoft.github.io/teams-sdk/blog/quoted-and-threaded-replies/) confirms that `replyToId` does not control threading, so text, cards and card updates can target the wrong conversation or fail after this refresh. Construct the threaded destination whenever a thread ID is supplied, following the SDK's conversation-independent threading behavior.",
+        "file": "apps/core/src/channels/teams/sdk-client.ts",
+        "line": 391,
         "priority": "P2",
-        "title": "Keep production-only installs independent of Husky"
+        "title": "[P2] Preserve thread targeting when conversation type is absent"
       }
     ],
-    "id": "eecb122c-c761-416a-b742-24ed9ef0c337",
-    "status": "blocked"
+    "id": "670827e3-89f1-4bc6-9504-61e49f15730d",
+    "status": "clean"
   },
   "round": 6,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -63,6 +49,10 @@
     },
     {
       "at": "2026-11-03T09:47:48+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T09:58:44+00:00",
       "step": "review"
     }
   ],
