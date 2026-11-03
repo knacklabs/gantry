@@ -8,20 +8,12 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "7346f81e5ee2961571f8e6ce70b39945533c02d58f800c3167fb3241e4076d74",
-    "changed": "b948f7a9f16a60132c17b8de7b6952636dc4872f3188c5ec4521973df7b16420",
-    "commit": "657adbc603bcd905f0ebe95dddde605bc5e247aa",
+    "branch_diff": "bd17bd943423eecfaf3dd277bbd5c0a71324728dfb72259a30bc8f73f87b4688",
+    "changed": "75541ff1f129318088264424321c606f54977987431559aab065740f98c2cd67",
+    "commit": "4661aefe0d9fd91f741053c9a448d3509cbe6b7f",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "An authenticated activity without `conversation.conversationType` refreshes the saved route to `conversationType: null`, a case the new transport tests explicitly accept. Subsequent delivery with a Gantry thread ID then omits `;messageid=<root>` from the destination. Microsoft's [SDK documentation](https://microsoft.github.io/teams-sdk/blog/quoted-and-threaded-replies/) confirms that `replyToId` does not control threading, so text, cards and card updates can target the wrong conversation or fail after this refresh. Construct the threaded destination whenever a thread ID is supplied, following the SDK's conversation-independent threading behavior.",
-        "file": "apps/core/src/channels/teams/sdk-client.ts",
-        "line": 391,
-        "priority": "P2",
-        "title": "[P2] Preserve thread targeting when conversation type is absent"
-      }
-    ],
-    "id": "670827e3-89f1-4bc6-9504-61e49f15730d",
+    "findings": [],
+    "id": "5bb48b68-b0f9-45c3-8395-78dea011394f",
     "status": "clean"
   },
   "round": 6,
@@ -53,6 +45,10 @@
     },
     {
       "at": "2026-11-03T09:58:44+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T10:09:08+00:00",
       "step": "review"
     }
   ],
