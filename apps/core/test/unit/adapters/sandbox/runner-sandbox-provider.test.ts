@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -180,9 +181,15 @@ describe('runner sandbox provider', () => {
       expect.stringContaining('"parentProxy"'),
       { mode: 0o600 },
     );
-    const config = JSON.parse(
-      String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
+    const config = SandboxRuntimeConfigSchema.parse(
+      JSON.parse(String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1])),
     );
+    expect(
+      SandboxRuntimeConfigSchema.safeParse({
+        ...config,
+        network: { ...config.network, allowedDomains: ['*'] },
+      }).success,
+    ).toBe(false);
     expect(config.network.httpProxyPort).toBeUndefined();
     expect(config.network.socksProxyPort).toBeUndefined();
     expect(config.network.parentProxy).toEqual({

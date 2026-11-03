@@ -1,0 +1,54 @@
+{
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/the-runtime-image-is-blocked-by-body-par",
+  "done_when": "The runtime dependency tree resolves the flagged body-parser and Zod copies to patched releases without breaking schema, MCP or sandbox behavior; the rebuilt runtime image passes the unchanged high and critical Trivy scan and existing PR checks",
+  "flagged": [
+    ".github/workflows/ci.yml",
+    "package.json"
+  ],
+  "kind": "fix",
+  "review": {
+    "blocking_level": "P1",
+    "branch_diff": "c423524b05851a3b9d61e380fe945f24c2aa7aa7b8943238a3eb451636cd9b72",
+    "changed": "9bfd22d23070cb26ca48ec04661305937bfdc6e0c1b78abdea125063c2c32e5d",
+    "commit": "fbdd051826e303a664c475952c4cc91b40d51ae2",
+    "dismissals": [],
+    "findings": [
+      {
+        "body": "The supplied proof records a main-CI failure during sandbox loopback setup. It also says this follow-up preserves the real sandbox executable body, runner and permissions; the added diagnostics only observe failures. Thus the known enforcement failure remains unresolved, and passing schema tests, namespace probes and the image check does not demonstrate protected-file enforcement. Fix the sandbox execution failure while preserving the real assertions, then obtain a passing enforcement check. This finding concerns the recorded failure, not merely the pending diagnostic results.",
+        "file": ".github/workflows/ci.yml",
+        "line": 128,
+        "priority": "P1",
+        "title": "Not done: sandbox execution and protected-file enforcement"
+      }
+    ],
+    "id": "53aac826-5eae-4db8-891c-a85c7184de8e",
+    "status": "blocked"
+  },
+  "round": 2,
+  "status": "fixing",
+  "steps": [
+    {
+      "at": "2026-10-28T06:38:59+00:00",
+      "step": "start"
+    },
+    {
+      "at": "2026-10-28T06:56:38+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-10-29T08:30:17+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-02T09:35:53+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-02T11:08:58+00:00",
+      "step": "review"
+    }
+  ],
+  "why": "The runtime image is blocked by body-parser and Zod security findings",
+  "worker": "codex"
+}

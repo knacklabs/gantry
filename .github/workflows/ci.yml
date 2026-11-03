@@ -20,7 +20,9 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Temporary compatible host for the real sandbox check; no AppArmor override.
+    # Replace this pin before GitHub retires the image on 2027-04-17.
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     services:
       postgres:
@@ -89,6 +91,128 @@ jobs:
 
       - name: Web build
         run: npm run build:web
+
+      - name: Install sandbox test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
+
+      # Diagnostics must not change host policy or replace the enforcement check.
+      - name: Record sandbox host diagnostics
+        run: |
+          echo '=== Sandbox host (read-only diagnostics, not enforcement proof) ==='
+          uname -sr
+          cat /etc/os-release
+          id -u
+          cat /proc/self/attr/current || true
+          grep -E '^(NoNewPrivs|Seccomp|Cap(Inh|Prm|Eff|Bnd|Amb)):' /proc/self/status
+          bwrap --version
+          dpkg-query -W bubblewrap apparmor 2>&1 || true
+          for setting in kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone user.max_user_namespaces; do
+            sysctl "$setting" 2>&1 || true
+          done
+          echo '=== Relevant loaded AppArmor profiles ==='
+          sudo -n timeout 5s cat /sys/kernel/security/apparmor/profiles |
+            grep -E 'bwrap|unprivileged_userns|apply-seccomp' | head -n 40 || true
+
+          namespace_probe() {
+            label="$1"
+            shift
+            if timeout 5s bwrap --unshare-user --unshare-pid --cap-drop ALL "$@" --ro-bind / / --proc /proc --dev /dev /bin/true; then
+              printf 'DIAGNOSTIC %s exit=0\n' "$label"
+            else
+              printf 'DIAGNOSTIC %s exit=%s\n' "$label" "$?"
+            fi
+          }
+          namespace_probe user-pid
+          namespace_probe user-pid-network --unshare-net
+
+      - name: Verify real sandbox file protection
+        id: sandbox_smoke
+        run: |
+          timeout 40s node --import tsx --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { createRunnerSandboxProvider } from './apps/core/src/adapters/sandbox/runner-sandbox-provider.ts';
+
+          const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-sandbox-ci-'));
+          const work = path.join(root, 'work');
+          const control = path.join(root, 'control');
+          const temp = path.join(root, 'tmp');
+          for (const directory of [work, control, temp]) fs.mkdirSync(directory);
+          fs.writeFileSync(path.join(work, 'public.txt'), 'public');
+          fs.writeFileSync(path.join(work, 'secret.txt'), 'protected-read');
+          fs.writeFileSync(path.join(work, 'sealed.txt'), 'protected-write');
+          const limits = { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 };
+          let child;
+          let closed = false;
+          try {
+            const provider = createRunnerSandboxProvider({ provider: 'sandbox_runtime', resourceLimits: limits });
+            child = provider.start({
+              command: '/bin/sh',
+              args: ['-c', [
+                'set -eu',
+                'test "$(cat public.txt)" = public',
+                'printf writable >output.txt',
+                'if cat secret.txt >/dev/null 2>&1; then exit 41; fi',
+                'if (printf changed >sealed.txt) 2>/dev/null; then exit 42; fi',
+                'printf sandbox-ok',
+              ].join('\n')],
+              cwd: work, workspaceRoot: work,
+              configFilePath: path.join(control, 'sandbox.json'),
+              env: { PATH: process.env.PATH, TMPDIR: temp },
+              allowedNetworkHosts: [], runtimeReadPaths: [], runtimeWritePaths: [],
+              protectedReadPaths: [path.join(work, 'secret.txt')],
+              protectedWritePaths: [path.join(work, 'sealed.txt')],
+              resourceLimits: limits,
+              sandboxProfile: { id: 'ci-enforcement', network: 'none', filesystem: 'workspace_write' },
+              principal: { appId: 'ci-enforcement', agentId: 'probe' },
+            });
+            let stdout = '', stderr = '';
+            child.stdout.on('data', chunk => { stdout = (stdout + chunk).slice(-16384); });
+            child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-16384); });
+            child.stdin.end();
+            const result = await new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                child.kill('SIGKILL');
+                reject(new Error(`Sandbox deadline: ${stderr}`));
+              }, 15000);
+              child.once('error', error => { clearTimeout(timer); reject(error); });
+              child.once('close', (code, signal) => {
+                closed = true;
+                clearTimeout(timer);
+                resolve({ code, signal });
+              });
+            });
+            assert.equal(result.code, 0, `Sandbox failed: ${JSON.stringify(result)} ${stderr}`);
+            assert.equal(stdout, 'sandbox-ok');
+            assert.equal(fs.readFileSync(path.join(work, 'output.txt'), 'utf8'), 'writable');
+            assert.equal(fs.readFileSync(path.join(work, 'secret.txt'), 'utf8'), 'protected-read');
+            assert.equal(fs.readFileSync(path.join(work, 'sealed.txt'), 'utf8'), 'protected-write');
+            console.log('PASS: real Gantry sandbox permits public read/write and denies protected read/write');
+          } finally {
+            if (child && !closed) {
+              child.kill('SIGKILL');
+              await new Promise(resolve => {
+                const timer = setTimeout(resolve, 2000);
+                child.once('close', () => { clearTimeout(timer); resolve(); });
+              });
+            }
+            fs.rmSync(root, { recursive: true, force: true });
+          }
+          NODE
+
+      - name: Record sandbox kernel denials
+        if: ${{ always() && steps.sandbox_smoke.outcome == 'failure' }}
+        run: |
+          echo '=== Recent sandbox-specific kernel denials (read-only) ==='
+          if ! sudo -n timeout 5s dmesg --since '5 minutes ago' --color=never |
+            grep -E 'apparmor="DENIED".*(bwrap|apply-seccomp|unprivileged_userns|capname="(net_admin|sys_admin)")' |
+            tail -n 80; then
+            echo 'No matching denials were readable; this does not rule out host security policy.'
+          fi
 
       - name: Bootstrap Postgres test DB
         run: |

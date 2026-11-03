@@ -12,6 +12,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\t.github/workflows/ci.yml\tNot done: sandbox execution and protected-file enforcement\tthe-runtime-image-is-blocked-by-body-par",
+      "kind": "bug",
+      "path": ".github/workflows/ci.yml",
+      "line": 128,
+      "text": "Not done: sandbox execution and protected-file enforcement",
+      "from": "blocking",
+      "item": "the-runtime-image-is-blocked-by-body-par",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/src/domain/ports/inbound-events.ts\tNot done: shared inbox lifecycle signatures\tMSG-1/T1",
       "kind": "bug",
       "path": "apps/core/src/domain/ports/inbound-events.ts",
@@ -294,6 +305,17 @@
       "text": "Not done: proof list",
       "from": "blocking",
       "item": "upgrade-forge-to-v1-2-7",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tpackage.json\tNot done: sandbox execution and protected-file enforcement\tthe-runtime-image-is-blocked-by-body-par",
+      "kind": "bug",
+      "path": "package.json",
+      "line": 100,
+      "text": "Not done: sandbox execution and protected-file enforcement",
+      "from": "blocking",
+      "item": "the-runtime-image-is-blocked-by-body-par",
       "status": "open",
       "closed_by": null
     },
