@@ -166,7 +166,24 @@ describe('cli teams helpers', () => {
           { status: 200, headers: { 'content-type': 'application/json' } },
         ),
       );
-    vi.stubGlobal('fetch', fetchSpy);
+    // Microsoft Graph's list-channels API rejects unsupported query options.
+    vi.stubGlobal('fetch', (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/channels') && url.searchParams.has('$top')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 'BadRequest',
+                message: "Query option 'Top' is not allowed.",
+              },
+            }),
+            { status: 400 },
+          ),
+        );
+      }
+      return fetchSpy(input, init);
+    });
 
     const { listTeamsChannels } =
       await import('@core/channels/teams/setup-discovery.js');
