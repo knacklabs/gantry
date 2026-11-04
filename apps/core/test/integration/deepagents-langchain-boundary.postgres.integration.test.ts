@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 
@@ -1374,7 +1373,7 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
     );
     const temp = makeTempRoot();
     try {
-      const result = await runRunner({
+      await runRunner({
         stdin: {
           prompt: 'run the command',
           workspaceFolder: 'group',
