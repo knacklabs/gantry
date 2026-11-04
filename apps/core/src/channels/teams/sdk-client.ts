@@ -5,7 +5,6 @@ import { PUBLIC, type IMessageActivityInput } from '@microsoft/teams.api';
 import { z } from 'zod';
 
 import { logger } from '../../infrastructure/logging/logger.js';
-import { getRuntimeTeamsConversationRouteStore } from './conversation-route-store.postgres.js';
 import type { TeamsConversationRouteStore } from './conversation-route-store.js';
 import type {
   TeamsChannelCredentials,
@@ -131,7 +130,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
     private readonly options: {
       providerAccountId: string;
       inboundProviderAccountIds?: string[];
-      routeStore?: TeamsConversationRouteStore;
+      routeStore: TeamsConversationRouteStore;
     },
   ) {
     this.accountIds = [
@@ -171,7 +170,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
   }
 
   private get routeStore(): TeamsConversationRouteStore {
-    return this.options.routeStore ?? getRuntimeTeamsConversationRouteStore();
+    return this.options.routeStore;
   }
 
   async start(input: TeamsSdkStartInput): Promise<void> {
@@ -495,7 +494,7 @@ export function createMicrosoftTeamsSdkClient(
   options: {
     providerAccountId: string;
     inboundProviderAccountIds?: string[];
-    routeStore?: TeamsConversationRouteStore;
+    routeStore: TeamsConversationRouteStore;
   },
 ): TeamsSdkClient {
   return new MicrosoftTeamsSdkClient(credentials, options);

@@ -1,6 +1,7 @@
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { TeamsChannel } from './index.js';
+import { getRuntimeTeamsConversationRouteStore } from './conversation-route-store.postgres.js';
 import { createMicrosoftTeamsSdkClient } from './sdk-client.js';
 import {
   readTeamsCredentials,
@@ -29,6 +30,7 @@ export async function createTeamsChannel(
     createMicrosoftTeamsSdkClient(credentials, {
       providerAccountId: opts.providerAccountId ?? 'teams_default',
       inboundProviderAccountIds: opts.inboundProviderAccountIds,
+      routeStore: getRuntimeTeamsConversationRouteStore(),
     });
   return new TeamsChannel(credentials, opts, sdkClient);
 }
