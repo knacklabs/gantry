@@ -774,6 +774,10 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
         apiKey: 'gtw_integrationtoken',
       });
 
+      expect(gateway.requests.length).toBeGreaterThan(0);
+      for (const request of gateway.requests) {
+        expect(request.path).toBe('/openai/v1/chat/completions');
+      }
       expect(result.code).toBe(0);
       const frames = parseFrames(result.stdout);
 
@@ -816,7 +820,6 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
       expect(usageFrame?.contextUsage?.maxTokens).toBeGreaterThan(0);
 
       // Env hygiene: only the run-scoped gateway token reaches the upstream.
-      expect(gateway.requests.length).toBeGreaterThan(0);
       expect(
         gateway.requests.some((request) =>
           request.body.includes('initial memory'),
@@ -826,7 +829,6 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
       // the fake model rejects a request outside that public HTTP contract.
       for (const request of gateway.requests) {
         expect(request.authorization).toBe('Bearer gtw_integrationtoken');
-        expect(request.path).toBe('/openai/v1/chat/completions');
         expect(request.body).not.toContain('gtw_');
       }
 
