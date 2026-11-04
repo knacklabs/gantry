@@ -31,12 +31,12 @@ Keep a private setup note with the bot name, app ID and tenant ID. Save password
 ## 1 Create a separate test team
 
 1. Open [Teams web](https://teams.microsoft.com/).
-2. Choose **Create team**. Depending on your Teams layout, this is under **New items** or **Teams and channels**.
-3. Create a team from scratch. Choose **Private**, and name it **Gantry Test**, or another clear test name.
-4. Create a channel named **Testing**. Choose **Standard** for the channel type.
+2. Select **Chat** on the left, or **Teams** if you use the separate view. Above the chat/channel list, select **New items → New team**.
+3. Name it **Gantry Test**, or another clear test name, and choose **Private**.
+4. Name its first channel **Testing**, then select **Create**. If you need to add it afterward, use the test team's **… → Add channel** and choose **Standard**.
 5. Keep that team and channel open. You will select them again later.
 
-A private **team** with a standard **channel** is the combination used here.
+A private **team** with a standard **channel** is the combination used here. [Microsoft team creation instructions](https://support.microsoft.com/en-us/teams/teams-channels/create-a-team-from-scratch-in-microsoft-teams).
 
 ## 2 Create the Azure Bot
 
@@ -164,7 +164,7 @@ When a free tunnel expires or is recreated, save its new address here again. Kee
 4. Keep valid default icons or supply the required color and outline icons.
 5. Open **App features → Bot**, choose **Enter a bot ID**, and paste Azure's **Microsoft App ID**.
 6. Enable **Team** scope. Keep **notification-only** mode off so the bot can receive messages.
-7. For the newer channel experience, open the manifest editor and set the top-level `supportsChannelFeatures` value to `"tier1"`. Keep the existing app ID and bot ID unchanged.
+7. For the newer channel experience, open **Configure → App package editor**, find `manifest.json`, and select its **… → Edit** menu. Set the top-level `supportsChannelFeatures` value to `"tier1"`. Keep the existing app ID and bot ID unchanged.
 8. Save and validate the app. A manifest editor **Save** may only stage the edit: complete the surrounding app **Update** and confirmation too. Increase the app version when updating an installed package.
 9. Select **Preview in Teams**, then **Add to a team** when offered.
 10. Select **Gantry Test / Testing** and confirm **Add** or **Go**.
