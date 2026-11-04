@@ -8,16 +8,38 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "bd17bd943423eecfaf3dd277bbd5c0a71324728dfb72259a30bc8f73f87b4688",
-    "changed": "75541ff1f129318088264424321c606f54977987431559aab065740f98c2cd67",
-    "commit": "4661aefe0d9fd91f741053c9a448d3509cbe6b7f",
+    "branch_diff": "d939b3bec33ca6bdfe0f7de98539e8cdb9c906fa924182c2e65a27eec7e0b94c",
+    "changed": "9305b29209e5779ce94af7f35c889af89b967721f9ba3cbf75737313e308173a",
+    "commit": "7a3475eb2b1fb7cc10625501a12bf241765c6a0a",
     "dismissals": [],
-    "findings": [],
-    "id": "5bb48b68-b0f9-45c3-8395-78dea011394f",
-    "status": "clean"
+    "findings": [
+      {
+        "body": "The standard requires modules to use another module through its exported service, \u201cnever through its repository, tables or internal files.\u201d The SDK client imports the Postgres implementation and resolves global runtime storage itself; that implementation directly imports storage repositories and schema. This also contradicts the approved boundary requiring the factory to inject TeamsConversationRouteStore and prohibiting Postgres imports in the SDK client. Inject the existing store interface from the factory so transport authentication and delivery remain independent of persistence construction.",
+        "file": "apps/core/src/channels/teams/sdk-client.ts",
+        "line": 8,
+        "priority": "P1",
+        "title": "Standard: Module boundaries"
+      },
+      {
+        "body": "The supplied commit inspection explicitly reports that the worker's last commit has no required Functional check: paragraph. The operations guide records a substantive exercise of all three journeys, but the contract requires that record in the commit message. Include what was exercised and observed in the required commit paragraph.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 88,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "The supplied handoff evidence reports the latest commit's proof list as missing. Although this guide contains a detailed proof table, the required commit-supplied list that Forge copies into the pull request is absent. Include the behavior-to-proof mapping in that handoff, including the three journeys, focused authentication and storage proofs, and required image check.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 98,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "018ca533-7b7c-4eb8-84c9-210a1d9870ce",
+    "status": "blocked"
   },
   "round": 6,
-  "status": "waiting for checks",
+  "status": "hotspot",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -50,7 +72,14 @@
     {
       "at": "2026-11-03T10:09:08+00:00",
       "step": "review"
+    },
+    {
+      "at": "2026-11-04T11:19:34+00:00",
+      "step": "review"
     }
   ],
+  "stop": {
+    "file": "apps/core/src/channels/teams/sdk-client.ts"
+  },
   "worker": "codex"
 }
