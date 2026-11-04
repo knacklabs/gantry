@@ -39,7 +39,7 @@
     "status": "blocked"
   },
   "round": 6,
-  "status": "hotspot",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -79,7 +79,9 @@
     }
   ],
   "stop": {
-    "file": "apps/core/src/channels/teams/sdk-client.ts"
+    "choice": "narrow",
+    "file": "apps/core/src/channels/teams/sdk-client.ts",
+    "reason": "Owner replied fix to the pending choice to keep the same PR and narrow remaining work to the verified discovery and route-store construction repairs. All approved Teams features remain in scope; review the corrected source and commit proof record. No merge."
   },
   "worker": "codex"
 }
