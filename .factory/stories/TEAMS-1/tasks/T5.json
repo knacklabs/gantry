@@ -8,16 +8,31 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "075b7419df57da85b19765654d3155eff820a47a6dcd8da2d6896c37fed15192",
-    "changed": "0a832d8eafcca4862c1d4944c8a5e711c30b7a7f1fa5b64521de495fef9e2dcf",
-    "commit": "80ec594ba25a36306dbed5b87e07b05560bcffc7",
+    "branch_diff": "7729a10b65fac95c092e7c4b17bc2879de596a4569ec24fdecab91bdb545259b",
+    "changed": "41dbd6c0fc1551ba8f1035b6570dde68d301d8bcc91adec0df3837717401e4ca",
+    "commit": "c1ae49367b2370583128535ceeaf5dbfe9ed73d8",
     "dismissals": [],
-    "findings": [],
-    "id": "15f9d3e9-90f6-4e86-a994-9481d64e39c5",
-    "status": "clean"
+    "findings": [
+      {
+        "body": "Forge's supplied commit evidence reports no final `Functional check:` paragraph. The verification prose here does not satisfy the required commit-message handoff. Add the paragraph describing the exercised inbound reply, restart/proactive delivery, and unauthorized-then-authorized approval journeys and their observed results.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 87,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "Forge explicitly reports that the latest commit supplies no proof list. The documentation table does not supply the commit record Forge copies into the pull request. Include the complete mapping of all three Done-when items and their detailed requirements to the named tests, with the configured Trivy check identified separately from completed local verification.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 97,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      }
+    ],
+    "id": "dcf6a333-e050-4240-bc02-4b26a0062238",
+    "status": "blocked"
   },
   "round": 6,
-  "status": "waiting for checks",
+  "status": "fixing",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -65,6 +80,10 @@
     },
     {
       "at": "2026-11-05T10:38:50+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-05T10:57:37+00:00",
       "step": "review"
     }
   ],
