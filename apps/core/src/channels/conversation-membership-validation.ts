@@ -11,6 +11,14 @@ import {
 import { normalizeProviderId } from './provider-registry.js';
 
 const TOKEN_BOUND_HTTP_GUIDANCE = 'Verify provider credentials and retry.';
+class TeamsChannelMembershipAccessError extends Error {
+  constructor() {
+    super(
+      'Microsoft Graph denied access to channel members. Review the app’s channel membership permission and consent, then retry.',
+    );
+  }
+}
+
 const TELEGRAM_BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]+$/;
 const DISCORD_ADMINISTRATOR = 1n << 3n;
 const DISCORD_VIEW_CHANNEL = 1n << 10n;
@@ -364,11 +372,14 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
         validUserIds: input.userIds.filter((id) => memberSet.has(id)),
         invalidUserIds: input.userIds.filter((id) => !memberSet.has(id)),
       };
-    } catch {
+    } catch (error) {
       return {
         validUserIds: [],
         invalidUserIds: input.userIds,
-        reason: TOKEN_BOUND_HTTP_GUIDANCE,
+        reason:
+          error instanceof TeamsChannelMembershipAccessError
+            ? error.message
+            : TOKEN_BOUND_HTTP_GUIDANCE,
       };
     }
   }
@@ -404,33 +415,79 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     input: ConversationMembershipValidationInput,
     accessToken: string,
   ): Promise<string[]> {
-    const endpoint = teamsMembersEndpoint(input);
-    const members: string[] = [];
+    const endpoint = await this.teamsMembersEndpoint(input, accessToken);
+    const values = await this.listTeamsValues<Record<string, unknown>>(
+      endpoint,
+      accessToken,
+      input.conversation.kind === 'channel',
+    );
+    return values.flatMap((member) =>
+      [member.userId, member.id, member.email, member.userPrincipalName]
+        .filter(
+          (value): value is string =>
+            typeof value === 'string' && Boolean(value.trim()),
+        )
+        .map((value) => value.trim()),
+    );
+  }
+
+  private async teamsMembersEndpoint(
+    input: ConversationMembershipValidationInput,
+    accessToken: string,
+  ): Promise<string> {
+    const config = input.providerAccount.config || {};
+    const conversationId = externalConversationValue(input).replace(
+      /^teams:/,
+      '',
+    );
+    if (input.conversation.kind !== 'channel') {
+      const chatId = stringConfigValue(config, 'chatId') || conversationId;
+      return `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/members`;
+    }
+    let teamId = stringConfigValue(config, 'teamId');
+    if (!teamId) {
+      const teams = await this.listTeamsValues<{ id?: string }>(
+        'https://graph.microsoft.com/v1.0/teams?$select=id',
+        accessToken,
+      );
+      for (const team of teams) {
+        if (!team.id) continue;
+        const channels = await this.listTeamsValues<{ id?: string }>(
+          `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(team.id)}/channels?$select=id`,
+          accessToken,
+        );
+        if (channels.some((channel) => channel.id === conversationId)) {
+          teamId = team.id;
+          break;
+        }
+      }
+    }
+    if (!teamId) throw new Error('Teams channel was not found.');
+    return `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(conversationId)}/members`;
+  }
+
+  private async listTeamsValues<T>(
+    endpoint: string,
+    accessToken: string,
+    channelMembers = false,
+  ): Promise<T[]> {
+    const values: T[] = [];
     let nextUrl: string | undefined = endpoint;
     while (nextUrl) {
       const response = await fetchWithTimeout(nextUrl, {
         headers: { authorization: `Bearer ${accessToken}` },
       });
+      if (response.status === 403 && channelMembers)
+        throw new TeamsChannelMembershipAccessError();
       if (!response.ok) throw new Error('Teams membership check failed');
       const payload = (await response.json()) as {
-        value?: Array<Record<string, unknown>>;
+        value?: T[];
         '@odata.nextLink'?: string;
       };
-      for (const member of payload.value || []) {
-        for (const value of [
-          member.userId,
-          member.id,
-          member.email,
-          member.userPrincipalName,
-        ]) {
-          if (typeof value === 'string' && value.trim()) {
-            members.push(value.trim());
-          }
-        }
-      }
+      values.push(...(payload.value || []));
       nextUrl = payload['@odata.nextLink'];
     }
-    return members;
+    return values;
   }
 
   private async resolveSecret(
@@ -468,25 +525,6 @@ function externalConversationValue(
   input: ConversationMembershipValidationInput,
 ): string {
   return input.conversation.externalRef?.value || input.conversation.id;
-}
-
-function teamsMembersEndpoint(
-  input: ConversationMembershipValidationInput,
-): string {
-  const config =
-    input.providerAccount.config &&
-    typeof input.providerAccount.config === 'object'
-      ? (input.providerAccount.config as Record<string, unknown>)
-      : {};
-  const teamId = stringConfigValue(config, 'teamId');
-  const channelId = stringConfigValue(config, 'channelId');
-  if (teamId && channelId) {
-    return `https://graph.microsoft.com/v1.0/teams/${encodeURIComponent(teamId)}/channels/${encodeURIComponent(channelId)}/members`;
-  }
-  const chatId =
-    stringConfigValue(config, 'chatId') ||
-    externalConversationValue(input).replace(/^teams:/, '');
-  return `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/members`;
 }
 
 function stringConfigValue(

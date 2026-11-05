@@ -20,7 +20,7 @@ export interface TeamsChannelCredentials {
 }
 
 // Keep Microsoft SDK shapes behind this adapter-owned interface so domain,
-// application, and tests do not depend on Bot Framework or Graph SDK types.
+// application, and tests do not depend on Microsoft SDK types.
 export interface TeamsInboundMessage {
   conversationId: string;
   id?: string;
@@ -33,6 +33,7 @@ export interface TeamsInboundMessage {
   };
   senderId?: string;
   senderName?: string;
+  mentionsBot?: boolean;
   timestamp?: string;
   threadId?: string;
   replyToId?: string;
@@ -66,6 +67,7 @@ export interface TeamsSdkReplyListInput extends TeamsSdkMessageListInput {
 
 export interface TeamsSdkStartInput {
   credentials: TeamsChannelCredentials;
+  inbound?: boolean;
   onMessage: (message: TeamsInboundMessage) => Promise<void>;
 }
 
@@ -127,6 +129,7 @@ export type TeamsChannelOpts = Pick<
   | 'isControlApproverAllowed'
   | 'onMessageAction'
   | 'providerAccountId'
+  | 'inboundProviderAccountIds'
   | 'agentId'
   | 'conversationRoutes'
 >;

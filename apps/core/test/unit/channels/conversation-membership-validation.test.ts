@@ -124,89 +124,147 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
     );
   });
 
-  it('validates Teams approvers through Microsoft Graph conversation members', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ access_token: 'graph-token' }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            value: [
-              {
-                id: 'membership-1',
-                userId: 'teams-user-1',
-                email: 'admin@example.com',
-              },
-            ],
-          }),
-          { status: 200 },
-        ),
-      );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const validator = new RuntimeSecretConversationMembershipValidator({
-      getSecret(ref) {
-        const value = this.getOptionalSecret(ref);
-        if (!value) throw new Error(`missing ${secretRefName(ref)}`);
-        return value;
-      },
-      getOptionalSecret(ref) {
-        return {
-          TEAMS_CLIENT_ID: 'client-id',
-          TEAMS_CLIENT_SECRET: 'client-secret',
-          TEAMS_TENANT_ID: 'tenant-id',
-        }[secretRefName(ref)];
-      },
-    });
-
-    const result = await validator.validateControlApprovers({
-      providerId: 'teams' as never,
-      providerAccount: {
-        id: 'providerAccount-1',
-        appId: 'default' as never,
-        agentId: 'main_agent' as never,
-        providerId: 'teams' as never,
-        label: 'Teams',
-        status: 'active',
-        config: {},
-        runtimeSecretRefs: {
-          client_id: 'env:TEAMS_CLIENT_ID',
-          client_secret: 'env:TEAMS_CLIENT_SECRET',
-          tenant_id: 'env:TEAMS_TENANT_ID',
+  it.each([
+    { name: 'chat', kind: 'group', configuredTeam: false, denied: false },
+    {
+      name: 'discovered channel',
+      kind: 'channel',
+      configuredTeam: false,
+      denied: false,
+    },
+    {
+      name: 'channel on a configured team',
+      kind: 'channel',
+      configuredTeam: true,
+      denied: false,
+    },
+    {
+      name: 'channel without member consent',
+      kind: 'channel',
+      configuredTeam: false,
+      denied: true,
+    },
+  ] as const)(
+    'verifies approvers for the selected Teams $name',
+    async ({ kind, configuredTeam, denied }) => {
+      const graph = 'https://graph.microsoft.com/v1.0';
+      const members = {
+        value: [{ userId: 'teams-user-1' }],
+        '@odata.nextLink': `${graph}/member-page-2`,
+      };
+      const resources: Record<string, object> = {
+        [`${graph}/teams?$select=id`]: {
+          value: [{ id: 'team-1' }],
+          '@odata.nextLink': `${graph}/teams-page-2`,
         },
-        createdAt: iso,
-        updatedAt: iso,
-      },
-      conversation: {
-        id: 'conversation-1' as never,
-        appId: 'default' as never,
-        providerAccountId: 'providerAccount-1' as never,
-        externalRef: { kind: 'conversation', value: 'teams:19:abc@thread.v2' },
-        kind: 'channel',
-        title: 'Engineering',
-        status: 'active',
-        createdAt: iso,
-        updatedAt: iso,
-      },
-      userIds: ['teams-user-1', 'outsider-1'],
-    });
-
-    expect(result).toEqual({
-      validUserIds: ['teams-user-1'],
-      invalidUserIds: ['outsider-1'],
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'https://graph.microsoft.com/v1.0/chats/19%3Aabc%40thread.v2/members',
-      expect.objectContaining({
-        headers: { authorization: 'Bearer graph-token' },
-      }),
-    );
-  });
+        [`${graph}/teams-page-2`]: { value: [{ id: 'team-2' }] },
+        [`${graph}/teams/team-1/channels?$select=id`]: {
+          value: [{ id: '19:other@thread.tacv2' }],
+        },
+        [`${graph}/teams/team-2/channels?$select=id`]: {
+          value: [],
+          '@odata.nextLink': `${graph}/channels-page-2`,
+        },
+        [`${graph}/channels-page-2`]: {
+          value: [{ id: '19:selected@thread.tacv2' }],
+        },
+        [`${graph}/member-page-2`]: { value: [{ userId: 'teams-user-2' }] },
+      };
+      const memberUrl =
+        kind === 'channel'
+          ? `${graph}/teams/team-2/channels/19%3Aselected%40thread.tacv2/members`
+          : `${graph}/chats/19%3Aselected%40thread.v2/members`;
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (
+          url ===
+          'https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token'
+        ) {
+          return Response.json({ access_token: 'graph-token' });
+        }
+        if (url === memberUrl)
+          return denied
+            ? Response.json({}, { status: 403 })
+            : Response.json(members);
+        return resources[url]
+          ? Response.json(resources[url])
+          : Response.json({}, { status: 404 });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const validator = new RuntimeSecretConversationMembershipValidator({
+        getSecret(ref) {
+          const value = this.getOptionalSecret(ref);
+          if (!value) throw new Error(`missing ${secretRefName(ref)}`);
+          return value;
+        },
+        getOptionalSecret(ref) {
+          return {
+            TEAMS_CLIENT_ID: 'client-id',
+            TEAMS_CLIENT_SECRET: 'client-secret',
+            TEAMS_TENANT_ID: 'tenant-id',
+          }[secretRefName(ref)];
+        },
+      });
+      const result = await validator.validateControlApprovers({
+        providerId: 'teams' as never,
+        providerAccount: {
+          id: 'providerAccount-1',
+          appId: 'default' as never,
+          agentId: 'main_agent' as never,
+          providerId: 'teams' as never,
+          label: 'Teams',
+          status: 'active',
+          config: configuredTeam
+            ? { teamId: 'team-2', channelId: '19:other@thread.tacv2' }
+            : {},
+          runtimeSecretRefs: {
+            client_id: 'env:TEAMS_CLIENT_ID',
+            client_secret: 'env:TEAMS_CLIENT_SECRET',
+            tenant_id: 'env:TEAMS_TENANT_ID',
+          },
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        conversation: {
+          id: 'conversation-1' as never,
+          appId: 'default' as never,
+          providerAccountId: 'providerAccount-1' as never,
+          externalRef: {
+            kind: 'conversation',
+            value:
+              kind === 'channel'
+                ? 'teams:19:selected@thread.tacv2'
+                : 'teams:19:selected@thread.v2',
+          },
+          kind,
+          title: 'Engineering',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+        userIds: ['teams-user-1', 'teams-user-2', 'outsider-1'],
+      });
+      expect(result).toEqual(
+        denied
+          ? {
+              validUserIds: [],
+              invalidUserIds: ['teams-user-1', 'teams-user-2', 'outsider-1'],
+              reason:
+                'Microsoft Graph denied access to channel members. Review the app’s channel membership permission and consent, then retry.',
+            }
+          : {
+              validUserIds: ['teams-user-1', 'teams-user-2'],
+              invalidUserIds: ['outsider-1'],
+            },
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        memberUrl,
+        expect.objectContaining({
+          headers: { authorization: 'Bearer graph-token' },
+        }),
+      );
+    },
+  );
 
   it('validates Discord approvers with effective channel View Channel access', async () => {
     const fetchMock = vi
@@ -357,103 +415,5 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       validUserIds: [],
       invalidUserIds: ['discord-user-1'],
     });
-  });
-
-  it('uses Teams channel membership endpoint and follows pagination when team and channel IDs are configured', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ access_token: 'graph-token' }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            value: [{ userId: 'teams-user-1' }],
-            '@odata.nextLink':
-              'https://graph.microsoft.com/v1.0/next-page-token',
-          }),
-          { status: 200 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            value: [{ userPrincipalName: 'teams-user-2' }],
-          }),
-          { status: 200 },
-        ),
-      );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const validator = new RuntimeSecretConversationMembershipValidator({
-      getSecret(ref) {
-        const value = this.getOptionalSecret(ref);
-        if (!value) throw new Error(`missing ${secretRefName(ref)}`);
-        return value;
-      },
-      getOptionalSecret(ref) {
-        return {
-          TEAMS_CLIENT_ID: 'client-id',
-          TEAMS_CLIENT_SECRET: 'client-secret',
-          TEAMS_TENANT_ID: 'tenant-id',
-        }[secretRefName(ref)];
-      },
-    });
-
-    const result = await validator.validateControlApprovers({
-      providerId: 'teams' as never,
-      providerAccount: {
-        id: 'providerAccount-2',
-        appId: 'default' as never,
-        agentId: 'main_agent' as never,
-        providerId: 'teams' as never,
-        label: 'Teams',
-        status: 'active',
-        config: {
-          teamId: 'team-1',
-          channelId: 'channel-1',
-        },
-        runtimeSecretRefs: {
-          client_id: 'env:TEAMS_CLIENT_ID',
-          client_secret: 'env:TEAMS_CLIENT_SECRET',
-          tenant_id: 'env:TEAMS_TENANT_ID',
-        },
-        createdAt: iso,
-        updatedAt: iso,
-      },
-      conversation: {
-        id: 'conversation-2' as never,
-        appId: 'default' as never,
-        providerAccountId: 'providerAccount-2' as never,
-        externalRef: { kind: 'conversation', value: 'teams:19:def@thread.v2' },
-        kind: 'channel',
-        title: 'Design',
-        status: 'active',
-        createdAt: iso,
-        updatedAt: iso,
-      },
-      userIds: ['teams-user-1', 'teams-user-2', 'outsider-1'],
-    });
-
-    expect(result).toEqual({
-      validUserIds: ['teams-user-1', 'teams-user-2'],
-      invalidUserIds: ['outsider-1'],
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'https://graph.microsoft.com/v1.0/teams/team-1/channels/channel-1/members',
-      expect.objectContaining({
-        headers: { authorization: 'Bearer graph-token' },
-      }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'https://graph.microsoft.com/v1.0/next-page-token',
-      expect.objectContaining({
-        headers: { authorization: 'Bearer graph-token' },
-      }),
-    );
   });
 });

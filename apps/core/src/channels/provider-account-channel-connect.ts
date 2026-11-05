@@ -12,6 +12,7 @@ import {
 } from './provider-registry.js';
 
 interface ProviderAccountRuntimeSettings {
+  providers?: Record<string, { enabled: boolean }>;
   providerAccounts: Record<
     string,
     {
@@ -22,6 +23,46 @@ interface ProviderAccountRuntimeSettings {
     }
   >;
   runtime: { deploymentMode?: string };
+}
+
+/** Own enabled-provider selection and the authenticated connections it publishes. */
+export async function connectEnabledProviderAccountChannels(
+  input: Omit<
+    Parameters<typeof connectProviderAccountChannels>[0],
+    'provider' | 'inboundEnabled' | 'runtimeSettings'
+  > & {
+    runtimeSettings: ProviderAccountRuntimeSettings & {
+      runtime: { liveTurns: { enabled: boolean } };
+    };
+    providerInbound?: boolean;
+    providers: readonly Provider[];
+    onDurableInboundConnected: (providerAccountId: string) => void;
+  },
+): Promise<void> {
+  const inboundEnabled =
+    input.runtimeSettings.runtime.liveTurns.enabled &&
+    (input.providerInbound ?? true);
+  for (const provider of input.providers) {
+    if (!provider.isEnabled(input.runtimeSettings)) {
+      input.logger.info(
+        { channel: provider.id },
+        'Channel disabled in settings.yaml — skipping connect',
+      );
+      continue;
+    }
+    const previousLength = input.connectedChannels.length;
+    await connectProviderAccountChannels({
+      ...input,
+      provider,
+      inboundEnabled,
+    });
+    if (provider.durableInbound && inboundEnabled) {
+      for (const bound of input.connectedChannels.slice(previousLength)) {
+        if (bound.interactionCallbacks)
+          input.onDurableInboundConnected(bound.providerAccountId);
+      }
+    }
+  }
 }
 
 export interface BoundProviderAccountChannel {

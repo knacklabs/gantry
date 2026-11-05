@@ -187,7 +187,7 @@ export class PostgresCanonicalGraphRepository {
         target: pgSchema.agentsPostgres.id,
         set: {
           name,
-          currentConfigVersionId: configVersionId,
+          currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configVersionId})`,
           updatedAt: sql`now()`,
         },
       });
@@ -225,7 +225,7 @@ export class PostgresCanonicalGraphRepository {
       .onConflictDoUpdate({
         target: pgSchema.agentsPostgres.id,
         set: {
-          currentConfigVersionId: configVersionId,
+          currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configVersionId})`,
           updatedAt: sql`now()`,
         },
       });
@@ -362,7 +362,8 @@ export class PostgresCanonicalGraphRepository {
         set: {
           ...(input.name ? { title } : {}),
           ...(hasKnownKind ? { kind: input.isGroup ? 'group' : 'direct' } : {}),
-          externalRefJson,
+          // Canonical saves own identity fields; transport metadata survives.
+          externalRefJson: sql`(COALESCE(${pgSchema.conversationsPostgres.externalRefJson}::jsonb, '{}'::jsonb) || ${externalRefJson}::jsonb)::text`,
           updatedAt: sql`GREATEST(${pgSchema.conversationsPostgres.updatedAt}, ${now})`,
         },
       });

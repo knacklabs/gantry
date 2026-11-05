@@ -170,6 +170,7 @@ export interface ChannelWiringDeps {
 }
 
 export interface ChannelWiring {
+  recoverInboundMessages?: () => Promise<void>;
   getRuntimeAppId: () => AppId;
   normalizeProviderId: (providerId: string) => string;
   getHistoryCoverageDistrustEpoch: (
