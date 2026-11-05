@@ -1,0 +1,14 @@
+{
+  "base": "02a0d4fe1d91a70e6f02f327533a304b37c39781",
+  "branch": "fix/consolidate-overlapping-dependency-and-c",
+  "done_when": "One draft pull request contains all unique fixes from the three unmerged pull requests, preserves existing CI limits and assertions, excludes the added OS sandbox check, and supersedes the originals without changing main or deployment",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-11-05T09:07:36+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Consolidate overlapping dependency and CI fixture fixes"
+}
