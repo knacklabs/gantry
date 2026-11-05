@@ -187,7 +187,7 @@ export class PostgresCanonicalGraphRepository {
         target: pgSchema.agentsPostgres.id,
         set: {
           name,
-          currentConfigVersionId: configVersionId,
+          currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configVersionId})`,
           updatedAt: sql`now()`,
         },
       });
@@ -225,7 +225,7 @@ export class PostgresCanonicalGraphRepository {
       .onConflictDoUpdate({
         target: pgSchema.agentsPostgres.id,
         set: {
-          currentConfigVersionId: configVersionId,
+          currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configVersionId})`,
           updatedAt: sql`now()`,
         },
       });

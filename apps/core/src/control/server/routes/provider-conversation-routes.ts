@@ -33,7 +33,10 @@ import type {
   ConversationId,
   ConversationThreadId,
 } from '../../../domain/conversation/conversation.js';
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeStorage,
+  resolveRuntimePersonIdentity,
+} from '../../../adapters/storage/postgres/runtime-store.js';
 import { nowIso } from '../app-identity.js';
 import {
   authorizeControlRequest,
@@ -412,6 +415,7 @@ export async function handleProviderConversationRoutes(
             repository: getRuntimeStorage().repositories.capabilitySecrets,
           }),
         ),
+        resolveRuntimePersonIdentity,
       ).replaceControlAllowlist({
         appId: auth.appId as AppId,
         conversationId: decodeURIComponent(

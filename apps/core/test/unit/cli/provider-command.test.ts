@@ -838,6 +838,9 @@ describe('channel CLI command', () => {
       })),
     );
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      resolveRuntimePersonIdentity: vi.fn(async () => {
+        throw new Error('This CLI fixture uses existing provider identities.');
+      }),
       initializeRuntimeStorage: vi.fn(async () => undefined),
       closeRuntimeStorage: vi.fn(async () => undefined),
       getRuntimeStorage: () => ({
@@ -861,6 +864,12 @@ describe('channel CLI command', () => {
               },
             ]),
             replaceConversationApprovers,
+            resolveConversationApproverPrincipal: vi.fn(
+              async ({ externalUserId }: { externalUserId: string }) =>
+                ['123', '456'].includes(externalUserId)
+                  ? { personId: `person:${externalUserId}` }
+                  : null,
+            ),
             listParticipantExternalUserIds: vi.fn(async () => ['123', '456']),
           },
         },
@@ -928,6 +937,11 @@ describe('channel CLI command', () => {
         id === conversation.id ? conversation : null,
       );
       vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+        resolveRuntimePersonIdentity: vi.fn(async () => {
+          throw new Error(
+            'This CLI fixture uses existing provider identities.',
+          );
+        }),
         initializeRuntimeStorage: vi.fn(async () => undefined),
         closeRuntimeStorage: vi.fn(async () => undefined),
         getRuntimeStorage: () => ({
@@ -1032,6 +1046,9 @@ describe('channel CLI command', () => {
       id === conversation.id ? conversation : null,
     );
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      resolveRuntimePersonIdentity: vi.fn(async () => {
+        throw new Error('This CLI fixture uses existing provider identities.');
+      }),
       initializeRuntimeStorage: vi.fn(async () => undefined),
       closeRuntimeStorage: vi.fn(async () => undefined),
       getRuntimeStorage: () => ({
@@ -1099,6 +1116,9 @@ describe('channel CLI command', () => {
     const { error } = mockClack();
     mockProviders();
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      resolveRuntimePersonIdentity: vi.fn(async () => {
+        throw new Error('This CLI fixture uses existing provider identities.');
+      }),
       initializeRuntimeStorage: vi.fn(),
       closeRuntimeStorage: vi.fn(),
       getRuntimeStorage: vi.fn(),

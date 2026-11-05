@@ -2,9 +2,9 @@
 
 Follow these steps to mention your bot in a Teams channel and receive a Gantry reply. Teams web is enough; you do not need the desktop app.
 
-Use a Gantry runtime reserved for this test bot. This guide connects its **Default Agent**. Keep other bots and business teams separate.
+Use a Gantry runtime reserved for this test bot. Create a separate agent and channel account for the new bot. Keep other bots and business teams separate.
 
-Allow about **30 to 60 minutes** when accounts and permissions are ready. This is a planning estimate; waiting for an administrator can take longer.
+Allow about **45 to 75 minutes** when accounts and permissions are ready. This is a planning estimate; waiting for an administrator can take longer.
 
 ## What each part does
 
@@ -73,7 +73,15 @@ Do this preparation yourself:
 3. Copy the browser link to this exact app's **API permissions** page.
 4. Send that link to your administrator with the message below. Replace the bracketed bot name.
 
-> Please open this link using the administrator account for our Microsoft tenant. Check that the app is [your bot name] and the requested Microsoft Graph application permissions are Team.ReadBasic.All and Channel.ReadBasic.All. Select “Grant admin consent for our organization” and confirm. Please tell me when both show Granted. I will handle Teams and the rest of the setup.
+> Please approve permissions for a test application:
+>
+> 1. Open [Azure Portal](https://portal.azure.com) and select our organization.
+> 2. Open **App registrations → All applications**.
+> 3. Search by **Application ID: [the new bot’s client ID]**.
+> 4. Open it → **API permissions**.
+> 5. Review **Team.ReadBasic.All** and **Channel.ReadBasic.All**, then click **Grant admin consent** and confirm.
+
+Replace the bracketed client ID before sending. You prepare the requests; the administrator only reviews and approves them.
 
 The administrator does not need to install Teams or configure the bot. They need a role permitted to grant these application permissions. After they finish, refresh your page: both permissions should show **Granted** in green. A faded consent button usually means your account cannot grant that consent. [Microsoft consent instructions](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent).
 
@@ -88,33 +96,21 @@ These permissions support Gantry's team/channel selection. Live bot messages use
 
 ## 6 Connect the bot in Gantry
 
-First confirm that **Model providers** in Gantry shows a configured provider, and the Default Agent uses a model available through it. For OpenAI, enter your API key in its **Add credential** form if needed.
+Allow **5–10 minutes**, excluding the private secret step and approval waits.
 
-Then open a terminal in your Gantry folder and run:
+1. Check that **Model providers** shows an approved provider with a saved credential. Enter a model API key privately if needed.
+2. Open **Directory → Onboard an AI employee**. Enter a new name and choose a small model available through your configured provider. Choose **Generalist** for the connection test, then **Continue & save**.
+3. Select **Skip for now** for optional **Sources** and **Capabilities**.
+4. In **Channel account**, choose **Teams** and a new account label. Enter the new Azure client ID and tenant ID. Privately paste the client secret **Value** and select **Save account**.
+5. Leave the wizard at **Conversation** while preparing the public endpoint and Teams app. Do not choose an unrelated channel.
 
-```bash
-gantry provider connect teams
-```
-
-Answer its questions in this order:
-
-| Question                   | What to enter                            |
-| -------------------------- | ---------------------------------------- |
-| Teams client ID            | Microsoft App ID from Azure.             |
-| Teams client secret        | The secret **Value** you saved.          |
-| Teams tenant ID            | App Tenant ID from Azure.                |
-| Channel selection          | Your **Gantry Test / Testing** channel.  |
-| Admin or approver user IDs | Your Microsoft Entra user **Object ID**. |
-
-To find your user Object ID, open **Microsoft Entra ID → Users → your user → Overview**. Copy the Object ID, which looks like a GUID. Use the identity of a person who belongs to the test team. It is different from the app ID and bot-scoped IDs beginning with `29:`.
-
-When setup finishes, copy the **messaging endpoint path** it prints. For example:
+The messaging endpoint path is:
 
 ```text
 /v1/providers/teams/YOUR-GANTRY-ACCOUNT-ID/activities
 ```
 
-Use the exact account ID printed by Gantry. It is different from Azure's app ID. Gantry stores the bot secret encrypted. Restart your Gantry test runtime after changing its connection settings.
+Use the new Gantry account ID from the saved account’s details. It is different from Azure’s client ID. Gantry stores the secret encrypted. The computer owner must use a build containing current Teams onboarding fixes; account creation alone does not install the agent in a conversation.
 
 ## 7 Start a free tunnel for local testing
 
@@ -164,15 +160,31 @@ When a free tunnel expires or is recreated, save its new address here again. Kee
 4. Keep valid default icons or supply the required color and outline icons.
 5. Open **App features → Bot**, choose **Enter a bot ID**, and paste Azure's **Microsoft App ID**.
 6. Enable **Team** scope. Keep **notification-only** mode off so the bot can receive messages.
-7. For the newer channel experience, open **Configure → App package editor**, find `manifest.json`, and select its **… → Edit** menu. Set the top-level `supportsChannelFeatures` value to `"tier1"`. Keep the existing app ID and bot ID unchanged.
-8. Save and validate the app. A manifest editor **Save** may only stage the edit: complete the surrounding app **Update** and confirmation too. Increase the app version when updating an installed package.
-9. Select **Preview in Teams**, then **Add to a team** when offered.
-10. Select **Gantry Test / Testing** and confirm **Add** or **Go**.
-11. In that team's **Manage team → Apps**, confirm that **Gantry Teams Test** is listed.
+7. Open **App content → Channel support**, select **My app supports all channels (tier1)** and save. This declaration does not mean private/shared channels have been tested; use a standard channel here.
+8. Under **Basic information**, set **Application (client) ID** to the Azure bot’s client ID. Under **Permissions → Team permissions**, request **ChannelMember.Read.Group** with type **Application**. Save. Gantry uses it to verify that the approver belongs to the selected channel.
+9. An authorized team owner reviews this member-read access during installation. It applies only to the installed team and does not grant message reading. If organization policy blocks consent, stop for the Teams administrator; do not add organization-wide member permissions as a workaround.
+10. Save and validate the app. An editor **Save** may only stage the edit; complete the app **Update** and confirmation too. Increase the version when updating an installed package. Keep the same app ID and bot ID.
+11. Download this app’s ZIP from **App package editor**. It must contain `manifest.json`, the color icon and the outline icon at the ZIP root.
+12. In the separate test team, open **More team options → Manage team → Apps → Upload an app**, and choose the ZIP. Review the exact app name, developer, policies and permissions. An authorized person accepts any displayed agreement.
+13. Select the visible **Add** button, choose **Gantry Test / Testing**, check both names, then **Go**. Confirm that the app is listed under that team’s **Apps**.
+
+The two Entra discovery permissions do not grant channel-member access. [Microsoft’s channel-members permission reference](https://learn.microsoft.com/en-us/graph/api/channel-list-members?view=graph-rest-1.0) identifies **ChannelMember.Read.Group** as the least privileged application permission. [Microsoft’s scoped-consent instructions](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/rsc/declare-resource-specific-consent-requirements) explain the client ID and installation grant.
+
+An updated ZIP alone does not prove a new permission is granted. If member verification still fails, check this exact team’s consent. Reinstall only a clearly disposable test app with its owner’s approval; preserve production apps and other bots.
+
+## 10 Finish Gantry onboarding
+
+Allow **3–6 minutes** after permissions are ready.
+
+1. Return to **Conversation**, select **Discover conversations**, then choose only the new test team’s **Testing** channel. Keep memory scope **Conversation**.
+2. Continue to **Approvals**. Enter the Microsoft Entra user **Object ID** of a real team member authorized to approve actions. Find it under **Microsoft Entra ID → Users → that user → Overview**, or ask the identity administrator for it. It differs from the app ID, team ID, email address and bot-scoped IDs beginning with `29:`.
+3. Select **Verify member IDs**. Continue only when verification succeeds. A Graph access error needs the scoped permission or policy fixed; do not bypass verification or seed database records.
+4. Review the new agent, small model, account, channel and approver. Select **Save installation**.
+5. Verify one active installation for the selected channel and that the chosen role/model remain selected. If the save fails or duplicates appear, update Gantry with the onboarding repairs before proceeding.
 
 The Teams package contains configuration and icons; Gantry runs the bot. [Microsoft app package instructions](https://learn.microsoft.com/en-us/microsoftteams/platform/concepts/build-and-test/apps-package), [channel feature settings](https://learn.microsoft.com/en-us/microsoftteams/platform/build-apps-for-shared-private-channels).
 
-## 10 Send one tiny test
+## 11 Send one tiny test
 
 1. Open your **Testing** channel in Teams.
 2. Type `@`, start typing the bot's name, and select **Gantry Teams Test** from the suggestions. This creates a real bot mention.
@@ -206,6 +218,6 @@ After restoration, send one new native bot mention and check the proxy for a res
 
 ## Keep it working
 
-Keep the computer awake and the three local services running during the test. Replace the bot secret before its expiry date. Update Azure after recreating a free tunnel. For regular use, give the bot a stable hosted HTTPS endpoint so it does not depend on an open laptop and temporary address.
+Keep the computer awake and Gantry, its database, the proxy and tunnel running during the test. Replace the bot secret before its expiry date. Update Azure after recreating a free tunnel. For regular use, give the bot a stable hosted HTTPS endpoint so it does not depend on an open laptop and temporary address.
 
-The live setup verified a native Teams mention, an authenticated activity, a real OpenAI response, and a reply in the original thread. Live approval cards, proactive messages and Slack are separate follow-up checks.
+Completion means this new bot receives its own native Teams mention and replies in the same thread. Live approval cards, proactive messages and Slack are separate follow-up checks.
