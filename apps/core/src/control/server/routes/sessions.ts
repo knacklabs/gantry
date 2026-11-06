@@ -245,6 +245,11 @@ export async function handleSessionRoutes(
         sessionId,
         interactionId,
         idempotencyKey,
+        interactionVersion:
+          typeof body.interactionVersion === 'number' &&
+          Number.isInteger(body.interactionVersion)
+            ? body.interactionVersion
+            : undefined,
         resolution:
           action === 'resolve'
             ? { status: 'resolved', result: body.result }
@@ -264,6 +269,13 @@ export async function handleSessionRoutes(
           404,
           'INTERACTION_NOT_FOUND',
           'Interaction is not pending',
+        );
+      } else if (outcome === 'stale') {
+        sendError(
+          res,
+          409,
+          'INTERACTION_STALE',
+          'The CAPTCHA image was refreshed; answer the current image instead',
         );
       } else if (outcome === 'conflict') {
         sendError(

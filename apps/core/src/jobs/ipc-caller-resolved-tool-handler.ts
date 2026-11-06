@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
-import { requestCallerResolvedTool } from '../application/interactions/caller-resolved-tool-coordinator.js';
+import {
+  requestCallerResolvedTool,
+  updateCallerResolvedTool,
+} from '../application/interactions/caller-resolved-tool-coordinator.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { isAsyncTaskTerminal } from '../domain/ports/async-tasks.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
@@ -223,6 +226,66 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
     return;
   }
 
+  const captchaChallengeId = toTrimmedString(
+    context.data.payload?.captchaChallengeId,
+    { maxLen: 512 },
+  );
+  const requestedVersion = context.data.payload?.interactionVersion;
+  if (context.data.type === 'caller_resolved_tool_update') {
+    const interactionId =
+      toTrimmedString(context.data.payload?.interactionId, { maxLen: 128 }) ??
+      '';
+    if (!interactionId || !Number.isInteger(requestedVersion)) {
+      responder.reject(
+        'A CAPTCHA interaction update requires interactionId and interactionVersion.',
+        'invalid_request',
+      );
+      return;
+    }
+    const interactionVersion = await updateCallerResolvedTool({
+      appId: scope.appId,
+      sourceAgentFolder: context.sourceAgentFolder,
+      sessionId,
+      interactionId,
+      expectedVersion: Number(requestedVersion),
+      toolInput: parsedToolInput.data,
+      metadata: {
+        ...(captchaChallengeId ? { captchaChallengeId } : {}),
+      },
+    });
+    if (interactionVersion === null) {
+      responder.reject(
+        'The caller-resolved interaction is no longer pending or was already refreshed.',
+        'interaction_stale',
+      );
+      return;
+    }
+    await context.deps.publishRuntimeEvent?.({
+      appId: scope.appId as never,
+      agentId: scope.agentId as never,
+      sessionId: sessionId as never,
+      runId: runId as never,
+      ...(context.data.jobId ? { jobId: context.data.jobId as never } : {}),
+      conversationId: scope.conversationId as never,
+      ...(scope.threadId ? { threadId: scope.threadId as never } : {}),
+      eventType: RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
+      actor: 'gantry-runtime',
+      payload: {
+        interactionType: 'caller_resolved_tool',
+        interactionId,
+        toolName,
+        input: parsedToolInput.data,
+        interactionVersion,
+        refreshed: true,
+        ...(captchaChallengeId ? { captchaChallengeId } : {}),
+      },
+    });
+    responder.acceptData('Caller-resolved CAPTCHA image refreshed.', {
+      interactionVersion,
+    });
+    return;
+  }
+
   const taskKey =
     (typeof parentTask?.privateCorrelationJson.taskKey === 'string'
       ? parentTask.privateCorrelationJson.taskKey
@@ -265,6 +328,9 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
       interactionId,
       toolName,
       toolInput: parsedToolInput.data,
+      metadata: {
+        ...(captchaChallengeId ? { captchaChallengeId } : {}),
+      },
       sensitiveResultFields: definition?.sensitiveResultFields,
       timeoutMs: config.interactionTimeoutMs,
       signal: new AbortController().signal,
@@ -284,6 +350,8 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
             interactionId,
             toolName,
             input: parsedToolInput.data,
+            interactionVersion: 1,
+            ...(captchaChallengeId ? { captchaChallengeId } : {}),
             taskKey,
             expiresInMs: config.interactionTimeoutMs,
           },

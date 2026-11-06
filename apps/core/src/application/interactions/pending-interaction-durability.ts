@@ -158,6 +158,27 @@ export async function resolvePendingInteractionRecord(
   return (await resolvePendingInteractionRecordOutcome(input)) === 'resolved';
 }
 
+export async function updatePendingInteractionRecord(input: {
+  appId?: string | null;
+  sourceAgentFolder: string;
+  requestId: string;
+  update: (payload: Record<string, unknown>) => Record<string, unknown> | null;
+}): Promise<boolean> {
+  const active = backend;
+  if (!active) return true;
+  const pending = await active.repository.findPendingInteractionByRequest({
+    appId: input.appId || DEFAULT_APP_ID,
+    kind: 'question',
+    requestId: input.requestId,
+    sourceAgentFolder: input.sourceAgentFolder,
+  });
+  if (!pending) return false;
+  return active.repository.updatePendingInteractionPayload({
+    idempotencyKey: pending.idempotencyKey,
+    update: input.update,
+  });
+}
+
 export {
   bindPendingPermissionInteractionMessage,
   findDurablePermissionInteractionByPromptMessage,

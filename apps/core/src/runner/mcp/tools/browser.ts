@@ -64,13 +64,27 @@ const MAX_BROWSER_TOOL_TIMEOUT_MS = 120_000;
 // not require the probabilistic model to remember a timeout override.
 const DEFAULT_BROWSER_TOOL_TIMEOUT_MS = MAX_BROWSER_TOOL_TIMEOUT_MS;
 const MAX_CAPTCHA_TTL_MS = 30 * 60_000;
+export const HUMAN_CAPTCHA_FRESHNESS_MS = (() => {
+  const configured = Number.parseInt(
+    process.env.GANTRY_HUMAN_CAPTCHA_FRESHNESS_MS ?? '',
+    10,
+  );
+  return Number.isInteger(configured) && configured >= 10_000
+    ? Math.min(configured, MAX_CAPTCHA_TTL_MS)
+    : 180_000;
+})();
 const CAPTCHA_IMAGE_FALLBACK_SELECTOR =
   'img[src*="captcha" i],img[src^="data:image" i],img[id*="captcha" i],img[class*="captcha" i],img[alt*="captcha" i],img[title*="captcha" i],canvas[id*="captcha" i],canvas[class*="captcha" i],svg[id*="captcha" i],svg[class*="captcha" i],input[type="image"][src*="captcha" i],[style*="background-image" i][id*="captcha" i],[style*="background-image" i][class*="captcha" i]';
 const DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = 3;
 // Deployments may lower the automatic attempts before the human fallback (e.g. to match a production policy).
 const MAX_AUTOMATIC_CAPTCHA_ATTEMPTS = (() => {
-  const configured = Number.parseInt(process.env.GANTRY_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ?? '', 10);
-  return Number.isInteger(configured) && configured >= 1 && configured <= DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS
+  const configured = Number.parseInt(
+    process.env.GANTRY_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ?? '',
+    10,
+  );
+  return Number.isInteger(configured) &&
+    configured >= 1 &&
+    configured <= DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS
     ? configured
     : DEFAULT_MAX_AUTOMATIC_CAPTCHA_ATTEMPTS;
 })();
@@ -158,7 +172,10 @@ function captchaControlDiscoveryEvaluator(
     "const submitScore = (element) => { const childImage = element.querySelector?.('img'); const text = (descriptor(element) + ' ' + (element.textContent || '') + ' ' + (element.getAttribute('value') || '') + ' ' + (childImage?.getAttribute('src') || '') + ' ' + (childImage?.getAttribute('alt') || '') + ' ' + (childImage?.getAttribute('title') || '')).toLowerCase(); let value = element === preferredSubmit ? 2000 : 0; if (/search|submit|continue|go/.test(text)) value += 800; if (/captcha|verification|verify/.test(text)) value += 200; if (/refresh|reload|regenerate|new[ _-]?(captcha|code)|clear|reset|cancel|back/.test(text)) value -= 3000; value -= Math.min(inputDistance(element), 1000) / 5; return value; };",
     'submitCandidates.sort((left, right) => submitScore(right) - submitScore(left)); const submitControl = submitCandidates[0] ?? null;',
     "const resultRowCount = Array.from(doc.querySelectorAll('table tr')).filter((row) => { if (!visible(row) || row.querySelector('input,textarea,select,button,[role=button]')) return false; const cells = Array.from(row.querySelectorAll(':scope > th,:scope > td')).filter((cell) => visible(cell) && (cell.textContent || '').trim().length > 0); return cells.length >= 2 && cells.map((cell) => (cell.textContent || '').trim()).join(' ').length >= 12; }).length;",
-    'return { inputTarget: selectorFor(input), submitTarget: submit(submitControl) ? selectorFor(submitControl) : null, resultRowCount };',
+    "const refreshCandidates = Array.from(doc.querySelectorAll('button,a,input[type=button],input[type=image],[role=button],img')).filter(visible);",
+    "const refreshScore = (element) => { const text = (descriptor(element) + ' ' + (element.textContent || '') + ' ' + (element.getAttribute('value') || '') + ' ' + (element.getAttribute('src') || '') + ' ' + (element.getAttribute('alt') || '')).toLowerCase(); let value = /refresh|reload|regenerate|new[ _-]?(captcha|code)|change[ _-]?(captcha|code)/.test(text) ? 2000 : -2000; if (/search|submit|continue|go/.test(text)) value -= 1000; value -= Math.min(distance(element), 1000) / 5; return value; };",
+    'refreshCandidates.sort((left, right) => refreshScore(right) - refreshScore(left)); const refreshControl = refreshCandidates[0] ?? null;',
+    'return { inputTarget: selectorFor(input), submitTarget: submit(submitControl) ? selectorFor(submitControl) : null, refreshTarget: refreshControl && refreshScore(refreshControl) > 0 ? selectorFor(refreshControl) : null, resultRowCount };',
     '}',
   ].join('\n');
 }
@@ -181,6 +198,7 @@ interface CaptchaChallenge {
   imageTarget: string;
   inputTarget: string;
   submitTarget?: string;
+  refreshTarget?: string;
   successTarget?: string;
   successText?: string;
   successTexts?: string[];
@@ -744,6 +762,9 @@ export function registerBrowserTools(server: McpServer): void {
         ...(controls.submitTarget
           ? { submitTarget: controls.submitTarget }
           : {}),
+        ...(controls.refreshTarget
+          ? { refreshTarget: controls.refreshTarget }
+          : {}),
         ...(typeof args.success_target === 'string'
           ? { successTarget: args.success_target }
           : {}),
@@ -903,6 +924,113 @@ export function captchaEvidenceForChallenge(challengeId: string): {
         automaticAttemptEvidenceRef: challenge.automaticAttemptEvidenceRef,
       }
     : null;
+}
+
+export async function refreshHumanCaptchaChallenge(
+  challengeId: string,
+  timeoutMs = CAPTCHA_BROWSER_ACTION_TIMEOUT_MS,
+): Promise<ReturnType<typeof captchaEvidenceForChallenge>> {
+  const challenge =
+    captchaChallenges.get(challengeId) ??
+    (await loadCaptchaChallenge(challengeId));
+  if (
+    !challenge ||
+    challenge.jobId !== currentJobId() ||
+    challenge.runId !== currentJobRunId()
+  ) {
+    return null;
+  }
+  const refreshed = await refreshCaptchaOnPage(challenge, timeoutMs);
+  if (!refreshed) return null;
+  const nextChallengeId = `captcha_${randomUUID()}`;
+  const screenshot = await persistCaptchaScreenshot({
+    challengeId: nextChallengeId,
+    data: refreshed.image.data,
+    mimeType: refreshed.image.mimeType,
+  });
+  if (!screenshot) return null;
+  const nextChallenge: CaptchaChallenge = {
+    ...challenge,
+    imageTarget: refreshed.target,
+    expiresAt: nowMs() + MAX_CAPTCHA_TTL_MS,
+    challengeFingerprint: captchaFingerprint(
+      challenge.origin,
+      refreshed.target,
+      refreshed.image.data,
+    ),
+    screenshotEvidenceRef: screenshot.id,
+  };
+  captchaChallenges.delete(challengeId);
+  captchaChallenges.set(nextChallengeId, nextChallenge);
+  if (
+    currentJobId() &&
+    !(await persistCaptchaChallenge(nextChallengeId, nextChallenge))
+  ) {
+    captchaChallenges.delete(nextChallengeId);
+    return null;
+  }
+  return captchaEvidenceForChallenge(nextChallengeId);
+}
+
+async function refreshCaptchaOnPage(
+  challenge: CaptchaChallenge,
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<typeof captureRefreshedCaptchaImage>>> {
+  const actionTimeoutMs = Math.min(
+    timeoutMs,
+    CAPTCHA_BROWSER_ACTION_TIMEOUT_MS,
+  );
+  const previous = await captureRefreshedCaptchaImage(
+    challenge,
+    actionTimeoutMs,
+  );
+  const captureChangedImage = async () => {
+    await callBrowserBackend(
+      'browser_captcha_settle',
+      'snapshot',
+      {},
+      actionTimeoutMs,
+    );
+    const captured = await captureRefreshedCaptchaImage(
+      challenge,
+      actionTimeoutMs,
+    );
+    return captured &&
+      (!previous ||
+        captured.image.mimeType !== previous.image.mimeType ||
+        captured.image.data !== previous.image.data)
+      ? captured
+      : null;
+  };
+  if (
+    challenge.refreshTarget &&
+    (await browserTargetPresent(
+      'browser_captcha_settle',
+      challenge.refreshTarget,
+      actionTimeoutMs,
+    ))
+  ) {
+    const clicked = await callBrowserBackend(
+      'browser_captcha_settle',
+      'click',
+      { target: challenge.refreshTarget },
+      actionTimeoutMs,
+    );
+    if (!isBrowserErrorResult(clicked)) {
+      const refreshed = await captureChangedImage();
+      if (refreshed) return refreshed;
+    }
+  }
+  if (challenge.pageUrl) {
+    const reloaded = await callBrowserBackend(
+      'browser_captcha_settle',
+      'navigate',
+      { url: challenge.pageUrl },
+      actionTimeoutMs,
+    );
+    if (!isBrowserErrorResult(reloaded)) return captureChangedImage();
+  }
+  return null;
 }
 
 async function requestCaptchaVision(input: {
@@ -1218,10 +1346,10 @@ export async function settleCaptchaChallenge(
     return result;
   }
   const refreshedChallengeId = `captcha_${randomUUID()}`;
-  const refreshedCapture = await captureRefreshedCaptchaImage(
-    challenge,
-    actionTimeoutMs,
-  );
+  const refreshedCapture =
+    mode === 'human'
+      ? await refreshCaptchaOnPage(challenge, actionTimeoutMs)
+      : await captureRefreshedCaptchaImage(challenge, actionTimeoutMs);
   const refreshedImage = refreshedCapture?.image ?? null;
   const captchaTargetStillPresent = Boolean(refreshedImage);
   if (!refreshedCapture) {
@@ -1262,11 +1390,26 @@ export async function settleCaptchaChallenge(
         const holdFailure = await holdCaptchaSession(timeoutMs);
         if (holdFailure) return holdFailure;
       }
+      if (mode === 'human') {
+        const refreshedChallenge = {
+          ...challenge,
+          imageTarget: refreshedCapture.target,
+          expiresAt: nowMs() + MAX_CAPTCHA_TTL_MS,
+          challengeFingerprint: captchaFingerprint(
+            challenge.origin,
+            refreshedCapture.target,
+            refreshedImage.data,
+          ),
+          screenshotEvidenceRef: refreshedEvidence.id,
+        };
+        captchaChallenges.set(refreshedChallengeId, refreshedChallenge);
+        await persistCaptchaChallenge(refreshedChallengeId, refreshedChallenge);
+      }
       result.content.push({
         type: 'text' as const,
         text:
           mode === 'human' && captchaTargetStillPresent
-            ? `The authorized answer did not clear the CAPTCHA gate. Fresh CAPTCHA screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). Capture this new challenge with browser_captcha_challenge so automatic solving runs before any new human fallback.`
+            ? `The authorized answer did not clear the CAPTCHA gate. The live CAPTCHA was refreshed before re-asking. Fresh CAPTCHA challenge: ${refreshedChallengeId}. Screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). Use only this new image and never resubmit the previous answer.`
             : `Post-attempt CAPTCHA screenshot evidence: ${refreshedEvidence.id} (${refreshedEvidence.contentHash}). ${challenge.attemptNumber < MAX_AUTOMATIC_CAPTCHA_ATTEMPTS ? 'If the CAPTCHA remains, capture the refreshed challenge with browser_captcha_challenge and retry.' : `If the CAPTCHA remains, automatic attempts are exhausted. Call job_checkpoint_save with milestone="human_wait" and humanInteraction.browserChallenge.challengeId=${refreshedChallengeId}; that atomic call waits for authorization and submits the answer. There is no separate human-request tool.`}`,
       });
       if (
@@ -1446,6 +1589,7 @@ async function discoverCaptchaControls(input: {
   | {
       inputTarget: string;
       submitTarget?: string;
+      refreshTarget?: string;
       resultRowCount?: number;
     }
   | { error: string }
@@ -1472,6 +1616,7 @@ async function discoverCaptchaControls(input: {
     const value = JSON.parse(browserResultText(evaluated)) as {
       inputTarget?: unknown;
       submitTarget?: unknown;
+      refreshTarget?: unknown;
       resultRowCount?: unknown;
       error?: unknown;
     };
@@ -1485,6 +1630,9 @@ async function discoverCaptchaControls(input: {
       inputTarget: value.inputTarget.trim(),
       ...(typeof value.submitTarget === 'string' && value.submitTarget.trim()
         ? { submitTarget: value.submitTarget.trim() }
+        : {}),
+      ...(typeof value.refreshTarget === 'string' && value.refreshTarget.trim()
+        ? { refreshTarget: value.refreshTarget.trim() }
         : {}),
       ...(typeof value.resultRowCount === 'number' &&
       Number.isInteger(value.resultRowCount) &&
@@ -1686,6 +1834,9 @@ async function loadCaptchaChallenge(
       inputTarget: value.inputTarget,
       ...(typeof value.submitTarget === 'string'
         ? { submitTarget: value.submitTarget }
+        : {}),
+      ...(typeof value.refreshTarget === 'string'
+        ? { refreshTarget: value.refreshTarget }
         : {}),
       ...(typeof value.successTarget === 'string'
         ? { successTarget: value.successTarget }
