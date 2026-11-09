@@ -1,11 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
+import nock from 'nock';
 
-import { ConfigurationBotFrameworkAuthentication } from 'botbuilder';
-import { ConnectorFactoryImpl } from 'botframework-connector/lib/auth/connectorFactoryImpl.js';
-import { OpenIdMetadata } from 'botframework-connector/lib/auth/openIdMetadata.js';
-import { SignJWT } from 'jose';
+import {
+  mockMicrosoftTeamsService,
+  teamsServiceToken,
+  teamsTestCredentials as credentials,
+  teamsTestPeople,
+} from '../harness/microsoft-teams-service.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
@@ -44,11 +46,6 @@ import {
   type PostgresIntegrationRuntime,
 } from '../harness/postgres-integration-runtime.js';
 
-const credentials = {
-  clientId: 'teams-live-bot',
-  clientSecret: 'test-secret',
-  tenantId: 'teams-live-tenant',
-};
 const account = 'teams_live';
 const alias = 'teams_live_alias';
 const chat = '19:teams-live@thread.tacv2';
@@ -57,7 +54,6 @@ const root = 'root-message';
 const appId = 'default';
 const folder = 'main_agent';
 const agentId = 'agent:main_agent';
-const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const quietLogger = { info() {}, warn() {}, debug() {}, error() {} };
 
 type MicrosoftMessage = {
@@ -83,15 +79,9 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
     const prompts: string[] = [];
 
     async function bearer() {
-      return new SignJWT({
-        serviceurl: 'https://smba.trafficmanager.net/teams-live/',
-      })
-        .setProtectedHeader({ alg: 'RS256', kid: 'teams-live-key' })
-        .setIssuer('https://api.botframework.com')
-        .setAudience(credentials.clientId)
-        .setIssuedAt()
-        .setExpirationTime('5m')
-        .sign(keys.privateKey);
+      return teamsServiceToken({
+        serviceUrl: 'https://smba.trafficmanager.net/teams-live/',
+      });
     }
 
     async function post(
@@ -116,7 +106,11 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
               conversationType: 'channel',
             },
             recipient: { id: '28:teams-live-bot', name: 'Gantry' },
-            from: { id: 'permitted-person', name: 'Permitted person' },
+            from: {
+              id: '29:permitted-bot-scoped',
+              aadObjectId: teamsTestPeople.permitted,
+              name: 'Permitted person',
+            },
             channelData: { tenant: { id: credentials.tenantId } },
             timestamp: new Date().toISOString(),
             ...fields,
@@ -165,15 +159,15 @@ conversations:
     kind: group
     display_name: Teams live
     sender_policy:
-      allow: ["permitted-person"]
+      allow: ["${teamsTestPeople.permitted}"]
       mode: trigger
-    control_approvers: ["permitted-person"]
+    control_approvers: ["${teamsTestPeople.permitted}"]
     installed_agents:
       ${folder}:
         provider_account: ${account}
         added_at: "2026-01-01T00:00:00.000Z"
         trigger: "@Gantry"
-        requires_trigger: false
+        requires_trigger: true
 agents:
   ${folder}:
     name: Main agent
@@ -199,68 +193,26 @@ memory:
         'utf-8',
       );
 
-      vi.spyOn(OpenIdMetadata.prototype, 'getKey').mockResolvedValue({
-        key: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
-        endorsements: ['msteams'],
+      restoreMicrosoft = await mockMicrosoftTeamsService({
+        serviceUrl: 'https://smba.trafficmanager.net/teams-live/',
+        send: async (conversationId, message) => {
+          sent.push({ conversationId, message });
+          return { status: 200, body: { id: `sent-${sent.length}` } };
+        },
+        update: async (_conversationId, _messageId, message) => {
+          updated.push(message);
+          return { status: 200, body: { id: 'updated-card' } };
+        },
       });
-      vi.spyOn(ConnectorFactoryImpl.prototype, 'create').mockImplementation(
-        async () =>
-          ({
-            conversations: {
-              sendToConversation: async (
-                conversationId: string,
-                message: MicrosoftMessage,
-              ) => {
-                sent.push({ conversationId, message });
-                return { id: `sent-${sent.length}` };
-              },
-              replyToActivity: async (
-                conversationId: string,
-                _activityId: string,
-                message: MicrosoftMessage,
-              ) => {
-                sent.push({ conversationId, message });
-                return { id: `sent-${sent.length}` };
-              },
-              updateActivity: async (
-                _conversationId: string,
-                _messageId: string,
-                message: MicrosoftMessage,
-              ) => {
-                updated.push(message);
-                return { id: 'updated-card' };
-              },
-            },
-          }) as never,
-      );
-      vi.spyOn(
-        ConfigurationBotFrameworkAuthentication.prototype,
-        'createUserTokenClient',
-      ).mockResolvedValue({} as never);
-      const realFetch = globalThis.fetch;
-      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-        const url = new URL(
-          input instanceof Request ? input.url : String(input),
-        );
-        if (url.origin === 'https://login.microsoftonline.com') {
-          expect(url.pathname).toBe(
-            `/${credentials.tenantId}/oauth2/v2.0/token`,
-          );
-          return Response.json({ access_token: 'teams-graph-test-token' });
-        }
-        if (url.origin === 'https://graph.microsoft.com') {
-          expect(url.pathname).toBe(
-            `/v1.0/chats/${encodeURIComponent(chat)}/members`,
-          );
-          return Response.json({
-            value: [
-              { userId: 'permitted-person' },
-              { userId: 'unpermitted-person' },
-            ],
-          });
-        }
-        return realFetch(input, init);
-      });
+      nock('https://graph.microsoft.com')
+        .persist()
+        .get(`/v1.0/chats/${encodeURIComponent(chat)}/members`)
+        .reply(200, {
+          value: [
+            { userId: teamsTestPeople.permitted },
+            { userId: teamsTestPeople.other },
+          ],
+        });
 
       vi.stubEnv('TEAMS_CLIENT_ID', credentials.clientId);
       vi.stubEnv('TEAMS_CLIENT_SECRET', credentials.clientSecret);
@@ -307,7 +259,7 @@ memory:
         providerAccountId: account,
         trigger: '@Gantry',
         added_at: new Date().toISOString(),
-        requiresTrigger: false,
+        requiresTrigger: true,
         conversationKind: 'channel',
         agentConfig: { model: 'opus' },
       });
@@ -379,6 +331,7 @@ memory:
     }, 60_000);
 
     let restartChannel: () => Promise<void>;
+    let restoreMicrosoft: () => void;
 
     afterAll(async () => {
       const failures: unknown[] = [];
@@ -395,6 +348,7 @@ memory:
         () => wiring?.disconnectChannels(),
         () => queue?.shutdown(500),
         () => configurePendingInteractionDurability(null),
+        () => restoreMicrosoft?.(),
         () => vi.restoreAllMocks(),
         () => vi.unstubAllEnvs(),
         () => {
@@ -429,7 +383,7 @@ memory:
       await vi.waitFor(
         () =>
           expect(sent).toContainEqual({
-            conversationId: chat,
+            conversationId: `${chat};messageid=${root}`,
             message: expect.objectContaining({
               replyToId: root,
               attachments: expect.arrayContaining([
@@ -456,6 +410,8 @@ memory:
         expect.objectContaining({
           id: 'teams-person-message',
           content: 'explain the release',
+          sender: teamsTestPeople.permitted,
+          mentionsBot: true,
           thread_id: root,
           providerAccountId: account,
         }),
@@ -479,7 +435,7 @@ memory:
         messageOptions: { threadId: root, providerAccountId: account },
       });
       expect(sent).toContainEqual({
-        conversationId: chat,
+        conversationId: `${chat};messageid=${root}`,
         message: expect.objectContaining({
           text: 'Scheduled update after restart.',
           replyToId: root,
@@ -505,14 +461,14 @@ memory:
         conversationId,
         providerId: 'teams',
         providerAccountId: account,
-        externalUserId: 'permitted-person',
+        externalUserId: teamsTestPeople.permitted,
       });
       await new ConversationAdministrationService(
         runtime.repositories,
       ).replaceControlAllowlist({
         appId: appId as never,
         conversationId: conversationId as never,
-        userIds: ['permitted-person'],
+        userIds: [teamsTestPeople.permitted],
         updatedAt: new Date().toISOString(),
       });
       const request: PermissionApprovalRequest = {
@@ -561,10 +517,28 @@ memory:
       if (!action || !('data' in action))
         throw new Error('No approval action was delivered');
       const beforeUpdates = updated.length;
+      const noIdentity = await post({
+        type: 'invoke',
+        name: 'adaptiveCard/action',
+        from: { id: '29:permitted-bot-scoped', name: 'No Entra identity' },
+        value: {
+          action: {
+            type: 'Action.Execute',
+            data: { ...action.data, aadObjectId: teamsTestPeople.permitted },
+          },
+        },
+      });
+      expect(noIdentity.status).toBe(200);
+      expect(decided).toBe(false);
+      expect(updated).toHaveLength(beforeUpdates);
       const denied = await post({
         type: 'invoke',
         name: 'adaptiveCard/action',
-        from: { id: 'unpermitted-person', name: 'Another person' },
+        from: {
+          id: '29:other-bot-scoped',
+          aadObjectId: teamsTestPeople.other,
+          name: 'Another person',
+        },
         value: { action: { type: 'Action.Execute', data: action.data } },
       });
       expect(denied.status).toBe(200);
@@ -580,12 +554,13 @@ memory:
         value: { action: { type: 'Action.Execute', data: action.data } },
       });
       expect(accepted.status).toBe(200);
+      await vi.waitFor(() => expect(decided).toBe(true));
       expect(await waiting).toMatchObject({
         kind: 'decision',
         decision: {
           approved: true,
           mode: 'allow_once',
-          decidedBy: 'permitted-person',
+          decidedBy: teamsTestPeople.permitted,
         },
       });
       expect(updated).toHaveLength(beforeUpdates + 1);

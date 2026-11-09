@@ -3,16 +3,17 @@
   "flagged": [
     "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
     "apps/core/src/channels/teams/sdk-client.ts",
-    "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts"
+    "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+    "docs/operations/teams-live-transport.md"
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "63dca8f6ff87cfe8345a1ee37f23671ca99f81fb4ff3d70778363ef2dc926f16",
-    "changed": "fa83de59f91934af4a54499e51674886a7f327b8e51d33574cbc493b4eb27678",
-    "commit": "ec237e67b661ccbec9a0a402095dd6f6e83a16c6",
+    "branch_diff": "7b7cc010a1e9c93a5dcac77e0b5f56b05fc1a066629bd2ac8c1b81e5ac0d7f9f",
+    "changed": "b83443e24144399458058fb5d3cfebaf8e83cd570537e5a44122fea48fe56812",
+    "commit": "e9e03996d6e416677d2ebd4812826c0070a98f70",
     "dismissals": [],
     "findings": [],
-    "id": "ca47f84a-fed6-4c52-a6b4-739ba8bcae3f",
+    "id": "4bcf5aa6-3fde-4467-8187-565fa0c2ae5c",
     "status": "clean"
   },
   "round": 6,
@@ -37,7 +38,48 @@
     {
       "at": "2026-10-23T02:27:30+00:00",
       "step": "review"
+    },
+    {
+      "at": "2026-11-03T09:47:48+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T09:58:44+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-03T10:09:08+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-04T11:19:34+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-04T11:57:01+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-04T15:20:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-05T10:38:50+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-05T10:57:37+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-05T11:04:23+00:00",
+      "step": "review"
     }
   ],
+  "stop": {
+    "choice": "narrow",
+    "file": "apps/core/src/channels/teams/sdk-client.ts",
+    "reason": "Owner replied fix to the pending choice to keep the same PR and narrow remaining work to the verified discovery and route-store construction repairs. All approved Teams features remain in scope; review the corrected source and commit proof record. No merge."
+  },
   "worker": "codex"
 }

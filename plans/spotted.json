@@ -494,6 +494,61 @@
       "item": "TEAMS-1/T5",
       "status": "open",
       "closed_by": null
+    },
+    {
+      "key": "bug\tapps/core/src/channels/teams/sdk-client.ts\tStandard: Module boundaries\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/src/channels/teams/sdk-client.ts",
+      "line": 8,
+      "text": "Standard: Module boundaries",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/operations/teams-live-transport.md\tNot done: functional check\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "docs/operations/teams-live-transport.md",
+      "line": 88,
+      "text": "Not done: functional check",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "bug\tdocs/operations/teams-live-transport.md\tNot done: proof list\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "docs/operations/teams-live-transport.md",
+      "line": 78,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tapps/core/src/channels/teams/sdk-client.ts\t[P2] Preserve thread targeting when conversation type is absent",
+      "kind": "edge",
+      "path": "apps/core/src/channels/teams/sdk-client.ts",
+      "line": 391,
+      "text": "[P2] Preserve thread targeting when conversation type is absent",
+      "from": "review",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
+      "key": "edge\tpackage.json\tKeep production-only installs independent of Husky",
+      "kind": "edge",
+      "path": "package.json",
+      "line": 80,
+      "text": "Keep production-only installs independent of Husky",
+      "from": "review",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
     }
   ]
 }

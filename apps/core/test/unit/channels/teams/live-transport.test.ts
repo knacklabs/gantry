@@ -1,10 +1,12 @@
 import { createServer, type Server } from 'node:http';
-import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
-import { SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConfigurationBotFrameworkAuthentication } from 'botbuilder';
-import { OpenIdMetadata } from 'botframework-connector/lib/auth/openIdMetadata.js';
+import {
+  mockMicrosoftTeamsService,
+  teamsServiceToken,
+  teamsTestCredentials as credentials,
+  teamsTestPeople,
+} from '../../../harness/microsoft-teams-service.js';
 
 import {
   createMicrosoftTeamsSdkClient,
@@ -18,19 +20,18 @@ import { logger } from '@core/infrastructure/logging/logger.js';
 import { createTeamsChannel } from '@core/channels/teams/factory.js';
 import type { TeamsConversationRoute } from '@core/channels/teams/conversation-route-store.js';
 
-const credentials = {
-  clientId: 'bot-app',
-  clientSecret: 'test-secret',
-  tenantId: 'tenant-one',
-};
-const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const clients: TeamsSdkClient[] = [];
 const servers: Server[] = [];
 const sent: Record<string, unknown>[] = [];
 const providerSend = vi.fn(async (message: Record<string, unknown>) => {
   sent.push(message);
-  return { id: 'reply' };
+  return { status: 200, body: { id: 'reply' } };
 });
+const updated: Array<{
+  conversationId: string;
+  messageId: string;
+  message: Record<string, unknown>;
+}> = [];
 const routes = new Map<string, TeamsConversationRoute>();
 const routeStore = {
   async upsertForProviderAccounts(input: {
@@ -54,8 +55,12 @@ const activity = (overrides: Record<string, unknown> = {}) => ({
     conversationType: 'channel',
   },
   recipient: { id: '28:bot-app', name: 'Gantry' },
-  from: { id: 'person', name: 'A person' },
-  channelData: { tenant: { id: 'tenant-one' } },
+  from: {
+    id: '29:bot-scoped-person',
+    aadObjectId: teamsTestPeople.permitted,
+    name: 'A person',
+  },
+  channelData: { tenant: { id: credentials.tenantId } },
   text: '<at>Gantry</at> hello',
   entities: [
     {
@@ -82,13 +87,7 @@ async function rememberConversation() {
 }
 
 async function token(audience = credentials.clientId) {
-  return new SignJWT({ serviceurl: activity().serviceUrl })
-    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
-    .setIssuer('https://api.botframework.com')
-    .setAudience(audience)
-    .setIssuedAt()
-    .setExpirationTime('5m')
-    .sign(keys.privateKey);
+  return teamsServiceToken({ serviceUrl: activity().serviceUrl, audience });
 }
 
 async function listen() {
@@ -126,44 +125,23 @@ async function start(
   return client!;
 }
 
-beforeEach(() => {
+let restoreMicrosoft: () => void;
+beforeEach(async () => {
   sent.length = 0;
+  updated.length = 0;
   routes.clear();
   providerSend.mockReset().mockImplementation(async (message) => {
     sent.push(message);
-    return { id: 'reply' };
+    return { status: 200, body: { id: 'reply' } };
   });
-  vi.spyOn(OpenIdMetadata.prototype, 'getKey').mockResolvedValue({
-    key: keys.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
-    endorsements: ['msteams'],
-  });
-  const connector = {
-    conversations: {
-      sendToConversation: vi.fn(
-        async (_conversation: string, message: Record<string, unknown>) => {
-          return providerSend(message);
-        },
-      ),
-      replyToActivity: vi.fn(
-        async (
-          _conversation: string,
-          _root: string,
-          message: Record<string, unknown>,
-        ) => {
-          return providerSend(message);
-        },
-      ),
-      updateActivity: vi.fn(async () => ({ id: 'updated' })),
+  restoreMicrosoft = await mockMicrosoftTeamsService({
+    serviceUrl: activity().serviceUrl,
+    send: async (_conversation, message) => providerSend(message),
+    update: async (conversationId, messageId, message) => {
+      updated.push({ conversationId, messageId, message });
+      return { status: 200, body: { id: messageId } };
     },
-  };
-  vi.spyOn(
-    ConfigurationBotFrameworkAuthentication.prototype,
-    'createConnectorFactory',
-  ).mockReturnValue({ create: async () => connector } as never);
-  vi.spyOn(
-    ConfigurationBotFrameworkAuthentication.prototype,
-    'createUserTokenClient',
-  ).mockResolvedValue({} as never);
+  });
 });
 
 afterEach(async () => {
@@ -178,7 +156,9 @@ afterEach(async () => {
           ),
       ),
   );
+  restoreMicrosoft?.();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe('authenticated Teams transport', () => {
@@ -205,12 +185,14 @@ describe('authenticated Teams transport', () => {
         conversationId: '19:chat@thread.tacv2',
         threadId: 'root',
         text: 'hello',
+        senderId: teamsTestPeople.permitted,
+        mentionsBot: true,
       }),
     );
     expect(other).not.toHaveBeenCalled();
     expect(routes.get('teams_alias')).toMatchObject({
       conversationJid: 'teams:19:chat@thread.tacv2',
-      tenantId: 'tenant-one',
+      tenantId: credentials.tenantId,
     });
     await first.sendMessage({
       conversationId: '19:chat@thread.tacv2',
@@ -246,20 +228,55 @@ describe('authenticated Teams transport', () => {
     ).toBe(503);
   });
 
-  it.each(['unsigned', 'wrong audience'] as const)(
+  it.each([
+    'unsigned',
+    'wrong audience',
+    'wrong issuer',
+    'expired',
+    'wrong service URL',
+    'wrong signature',
+  ] as const)(
     'rejects %s before route capture or message handling',
     async (kind) => {
+      vi.stubEnv('DANGEROUSLY_ALLOW_UNAUTHENTICATED_REQUESTS', 'true');
       const received = vi.fn(async () => {});
       await start('teams_one', received);
       const base = await listen();
       const authorization =
         kind === 'unsigned'
           ? `Bearer ${Buffer.from(JSON.stringify({ alg: 'none' })).toString('base64url')}.${Buffer.from(JSON.stringify({ iss: 'https://api.botframework.com', aud: credentials.clientId })).toString('base64url')}.`
-          : `Bearer ${await token('another-bot')}`;
+          : `Bearer ${await teamsServiceToken({
+              serviceUrl:
+                kind === 'wrong service URL'
+                  ? 'https://other.example/'
+                  : activity().serviceUrl,
+              audience:
+                kind === 'wrong audience' || kind === 'wrong signature'
+                  ? 'another-bot'
+                  : credentials.clientId,
+              issuer:
+                kind === 'wrong issuer' ? 'https://issuer.example/' : undefined,
+              expired: kind === 'expired',
+            })}`;
+      const parts = authorization.split('.');
+      if (kind === 'wrong signature') {
+        const payload = JSON.parse(
+          Buffer.from(parts[1]!, 'base64url').toString('utf8'),
+        );
+        payload.aud = credentials.clientId;
+        parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
+      }
       const response = await fetch(`${base}/teams_one`, {
         method: 'POST',
-        headers: { authorization },
-        body: JSON.stringify(activity()),
+        headers: { authorization: parts.join('.') },
+        body: JSON.stringify(
+          activity({
+            token: {
+              appId: credentials.clientId,
+              serviceUrl: activity().serviceUrl,
+            },
+          }),
+        ),
       });
       expect(response.status).toBe(401);
       expect(received).not.toHaveBeenCalled();
@@ -397,11 +414,10 @@ describe('authenticated Teams transport', () => {
     if (!channel) throw new Error('Expected configured Teams channel');
     await channel.connect({ inbound: false });
     const text = '🙂'.repeat(2501);
-    providerSend.mockRejectedValueOnce(
-      Object.assign(new Error('private Microsoft response'), {
-        statusCode: 413,
-      }),
-    );
+    providerSend.mockResolvedValueOnce({
+      status: 413,
+      body: { error: 'private Microsoft response' },
+    });
 
     try {
       const result = await channel.sendMessage(
@@ -420,7 +436,7 @@ describe('authenticated Teams transport', () => {
       expect(sent).toHaveLength(3);
       for (const message of sent) {
         expect(message).toMatchObject({
-          conversation: { id: '19:chat@thread.tacv2' },
+          conversation: { id: '19:chat@thread.tacv2;messageid=root' },
           replyToId: 'root',
         });
         expect(
@@ -433,24 +449,9 @@ describe('authenticated Teams transport', () => {
     }
   });
 
-  it.each([
-    { providerStatus: { statusCode: 413 }, expectedStatus: 413 },
-    { providerStatus: { status: 429 }, expectedStatus: 429 },
-    { providerStatus: { statusCode: 400 }, expectedStatus: 400 },
-    { providerStatus: { statusCode: 599 }, expectedStatus: 599 },
-    { providerStatus: { statusCode: '413' }, expectedStatus: undefined },
-    { providerStatus: { status: 413.5 }, expectedStatus: undefined },
-    { providerStatus: { statusCode: 399 }, expectedStatus: undefined },
-    { providerStatus: { status: 600 }, expectedStatus: undefined },
-    { providerStatus: { statusCode: NaN }, expectedStatus: undefined },
-    { providerStatus: { status: Infinity }, expectedStatus: undefined },
-    {
-      providerStatus: { statusCode: { private: 'secret payload' } },
-      expectedStatus: undefined,
-    },
-  ])(
-    'sanitizes connector delivery errors with provider status $providerStatus',
-    async ({ providerStatus, expectedStatus }) => {
+  it.each([400, 413, 429, 500, 599])(
+    'sanitizes Microsoft HTTP %s delivery errors',
+    async (status) => {
       const warning = vi.spyOn(logger, 'warn').mockImplementation(() => {});
       const client = await start(
         'teams_one',
@@ -458,13 +459,10 @@ describe('authenticated Teams transport', () => {
         false,
       );
       await rememberConversation();
-      providerSend.mockRejectedValueOnce(
-        Object.assign(new Error('secret payload'), providerStatus, {
-          request: { headers: { authorization: credentials.clientSecret } },
-          response: { body: 'secret payload' },
-        }),
-      );
-
+      providerSend.mockResolvedValueOnce({
+        status,
+        body: { error: 'secret payload' },
+      });
       const error: unknown = await client
         .sendMessage({
           conversationId: '19:chat@thread.tacv2',
@@ -475,10 +473,8 @@ describe('authenticated Teams transport', () => {
       expect(error).toBeInstanceOf(Error);
       if (!(error instanceof Error)) throw new Error('Expected delivery error');
       expect(error.message).toMatch(/Teams delivery failed.*retry/i);
-      expect(Reflect.get(error, 'status')).toBe(expectedStatus);
-      expect(Object.keys(error)).toEqual(
-        expectedStatus === undefined ? [] : ['status'],
-      );
+      expect(Reflect.get(error, 'status')).toBe(status);
+      expect(Object.keys(error)).toEqual(['status']);
       expect(error).not.toHaveProperty('cause');
       expect(error.stack).not.toContain('secret payload');
       const exposed = JSON.stringify({ error, warnings: warning.mock.calls });
@@ -487,6 +483,50 @@ describe('authenticated Teams transport', () => {
       expect(sent).toEqual([]);
     },
   );
+
+  it('updates the sent Adaptive Card at its exact conversation, thread and activity path', async () => {
+    const client = await start(
+      'teams_one',
+      vi.fn(async () => {}),
+      false,
+    );
+    await rememberConversation();
+    const card = {
+      type: 'AdaptiveCard' as const,
+      version: '1.5',
+      body: [],
+      actions: [],
+    };
+    const sentCard = await client.sendAdaptiveCard!({
+      conversationId: '19:chat@thread.tacv2',
+      threadId: 'root/?#',
+      card,
+    });
+    expect(sentCard.externalMessageId).toBe('reply');
+    const result = await client.updateAdaptiveCard!({
+      conversationId: '19:chat@thread.tacv2',
+      threadId: 'root/?#',
+      messageId: 'reply/?#',
+      card,
+    });
+    expect(result.externalMessageId).toBe('reply/?#');
+    expect(updated).toEqual([
+      {
+        conversationId: '19:chat@thread.tacv2;messageid=root/?#',
+        messageId: 'reply/?#',
+        message: expect.objectContaining({
+          id: 'reply/?#',
+          replyToId: 'root/?#',
+          attachments: [
+            {
+              contentType: 'application/vnd.microsoft.card.adaptive',
+              content: card,
+            },
+          ],
+        }),
+      },
+    ]);
+  });
 
   it('makes a missing proactive route actionable without dispatching to Microsoft', async () => {
     const client = await start(
@@ -500,9 +540,9 @@ describe('authenticated Teams transport', () => {
     expect(sent).toEqual([]);
   });
 
-  it('refreshes routing from an authenticated non-message activity with conversation tenant metadata', async () => {
+  it('keeps threaded delivery after refreshing routing without conversation type', async () => {
     const received = vi.fn(async () => {});
-    await start('teams_one', received);
+    const client = await start('teams_one', received);
     const base = await listen();
     const response = await fetch(`${base}/teams_one`, {
       method: 'POST',
@@ -524,5 +564,20 @@ describe('authenticated Teams transport', () => {
       conversationType: null,
     });
     expect(received).not.toHaveBeenCalled();
+    await client.sendMessage({
+      conversationId: '19:chat@thread.tacv2',
+      threadId: 'root',
+      text: 'reply after route refresh',
+    });
+    expect(sent).toEqual([
+      expect.objectContaining({
+        conversation: {
+          id: '19:chat@thread.tacv2;messageid=root',
+          tenantId: credentials.tenantId,
+        },
+        replyToId: 'root',
+        text: 'reply after route refresh',
+      }),
+    ]);
   });
 });

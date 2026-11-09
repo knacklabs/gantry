@@ -25,7 +25,7 @@ The next client and the positioning are Teams-first, and the Teams transport is 
 
 ### Transport
 
-- Bot Framework transport behind the existing `TeamsSdkClient` seam: inbound activity
+- Microsoft Teams SDK transport behind the existing `TeamsSdkClient` seam: inbound activity
   webhook (messages, card submits, membership), outbound send/update, token
   acquisition for the bot identity. The current stub returning `null` is replaced; the
   factory no longer disables the channel.
@@ -58,8 +58,8 @@ publishing.
 
 ## Acceptance criteria
 
-- **TEAMS-1** — Teams transport: Bot Framework, manifest, endpoint
-  - createMicrosoftTeamsSdkClient returns a working Bot Framework transport (receive + send + Adaptive Card submit); teams-factory no longer disables the channel
+- **TEAMS-1** — Teams transport: Teams SDK, manifest, endpoint
+  - createMicrosoftTeamsSdkClient returns a working Teams SDK transport (receive + send + Adaptive Card submit); teams-factory no longer disables the channel
   - App manifest and Azure Bot registration documented and scriptable; stable public HTTPS messaging endpoint documented
   - Bot/self-sender gate for Teams matching Slack and Discord
   - Teams operator quickstart under docs/operations
