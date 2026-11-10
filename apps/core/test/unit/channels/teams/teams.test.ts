@@ -2381,6 +2381,46 @@ describe('TeamsChannel adapter', () => {
     expect(sdkClient.sendMessage).not.toHaveBeenCalled();
   });
 
+  it('drops earlier streamed text when a chunk replaces the stream', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const jid = 'teams:19:abc@thread.v2';
+    await channel.sendStreamingChunk(jid, 'Let me check the output shape.');
+    await vi.advanceTimersByTimeAsync(1800);
+    await channel.sendStreamingChunk(jid, 'The answer is 42.', {
+      replace: true,
+    });
+    await channel.sendStreamingChunk(jid, '', { done: true });
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'The answer is 42.' })],
+        }),
+      }),
+    );
+    vi.useRealTimers();
+  });
+
   it('serializes Teams streaming updates for the same stream', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

@@ -431,6 +431,8 @@ export interface StreamingChunkOptions {
   providerAccountId?: string;
   done?: boolean;
   generation?: number;
+  /** Drop text streamed so far; this chunk starts the final answer segment. */
+  replace?: boolean;
 }
 
 export interface ProgressUpdateOptions {

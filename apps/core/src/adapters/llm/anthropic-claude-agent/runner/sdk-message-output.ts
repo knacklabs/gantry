@@ -70,6 +70,27 @@ export function topLevelAssistantText(message: unknown): string {
   return assistantTextFromContent(record.message?.content);
 }
 
+export function hasTopLevelToolUse(message: unknown): boolean {
+  if (!message || typeof message !== 'object') return false;
+  const record = message as {
+    message?: { content?: unknown };
+    parent_tool_use_id?: unknown;
+  };
+  if (typeof record.parent_tool_use_id === 'string') return false;
+  const content = record.message?.content;
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (part) =>
+        part &&
+        typeof part === 'object' &&
+        ((part as { type?: unknown }).type === 'tool_use' ||
+          (part as { type?: unknown }).type === 'server_tool_use' ||
+          (part as { type?: unknown }).type === 'mcp_tool_use'),
+    )
+  );
+}
+
 export function hasTopLevelAssistantContent(message: unknown): boolean {
   if (!message || typeof message !== 'object') return false;
   const record = message as {

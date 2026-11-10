@@ -568,7 +568,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 : JSON.stringify(result.result);
             sawRawOutput = true;
             pendingIdleBoundary = true;
-            await outputBuffer.appendRawOutput(raw);
+            await outputBuffer.appendRawOutput(raw, {
+              newTextSegment: result.newTextSegment === true,
+            });
             resetIdleTimer();
           }
           if (result.interactionBoundary) {

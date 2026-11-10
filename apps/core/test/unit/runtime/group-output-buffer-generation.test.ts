@@ -158,3 +158,34 @@ describe('streamed generation persistence', () => {
     expect(status()).toBe('none');
   });
 });
+
+describe('new text segment after a tool call', () => {
+  it('asks the channel to replace earlier streamed text once', async () => {
+    const sendStreamingChunk = vi.fn(async () => true);
+    const buffer = createGroupOutputBuffer({
+      channelRuntime: { sendStreamingChunk } as never,
+      chatJid: 'teams:19:abc@thread.v2',
+      groupName: 'group',
+      supportsStreamingChunks: true,
+      buildStreamingOptions: () => ({}) as never,
+      buildMessageOptions: () => undefined,
+      sendMessageToChannel: async () => {},
+      applyDeliverySettlement: () => {},
+      getStreamedTranscriptDeliveryStatus: () => 'sent',
+      log: { info: vi.fn(), warn: vi.fn() } as never,
+    });
+    await buffer.appendRawOutput('Let me check. ');
+    await buffer.appendRawOutput('The answer is 42. ', { newTextSegment: true });
+    await buffer.appendRawOutput('Done.');
+    const calls = sendStreamingChunk.mock.calls as unknown as [
+      string,
+      string,
+      { replace?: boolean },
+    ][];
+    expect(calls.map((c) => c[2].replace === true)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+  });
+});
