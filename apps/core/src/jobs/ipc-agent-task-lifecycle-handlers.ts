@@ -189,7 +189,8 @@ export function taskScope(context: TaskContext): {
     sourceAgentFolder: context.sourceAgentFolder,
     runHandle: context.data.runHandle,
   });
-  if (!sandboxPolicy) return rejectedTaskScope(context, 'sandbox_policy_missing');
+  if (!sandboxPolicy)
+    return rejectedTaskScope(context, 'sandbox_policy_missing');
   const conversationId = toTrimmedString(context.data.chatJid, {
     maxLen: 255,
   });
@@ -393,10 +394,11 @@ const asyncRunCommandHandler: TaskHandler = async (context) => {
   }
   const result = await service.start({
     ...scopedTaskOwner,
-    parentRunId: context.data.jobId ? null : (context.data.runId ?? null),
+    // Scheduled and interactive executions both live in agent_runs.
+    parentRunId: context.data.runId ?? null,
     parentTaskId: parentTask.parentTaskId,
     parentJobId: context.data.jobId ?? null,
-    parentJobRunId: context.data.jobId ? (context.data.runId ?? null) : null,
+    parentJobRunId: null,
     command,
     cwd: resolveWorkspaceFolderPath(context.sourceAgentFolder),
     protectedReadPaths: sandboxPolicy.protectedReadPaths,

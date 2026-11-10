@@ -1,0 +1,23 @@
+{
+  "name": "braces",
+  "version": "3.0.3",
+  "description": "Vendored braces 3.0.3 with bounded nesting guards for CVE-2026-93687",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "lib"
+  ],
+  "engines": {
+    "node": ">=8"
+  },
+  "dependencies": {
+    "fill-range": "^7.1.1"
+  },
+  "license": "MIT",
+  "repository": "micromatch/braces",
+  "gantryPatch": {
+    "advisory": "GHSA-vfj7-8cjw-p6xm",
+    "source": "https://github.com/micromatch/braces/pull/72",
+    "reviewedForkCommit": "305a2e4bfe324bb53c336c1b03387ee1251c926f"
+  }
+}

@@ -2270,7 +2270,7 @@ describe('MCP IPC tool handlers', () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it('stores scheduled async MCP job metadata outside live parentRunId', async () => {
+  it('links scheduled async MCP calls to the canonical run and originating job', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const callTool = vi.fn(async () => ({}));
     const createProxy = vi.fn(async () => ({
@@ -2325,9 +2325,9 @@ describe('MCP IPC tool handlers', () => {
       (candidate) => candidate.kind === 'mcp_tool_call',
     );
     expect(task).toMatchObject({
-      parentRunId: null,
+      parentRunId: 'job-run-1',
       parentJobId: 'job-1',
-      parentJobRunId: 'job-run-1',
+      parentJobRunId: null,
     });
   });
 });

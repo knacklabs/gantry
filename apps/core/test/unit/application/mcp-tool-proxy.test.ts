@@ -1696,7 +1696,10 @@ describe('McpToolProxy', () => {
         toolName: 'create_issue',
         arguments: { title: 'Bug' },
       }),
-    ).resolves.toEqual({ content: [] });
+    ).resolves.toMatchObject({
+      toolCallId: expect.any(String),
+      content: [expect.objectContaining({ type: 'text' })],
+    });
     expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
       { name: 'create_issue', arguments: { title: 'Bug' } },
       undefined,
@@ -1971,7 +1974,10 @@ describe('McpToolProxy', () => {
         toolName: 'create_issue',
         arguments: { title: 'Bug' },
       }),
-    ).resolves.toEqual({ content: [] });
+    ).resolves.toMatchObject({
+      toolCallId: expect.any(String),
+      content: [expect.objectContaining({ type: 'text' })],
+    });
     expect(mcpSdkMocks.client.callTool).toHaveBeenCalledTimes(1);
     expect(publishRuntimeEvent).toHaveBeenCalledTimes(2);
     expect(appendAuditEvent).toHaveBeenCalledWith(
@@ -1983,6 +1989,94 @@ describe('McpToolProxy', () => {
         }),
       }),
     );
+  });
+
+  it('returns the same run-scoped receipt and URL evidence that it publishes durably', async () => {
+    mockCreateIssueToolDetail();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const appendAuditEvent = vi.fn(async () => undefined);
+    const proxy = new McpToolProxy(
+      mcpRepository({ remote: true, appendAuditEvent }),
+      {
+        tools: toolRepository(),
+        lookupHostname: vi.fn(async () => [
+          { address: '93.184.216.34', family: 4 as const },
+        ]),
+        publishRuntimeEvent,
+        runId: 'run-with-receipts',
+      },
+    );
+    mcpSdkMocks.client.callTool.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            url: 'https://public.example/tenders',
+            title: 'Public notices',
+          }),
+        },
+      ],
+    });
+    const result = (await proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+      arguments: { title: 'Public notice' },
+    })) as { toolCallId: string; content: Array<{ text: string }> };
+    expect(result.toolCallId).toMatch(/^mcp-call:/);
+    expect(result.content[0]?.text).toContain(result.toolCallId);
+    expect(publishRuntimeEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        runId: 'run-with-receipts',
+        payload: expect.objectContaining({
+          toolCallId: result.toolCallId,
+          resultClass: 'success',
+          evidenceProjection: expect.arrayContaining([
+            expect.objectContaining({
+              value: 'https://public.example/tenders',
+            }),
+          ]),
+        }),
+      }),
+    );
+    expect(appendAuditEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ toolCallId: result.toolCallId }),
+      }),
+    );
+  });
+
+  it('exposes the audited receipt on a thrown remote timeout', async () => {
+    mockCreateIssueToolDetail();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: toolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+      publishRuntimeEvent,
+      runId: 'run-timeout',
+    });
+    mcpSdkMocks.client.callTool.mockRejectedValueOnce(
+      new Error('Remote request timed out'),
+    );
+    let failure: unknown;
+    try {
+      await proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+      });
+    } catch (error) {
+      failure = error;
+    }
+    const terminal = publishRuntimeEvent.mock.calls.at(-1)?.[0] as {
+      payload: { toolCallId: string };
+    };
+    expect((failure as Error).message).toContain(terminal.payload.toolCallId);
+    expect((failure as Error).message).toContain('Remote request timed out');
   });
 
   it('bounds untrusted MCP tool results before returning them to IPC', async () => {
@@ -2935,3 +3029,101 @@ function remoteCapability(input: {
     required: false,
   };
 }
+
+describe('Firecrawl billing credential identity', () => {
+  it.each(['firecrawl', 'firecrawl-http'])(
+    'keeps one credential identity when agents/binding revisions change on %s',
+    async (server) => {
+      const repository = multiMcpRepository([server]) as unknown as {
+        listMaterializedServersForAgent(): Promise<
+          Array<{ definition: unknown; binding: Record<string, unknown> }>
+        >;
+      };
+      const records = await repository.listMaterializedServersForAgent();
+      const tool = {
+        id: 'firecrawl-tool',
+        name: 'capability:firecrawl.search',
+        inputSchema: semanticCapabilityInputSchema({
+          capabilityId: 'firecrawl.search',
+          displayName: 'Firecrawl search',
+          category: 'mcp',
+          risk: 'read',
+          can: 'Search public pages',
+          cannot: 'Call other tools',
+          credentialSource: 'none',
+          implementationBindings: [
+            {
+              kind: 'mcp_pattern',
+              mcpServer: server,
+              mcpToolPatterns: ['firecrawl_search'],
+            },
+          ],
+        }),
+      };
+      const tools = {
+        listAgentToolBindings: async () => [
+          {
+            id: 'firecrawl-tool-binding',
+            appId: 'app-one',
+            agentId: records[0].binding.agentId,
+            toolId: tool.id,
+            status: 'active',
+          },
+        ],
+        getTool: async () => tool,
+      };
+      const events: Array<{ payload?: Record<string, unknown> }> = [];
+      const proxy = new McpToolProxy(repository as never, {
+        tools: tools as never,
+        lookupHostname: vi.fn(async () => [
+          { address: '93.184.216.34', family: 4 as const },
+        ]),
+        publishRuntimeEvent: (event) => {
+          events.push(event);
+        },
+      });
+      mcpSdkMocks.client.listTools.mockResolvedValue({
+        tools: [
+          {
+            name: 'firecrawl_search',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              additionalProperties: true,
+            },
+          },
+        ],
+      } as never);
+      mcpSdkMocks.client.callTool.mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: 'Insufficient credits' }],
+      } as never);
+      const call = (agent: string) =>
+        proxy.callTool({
+          appId: 'app-one' as never,
+          agentId: agent as never,
+          serverName: server,
+          toolName: 'firecrawl_search',
+          arguments: {},
+        });
+      await call('agent-one');
+      records[0].binding.agentId = 'agent-two';
+      records[0].binding.id = 'second-binding';
+      records[0].binding.updatedAt = new Date(1).toISOString();
+      // Return the same configured server through the second agent's binding.
+      repository.listMaterializedServersForAgent = async () => records;
+      (
+        repository as unknown as { listAgentBindings: () => Promise<unknown> }
+      ).listAgentBindings = async () => [records[0].binding];
+      clearMcpToolProxyInventoryCache();
+      await call('agent-two');
+      const failures = events
+        .map(
+          (event) => event.payload?.billingFailure as Record<string, unknown>,
+        )
+        .filter(Boolean);
+      expect(failures).toHaveLength(2);
+      expect(failures[0].credentialRef).toBe(failures[1].credentialRef);
+    },
+  );
+});

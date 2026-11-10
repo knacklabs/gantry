@@ -54,7 +54,13 @@ function hasUnsupportedOpenAiKeyword(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasUnsupportedOpenAiKeyword);
   if (!value || typeof value !== 'object') return false;
   const schema = value as Record<string, unknown>;
-  if ('oneOf' in schema || 'allOf' in schema || 'not' in schema) return true;
+  if (
+    'oneOf' in schema ||
+    'allOf' in schema ||
+    'not' in schema ||
+    'uniqueItems' in schema
+  )
+    return true;
   return Object.values(schema).some(hasUnsupportedOpenAiKeyword);
 }
 
@@ -326,7 +332,7 @@ function envelopeTool(
   original: StructuredToolInterface,
 ): StructuredToolInterface {
   const schema = readableSchema(original.schema);
-  return tool(
+  const wrapped = tool(
     async ({ json }): Promise<unknown> => {
       let input: unknown;
       try {
@@ -358,6 +364,32 @@ function envelopeTool(
         .strict(),
     },
   );
+  const invoke = wrapped.invoke.bind(wrapped);
+  return new Proxy(wrapped, {
+    get(target, property, receiver) {
+      if (property === 'invoke') {
+        return (input: unknown, config?: Parameters<typeof invoke>[1]) =>
+          invoke(normalizeEnvelopeInput(input) as never, config);
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+// Accept equivalent wire shapes; the original tool still validates every business field.
+function normalizeEnvelopeInput(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const value = input as Record<string, unknown>;
+  if (
+    (value.type === 'tool_call' || value._type === 'tool_call') &&
+    value.args
+  ) {
+    return { ...value, args: normalizeEnvelopeInput(value.args) };
+  }
+  if (typeof value.json === 'string') return input;
+  const payload =
+    Object.keys(value).length === 1 && 'json' in value ? value.json : input;
+  return { json: JSON.stringify(payload) };
 }
 
 function unwrapMatchingDirectMcpCall(

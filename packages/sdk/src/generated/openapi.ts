@@ -4006,6 +4006,10 @@ export interface components {
             /** @enum {string} */
             type: "text";
             text: string;
+            prompt_cache_breakpoint?: {
+                /** @enum {string} */
+                mode: "explicit";
+            };
         } | {
             /** @enum {string} */
             type: "image_url";
@@ -4067,6 +4071,12 @@ export interface components {
             /** @description Registered Gantry model alias. */
             model: string;
             messages: components["schemas"]["LlmChatInputMessage"][];
+            prompt_cache_options?: {
+                /** @enum {string} */
+                mode?: "implicit" | "explicit";
+                /** @enum {string} */
+                ttl?: "30m";
+            };
             max_tokens?: number;
             max_completion_tokens?: number;
             stream?: boolean;
