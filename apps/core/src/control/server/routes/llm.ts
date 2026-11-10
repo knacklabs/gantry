@@ -176,6 +176,9 @@ async function handleAdmittedLlmRequest(
         apiKeyId: auth.kid,
         apiRequestId,
         modelRouteId: resolved.entry.modelRoute.id,
+        operation: resolved.taskType,
+        requestedModel: resolved.alias,
+        correlationId: resolved.correlationId,
         broker,
       });
       injectionIssued = true;

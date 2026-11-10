@@ -41,10 +41,20 @@ export async function publishMcpToolActivity(input: {
     outputSchemaPresent?: boolean;
     structuredResultValidated?: boolean;
     toolResultError?: boolean;
+    toolCallId?: string;
+    evidenceProjection?: Array<{ path: string; value: string }>;
+    billingFailure?: Record<string, unknown>;
   };
 }): Promise<void> {
   const activity = input.activity;
   const payload = {
+    ...(activity.toolCallId ? { toolCallId: activity.toolCallId } : {}),
+    ...(activity.evidenceProjection
+      ? { evidenceProjection: activity.evidenceProjection }
+      : {}),
+    ...(activity.billingFailure
+      ? { billingFailure: activity.billingFailure }
+      : {}),
     serverName: activity.input.serverName,
     toolName: activity.input.toolName,
     requestedToolRule: `mcp__${activity.input.serverName}__${activity.input.toolName}`,

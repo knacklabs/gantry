@@ -237,8 +237,8 @@ function context(input: {
 describe('direct LLM control routes', () => {
   it('does not leave the per-key rate gate below configured LLM concurrency', async () => {
     const rateLimiter = { consume: vi.fn(() => true) };
-    const fetchMock = vi.fn(async () =>
-      new Response('{"id":"msg_rate_contract"}', { status: 200 }),
+    const fetchMock = vi.fn(
+      async () => new Response('{"id":"msg_rate_contract"}', { status: 200 }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -539,18 +539,49 @@ describe('direct LLM control routes', () => {
   );
 
   it('forwards explicit cache boundaries and provider usage without alteration', async () => {
-    const usage = { prompt_tokens: 100, completion_tokens: 5, total_tokens: 105,
-      prompt_tokens_details: { cached_tokens: 60, cache_write_tokens: 20 } };
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'cache-test', usage }), { status: 200 }));
+    const usage = {
+      prompt_tokens: 100,
+      completion_tokens: 5,
+      total_tokens: 105,
+      prompt_tokens_details: { cached_tokens: 60, cache_write_tokens: 20 },
+    };
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: 'cache-test', usage }), {
+          status: 200,
+        }),
+    );
     vi.stubGlobal('fetch', fetchMock);
-    const body = { model: 'gpt', max_completion_tokens: 32,
+    const body = {
+      model: 'gpt',
+      max_completion_tokens: 32,
       prompt_cache_options: { mode: 'explicit', ttl: '30m' },
-      messages: [{ role: 'system', content: [{ type: 'text', text: 'Reusable instructions', prompt_cache_breakpoint: { mode: 'explicit' } }] },
-        { role: 'user', content: 'Changing evidence' }] };
+      messages: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'text',
+              text: 'Reusable instructions',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+        { role: 'user', content: 'Changing evidence' },
+      ],
+    };
     const res = new TestResponse();
-    await handleLlmRoutes(request({ body }), res as unknown as ServerResponse, context({ broker: broker(), maxTokens: 32 }), '/llm/v1/chat/completions');
+    await handleLlmRoutes(
+      request({ body }),
+      res as unknown as ServerResponse,
+      context({ broker: broker(), maxTokens: 32 }),
+      '/llm/v1/chat/completions',
+    );
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({ ...body, model: 'gpt-5.5' });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]!.body))).toEqual({
+      ...body,
+      model: 'gpt-5.5',
+    });
     expect(JSON.parse(res.body()).usage).toEqual(usage);
   });
 
@@ -559,14 +590,43 @@ describe('direct LLM control routes', () => {
     { prompt_cache_options: { mode: 'warm' } },
     { prompt_cache_options: { mode: ['explicit'] } },
     { prompt_cache_options: { mode: 'explicit', prewarm: true } },
-    { messages: [{ role: 'user', content: [{ type: 'image_url', prompt_cache_breakpoint: { mode: 'explicit' } }] }] },
-    { messages: [{ role: 'system', content: [{ type: 'text', text: 'prefix', prompt_cache_breakpoint: { mode: 'implicit' } }] }] },
+    {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image_url',
+              prompt_cache_breakpoint: { mode: 'explicit' },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      messages: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'text',
+              text: 'prefix',
+              prompt_cache_breakpoint: { mode: 'implicit' },
+            },
+          ],
+        },
+      ],
+    },
   ])('rejects unsupported Chat cache declarations: %j', async (cacheFields) => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const res = new TestResponse();
-    await handleLlmRoutes(request({ body: { model: 'gpt', ...cacheFields } }), res as unknown as ServerResponse,
-      context({ broker: broker() }), '/llm/v1/chat/completions');
+    await handleLlmRoutes(
+      request({ body: { model: 'gpt', ...cacheFields } }),
+      res as unknown as ServerResponse,
+      context({ broker: broker() }),
+      '/llm/v1/chat/completions',
+    );
     expect(res.statusCode).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -630,6 +690,15 @@ describe('direct LLM control routes', () => {
     expect(upstreamBody.response_format).toEqual({ type: 'json_object' });
     expect(upstreamBody.reasoning_effort).toBe('medium');
     expect(upstreamBody.metadata).toBeUndefined();
+    expect(gatewayBroker.getInjection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        binding: expect.objectContaining({
+          operation: 'manipal.scrape.normalization.full',
+          requestedModel: 'gpt',
+          correlationId: 'scrape:run-1:task-1',
+        }),
+      }),
+    );
     expect(requestLogs).toContainEqual(
       expect.objectContaining({
         correlationId: 'scrape:run-1:task-1',

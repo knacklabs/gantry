@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import { tool, type StructuredToolInterface } from '@langchain/core/tools';
 
-import { buildGantryMcpProjection } from './gantry-mcp-env.js';
+import {
+  buildGantryMcpProjection,
+  callerResolvedToolConfig,
+} from './gantry-mcp-env.js';
 import {
   canonicalThirdPartyMcpToolName,
   wrapThirdPartyMcpToolsWithGate,
@@ -183,8 +186,18 @@ export async function connectGantryAndThirdPartyMcpTools(
   }
 
   const selectedGantrySet = new Set(projection.selectedToolNames);
+  const callerConfig = callerResolvedToolConfig(
+    process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
+  );
+  const directCallerTools = new Set(
+    (callerConfig?.tools ?? [])
+      .filter((tool) => tool.transportMode === 'direct_caller')
+      .map((tool) => tool.name),
+  );
   const atomicCallerResolvedTools = new Set(
-    callerResolvedToolNames(process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON),
+    callerResolvedToolNames(
+      process.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
+    ).filter((name) => !directCallerTools.has(name)),
   );
   const callableAgentToolNames = new Set(
     (input.callableAgentManifest ?? []).map(callableAgentToolName),
@@ -195,6 +208,15 @@ export async function connectGantryAndThirdPartyMcpTools(
     ),
     atomicCallerResolvedTools,
   ).map((tool) => {
+    if (directCallerTools.has(tool.name)) {
+      const definition = callerConfig!.tools.find(
+        (entry) => entry.name === tool.name,
+      )!;
+      // The MCP adapter flattens union schemas; caller contracts must retain their exact validation.
+      if (definition.inputSchema)
+        tool.schema = definition.inputSchema as typeof tool.schema;
+      return withToolTimeout(tool, callerConfig!.interactionTimeoutMs + 20_000);
+    }
     if (callableAgentToolNames.has(tool.name))
       return withCallableAgentTimeout(tool);
     // job_checkpoint_save owns the atomic human-wait flow, so its MCP call
@@ -219,26 +241,29 @@ export async function connectGantryAndThirdPartyMcpTools(
   const delegateTaskTool = gantryTools.find(
     (tool) => tool.name === 'delegate_task',
   );
-  const facadeTools = createGantryFacadeTools({
-    workspaceFolder: input.gate.workspaceFolder,
-    memoryBlock: input.gate.memoryBlock,
-    configuredAllowedTools: input.configuredAllowedTools,
-    toolNetworkEnv: input.toolNetworkEnv,
-    gateContext: input.gate.gateContext,
-    permissionEnv: input.gate.permissionEnv,
-    lockedAccessPreset: input.gate.lockedAccessPreset,
-    asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
-    delegateTaskTool,
-    // Durable external-capability jobs persist state through typed artifacts.
-    // Raw workspace tools would create a second, non-checkpointed state path.
-    filesystemToolsEnabled:
-      !hasManagedCapability(input.semanticCapabilities) &&
-      shouldProjectGantryFilesystemTools({
-        filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
-      }),
-    ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
-    ...(input.gate.signal ? { signal: input.gate.signal } : {}),
-  });
+  const facadeTools = callerConfig
+    ? []
+    : createGantryFacadeTools({
+        workspaceFolder: input.gate.workspaceFolder,
+        memoryBlock: input.gate.memoryBlock,
+        configuredAllowedTools: input.configuredAllowedTools,
+        toolNetworkEnv: input.toolNetworkEnv,
+        gateContext: input.gate.gateContext,
+        permissionEnv: input.gate.permissionEnv,
+        lockedAccessPreset: input.gate.lockedAccessPreset,
+        asyncTaskToolsEnabled: projection.asyncTaskToolsEnabled,
+        delegateTaskTool,
+        // Durable external-capability jobs persist state through typed artifacts.
+        // Raw workspace tools would create a second, non-checkpointed state path.
+        filesystemToolsEnabled:
+          !hasManagedCapability(input.semanticCapabilities) &&
+          shouldProjectGantryFilesystemTools({
+            filesystemEnabledEnv:
+              process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
+          }),
+        ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
+        ...(input.gate.signal ? { signal: input.gate.signal } : {}),
+      });
   const reservedToolNames = new Set<string>([
     ...selectedGantrySet,
     ...DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
@@ -247,6 +272,12 @@ export async function connectGantryAndThirdPartyMcpTools(
   const thirdPartyToolEntries: DeclarativeToolEntry[] = [];
   for (const [name, tools] of Object.entries(serverTools)) {
     if (name === GANTRY_SERVER_NAME) continue;
+    if (
+      callerConfig?.tools.every(
+        (tool) => tool.transportMode === 'direct_caller',
+      )
+    )
+      continue;
     const gated = wrapThirdPartyMcpToolsWithGate(
       dropAtomicCallerResolvedTools(
         dropCollidingThirdPartyTools(name, tools, reservedToolNames),
@@ -266,7 +297,7 @@ export async function connectGantryAndThirdPartyMcpTools(
     );
   }
 
-  const shellTools = projectGantryShellTool(input);
+  const shellTools = callerConfig ? [] : projectGantryShellTool(input);
 
   const toolEntries: DeclarativeToolEntry[] = [
     ...gantryTools.map((tool) => ({
@@ -314,7 +345,11 @@ function gantryHostedCapabilityToolTimeoutMs(
   for (const capability of capabilities ?? []) {
     for (const operation of capability.operations ?? []) {
       // Synchronous operations also declare a deadline the agent's MCP call must outlive (default is 60 s).
-      if (operation.executionMode !== 'gantry_hosted' && operation.executionMode !== 'sync') continue;
+      if (
+        operation.executionMode !== 'gantry_hosted' &&
+        operation.executionMode !== 'sync'
+      )
+        continue;
       const deadlineMs =
         operation.deadlineMs === undefined
           ? DEFAULT_GANTRY_HOSTED_CAPABILITY_DEADLINE_MS

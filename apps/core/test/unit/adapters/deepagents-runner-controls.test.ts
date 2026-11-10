@@ -34,6 +34,10 @@ vi.mock(
   '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js',
   () => ({ normalizeDeepAgentStream: stream.normalize }),
 );
+vi.mock('@core/runner/mcp/tools/file.js', () => ({
+  handleFileToolAction: vi.fn(),
+}));
+
 vi.mock('deepagents', () => ({
   createDeepAgent: deep.createAgent,
   StateBackend: class {},
@@ -204,4 +208,48 @@ describe('DeepAgents worker model controls', () => {
       }),
     ).toMatchObject({ decision: 'declarative_tool_rule' });
   });
+});
+
+it('keeps all-direct caller evidence inline but preserves ordinary backend behavior', async () => {
+  for (const transportMode of [
+    'direct_caller',
+    'checkpoint_atomic',
+    undefined,
+  ] as const) {
+    await runDeepAgentTurn({
+      agentInput: {
+        prompt: 'evidence',
+        workspaceFolder: '/tmp/workspace',
+        chatJid: 'test:inline',
+        callerResolvedTools: {
+          tools: [
+            {
+              name: 'callback',
+              description: 'callback',
+              inputSchema: {},
+              ...(transportMode ? { transportMode } : {}),
+            },
+          ],
+        },
+        modelCredentialEnv: {
+          OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+          OPENAI_API_KEY: 'test',
+        },
+      },
+      provider: 'openai',
+      modelId: 'gpt-5.6-luna',
+      newSessionId: 'inline-test',
+      includeMemoryContext: false,
+      emit: vi.fn(),
+    } as never);
+    const options = deep.createAgent.mock.calls.at(-1)?.[0] as unknown as {
+      backend: (config: unknown) => { write?: (...args: unknown[]) => unknown };
+    };
+    const backend = options.backend({ state: { files: {} } });
+    if (transportMode === 'direct_caller')
+      expect(
+        backend.write?.('/conversation_history/test', 'fact'),
+      ).toHaveProperty('error');
+    else expect(backend.write).toBeUndefined(); // Base StateBackend is mocked above.
+  }
 });

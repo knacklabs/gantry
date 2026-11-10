@@ -223,3 +223,78 @@ describe('buildGantryMcpProjection', () => {
     expect(hidden.selectedToolNames).not.toContain('request_mcp_server');
   });
 });
+
+describe('bounded caller tool projection', () => {
+  it('exposes only caller tools without baseline or inventory authority', () => {
+    const caller = {
+      tools: [{ name: 'submit_result', transportMode: 'direct_caller' }],
+      interactionTimeoutMs: 90000,
+    };
+    const projection = buildGantryMcpProjection({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      processEnv: {
+        ...BASE_ENV,
+        GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify(caller),
+      },
+    });
+    expect(projection.selectedToolNames).toEqual(['submit_result']);
+  });
+  it('permits only the selected execution proxy when explicitly requested', () => {
+    const caller = {
+      tools: [{ name: 'get_seeds', transportMode: 'direct_caller' }],
+      allowSelectedMcpToolCalls: true,
+      interactionTimeoutMs: 90000,
+    };
+    const projection = buildGantryMcpProjection({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      processEnv: {
+        ...BASE_ENV,
+        GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify(caller),
+      },
+    });
+    expect(projection.selectedToolNames.sort()).toEqual([
+      'get_seeds',
+      'mcp_call_tool',
+    ]);
+  });
+});
+
+it('keeps direct caller jobs closed even when the agent has broader configured tools', () => {
+  const projection = buildGantryMcpProjection({
+    configuredAllowedTools: [
+      'Browser',
+      'mcp__gantry__send_message',
+      'AgentDelegation',
+    ],
+    hideAuthorityTools: false,
+    processEnv: {
+      ...BASE_ENV,
+      GANTRY_BROWSER_IPC_AUTH_TOKEN: 'browser-token',
+      GANTRY_ASYNC_TASK_TOOLS_ENABLED: '1',
+      GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify({
+        tools: [{ name: 'submit_result', transportMode: 'direct_caller' }],
+        interactionTimeoutMs: 90000,
+      }),
+    },
+  });
+  expect(projection.selectedToolNames).toEqual(['submit_result']);
+  expect(projection.browserIpcEnabled).toBe(false);
+});
+
+it('does not expose reviewer tools to a direct caller job', () => {
+  const projection = buildGantryMcpProjection({
+    configuredAllowedTools: [],
+    hideAuthorityTools: false,
+    processEnv: {
+      ...BASE_ENV,
+      GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '1',
+      GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify({
+        tools: [{ name: 'submit_result', transportMode: 'direct_caller' }],
+        interactionTimeoutMs: 90000,
+      }),
+    },
+  });
+  expect(projection.selectedToolNames).toEqual(['submit_result']);
+});

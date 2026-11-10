@@ -225,3 +225,37 @@ describe('compileSpawnSystemPrompt', () => {
     expect(second).toBe(first);
   });
 });
+
+it('renders direct caller tool names for the DeepAgents execution adapter', async () => {
+  const prompt = await compileSpawnSystemPrompt({
+    group: { folder: 'test-agent', conversationKind: 'direct' } as never,
+    agentInput: {
+      prompt: '',
+      chatJid: 'app:test',
+      workspaceFolder: 'test-agent',
+      callerResolvedTools: {
+        sessionId: 'session',
+        tools: [
+          {
+            name: 'submit_result',
+            description: 'Submit',
+            inputSchema: { type: 'object' },
+            transportMode: 'direct_caller',
+          },
+        ],
+        maxInteractions: 3,
+        interactionTimeoutMs: 90000,
+        allowSelectedMcpToolCalls: true,
+      },
+    },
+    appId: 'test',
+    accessPreset: 'locked',
+    executionProviderId: 'deepagents:langchain',
+    mcpInventoryToolsMounted: false,
+    fileArtifactStore: () => undefined,
+    measureAsync: (_name, fn) => fn(),
+  });
+  expect(prompt).toContain('- submit_result');
+  expect(prompt).toContain('proxy available is mcp_call_tool');
+  expect(prompt).not.toContain('mcp__gantry__submit_result');
+});

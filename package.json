@@ -143,6 +143,7 @@
     "node": ">=24 <26"
   },
   "overrides": {
+    "body-parser": "2.4.0",
     "braces": "$braces",
     "esbuild": "0.28.0",
     "form-data": "4.0.6",

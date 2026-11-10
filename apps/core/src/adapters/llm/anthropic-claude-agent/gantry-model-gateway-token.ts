@@ -24,6 +24,9 @@ export interface GatewayTokenRecord {
   authMode: string;
   schemaVersion: number;
   credentialFingerprint: string;
+  operation?: string;
+  requestedModel?: string;
+  correlationId?: string;
   createdAtMs: number;
   expiresAtMs: number;
   tokenScope: string;

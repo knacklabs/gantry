@@ -1,3 +1,4 @@
+import type { CallerResolvedToolsConfig } from '../../../../domain/types.js';
 import {
   GATED_GANTRY_MCP_TOOL_NAMES,
   selectedGantryMcpToolNames,
@@ -54,14 +55,22 @@ export function buildGantryMcpProjection(
   input: GantryMcpEnvInput,
 ): GantryMcpProjection {
   const env = input.processEnv;
+  const callerConfig = callerResolvedToolConfig(
+    env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
+  );
+  const directCallerOnly = Boolean(
+    callerConfig?.tools.every((tool) => tool.transportMode === 'direct_caller'),
+  );
   const memoryReviewerIsControlApprover =
-    env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER === '1';
+    !directCallerOnly && env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER === '1';
   const browserIpcEnabled =
+    !directCallerOnly &&
     Boolean(env.GANTRY_BROWSER_IPC_AUTH_TOKEN?.trim()) &&
     input.configuredAllowedTools.some(isCanonicalBrowserCapabilityRule);
   const asyncTaskToolsEnabled = env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1';
   const callableAgentManifest =
     asyncTaskToolsEnabled &&
+    !directCallerOnly &&
     !input.hideAuthorityTools &&
     env.GANTRY_AGENT_ACCESS_PRESET !== 'locked' &&
     !env.GANTRY_PARENT_TASK_ID &&
@@ -70,11 +79,13 @@ export function buildGantryMcpProjection(
       : [];
 
   const selectedToolNamesBase = selectedGantryMcpToolNames(
-    input.configuredAllowedTools,
+    directCallerOnly ? [] : input.configuredAllowedTools,
     {
       excludeAuthorityTools: input.hideAuthorityTools,
       memoryReviewerIsControlApprover,
-      asyncTaskToolsEnabled,
+      asyncTaskToolsEnabled: asyncTaskToolsEnabled && callerConfig == null,
+      includeBaselineTools: callerConfig == null,
+      excludeMcpProxyTools: callerConfig != null,
       chatJid: env.GANTRY_CHAT_JID,
       permissionLane:
         env.GANTRY_PERMISSION_LANE === 'interactive'
@@ -106,6 +117,7 @@ export function buildGantryMcpProjection(
           ...managedCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
+          ...(callerConfig?.allowSelectedMcpToolCalls ? ['mcp_call_tool'] : []),
         ]),
       ]
     : [
@@ -116,6 +128,7 @@ export function buildGantryMcpProjection(
           ...managedCapabilityToolNames,
           ...callableAgentToolNames,
           ...callerToolNames,
+          ...(callerConfig?.allowSelectedMcpToolCalls ? ['mcp_call_tool'] : []),
         ]),
       ];
 
@@ -246,4 +259,16 @@ function passthrough(
 ): Record<string, string> {
   const value = env[key];
   return typeof value === 'string' ? { [key]: value } : {};
+}
+
+export function callerResolvedToolConfig(
+  raw: string | undefined,
+): CallerResolvedToolsConfig | null {
+  if (!raw?.trim()) return null;
+  try {
+    const value = JSON.parse(raw);
+    return value && Array.isArray(value.tools) ? value : null;
+  } catch {
+    return null;
+  }
 }

@@ -1,3 +1,4 @@
+import { firecrawlBillingFailure } from '../../shared/provider-billing-transport.js';
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
@@ -37,6 +38,7 @@ import {
 } from './mcp-tool-inventory.js';
 import {
   classifyMcpToolAuditError,
+  projectMcpEvidence,
   type McpToolAuditResultClass,
   summarizeMcpToolArguments,
   summarizeMcpToolError,
@@ -55,6 +57,7 @@ import {
   scheduleMcpClientIdleClose,
 } from './mcp-tool-proxy-client-cache.js';
 import { publishMcpToolActivity } from './mcp-tool-proxy-audit.js';
+import { attachMcpToolReceipt } from './mcp-tool-receipt.js';
 import {
   connectMcpToolProxyClient,
   MCP_TOOL_PROXY_CLIENT_ADAPTERS,
@@ -463,12 +466,16 @@ export class McpToolProxy {
   }
 
   async callTool(input: McpToolCallInput): Promise<unknown> {
+    const toolCallId = this.options.runId
+      ? `mcp-call:${globalThis.crypto.randomUUID()}`
+      : undefined;
     const startedAt = Date.now();
     const timeoutMs = input.timeoutMs ?? MCP_PROXY_TIMEOUT_MS;
     const argumentSummary = summarizeMcpToolArguments(input.arguments ?? {});
     await this.publishMcpToolActivity({
       input,
       resultClass: 'attempt',
+      ...(toolCallId ? { toolCallId } : {}),
       latencyMs: 0,
       argumentSummary,
     });
@@ -491,6 +498,7 @@ export class McpToolProxy {
         argumentSummary,
         selectedToolRule,
         selectedCapability,
+        ...(toolCallId ? { toolCallId } : {}),
         ...extra,
       });
       finalized = true;
@@ -551,16 +559,31 @@ export class McpToolProxy {
         );
         toolReturned = true;
         const validationAudit = resultValidation.validate(result);
+        const boundedResult = boundMcpToolResultForReturn(result);
+        const receiptAudit = toolCallId
+          ? { evidenceProjection: projectMcpEvidence(boundedResult) }
+          : {};
         try {
           await finalize(
             validationAudit.toolResultError ? 'failure' : 'success',
-            validationAudit,
+            {
+              ...validationAudit,
+              ...receiptAudit,
+              billingFailure: firecrawlBillingFailure(
+                input.serverName,
+                input.toolName,
+                result,
+                `mcp:${selectedCapability?.serverId ?? input.serverName}`,
+              ),
+            },
           );
         } catch {
           // A remote MCP tool already returned. Do not make completed external
           // side effects look retryable because the post-call audit append failed.
         }
-        return boundMcpToolResultForReturn(result);
+        return toolCallId
+          ? attachMcpToolReceipt(boundedResult, toolCallId)
+          : boundedResult;
       } catch (err) {
         await closeCachedMcpClient(capability);
         throw err;
@@ -572,6 +595,14 @@ export class McpToolProxy {
         const finalizeFailure = () =>
           finalize(classifyMcpToolAuditError(err), {
             error: summarizeMcpToolError(err),
+            billingFailure: selectedCapability
+              ? firecrawlBillingFailure(
+                  input.serverName,
+                  input.toolName,
+                  { isError: true, error: err },
+                  `mcp:${selectedCapability.serverId}`,
+                )
+              : undefined,
           });
         if (toolReturned) {
           try {
@@ -583,6 +614,11 @@ export class McpToolProxy {
         } else {
           await finalizeFailure();
         }
+      }
+      if (toolCallId) {
+        const failure = err instanceof Error ? err : new Error(String(err));
+        failure.message = `Gantry receipt toolCallId: ${toolCallId}. ${failure.message}`;
+        throw failure;
       }
       throw err;
     }
@@ -777,6 +813,9 @@ export class McpToolProxy {
     outputSchemaPresent?: boolean;
     structuredResultValidated?: boolean;
     toolResultError?: boolean;
+    toolCallId?: string;
+    evidenceProjection?: Array<{ path: string; value: string }>;
+    billingFailure?: Record<string, unknown>;
   }): Promise<void> {
     await publishMcpToolActivity({
       mcpServers: this.mcpServers,

@@ -1,4 +1,5 @@
 import { createDeepAgent, StateBackend } from 'deepagents';
+import { InlineCallerEvidenceBackend } from './inline-caller-evidence-backend.js';
 import type { FileData, FilesystemPermission } from 'deepagents';
 import { HumanMessage } from '@langchain/core/messages';
 import { projectSandboxToolNetworkEnv } from '../../../../shared/tool-network-env.js';
@@ -272,7 +273,13 @@ export async function runDeepAgentTurn(input: {
                   : ToolStrategy.fromSchema(STRUCTURED_OUTPUT_ENVELOPE_SCHEMA),
               }
             : {}),
-          backend: (config) => new StateBackend(config),
+          backend: (config) => {
+            const tools = input.agentInput.callerResolvedTools?.tools;
+            return tools?.length &&
+              tools.every((tool) => tool.transportMode === 'direct_caller')
+              ? new InlineCallerEvidenceBackend(config)
+              : new StateBackend(config);
+          },
           ...(input.checkpointer ? { checkpointer: input.checkpointer } : {}),
           permissions: hasProjectedSkills
             ? READONLY_SKILLS_FILESYSTEM

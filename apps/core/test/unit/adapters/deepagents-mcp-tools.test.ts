@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { DynamicStructuredTool } from '@langchain/core/tools';
 
 import {
   connectGantryAndThirdPartyMcpTools,
@@ -129,6 +130,136 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     mcpState.clientConfigs = [];
   });
 
+  it('retains direct callbacks, removes atomic and legacy callbacks, and returns complete data', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv(
+      'GANTRY_CALLER_RESOLVED_TOOLS_JSON',
+      JSON.stringify({
+        tools: [
+          { name: 'get_seeds', transportMode: 'direct_caller' },
+          { name: 'human_answer', transportMode: 'checkpoint_atomic' },
+          { name: 'legacy_answer' },
+        ],
+        interactionTimeoutMs: 90000,
+      }),
+    );
+    const response = { seeds: [{ id: 'a' }], nextCursor: 'b' };
+    const invoke = vi.fn(
+      async (_input: unknown, _config?: unknown) => response,
+    );
+    mcpState.serverTools = {
+      gantry: [
+        structuredTool('get_seeds', 'Get data', invoke),
+        fakeTool('human_answer'),
+        fakeTool('legacy_answer'),
+      ],
+    };
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+    expect(connected.tools.map((tool) => tool.name)).toEqual(['get_seeds']);
+    expect(await connected.tools[0]!.invoke({})).toEqual(response);
+    expect(invoke.mock.calls[0]?.[1]).toMatchObject({ timeout: 110000 });
+    await connected.close();
+  });
+
+  it('restores declared union schemas after MCP metadata simplification', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    const inputSchema = {
+      type: 'object',
+      properties: {
+        source: {
+          oneOf: [
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'document' },
+                alias: { type: 'string' },
+              },
+              required: ['type', 'alias'],
+              additionalProperties: false,
+            },
+            {
+              type: 'object',
+              properties: {
+                type: { const: 'metadata' },
+                field: { type: 'string' },
+              },
+              required: ['type', 'field'],
+              additionalProperties: false,
+            },
+          ],
+        },
+      },
+      required: ['source'],
+      additionalProperties: false,
+    };
+    vi.stubEnv(
+      'GANTRY_CALLER_RESOLVED_TOOLS_JSON',
+      JSON.stringify({
+        tools: [
+          {
+            name: 'submit_result',
+            transportMode: 'direct_caller',
+            inputSchema,
+          },
+        ],
+        interactionTimeoutMs: 90000,
+      }),
+    );
+    const simplifiedSchema = {
+      type: 'object',
+      properties: {
+        source: {
+          type: 'object',
+          properties: {
+            type: { const: 'metadata' },
+            alias: { type: 'string' },
+            field: { type: 'string' },
+          },
+          required: ['type'],
+        },
+      },
+      required: ['source'],
+    };
+    const underlying = new DynamicStructuredTool({
+      name: 'submit_result',
+      description: 'Submit',
+      schema: simplifiedSchema as never,
+      func: async (args: unknown) => args,
+    });
+    mcpState.serverTools = { gantry: [underlying] };
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: [],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'app:test' },
+        permissionEnv: {},
+        lockedAccessPreset: false,
+      } as never,
+    });
+    expect(connected.tools[0]!.schema).toEqual(inputSchema);
+    expect(
+      await connected.tools[0]!.invoke({
+        source: { type: 'document', alias: 'E001' },
+      }),
+    ).toEqual({ source: { type: 'document', alias: 'E001' } });
+    await expect(
+      connected.tools[0]!.invoke({ source: { type: 'invalid' } }),
+    ).rejects.toThrow();
+    await connected.close();
+  });
+
   it('does not cap every Gantry MCP tool at the callable-agent deadline', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
     mcpState.serverTools = { gantry: [] };
@@ -221,67 +352,67 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
       deadlineMs: 30_000,
       expectedTimeoutMs: 30_000 + 20_000,
     },
-  ])('extends Gantry-hosted capability calls to the $label', async ({
-    deadlineMs,
-    expectedTimeoutMs,
-  }) => {
-    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
-    const invoke = vi.fn(
-      async (_input, config?: { timeout?: number }) => config,
-    );
-    const externalCapabilityCall = structuredTool(
-      'external_capability_call',
-      'Run a managed capability.',
-      invoke as never,
-    );
-    mcpState.serverTools = { gantry: [externalCapabilityCall] };
+  ])(
+    'extends Gantry-hosted capability calls to the $label',
+    async ({ deadlineMs, expectedTimeoutMs }) => {
+      vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+      const invoke = vi.fn(
+        async (_input, config?: { timeout?: number }) => config,
+      );
+      const externalCapabilityCall = structuredTool(
+        'external_capability_call',
+        'Run a managed capability.',
+        invoke as never,
+      );
+      mcpState.serverTools = { gantry: [externalCapabilityCall] };
 
-    const connected = await connectGantryAndThirdPartyMcpTools({
-      configuredAllowedTools: [],
-      semanticCapabilities: [
-        {
-          capabilityId: 'example.evaluator',
-          version: '1',
-          operations: [
-            {
-              executionMode: 'gantry_hosted',
-              ...(deadlineMs === undefined ? {} : { deadlineMs }),
-            },
-          ],
-        },
-      ] as never,
-      hideAuthorityTools: false,
-      gate: {
-        workspaceFolder: 'group',
-        memoryBlock: '',
-        gateContext: { conversationId: 'tg:group' },
-        permissionEnv: {},
-        lockedAccessPreset: false,
-      } as never,
-    });
+      const connected = await connectGantryAndThirdPartyMcpTools({
+        configuredAllowedTools: [],
+        semanticCapabilities: [
+          {
+            capabilityId: 'example.evaluator',
+            version: '1',
+            operations: [
+              {
+                executionMode: 'gantry_hosted',
+                ...(deadlineMs === undefined ? {} : { deadlineMs }),
+              },
+            ],
+          },
+        ] as never,
+        hideAuthorityTools: false,
+        gate: {
+          workspaceFolder: 'group',
+          memoryBlock: '',
+          gateContext: { conversationId: 'tg:group' },
+          permissionEnv: {},
+          lockedAccessPreset: false,
+        } as never,
+      });
 
-    await connected.tools
-      .find(({ name }) => name === 'external_capability_call')
-      ?.invoke({} as never);
-    expect(invoke).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ timeout: expectedTimeoutMs }),
-    );
-    expect(mcpState.clientConfigs).toEqual([
-      expect.objectContaining({
-        mcpServers: expect.objectContaining({
-          gantry: expect.objectContaining({
-            env: expect.objectContaining({
-              GANTRY_EXTERNAL_CAPABILITY_CALL_WAIT_MS: String(
-                expectedTimeoutMs - 5_000,
-              ),
+      await connected.tools
+        .find(({ name }) => name === 'external_capability_call')
+        ?.invoke({} as never);
+      expect(invoke).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ timeout: expectedTimeoutMs }),
+      );
+      expect(mcpState.clientConfigs).toEqual([
+        expect.objectContaining({
+          mcpServers: expect.objectContaining({
+            gantry: expect.objectContaining({
+              env: expect.objectContaining({
+                GANTRY_EXTERNAL_CAPABILITY_CALL_WAIT_MS: String(
+                  expectedTimeoutMs - 5_000,
+                ),
+              }),
             }),
           }),
         }),
-      }),
-    ]);
-    await connected.close();
-  });
+      ]);
+      await connected.close();
+    },
+  );
 
   it('supports the largest Gantry-hosted deadline representable by the Node timer', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');

@@ -27,6 +27,9 @@ export interface AgentCredentialBrokerBinding {
   runId?: AgentRunId;
   apiKeyId?: string;
   apiRequestId?: string;
+  operation?: string;
+  requestedModel?: string;
+  correlationId?: string;
   jobId?: JobId;
   conversationId?: ConversationId;
   threadId?: ConversationThreadId;
