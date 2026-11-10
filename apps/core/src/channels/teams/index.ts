@@ -289,19 +289,15 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
-  async setTyping(
-    jid: string,
-    isTyping: boolean,
-    options: { threadId?: string } = {},
-  ): Promise<void> {
+  async setTyping(jid: string, isTyping: boolean): Promise<void> {
     // Teams has no "stop typing"; the indicator ends on its own or on reply.
     if (!isTyping || !this.outboundReady || !this.sdkClient.sendTyping) return;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return;
-    await this.sdkClient.sendTyping({
-      conversationId,
-      ...(options.threadId ? { threadId: options.threadId } : {}),
-    });
+    // Teams shows typing only in chats, and only for a plain typing activity:
+    // a reply-addressed one is ignored, and channels never show typing.
+    if (/@thread\.(tacv2|skype)$/.test(conversationId)) return;
+    await this.sdkClient.sendTyping({ conversationId });
   }
 
   async sendProgressUpdate(

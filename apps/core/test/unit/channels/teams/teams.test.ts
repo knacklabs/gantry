@@ -2229,7 +2229,7 @@ describe('TeamsChannel adapter', () => {
     expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
   });
 
-  it('sends a Teams typing indicator in the thread while the agent works', async () => {
+  it('sends a plain Teams typing indicator in chats but not in channels', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
       stop: vi.fn(async () => {}),
@@ -2248,17 +2248,13 @@ describe('TeamsChannel adapter', () => {
     await channel.connect();
 
     expect(channel.liveUx.typing).toBe('expiring');
-    await channel.setTyping('teams:19:abc@thread.v2', true, {
-      threadId: 'root-message',
-    });
-    await channel.setTyping('teams:19:abc@thread.v2', false, {
-      threadId: 'root-message',
-    });
+    await channel.setTyping('teams:19:abc@thread.v2', true);
+    await channel.setTyping('teams:19:abc@thread.v2', false);
+    await channel.setTyping('teams:19:channel@thread.tacv2', true);
 
     expect(sdkClient.sendTyping).toHaveBeenCalledTimes(1);
     expect(sdkClient.sendTyping).toHaveBeenCalledWith({
       conversationId: '19:abc@thread.v2',
-      threadId: 'root-message',
     });
   });
 
