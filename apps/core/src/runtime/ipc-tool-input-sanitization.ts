@@ -1,6 +1,17 @@
 import { isPlainObject } from '../shared/object.js';
 
 const TOOL_INPUT_MAX_DEPTH = 2;
+// request_access nests its tool list at target.tools[n], one level deeper than
+// the default. Its input only describes a request that a human reviews in a
+// separate card, so it may be inspected one level deeper instead of being
+// treated as truncated (which forced a privileged hard-floor prompt).
+const REQUEST_ACCESS_TOOL_INPUT_MAX_DEPTH = 3;
+
+export function toolInputMaxDepthForTool(toolName: string): number {
+  return /^(?:mcp__gantry__)?request_access$/.test(toolName)
+    ? REQUEST_ACCESS_TOOL_INPUT_MAX_DEPTH
+    : TOOL_INPUT_MAX_DEPTH;
+}
 const TOOL_INPUT_MAX_KEYS = 40;
 const TOOL_INPUT_MAX_ARRAY_ENTRIES = 20;
 const TOOL_INPUT_MAX_STRING_LENGTH = 500;
@@ -35,6 +46,7 @@ interface SanitizationState {
   // truncated, so this must be tracked independently, not derived by subtraction.
   truncatedPaths: Set<string>;
   maxStringLength: number;
+  maxDepth: number;
 }
 
 function childPath(path: string, key: string | number): string {
@@ -47,7 +59,7 @@ function sanitizeValue(
   path: string,
   state: SanitizationState,
 ): unknown {
-  if (depth > TOOL_INPUT_MAX_DEPTH) {
+  if (depth > state.maxDepth) {
     state.alteredPaths.add(path);
     state.truncatedPaths.add(path);
     return '[TRUNCATED_DEPTH]';
@@ -116,6 +128,7 @@ function sanitizeValue(
 export function sanitizeIpcToolInput(
   value: unknown,
   maxStringLength = TOOL_INPUT_MAX_STRING_LENGTH,
+  maxDepth = TOOL_INPUT_MAX_DEPTH,
 ): {
   toolInput?: Record<string, unknown>;
   altered: boolean;
@@ -137,6 +150,7 @@ export function sanitizeIpcToolInput(
     redactedPaths: new Set(),
     truncatedPaths: new Set(),
     maxStringLength,
+    maxDepth,
   };
   const toolInput = sanitizeValue(value, 0, '', state) as Record<
     string,

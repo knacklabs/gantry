@@ -1,6 +1,6 @@
 import * as config from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import type { NewMessage } from '../domain/types.js';
+import type { NewMessage, ProgressUpdateOptions } from '../domain/types.js';
 import { persistBotMessage } from '../application/messages/bot-message-persistence.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
@@ -342,8 +342,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         const sendTrackedDoneProgress = async (
           state: progress.FinalProgressState,
           generation = progressGeneration,
+          extraOptions?: Pick<ProgressUpdateOptions, 'replaceOnly'>,
         ) => {
-          await sendDoneProgress(state, generation);
+          await sendDoneProgress(state, generation, extraOptions);
           if (supportsProgress) {
             sentAnyTurnDoneProgress = true;
             sentTurnDoneProgressGeneration = generation;

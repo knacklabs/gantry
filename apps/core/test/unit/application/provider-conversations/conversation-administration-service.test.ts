@@ -117,6 +117,62 @@ describe('isControlApproverAllowed', () => {
     ).resolves.toBe(false);
   });
 
+  it('allows a Teams approver when the inbound jid has the teams: prefix but the channel was discovered without it', async () => {
+    const channelId = '19:abc@thread.tacv2';
+    const conversation = {
+      id: `conversation:provider-account-1:${channelId}`,
+      appId: 'default',
+      providerAccountId: 'provider-account-1',
+      externalRef: { kind: 'conversation', value: channelId },
+      kind: 'channel',
+      title: 'Engineering',
+      status: 'active',
+      createdAt: iso,
+      updatedAt: iso,
+    };
+    const getConversationByExternalRef = vi.fn(
+      async (input: { externalConversationId: string }) =>
+        input.externalConversationId === channelId ? conversation : null,
+    );
+    const validateControlApprovers = vi.fn(async (input: any) => ({
+      validUserIds: input.userIds,
+      invalidUserIds: [],
+    }));
+    const service = new ConversationAdministrationService(
+      {
+        providerAccounts: {
+          getConversationInstall: vi.fn(async () => ({ status: 'active' })),
+          getProviderAccount: vi.fn(async () => ({
+            id: 'provider-account-1',
+            providerId: 'teams',
+          })),
+        },
+        conversations: {
+          getConversation: vi.fn(async () => null),
+          getConversationByExternalRef,
+          listConversationApprovers: vi.fn(async () => [
+            { externalUserId: 'aad-user-1' },
+          ]),
+        },
+      } as never,
+      { validateControlApprovers } as never,
+    );
+
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'teams' as never,
+        providerAccountId: 'provider-account-1' as never,
+        agentId: 'agent:main' as never,
+        conversationJid: `teams:${channelId}`,
+        userId: 'aad-user-1',
+      }),
+    ).resolves.toBe(true);
+    expect(validateControlApprovers).toHaveBeenCalledWith(
+      expect.objectContaining({ conversation }),
+    );
+  });
+
   it('resolves an authorized approver to its human principal', async () => {
     const { service } = makeService({
       conversationKind: 'group',

@@ -419,7 +419,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     const values = await this.listTeamsValues<Record<string, unknown>>(
       endpoint,
       accessToken,
-      input.conversation.kind === 'channel',
+      isTeamsChannel(input),
     );
     return values.flatMap((member) =>
       [member.userId, member.id, member.email, member.userPrincipalName]
@@ -440,7 +440,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
       /^teams:/,
       '',
     );
-    if (input.conversation.kind !== 'channel') {
+    if (!isTeamsChannel(input)) {
       const chatId = stringConfigValue(config, 'chatId') || conversationId;
       return `https://graph.microsoft.com/v1.0/chats/${encodeURIComponent(chatId)}/members`;
     }
@@ -519,6 +519,15 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Teams channel ids end in @thread.tacv2. The inbound message path stores the
+// same channel as a group, so the stored kind alone is not enough.
+function isTeamsChannel(input: ConversationMembershipValidationInput): boolean {
+  return (
+    input.conversation.kind === 'channel' ||
+    externalConversationValue(input).trim().endsWith('@thread.tacv2')
+  );
 }
 
 function externalConversationValue(

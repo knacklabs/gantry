@@ -5408,7 +5408,7 @@ describe('createGroupProcessor', () => {
       ).toBeUndefined();
     });
 
-    it('sends final done progress even when fast streaming skipped initial progress', async () => {
+    it('only updates an existing card with Done when an answer was delivered and no progress was shown', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
@@ -5445,9 +5445,11 @@ describe('createGroupProcessor', () => {
           generation: expect.any(Number),
         }),
       ]);
+      // replaceOnly: updates a progress card if one exists, never posts a new
+      // standalone "Done." message after the delivered answer.
       expect(
         progressCalls.find((call) => call[1] === 'Done.')?.[2]?.replaceOnly,
-      ).toBeUndefined();
+      ).toBe(true);
     });
 
     it('reports requested stops without marking progress as failed', async () => {

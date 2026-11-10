@@ -139,6 +139,13 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       denied: false,
     },
     {
+      name: 'channel stored as a group by the inbound path',
+      kind: 'group',
+      configuredTeam: false,
+      denied: false,
+      channelId: true,
+    },
+    {
       name: 'channel without member consent',
       kind: 'channel',
       configuredTeam: false,
@@ -146,7 +153,8 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
     },
   ] as const)(
     'verifies approvers for the selected Teams $name',
-    async ({ kind, configuredTeam, denied }) => {
+    async ({ kind, configuredTeam, denied, ...rest }) => {
+      const channelId = 'channelId' in rest && rest.channelId;
       const graph = 'https://graph.microsoft.com/v1.0';
       const members = {
         value: [{ userId: 'teams-user-1' }],
@@ -171,7 +179,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
         [`${graph}/member-page-2`]: { value: [{ userId: 'teams-user-2' }] },
       };
       const memberUrl =
-        kind === 'channel'
+        kind === 'channel' || channelId
           ? `${graph}/teams/team-2/channels/19%3Aselected%40thread.tacv2/members`
           : `${graph}/chats/19%3Aselected%40thread.v2/members`;
       const fetchMock = vi.fn(async (input: string | URL | Request) => {
@@ -232,7 +240,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
           externalRef: {
             kind: 'conversation',
             value:
-              kind === 'channel'
+              kind === 'channel' || channelId
                 ? 'teams:19:selected@thread.tacv2'
                 : 'teams:19:selected@thread.v2',
           },

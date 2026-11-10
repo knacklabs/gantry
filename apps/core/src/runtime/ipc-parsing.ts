@@ -33,7 +33,10 @@ export {
   parseQuestionCancellationIpcRequest,
 };
 import { stripShellCommandEnvPrefix } from './ipc-shell-command-prefix.js';
-import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
+import {
+  sanitizeIpcToolInput,
+  toolInputMaxDepthForTool,
+} from './ipc-tool-input-sanitization.js';
 import { PERMISSION_CLASSIFIER_MAX_STRING_LENGTH } from './permission-classifier-prompt.js';
 import { capturePermissionInvocationAction } from './permission-invocation-id.js';
 
@@ -444,7 +447,11 @@ export function parsePermissionIpcRequest(
     toolInput,
     altered: toolInputSanitized,
     alteredPaths: toolInputSanitizedPaths,
-  } = sanitizeIpcToolInput(decisionToolInput);
+  } = sanitizeIpcToolInput(
+    decisionToolInput,
+    undefined,
+    toolInputMaxDepthForTool(toolName),
+  );
   const {
     toolInput: classifierToolInput,
     redactedPaths: toolInputRedactedPaths,
@@ -452,6 +459,7 @@ export function parsePermissionIpcRequest(
   } = sanitizeIpcToolInput(
     decisionToolInput,
     PERMISSION_CLASSIFIER_MAX_STRING_LENGTH,
+    toolInputMaxDepthForTool(toolName),
   );
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
   const semanticCapabilityDefinitions =
