@@ -39,7 +39,12 @@ export function createSessionsClient(transport: SessionTransport) {
     resolveInteraction: (
       sessionId: string,
       interactionId: string,
-      body: { idempotencyKey: string; result: unknown; resolvedBy?: string },
+      body: {
+        idempotencyKey: string;
+        result: unknown;
+        resolvedBy?: string;
+        interactionVersion?: number;
+      },
     ) =>
       transport.request<{ accepted: boolean; idempotent: boolean }>({
         method: 'POST',

@@ -17,6 +17,8 @@ import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import { submitTaskLifecycleDataRequest } from './task-lifecycle.js';
 import {
   captchaEvidenceForChallenge,
+  HUMAN_CAPTCHA_FRESHNESS_MS,
+  refreshHumanCaptchaChallenge,
   settleCaptchaChallenge,
 } from './browser.js';
 import {
@@ -170,7 +172,18 @@ async function resolveHumanInteraction(
     cumulativeRuntimeMs: number;
   },
 ) {
-  const response = await submitTaskLifecycleDataRequest({
+  let interactionVersion = 1;
+  if (interaction.browserChallenge) {
+    const refreshed = await refreshHumanCaptchaChallenge(
+      interaction.browserChallenge.challengeId,
+      CAPTCHA_SETTLE_WAIT_MS,
+    );
+    if (refreshed) {
+      interaction.browserChallenge.challengeId = refreshed.challengeId;
+      interaction.toolInput = refreshedCaptchaToolInput(interaction, refreshed);
+    }
+  }
+  const responsePromise = submitTaskLifecycleDataRequest({
     type: 'caller_resolved_tool',
     payload: {
       toolName: interaction.toolName,
@@ -182,6 +195,46 @@ async function resolveHumanInteraction(
     },
     responseTimeoutMs: HUMAN_INTERACTION_WAIT_MS,
   });
+  let response;
+  if (interaction.browserChallenge) {
+    for (;;) {
+      const outcome = await waitForHumanResponseOrRefresh(
+        responsePromise,
+        HUMAN_CAPTCHA_FRESHNESS_MS,
+      );
+      if (outcome.kind === 'response') {
+        response = outcome.response;
+        break;
+      }
+      const refreshed = await refreshHumanCaptchaChallenge(
+        interaction.browserChallenge.challengeId,
+        CAPTCHA_SETTLE_WAIT_MS,
+      );
+      if (!refreshed) continue;
+      const refreshedToolInput = refreshedCaptchaToolInput(
+        interaction,
+        refreshed,
+      );
+      const updated = await submitTaskLifecycleDataRequest({
+        type: 'caller_resolved_tool_update',
+        payload: {
+          toolName: interaction.toolName,
+          toolInput: refreshedToolInput,
+          interactionId,
+          interactionVersion,
+          captchaChallengeId: refreshed.challengeId,
+        },
+        responseTimeoutMs: CHECKPOINT_WAIT_MS,
+      });
+      if (updated?.ok) {
+        interaction.browserChallenge.challengeId = refreshed.challengeId;
+        interaction.toolInput = refreshedToolInput;
+        interactionVersion += 1;
+      }
+    }
+  } else {
+    response = await responsePromise;
+  }
   if (!response?.ok) {
     return errorResult(
       response?.error ?? response?.message ?? 'Human interaction failed.',
@@ -294,6 +347,41 @@ async function resolveHumanInteraction(
       ...settled.content,
     ],
   };
+}
+
+function refreshedCaptchaToolInput(
+  interaction: HumanInteraction,
+  refreshed: NonNullable<
+    Awaited<ReturnType<typeof refreshHumanCaptchaChallenge>>
+  >,
+): Record<string, unknown> {
+  return {
+    ...interaction.toolInput,
+    challengeFingerprint: refreshed.challengeFingerprint,
+    evidenceRefs: [
+      ...new Set([
+        ...stringArray(interaction.toolInput.evidenceRefs),
+        refreshed.screenshotEvidenceRef,
+        refreshed.automaticAttemptEvidenceRef,
+      ]),
+    ],
+  };
+}
+
+async function waitForHumanResponseOrRefresh<T>(
+  response: Promise<T>,
+  freshnessMs: number,
+): Promise<{ kind: 'response'; response: T } | { kind: 'refresh' }> {
+  let timer: NodeJS.Timeout | undefined;
+  const refresh = new Promise<{ kind: 'refresh' }>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: 'refresh' }), freshnessMs);
+  });
+  const outcome = await Promise.race([
+    response.then((value) => ({ kind: 'response' as const, response: value })),
+    refresh,
+  ]);
+  if (timer) clearTimeout(timer);
+  return outcome;
 }
 
 async function saveResolvedHumanInteractionCheckpoint(

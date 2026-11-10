@@ -19,6 +19,7 @@ vi.mock('@core/runner/mcp/tools/file.js', () => ({
 }));
 
 import {
+  refreshHumanCaptchaChallenge,
   registerBrowserTools,
   settleCaptchaChallenge,
 } from '@core/runner/mcp/tools/browser.js';
@@ -42,6 +43,7 @@ function discoveredCaptchaControls(
   inputTarget = '#captcha-answer',
   submitTarget: string | null = '#captcha-submit',
   resultRowCount?: number,
+  refreshTarget?: string,
 ) {
   return {
     ok: true,
@@ -49,7 +51,12 @@ function discoveredCaptchaControls(
       content: [
         {
           type: 'text',
-          text: JSON.stringify({ inputTarget, submitTarget, resultRowCount }),
+          text: JSON.stringify({
+            inputTarget,
+            submitTarget,
+            resultRowCount,
+            refreshTarget,
+          }),
         },
       ],
     },
@@ -93,6 +100,166 @@ describe('runner browser MCP gateway tools', () => {
       'browser_status',
     ]);
     expect([...server.tools.keys()]).not.toContain('browser');
+  });
+
+  it('refreshes the visible CAPTCHA control before replacing human screenshot evidence', async () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-human-refresh');
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-human-refresh');
+    handleFileToolAction.mockImplementation(
+      async (input: { action: string }) =>
+        input.action === 'read'
+          ? JSON.stringify({
+              jobId: 'job-human-refresh',
+              runId: 'run-human-refresh',
+              origin: 'https://example.test',
+              pageUrl: 'https://example.test/search',
+              imageTarget: '#captcha-image',
+              inputTarget: '#captcha-answer',
+              submitTarget: '#captcha-submit',
+              refreshTarget: '#captcha-refresh',
+              submitWithEnter: false,
+              attemptNumber: 3,
+              expiresAt: Date.now() + 30 * 60_000,
+              challengeFingerprint: `sha256:${'a'.repeat(64)}`,
+              screenshotEvidenceRef: 'file-artifact:old-image',
+              automaticAttemptEvidenceRef: 'file-artifact:attempts',
+            })
+          : JSON.stringify({
+              artifact: {
+                id: 'file-artifact:new-image',
+                contentHash: 'sha256:new-image',
+              },
+            }),
+    );
+    let refreshedOnPage = false;
+    requestBrowserAction.mockImplementation(async (action: string) => {
+      if (action === 'evaluate') {
+        return {
+          ok: true,
+          data: { content: [{ type: 'text', text: 'true' }] },
+        };
+      }
+      if (action === 'click') {
+        refreshedOnPage = true;
+        return { ok: true, data: { content: [] } };
+      }
+      if (action === 'screenshot') {
+        return {
+          ok: true,
+          data: {
+            content: [
+              {
+                type: 'image',
+                data: refreshedOnPage ? 'bmV3LWNhcHRjaGE=' : 'b2xkLWNhcHRjaGE=',
+                mimeType: 'image/png',
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, data: { content: [] } };
+    });
+
+    const refreshed = await refreshHumanCaptchaChallenge('captcha-old');
+
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'click',
+      { target: '#captcha-refresh' },
+      expect.objectContaining({ publicToolName: 'browser_captcha_settle' }),
+    );
+    expect(requestBrowserAction).not.toHaveBeenCalledWith(
+      'navigate',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'screenshot',
+      { target: '#captcha-image' },
+      expect.objectContaining({ publicToolName: 'browser_captcha_settle' }),
+    );
+    expect(refreshed).toMatchObject({
+      challengeId: expect.stringMatching(/^captcha_/u),
+      screenshotEvidenceRef: 'file-artifact:new-image',
+      automaticAttemptEvidenceRef: 'file-artifact:attempts',
+    });
+  });
+
+  it('captures different image bytes for consecutive human CAPTCHA asks when refresh is supported', async () => {
+    vi.stubEnv('GANTRY_JOB_ID', 'job-consecutive-human-refresh');
+    vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-consecutive-human-refresh');
+    let refreshCount = 0;
+    const screenshotWrites: string[] = [];
+    handleFileToolAction.mockImplementation(
+      async (input: { action: string; path?: string; content?: string }) => {
+        if (input.action === 'read') {
+          return JSON.stringify({
+            jobId: 'job-consecutive-human-refresh',
+            runId: 'run-consecutive-human-refresh',
+            origin: 'https://example.test',
+            pageUrl: 'https://example.test/search',
+            imageTarget: '#captcha-image',
+            inputTarget: '#captcha-answer',
+            submitTarget: '#captcha-submit',
+            refreshTarget: '#captcha-refresh',
+            submitWithEnter: false,
+            attemptNumber: 3,
+            expiresAt: Date.now() + 30 * 60_000,
+            challengeFingerprint: `sha256:${'a'.repeat(64)}`,
+            screenshotEvidenceRef: 'file-artifact:old-image',
+            automaticAttemptEvidenceRef: 'file-artifact:attempts',
+          });
+        }
+        if (input.path?.startsWith('captcha/')) {
+          screenshotWrites.push(input.content ?? '');
+          return JSON.stringify({
+            artifact: {
+              id: `file-artifact:image-${screenshotWrites.length}`,
+              contentHash: `sha256:image-${screenshotWrites.length}`,
+            },
+          });
+        }
+        return JSON.stringify({
+          artifact: {
+            id: 'file-artifact:challenge',
+            contentHash: 'sha256:challenge',
+          },
+        });
+      },
+    );
+    requestBrowserAction.mockImplementation(async (action: string) => {
+      if (action === 'evaluate') {
+        return {
+          ok: true,
+          data: { content: [{ type: 'text', text: 'true' }] },
+        };
+      }
+      if (action === 'click') {
+        refreshCount += 1;
+        return { ok: true, data: { content: [] } };
+      }
+      if (action === 'screenshot') {
+        return {
+          ok: true,
+          data: {
+            content: [
+              {
+                type: 'image',
+                data: Buffer.from(`captcha-${refreshCount}`).toString('base64'),
+                mimeType: 'image/png',
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, data: { content: [] } };
+    });
+
+    const first = await refreshHumanCaptchaChallenge('captcha-original');
+    const second = await refreshHumanCaptchaChallenge(first!.challengeId);
+
+    expect(refreshCount).toBe(2);
+    expect(screenshotWrites).toHaveLength(2);
+    expect(screenshotWrites[0]).not.toBe(screenshotWrites[1]);
   });
 
   it('delegates browser status to signed IPC without direct CDP probing', async () => {
@@ -1273,6 +1440,7 @@ describe('runner browser MCP gateway tools', () => {
     vi.stubEnv('GANTRY_JOB_ID', 'job-2');
     vi.stubEnv('GANTRY_JOB_RUN_ID', 'run-2');
     let omitNextSnapshotUrl = false;
+    let captchaVersion = 0;
     requestBrowserAction.mockImplementation(async (action: string) => {
       if (action === 'evaluate') return discoveredCaptchaControls();
       if (action === 'snapshot') {
@@ -1295,11 +1463,16 @@ describe('runner browser MCP gateway tools', () => {
           ok: true,
           data: {
             content: [
-              { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' },
+              {
+                type: 'image',
+                data: Buffer.from(`image-${captchaVersion}`).toString('base64'),
+                mimeType: 'image/png',
+              },
             ],
           },
         };
       }
+      if (action === 'navigate') captchaVersion += 1;
       return { ok: true, data: { [action]: true } };
     });
     const server = new TestMcpServer();

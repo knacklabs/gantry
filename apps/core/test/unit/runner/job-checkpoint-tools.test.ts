@@ -6,6 +6,7 @@ const writeIpcFile = vi.hoisted(() => vi.fn());
 const submitTaskLifecycleDataRequest = vi.hoisted(() => vi.fn());
 const settleCaptchaChallenge = vi.hoisted(() => vi.fn());
 const captchaEvidenceForChallenge = vi.hoisted(() => vi.fn());
+const refreshHumanCaptchaChallenge = vi.hoisted(() => vi.fn());
 const handleFileToolAction = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/runner/mcp/context.js', () => ({
@@ -27,6 +28,8 @@ vi.mock('@core/runner/mcp/tools/task-lifecycle.js', () => ({
 vi.mock('@core/runner/mcp/tools/browser.js', () => ({
   settleCaptchaChallenge,
   captchaEvidenceForChallenge,
+  HUMAN_CAPTCHA_FRESHNESS_MS: 180_000,
+  refreshHumanCaptchaChallenge,
 }));
 vi.mock('@core/runner/mcp/tools/file.js', () => ({
   handleFileToolAction,
@@ -85,6 +88,8 @@ describe('job checkpoint MCP tools', () => {
     submitTaskLifecycleDataRequest.mockReset();
     settleCaptchaChallenge.mockReset();
     captchaEvidenceForChallenge.mockReset();
+    refreshHumanCaptchaChallenge.mockReset();
+    refreshHumanCaptchaChallenge.mockResolvedValue(null);
     captchaEvidenceForChallenge.mockReturnValue({
       challengeId: 'captcha-1',
       challengeFingerprint: `sha256:${'a'.repeat(64)}`,
@@ -321,6 +326,132 @@ describe('job checkpoint MCP tools', () => {
     );
     expect(JSON.stringify(result)).not.toContain('ephemeral-secret');
     expect(result.isError).not.toBe(true);
+  });
+
+  it('refreshes the CAPTCHA before sending the human interaction', async () => {
+    waitForTaskResponse.mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'checkpoint-2', sequence: 2, milestone: 'human_wait' },
+    });
+    refreshHumanCaptchaChallenge.mockResolvedValueOnce({
+      challengeId: 'captcha-2',
+      challengeFingerprint: `sha256:${'b'.repeat(64)}`,
+      screenshotEvidenceRef: 'file-artifact:image-2',
+      automaticAttemptEvidenceRef: 'file-artifact:attempt',
+    });
+    submitTaskLifecycleDataRequest.mockResolvedValueOnce({
+      ok: true,
+      data: { humanAnswer: 'fresh-answer' },
+    });
+    settleCaptchaChallenge.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'CAPTCHA accepted.' }],
+    });
+    const server = new TestMcpServer();
+    registerJobCheckpointTools(server as never);
+
+    await server.tools.get('job_checkpoint_save')?.({
+      ...checkpoint,
+      humanInteraction: captchaInteraction(),
+    });
+
+    expect(refreshHumanCaptchaChallenge).toHaveBeenCalledWith(
+      'captcha-1',
+      30_000,
+    );
+    expect(
+      refreshHumanCaptchaChallenge.mock.invocationCallOrder[0],
+    ).toBeLessThan(submitTaskLifecycleDataRequest.mock.invocationCallOrder[0]!);
+    expect(submitTaskLifecycleDataRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'caller_resolved_tool',
+        payload: expect.objectContaining({
+          captchaChallengeId: 'captcha-2',
+          toolInput: expect.objectContaining({
+            challengeFingerprint: `sha256:${'b'.repeat(64)}`,
+            evidenceRefs: expect.arrayContaining(['file-artifact:image-2']),
+          }),
+        }),
+      }),
+    );
+    expect(settleCaptchaChallenge).toHaveBeenCalledWith(
+      'captcha-2',
+      'fresh-answer',
+      30_000,
+      'human',
+      'file-artifact:attempt',
+    );
+  });
+
+  it('refreshes a pending CAPTCHA image after 180 seconds and versions the interaction', async () => {
+    vi.useFakeTimers();
+    waitForTaskResponse.mockResolvedValueOnce({
+      ok: true,
+      data: { id: 'checkpoint-2', sequence: 2, milestone: 'human_wait' },
+    });
+    let resolveHuman!: (value: unknown) => void;
+    const humanResponse = new Promise((resolve) => {
+      resolveHuman = resolve;
+    });
+    submitTaskLifecycleDataRequest
+      .mockReturnValueOnce(humanResponse)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { interactionVersion: 2 },
+      });
+    refreshHumanCaptchaChallenge
+      .mockResolvedValueOnce({
+        challengeId: 'captcha-2',
+        challengeFingerprint: `sha256:${'b'.repeat(64)}`,
+        screenshotEvidenceRef: 'file-artifact:image-2',
+        automaticAttemptEvidenceRef: 'file-artifact:attempt',
+      })
+      .mockResolvedValueOnce({
+        challengeId: 'captcha-3',
+        challengeFingerprint: `sha256:${'c'.repeat(64)}`,
+        screenshotEvidenceRef: 'file-artifact:image-3',
+        automaticAttemptEvidenceRef: 'file-artifact:attempt',
+      });
+    settleCaptchaChallenge.mockResolvedValueOnce({
+      content: [{ type: 'text', text: 'CAPTCHA accepted.' }],
+    });
+    const server = new TestMcpServer();
+    registerJobCheckpointTools(server as never);
+    const pending = server.tools.get('job_checkpoint_save')!({
+      ...checkpoint,
+      humanInteraction: captchaInteraction(),
+    });
+
+    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.waitFor(() =>
+      expect(refreshHumanCaptchaChallenge).toHaveBeenLastCalledWith(
+        'captcha-2',
+        30_000,
+      ),
+    );
+    expect(submitTaskLifecycleDataRequest).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: 'caller_resolved_tool_update',
+        payload: expect.objectContaining({
+          interactionVersion: 1,
+          captchaChallengeId: 'captcha-3',
+          toolInput: expect.objectContaining({
+            challengeFingerprint: `sha256:${'c'.repeat(64)}`,
+            evidenceRefs: expect.arrayContaining(['file-artifact:image-3']),
+          }),
+        }),
+      }),
+    );
+    resolveHuman({ ok: true, data: { humanAnswer: 'fresh-answer' } });
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(settleCaptchaChallenge).toHaveBeenCalledWith(
+      'captcha-3',
+      'fresh-answer',
+      30_000,
+      'human',
+      'file-artifact:attempt',
+    );
   });
 
   it('reopens a missing human interaction when the checkpoint save is replayed', async () => {
