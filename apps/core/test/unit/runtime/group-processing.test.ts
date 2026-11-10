@@ -2213,6 +2213,16 @@ describe('createGroupProcessor', () => {
           }),
         }),
       );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jid: 'group1@g.us',
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheWriteTokens,
+        }),
+        'Run model usage',
+      );
     });
 
     it('delivers output when normalized model usage preparation fails', async () => {
