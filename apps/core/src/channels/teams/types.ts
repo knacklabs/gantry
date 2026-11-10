@@ -115,6 +115,10 @@ export interface TeamsSdkClient {
   updateAdaptiveCard?(
     input: TeamsSdkAdaptiveCardUpdate,
   ): Promise<TeamsSdkSendResult>;
+  sendTyping?(input: {
+    conversationId: string;
+    threadId?: string;
+  }): Promise<void>;
 }
 
 export interface TeamsChannelDependencies {

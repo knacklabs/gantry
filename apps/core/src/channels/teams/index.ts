@@ -111,9 +111,12 @@ export { createTeamsChannel } from './factory.js';
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
   readonly liveUx = {
-    typing: 'none',
+    // Teams shows typing for a few seconds; Gantry refreshes it while a run works.
+    typing: 'expiring',
     reactions: 'none',
-    canonicalTarget: (target: { jid: string }) => ({ key: target.jid }),
+    canonicalTarget: (target: { jid: string; threadId?: string }) => ({
+      key: `${target.jid}\n${target.threadId ?? ''}`,
+    }),
   } as const;
   private connected = false;
   private outboundReady = false;
@@ -123,6 +126,10 @@ export class TeamsChannel implements ChannelAdapter {
   >();
   private readonly pendingTodos: TeamsTodoMessages = new Map();
   private readonly pendingProgress: TeamsProgressMessages = new Map();
+  // TEAMS_PROGRESS_MESSAGES=off hides plain status cards; streamed answers
+  // already show that the agent is working.
+  private readonly hidePlainProgress =
+    process.env.TEAMS_PROGRESS_MESSAGES?.trim().toLowerCase() === 'off';
   private readonly jobPermissionCardDeliveries =
     new JobPermissionCardDeliverySettlement();
   private readonly activeStreams = new Map<string, TeamsStreamingState>();
@@ -282,6 +289,21 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
+  async setTyping(
+    jid: string,
+    isTyping: boolean,
+    options: { threadId?: string } = {},
+  ): Promise<void> {
+    // Teams has no "stop typing"; the indicator ends on its own or on reply.
+    if (!isTyping || !this.outboundReady || !this.sdkClient.sendTyping) return;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return;
+    await this.sdkClient.sendTyping({
+      conversationId,
+      ...(options.threadId ? { threadId: options.threadId } : {}),
+    });
+  }
+
   async sendProgressUpdate(
     jid: string,
     text: string,
@@ -294,6 +316,7 @@ export class TeamsChannel implements ChannelAdapter {
       jid,
       text,
       options,
+      hidePlainProgress: this.hidePlainProgress,
     });
   }
 

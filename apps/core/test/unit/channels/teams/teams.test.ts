@@ -2181,6 +2181,87 @@ describe('TeamsChannel adapter', () => {
     );
   });
 
+  it('skips plain Teams progress cards when TEAMS_PROGRESS_MESSAGES is off', async () => {
+    vi.stubEnv('TEAMS_PROGRESS_MESSAGES', 'off');
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'progress-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await expect(
+      channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Working...', {
+        threadId: 'root-message',
+        generation: 3,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Done.', {
+        threadId: 'root-message',
+        generation: 3,
+        done: true,
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(true);
+    await channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Working...', {
+      generation: 4,
+      actionAffordances: [
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-4' },
+      ],
+    });
+
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a Teams typing indicator in the thread while the agent works', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendTyping: vi.fn(async () => {}),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    expect(channel.liveUx.typing).toBe('expiring');
+    await channel.setTyping('teams:19:abc@thread.v2', true, {
+      threadId: 'root-message',
+    });
+    await channel.setTyping('teams:19:abc@thread.v2', false, {
+      threadId: 'root-message',
+    });
+
+    expect(sdkClient.sendTyping).toHaveBeenCalledTimes(1);
+    expect(sdkClient.sendTyping).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      threadId: 'root-message',
+    });
+  });
+
   it('sends action-only Teams progress cards with a scheduler action and no status body', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),

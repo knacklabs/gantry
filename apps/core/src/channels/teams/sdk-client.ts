@@ -1,7 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { App, type HttpRouteHandler } from '@microsoft/teams.apps';
-import { PUBLIC, type IMessageActivityInput } from '@microsoft/teams.api';
+import {
+  PUBLIC,
+  type IMessageActivityInput,
+  type ITypingActivityInput,
+} from '@microsoft/teams.api';
 import { z } from 'zod';
 
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -363,7 +367,7 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
   private async deliver(
     conversationId: string,
     threadId: string | undefined,
-    activity: IMessageActivityInput,
+    activity: IMessageActivityInput | ITypingActivityInput,
     update = false,
   ): Promise<TeamsSdkSendResult> {
     if (!this.started)
@@ -465,6 +469,15 @@ class MicrosoftTeamsSdkClient implements TeamsSdkClient {
           content: input.card,
         },
       ],
+    });
+  }
+
+  async sendTyping(input: {
+    conversationId: string;
+    threadId?: string;
+  }): Promise<void> {
+    await this.deliver(input.conversationId, input.threadId, {
+      type: 'typing',
     });
   }
 
