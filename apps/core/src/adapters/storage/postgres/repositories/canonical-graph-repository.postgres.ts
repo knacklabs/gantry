@@ -186,7 +186,9 @@ export class PostgresCanonicalGraphRepository {
       .onConflictDoUpdate({
         target: pgSchema.agentsPostgres.id,
         set: {
-          name,
+          // Callers without a real name pass the folder; that must not
+          // overwrite a name that settings gave the agent.
+          ...(name === folder ? {} : { name }),
           currentConfigVersionId: sql`coalesce(${pgSchema.agentsPostgres.currentConfigVersionId}, ${configVersionId})`,
           updatedAt: sql`now()`,
         },

@@ -144,6 +144,33 @@ maybeDescribe('Postgres domain repositories', () => {
     await service.close();
   });
 
+  it('keeps transport-owned conversation ref keys when the conversation is saved again', async () => {
+    await service.pool.query(
+      `UPDATE conversations SET external_ref_json = (external_ref_json::jsonb || '{"serviceUrl":"https://smba.example/"}'::jsonb)::text WHERE id = $1`,
+      [conversationId],
+    );
+    await repositories.conversations.saveConversation({
+      id: conversationId,
+      appId,
+      providerAccountId: providerAccountId,
+      externalRef: { kind: 'conversation', value: 'C123' },
+      kind: 'channel',
+      title: 'engineering',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { rows } = await service.pool.query(
+      `SELECT external_ref_json::jsonb AS ref FROM conversations WHERE id = $1`,
+      [conversationId],
+    );
+    expect(rows[0].ref).toMatchObject({
+      kind: 'conversation',
+      value: 'C123',
+      serviceUrl: 'https://smba.example/',
+    });
+  });
+
   it('finds conversations and threads by provider external references', async () => {
     await expect(
       repositories.conversations.getConversationByExternalRef({
@@ -728,6 +755,24 @@ maybeDescribe('Postgres domain repositories', () => {
         }),
       ],
     });
+  });
+
+  it('keeps an agent name from settings when a caller ensures the agent by folder', async () => {
+    const graph = new PostgresCanonicalGraphRepository(service.db);
+    const id = await graph.ensureAgent('named-folder', 'Named Agent');
+    await graph.ensureAgent('named-folder');
+    await graph.ensureAgent('named-folder', 'named-folder');
+    const { rows } = await service.pool.query(
+      `SELECT name FROM agents WHERE id = $1`,
+      [id],
+    );
+    expect(rows[0].name).toBe('Named Agent');
+    await graph.ensureAgent('named-folder', 'Renamed Agent');
+    const renamed = await service.pool.query(
+      `SELECT name FROM agents WHERE id = $1`,
+      [id],
+    );
+    expect(renamed.rows[0].name).toBe('Renamed Agent');
   });
 
   it('reuses active People aliases for participants without reviving retired aliases', async () => {

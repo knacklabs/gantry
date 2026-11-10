@@ -1012,7 +1012,13 @@ export class PostgresConversationRepository implements ConversationRepository {
           target: conversations.id,
           set: {
             providerAccountId: conversation.providerAccountId,
-            externalRefJson: encodeJsonOrNull(conversation.externalRef),
+            // Merge, so transport-owned keys (Teams serviceUrl, tenantId, ...)
+            // written by the channel survive a settings reconcile re-save.
+            ...(conversation.externalRef === undefined
+              ? {}
+              : {
+                  externalRefJson: sql`(COALESCE(${conversations.externalRefJson}::jsonb, '{}'::jsonb) || ${encodeJson(conversation.externalRef)}::jsonb)::text`,
+                }),
             kind: conversation.kind,
             title: conversation.title ?? null,
             status: conversation.status,
