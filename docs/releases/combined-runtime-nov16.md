@@ -11,3 +11,7 @@ The architecture checker remains failed. Existing oversized modules and existing
 The dedicated autoreview helper is not installed. Its independent quality/performance/security review was not performed. On2026-11-16 the user explicitly authorized treating these two categories as non-blocking release limitations. No passing autoreview evidence is fabricated. This release-specific authorization does not change the repository's general policy or claim that pr_ready.py passed.
 
 A fresh linux/amd64 image is built from a clean archive of the runtime source commit. Its tag is `knacklabs/gantry-runtime:1.2.53-395e85f7-amd64`. Image identity is recorded separately after the build completes. No live provider, target-host sandbox or production acceptance is claimed.
+
+Verified image ID: `sha256:95b534bdf9eef290f63ab89c2f642131944d338484ab3c4acd84ba9eede59980`. Revision label and platform match. A no-network, read-only, capability-dropped container smoke check passed for Gantry1.2.53, x64, UID1000 and Node24.22.0. The image remains local; no registry or release asset was published.
+
+Companion Agent.Tender PR: https://github.com/knacklabs/knacklabs-tender-agent/pull/36. Combined Gantry PR: https://github.com/knacklabs/gantry/pull/635.
