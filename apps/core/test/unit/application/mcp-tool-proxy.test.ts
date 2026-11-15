@@ -1605,6 +1605,34 @@ describe('McpToolProxy', () => {
     );
   });
 
+  it('forwards host-built invocation metadata as MCP params._meta', async () => {
+    vi.useFakeTimers();
+    mcpSdkMocks.client.listTools.mockResolvedValueOnce({
+      tools: [{ name: 'search_repositories' }],
+    });
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: patternToolRepository(),
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+    const meta = { 'gantry.invocation': { invocationId: 'invocation:key-1' } };
+
+    await proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'search_repositories',
+      arguments: { q: 'gantry' },
+      meta,
+    });
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      { name: 'search_repositories', arguments: { q: 'gantry' }, _meta: meta },
+      undefined,
+      { timeout: 60_000 },
+    );
+  });
+
   it('denies pattern-mismatched calls naming the nearest reviewed capability', async () => {
     const proxy = new McpToolProxy(mcpRepository(), {
       tools: patternToolRepository(),
@@ -1991,61 +2019,80 @@ describe('McpToolProxy', () => {
     );
   });
 
-  it('returns the same run-scoped receipt and URL evidence that it publishes durably', async () => {
-    mockCreateIssueToolDetail();
-    const publishRuntimeEvent = vi.fn(async () => undefined);
-    const appendAuditEvent = vi.fn(async () => undefined);
-    const proxy = new McpToolProxy(
-      mcpRepository({ remote: true, appendAuditEvent }),
-      {
-        tools: toolRepository(),
-        lookupHostname: vi.fn(async () => [
-          { address: '93.184.216.34', family: 4 as const },
-        ]),
-        publishRuntimeEvent,
-        runId: 'run-with-receipts',
-      },
-    );
-    mcpSdkMocks.client.callTool.mockResolvedValueOnce({
-      content: [
+  it.each([false, true])(
+    'preserves invocation metadata=%s alongside run receipts and URL evidence',
+    async (withMetadata) => {
+      mockCreateIssueToolDetail();
+      const publishRuntimeEvent = vi.fn(async () => undefined);
+      const appendAuditEvent = vi.fn(async () => undefined);
+      const proxy = new McpToolProxy(
+        mcpRepository({ remote: true, appendAuditEvent }),
         {
-          type: 'text',
-          text: JSON.stringify({
-            url: 'https://public.example/tenders',
-            title: 'Public notices',
-          }),
-        },
-      ],
-    });
-    const result = (await proxy.callTool({
-      appId: 'app-one' as never,
-      agentId: 'agent-one' as never,
-      serverName: 'github',
-      toolName: 'create_issue',
-      arguments: { title: 'Public notice' },
-    })) as { toolCallId: string; content: Array<{ text: string }> };
-    expect(result.toolCallId).toMatch(/^mcp-call:/);
-    expect(result.content[0]?.text).toContain(result.toolCallId);
-    expect(publishRuntimeEvent).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        runId: 'run-with-receipts',
-        payload: expect.objectContaining({
-          toolCallId: result.toolCallId,
-          resultClass: 'success',
-          evidenceProjection: expect.arrayContaining([
-            expect.objectContaining({
-              value: 'https://public.example/tenders',
-            }),
+          tools: toolRepository(),
+          lookupHostname: vi.fn(async () => [
+            { address: '93.184.216.34', family: 4 as const },
           ]),
+          publishRuntimeEvent,
+          runId: 'run-with-receipts',
+        },
+      );
+      mcpSdkMocks.client.callTool.mockResolvedValueOnce({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              url: 'https://public.example/tenders',
+              title: 'Public notices',
+            }),
+          },
+        ],
+      });
+      const meta = {
+        'gantry.invocation': {
+          version: 'gantry.capability_invocation@1',
+          invocationId: 'invocation:combined-release',
+        },
+      };
+      const result = (await proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        arguments: { title: 'Public notice' },
+        ...(withMetadata ? { meta } : {}),
+      })) as { toolCallId: string; content: Array<{ text: string }> };
+      expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+        {
+          name: 'create_issue',
+          arguments: { title: 'Public notice' },
+          ...(withMetadata ? { _meta: meta } : {}),
+        },
+        undefined,
+        expect.any(Object),
+      );
+      expect(result.toolCallId).toMatch(/^mcp-call:/);
+      expect(result.content[0]?.text).toContain(result.toolCallId);
+      expect(publishRuntimeEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          runId: 'run-with-receipts',
+          payload: expect.objectContaining({
+            toolCallId: result.toolCallId,
+            resultClass: 'success',
+            evidenceProjection: expect.arrayContaining([
+              expect.objectContaining({
+                value: 'https://public.example/tenders',
+              }),
+            ]),
+          }),
         }),
-      }),
-    );
-    expect(appendAuditEvent).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({ toolCallId: result.toolCallId }),
-      }),
-    );
-  });
+      );
+      expect(appendAuditEvent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ toolCallId: result.toolCallId }),
+        }),
+      );
+    },
+  );
 
   it('exposes the audited receipt on a thrown remote timeout', async () => {
     mockCreateIssueToolDetail();

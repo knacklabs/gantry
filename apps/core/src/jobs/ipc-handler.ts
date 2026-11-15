@@ -128,6 +128,7 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...attachmentOpenTaskHandlers,
   captcha_vision_solve: captchaVisionTaskHandler,
   caller_resolved_tool: callerResolvedToolTaskHandler,
+  caller_resolved_tool_update: callerResolvedToolTaskHandler,
   ...canvasTaskHandlers,
 };
 

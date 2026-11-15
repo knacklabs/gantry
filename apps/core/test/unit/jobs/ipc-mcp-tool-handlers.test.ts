@@ -707,6 +707,18 @@ describe('external capability MCP task', () => {
         toolName: 'recipe_compile',
         arguments: compileArguments,
         authorizationArguments: compileArguments,
+        meta: {
+          'gantry.invocation': expect.objectContaining({
+            version: 'gantry.capability_invocation@1',
+            appId: 'app:test',
+            jobId: 'job-1',
+            runId: 'run-1',
+            capabilityId: 'manipal.website-recipe-evaluator@1',
+            operation: 'recipe_compile',
+            invocationId: 'invocation:compile-must-be-direct',
+            argumentsSha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          }),
+        },
       }),
     );
     expect(fileArtifacts.readFileArtifact).toHaveBeenCalledWith({

@@ -1,6 +1,7 @@
 import {
   recordPendingInteractionRequested,
   resolvePendingInteractionRecord,
+  updatePendingInteractionRecord,
 } from './pending-interaction-durability.js';
 
 const COMPLETED_TTL_MS = 5 * 60_000;
@@ -15,6 +16,7 @@ interface PendingCallerTool {
   readonly interactionId: string;
   readonly toolName: string;
   readonly sensitiveResultFields: readonly string[];
+  version: number;
   readonly resolve: (resolution: Resolution) => void;
   readonly timer: NodeJS.Timeout;
 }
@@ -35,6 +37,7 @@ export async function requestCallerResolvedTool(input: {
   interactionId: string;
   toolName: string;
   toolInput: unknown;
+  metadata?: Record<string, unknown>;
   sensitiveResultFields?: readonly string[];
   timeoutMs: number;
   signal: AbortSignal;
@@ -57,6 +60,7 @@ export async function requestCallerResolvedTool(input: {
       interactionId: input.interactionId,
       toolName: input.toolName,
       sensitiveResultFields: input.sensitiveResultFields ?? [],
+      version: 1,
       resolve,
       timer,
     });
@@ -81,6 +85,8 @@ export async function requestCallerResolvedTool(input: {
         interactionId: input.interactionId,
         toolName: input.toolName,
         toolInput: input.toolInput,
+        interactionVersion: 1,
+        ...input.metadata,
       },
     });
     await input.emitRequired();
@@ -95,14 +101,50 @@ export async function requestCallerResolvedTool(input: {
   }
 }
 
+export async function updateCallerResolvedTool(input: {
+  appId: string;
+  sourceAgentFolder: string;
+  sessionId: string;
+  interactionId: string;
+  expectedVersion: number;
+  toolInput: unknown;
+  metadata?: Record<string, unknown>;
+}): Promise<number | null> {
+  const active = pending.get(key(input.sessionId, input.interactionId));
+  if (
+    !active ||
+    active.appId !== input.appId ||
+    active.sourceAgentFolder !== input.sourceAgentFolder ||
+    active.version !== input.expectedVersion
+  ) {
+    return null;
+  }
+  const nextVersion = active.version + 1;
+  const persisted = await updatePendingInteractionRecord({
+    appId: input.appId,
+    sourceAgentFolder: input.sourceAgentFolder,
+    requestId: input.interactionId,
+    update: (payload) => ({
+      ...payload,
+      toolInput: input.toolInput,
+      interactionVersion: nextVersion,
+      ...input.metadata,
+    }),
+  });
+  if (!persisted) return null;
+  active.version = nextVersion;
+  return nextVersion;
+}
+
 export async function settleCallerResolvedTool(input: {
   appId: string;
   sessionId: string;
   interactionId: string;
   idempotencyKey: string;
   resolution: Resolution;
+  interactionVersion?: number;
   approverRef?: string | null;
-}): Promise<'resolved' | 'idempotent' | 'not_found' | 'conflict'> {
+}): Promise<'resolved' | 'idempotent' | 'not_found' | 'conflict' | 'stale'> {
   const now = Date.now();
   for (const [entryKey, entry] of completed) {
     if (entry.expiresAt <= now) completed.delete(entryKey);
@@ -116,6 +158,13 @@ export async function settleCallerResolvedTool(input: {
   }
   const active = pending.get(entryKey);
   if (!active || active.appId !== input.appId) return 'not_found';
+  if (
+    input.resolution.status === 'resolved' &&
+    active.version > 1 &&
+    input.interactionVersion !== active.version
+  ) {
+    return 'stale';
+  }
   const persisted = await resolvePendingInteractionRecord({
     kind: 'question',
     sourceAgentFolder: active.sourceAgentFolder,

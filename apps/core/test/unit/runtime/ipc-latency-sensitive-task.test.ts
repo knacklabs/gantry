@@ -8,6 +8,7 @@ describe('latency-sensitive IPC tasks', () => {
     'attachment_materialize',
     'captcha_vision_solve',
     'caller_resolved_tool',
+    'caller_resolved_tool_update',
     'mcp_list_tools',
     'mcp_search_tools',
     'mcp_describe_tool',
