@@ -707,6 +707,18 @@ describe('external capability MCP task', () => {
         toolName: 'recipe_compile',
         arguments: compileArguments,
         authorizationArguments: compileArguments,
+        meta: {
+          'gantry.invocation': expect.objectContaining({
+            version: 'gantry.capability_invocation@1',
+            appId: 'app:test',
+            jobId: 'job-1',
+            runId: 'run-1',
+            capabilityId: 'manipal.website-recipe-evaluator@1',
+            operation: 'recipe_compile',
+            invocationId: 'invocation:compile-must-be-direct',
+            argumentsSha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          }),
+        },
       }),
     );
     expect(fileArtifacts.readFileArtifact).toHaveBeenCalledWith({
@@ -2270,7 +2282,7 @@ describe('MCP IPC tool handlers', () => {
     expect(callTool).not.toHaveBeenCalled();
   });
 
-  it('stores scheduled async MCP job metadata outside live parentRunId', async () => {
+  it('links scheduled async MCP calls to the canonical run and originating job', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const callTool = vi.fn(async () => ({}));
     const createProxy = vi.fn(async () => ({
@@ -2325,9 +2337,9 @@ describe('MCP IPC tool handlers', () => {
       (candidate) => candidate.kind === 'mcp_tool_call',
     );
     expect(task).toMatchObject({
-      parentRunId: null,
+      parentRunId: 'job-run-1',
       parentJobId: 'job-1',
-      parentJobRunId: 'job-run-1',
+      parentJobRunId: null,
     });
   });
 });

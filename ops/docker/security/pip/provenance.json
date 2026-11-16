@@ -1,0 +1,51 @@
+{
+  "artifact": "pip-26.2.2-py3-none-any.whl",
+  "artifactSha256": "e2ea38fcf3cac60020a6bce296e7f4af9f729501c8271f0eab202e6d9adb8fd2",
+  "identity": "pip 26.2.2",
+  "base": {
+    "url": "https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl",
+    "sha256": "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70"
+  },
+  "refreshes": [
+    {
+      "component": "urllib3",
+      "version": "2.8.0",
+      "source": "urllib3-2.8.0-py3-none-any.whl",
+      "sha256": "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3"
+    },
+    {
+      "component": "msgpack",
+      "version": "1.2.1",
+      "source": "msgpack-1.2.1.tar.gz",
+      "sha256": "04c721c2c7448767e9e3f2520a475663d8ee0f09c31890f6d2bd70fd636a9647"
+    }
+  ],
+  "pipVendoringPatches": {
+    "tag": "26.2.2",
+    "commit": "b3b696fe2122f2339d782517559bfade2cb6b879",
+    "files": [
+      {
+        "name": "urllib3-disable-brotli.patch",
+        "sha256": "28c5c54c565b95c0c3583c91a00b62eeedf5d807e4aba32a2f5c2518afc9d9ef"
+      },
+      {
+        "name": "urllib3-fix-emscripten-import.patch",
+        "sha256": "6d6174dde794ab5f8754d6c8bc6b6d59e045d1b9b48685fc5a4aee06a01a9eeb"
+      },
+      {
+        "name": "urllib3.patch",
+        "sha256": "ac960bc57e4cdb4e8495e4ec442daba1eb4e50998ff6f125ed3c33afa729e197"
+      }
+    ]
+  },
+  "record": "Wheel RECORD regenerated with SHA-256 hashes and sizes after replacing pip/_vendor/urllib3 and pure-Python pip/_vendor/msgpack; vendor.txt updated. CycloneDX versions/references refreshed to match the replaced libraries; setuptools inventory retained.",
+  "validation": [
+    "offline force-reinstall PASS",
+    "pip vendor versions PASS",
+    "pip internal import PASS",
+    "pip check PASS"
+  ],
+  "limitation": "Local pip vendor refresh pending upstream pip release that incorporates these dependency versions.",
+  "rebuild": "python3 ops/docker/security/pip/rebuild.py vendor/pip-26.2.2-py3-none-any.whl",
+  "metadataRefresh": "Code-equivalent metadata correction; final-image fresh-venv checks validate the shipped wheel."
+}

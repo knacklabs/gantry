@@ -1,3 +1,4 @@
+import type { RuntimeEventPublishInput } from '@core/domain/events/events.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
@@ -2896,4 +2897,120 @@ describe('GantryModelGatewayBroker', () => {
       vi.useRealTimers();
     }
   });
+});
+
+describe('provider billing events through real gateway HTTP requests', () => {
+  it.each([
+    [
+      'openai',
+      429,
+      {
+        error: {
+          code: 'credit_balance_exhausted',
+          message: 'Insufficient credits',
+        },
+      },
+      true,
+    ],
+    [
+      'openai',
+      429,
+      { error: { code: 'rate_limit_exceeded', message: 'Too many requests' } },
+      false,
+    ],
+    [
+      'anthropic',
+      400,
+      {
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'Your credit balance is too low to access the Anthropic API.',
+        },
+      },
+      true,
+    ],
+    [
+      'openrouter',
+      402,
+      {
+        error: {
+          code: 402,
+          metadata: { limit_source: 'openrouter_in_flight_budget' },
+          message: 'Insufficient credits',
+        },
+      },
+      false,
+    ],
+  ] as const)(
+    'preserves %s HTTP %i and publishes only confirmed billing',
+    async (provider, status, body, expected) => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(body));
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, '127.0.0.1', resolve),
+      );
+      const port = (server.address() as { port: number }).port;
+      const realFetch = globalThis.fetch;
+      vi.stubGlobal('fetch', (_url: unknown, init: RequestInit) =>
+        realFetch(`http://127.0.0.1:${port}`, init),
+      );
+      const repo = new MutableModelCredentialRepository();
+      repo.set(provider, 'synthetic-provider-secret');
+      const events: RuntimeEventPublishInput[] = [];
+      const broker = new GantryModelGatewayBroker(repo, {
+        audit: (event) => {
+          events.push(event);
+        },
+      });
+      try {
+        const injection = await broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            appId,
+            purpose: 'model_runtime',
+            modelRouteId: provider,
+            operation: 'manipal.scrape.captcha.solve',
+            requestedModel: 'fixture-alias',
+            correlationId: 'billing-test-correlation',
+          },
+        });
+        const base =
+          injection.env[
+            provider === 'anthropic' ? 'ANTHROPIC_BASE_URL' : 'OPENAI_BASE_URL'
+          ];
+        const token =
+          injection.env[
+            provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+          ];
+        const result = await gatewayRequest({
+          url: `${base}${provider === 'anthropic' ? '/v1/messages' : provider === 'openai' ? '/v1/chat/completions' : '/chat/completions'}`,
+          token,
+          body: JSON.stringify({ model: 'fixture-model', messages: [] }),
+        });
+        expect(result.status).toBe(status);
+        expect(JSON.parse(result.body)).toEqual(body);
+        const billing = events.filter((event) => event.payload?.billingFailure);
+        expect(billing).toHaveLength(expected ? 1 : 0);
+        if (expected)
+          expect(billing[0].payload?.billingFailure).toMatchObject({
+            provider,
+            operation: 'manipal.scrape.captcha.solve',
+            model: 'fixture-alias',
+            reference: 'billing-test-correlation',
+            credentialRef: createHash('sha256')
+              .update('synthetic-provider-secret')
+              .digest('hex'),
+          });
+        expect(JSON.stringify(billing)).not.toContain(
+          'synthetic-provider-secret',
+        );
+      } finally {
+        await broker.close();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  );
 });

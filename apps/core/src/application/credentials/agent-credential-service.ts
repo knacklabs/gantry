@@ -30,6 +30,9 @@ export type AgentCredentialInjectionInput =
       runId?: AgentRunId;
       apiKeyId?: string;
       apiRequestId?: string;
+      operation?: string;
+      requestedModel?: string;
+      correlationId?: string;
       jobId?: JobId;
       conversationId?: ConversationId;
       threadId?: ConversationThreadId;
@@ -54,6 +57,9 @@ function brokerBindingFor(input: {
   runId?: AgentRunId;
   apiKeyId?: string;
   apiRequestId?: string;
+  operation?: string;
+  requestedModel?: string;
+  correlationId?: string;
   jobId?: JobId;
   conversationId?: ConversationId;
   threadId?: ConversationThreadId;
@@ -64,8 +70,14 @@ function brokerBindingFor(input: {
   agentIdentifier?: string;
 }): AgentCredentialBrokerBinding {
   const purpose = input.purpose ?? 'model_runtime';
+  const operation =
+    input.operation ??
+    (purpose === 'model_runtime' ? input.agentIdentifier : undefined);
   return {
     profile: input.mode,
+    ...(operation ? { operation } : {}),
+    ...(input.requestedModel ? { requestedModel: input.requestedModel } : {}),
+    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     purpose,
     ...('appId' in input && input.appId ? { appId: input.appId } : {}),
     ...('agentId' in input && input.agentId ? { agentId: input.agentId } : {}),

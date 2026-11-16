@@ -10,6 +10,33 @@ export interface ToolNetworkEnvInput {
   };
 }
 
+export function projectSandboxToolNetworkEnv(
+  configured: Record<string, string> | undefined,
+  runtime: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  if (runtime.GANTRY_SANDBOX_RUNTIME_PROXY !== '1') return { ...configured };
+  const http = runtime.HTTP_PROXY || runtime.http_proxy;
+  const https = runtime.HTTPS_PROXY || runtime.https_proxy || http;
+  if (!http || !https) throw new Error('Sandbox-runtime tool proxy is missing');
+  const socks = runtime.ALL_PROXY || runtime.all_proxy || http;
+  const grpc = runtime.GRPC_PROXY || runtime.grpc_proxy || socks;
+  return {
+    ...configured,
+    HTTP_PROXY: http,
+    http_proxy: http,
+    HTTPS_PROXY: https,
+    https_proxy: https,
+    ALL_PROXY: socks,
+    all_proxy: socks,
+    GRPC_PROXY: grpc,
+    grpc_proxy: grpc,
+    NODE_USE_ENV_PROXY: '1',
+    GODEBUG: configured?.GODEBUG || 'netdns=go',
+    NO_PROXY: '',
+    no_proxy: '',
+  };
+}
+
 export function buildToolNetworkEnv(
   input: ToolNetworkEnvInput,
 ): Record<string, string> {

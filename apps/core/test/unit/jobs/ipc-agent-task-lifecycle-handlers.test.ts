@@ -580,9 +580,10 @@ describe('agent task lifecycle IPC handlers', () => {
       }),
     );
 
-    expect(
-      readResponse(runtimeHome, 'sandbox-bound-task-list'),
-    ).toMatchObject({ ok: true, data: { tasks: [] } });
+    expect(readResponse(runtimeHome, 'sandbox-bound-task-list')).toMatchObject({
+      ok: true,
+      data: { tasks: [] },
+    });
   });
 
   it('starts, reads, lists, and cancels scoped async command tasks', async () => {
@@ -952,7 +953,7 @@ describe('agent task lifecycle IPC handlers', () => {
     expect(repository.tasks.get(child.id)?.status).toBe('cancelled');
   });
 
-  it('stores scheduled job run ids in the job-run parent column', async () => {
+  it('links scheduled commands to the canonical agent run, not the obsolete job_runs table', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
@@ -1005,9 +1006,9 @@ describe('agent task lifecycle IPC handlers', () => {
 
     const taskId = await waitForStatus(repository, 'running');
     expect(repository.tasks.get(taskId)).toMatchObject({
-      parentRunId: null,
+      parentRunId: 'job-run-1',
       parentJobId: 'job-1',
-      parentJobRunId: 'job-run-1',
+      parentJobRunId: null,
     });
     await agentTaskLifecycleHandlers.task_cancel(
       contextFor({

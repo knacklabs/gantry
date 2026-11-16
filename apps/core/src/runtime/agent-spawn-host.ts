@@ -182,6 +182,7 @@ export async function prepareInlineAgentHostContext(
         mcpInventoryToolsMounted:
           inlineCoreToolsMountMcpInventory() &&
           input.callerResolvedTools == null,
+        executionProviderId: resolvedModel.value.executionProviderId,
         modelIdentity: {
           alias: resolvedModel.value.modelEntry.displayName,
           modelId: resolvedModel.value.runnerModel,

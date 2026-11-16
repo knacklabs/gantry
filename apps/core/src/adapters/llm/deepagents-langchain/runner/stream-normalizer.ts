@@ -125,33 +125,41 @@ export async function normalizeDeepAgentStream(
   let sawPartialText = false;
   let sawFirstEvent = false;
   let sawFirstVisibleText = false;
+  let modelStreamedText = false;
+
+  const emitText = (value: unknown): boolean => {
+    const delta = textFromChunk(value);
+    if (!delta) return false;
+    if (!sawFirstVisibleText) {
+      sawFirstVisibleText = true;
+      input.onFirstVisibleText?.();
+    }
+    accumulatedText += delta;
+    sawPartialText = true;
+    input.emit({
+      status: 'success',
+      result: delta,
+      newSessionId: input.newSessionId,
+    });
+    return true;
+  };
 
   for await (const event of input.events) {
     if (!sawFirstEvent) {
       sawFirstEvent = true;
       input.onFirstEvent?.(event.event);
     }
+    if (event.event === 'on_chat_model_start') modelStreamedText = false;
     if (event.event === 'on_chat_model_stream') {
       const chunk = event.data?.chunk;
       accumulateUsageFromChunk(chunk, usage);
-      const delta = textFromChunk(chunk);
-      if (delta) {
-        if (!sawFirstVisibleText) {
-          sawFirstVisibleText = true;
-          input.onFirstVisibleText?.();
-        }
-        accumulatedText += delta;
-        sawPartialText = true;
-        input.emit({
-          status: 'success',
-          result: delta,
-          newSessionId: input.newSessionId,
-        });
-      }
+      if (emitText(chunk)) modelStreamedText = true;
       continue;
     }
     if (event.event === 'on_chat_model_end') {
       accumulateUsageFromChunk(event.data?.output, usage);
+      // Non-streaming providers deliver their visible answer only on model end.
+      if (!modelStreamedText) emitText(event.data?.output);
       continue;
     }
     if (event.event === 'on_tool_start' && typeof event.name === 'string') {

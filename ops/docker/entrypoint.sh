@@ -14,16 +14,31 @@ log() {
   printf '%s [entrypoint] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >&2
 }
 
-prepare_runtime_home_and_drop_privileges() {
+validate_runtime_paths() {
   runtime_home="${GANTRY_HOME:-/var/lib/gantry}"
-  if [ "$(id -u)" != "0" ]; then
-    return
+  if [ "$(id -u)" = "0" ]; then
+    log "Gantry must start as a non-root user; prepare volume ownership offline"
+    exit 78
   fi
-
-  mkdir -p "$runtime_home"
-  chown -R node:node "$runtime_home"
-  log "prepared runtime home ${runtime_home} for node user"
-  exec gosu node "$0" "$@"
+  if ! mkdir -p "$runtime_home" || [ ! -w "$runtime_home" ] || [ ! -x "$runtime_home" ]; then
+    log "Gantry runtime home is not writable by uid $(id -u): ${runtime_home}; prepare mount ownership offline"
+    exit 78
+  fi
+  # Chromium needs writable per-user config/cache even with a read-only HOME.
+  XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$runtime_home/config}"
+  XDG_CACHE_HOME="${XDG_CACHE_HOME:-$runtime_home/cache}"
+  export XDG_CONFIG_HOME XDG_CACHE_HOME
+  for runtime_dir in "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"; do
+    if ! mkdir -p "$runtime_dir" || [ ! -w "$runtime_dir" ] || [ ! -x "$runtime_dir" ]; then
+      log "Gantry user directory is not writable: ${runtime_dir}; prepare mount ownership offline"
+      exit 78
+    fi
+  done
+  runtime_tmp="${TMPDIR:-/tmp}"
+  if [ ! -d "$runtime_tmp" ] || [ ! -w "$runtime_tmp" ] || [ ! -x "$runtime_tmp" ]; then
+    log "Gantry temporary directory is not writable: ${runtime_tmp}"
+    exit 78
+  fi
 }
 
 rand_base64_32() {
@@ -173,7 +188,7 @@ EOF
   log "seeded fleet settings file: $settings_file"
 }
 
-prepare_runtime_home_and_drop_privileges "$@"
+validate_runtime_paths
 
 if [ "${GANTRY_FLEET_REHEARSAL_AUTO_SECRETS:-0}" = "1" ]; then
   load_or_create_rehearsal_secrets

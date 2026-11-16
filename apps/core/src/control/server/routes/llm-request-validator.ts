@@ -119,6 +119,14 @@ function findUnsupportedMessagesField(
 function findUnsupportedChatField(
   body: Record<string, unknown>,
 ): UnsupportedLlmRequestField | null {
+  if (hasOwn(body, 'prompt_cache_options')) {
+    const options = body.prompt_cache_options;
+    if (!isRecord(options) || Object.keys(options).some((key) => !['mode', 'ttl'].includes(key))
+      || (options.mode !== undefined && options.mode !== 'implicit' && options.mode !== 'explicit')
+      || (options.ttl !== undefined && options.ttl !== '30m')) {
+      return invalidCacheField('prompt_cache_options');
+    }
+  }
   for (const field of CHAT_HOSTED_TOOL_FIELDS) {
     if (hasOwn(body, field)) return unsupportedField(field);
   }
@@ -145,6 +153,13 @@ function findUnsupportedChatField(
     for (const [partIndex, part] of message.content.entries()) {
       if (!isRecord(part)) continue;
       const partPath = `messages[${messageIndex}].content[${partIndex}]`;
+      if (hasOwn(part, 'prompt_cache_breakpoint')) {
+        const boundary = part.prompt_cache_breakpoint;
+        if (part.type !== 'text' || !isRecord(boundary) || boundary.mode !== 'explicit'
+          || Object.keys(boundary).length !== 1) {
+          return invalidCacheField(`${partPath}.prompt_cache_breakpoint`);
+        }
+      }
       if (
         typeof part.type === 'string' &&
         CHAT_FILE_CONTENT_TYPES.has(part.type)
@@ -186,4 +201,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOwn(value: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function invalidCacheField(field: string): UnsupportedLlmRequestField {
+  return { field, message: `Unsupported Chat Completions cache declaration at "${field}".` };
 }

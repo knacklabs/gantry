@@ -50,6 +50,9 @@ export const JobAgentTaskSchema = z
                 name: z.string().min(1).max(80),
                 description: z.string().min(1).max(1_000),
                 inputSchema: JsonObjectSchema,
+                transportMode: z
+                  .enum(['direct_caller', 'checkpoint_atomic'])
+                  .optional(),
                 sensitiveResultFields: z
                   .array(z.string().min(1).max(100))
                   .max(32)

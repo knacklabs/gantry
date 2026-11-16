@@ -223,6 +223,7 @@ async function spawnAgentWithContext(
     appId: input.appId || 'default',
     accessPreset: hideAuthorityTools ? 'locked' : accessPreset,
     mcpInventoryToolsMounted: input.callerResolvedTools == null,
+    executionProviderId: resolvedModel.value.executionProviderId,
     modelIdentity: {
       alias: resolvedModel.value.modelEntry.displayName,
       modelId: resolvedModel.value.runnerModel,

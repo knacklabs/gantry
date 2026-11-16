@@ -100,6 +100,7 @@ export interface JobAgentTask {
       name: string;
       description: string;
       inputSchema: Record<string, unknown>;
+      transportMode?: 'direct_caller' | 'checkpoint_atomic';
       sensitiveResultFields?: string[];
     }>;
     maxInteractions: number;

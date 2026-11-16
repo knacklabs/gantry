@@ -96,9 +96,10 @@ export async function createAsyncMcpTask(input: {
     agentId: input.agentId,
     conversationId: input.conversationId,
     threadId: input.threadId ?? null,
-    parentRunId: input.jobId ? null : (input.runId ?? null),
+    // Scheduled and interactive executions both live in agent_runs.
+    parentRunId: input.runId ?? null,
     parentJobId: input.jobId ?? null,
-    parentJobRunId: input.jobId ? (input.runId ?? null) : null,
+    parentJobRunId: null,
     kind: 'mcp_tool_call',
     status: 'queued',
     admissionClass: 'task',

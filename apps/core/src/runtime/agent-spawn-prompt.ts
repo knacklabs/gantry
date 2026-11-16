@@ -25,6 +25,7 @@ export async function compileSpawnSystemPrompt(input: {
   appId: string;
   accessPreset: PromptAccessPreset;
   mcpInventoryToolsMounted: boolean;
+  executionProviderId?: string;
   modelIdentity?: PromptModelIdentity;
   fileArtifactStore: PromptProfileServiceOptions['fileArtifactStore'];
   measureAsync: <T>(
@@ -100,7 +101,10 @@ export async function compileSpawnSystemPrompt(input: {
   if (input.agentInput.callerResolvedTools) {
     compiledSystemPrompt = withoutMcpProxyGuidance(compiledSystemPrompt);
   }
-  return [compiledSystemPrompt, callerResolvedToolGuidance(input.agentInput)]
+  return [
+    compiledSystemPrompt,
+    callerResolvedToolGuidance(input.agentInput, input.executionProviderId),
+  ]
     .filter(Boolean)
     .join('\n\n');
 }
@@ -117,8 +121,18 @@ function withoutMcpProxyGuidance(prompt: string): string {
     .join('\n');
 }
 
-function callerResolvedToolGuidance(agentInput: AgentInput): string {
+function callerResolvedToolGuidance(
+  agentInput: AgentInput,
+  executionProviderId?: string,
+): string {
+  const prefix =
+    executionProviderId === 'deepagents:langchain' ? '' : 'mcp__gantry__';
   const toolNames = (agentInput.callerResolvedTools?.tools ?? [])
+    .filter(
+      (tool) =>
+        executionProviderId !== 'deepagents:langchain' ||
+        tool.transportMode === 'direct_caller',
+    )
     .map((tool) => tool.name.trim())
     .filter((name) => /^[A-Za-z0-9_.-]+$/u.test(name));
   const allowSelectedMcpToolCalls =
@@ -135,16 +149,16 @@ function callerResolvedToolGuidance(agentInput: AgentInput): string {
   return [
     '# Caller-resolved job tools',
     'The following exact names are direct Gantry host tools mounted for this job. Call them directly. Never pass them to mcp_call_tool, and never use MCP inventory or search tools to find them.',
-    ...toolNames.map((name) => `- mcp__gantry__${name}`),
+    ...toolNames.map((name) => `- ${prefix}${name}`),
     ...(hasManagedCapabilityOperation
       ? [
-          '- mcp__gantry__external_capability_call — invoke a reviewed Gantry-hosted or durable external operation; call it directly, never through mcp_call_tool.',
+          `- ${prefix}external_capability_call — invoke a reviewed Gantry-hosted or durable external operation; call it directly, never through mcp_call_tool.`,
         ]
       : []),
     ...(allowSelectedMcpToolCalls
       ? [
           '# Selected remote MCP call',
-          'The only remote MCP proxy available is mcp__gantry__mcp_call_tool. Use it only with the exact serverName and toolName supplied by this job or its required skill. MCP inventory, search, and describe tools are unavailable; authorization is rechecked for every call.',
+          `The only remote MCP proxy available is ${prefix}mcp_call_tool. Use it only with the exact serverName and toolName supplied by this job or its required skill. MCP inventory, search, and describe tools are unavailable; authorization is rechecked for every call.`,
         ]
       : []),
   ].join('\n');

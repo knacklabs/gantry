@@ -1,0 +1,15 @@
+{
+  "upstream": "https://raw.githubusercontent.com/moby/profiles/main/seccomp/default.json",
+  "retrievedOn": "2026-10-21",
+  "upstreamSha256": "6416b47770785a41ac59073cdc77d9fe98517df2799dc83ef207e622de3053f6",
+  "profileSha256": "f8659cfa5e7d05b2f1531f64d85b1ecd0049ed1ff416b87fd3c8c3b306432906",
+  "addedSyscalls": [
+    "clone",
+    "unshare",
+    "mount",
+    "umount2",
+    "pivot_root",
+    "chroot"
+  ],
+  "scope": "Local Linux 6.12.76-linuxkit arm64 candidate; target-host acceptance required"
+}

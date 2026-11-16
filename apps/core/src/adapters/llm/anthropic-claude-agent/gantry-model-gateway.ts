@@ -1,5 +1,7 @@
+import { createProviderBillingTap } from '../../../shared/provider-billing-transport.js';
+import type { ProviderBillingFailure } from '../../../shared/provider-billing.js';
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
@@ -13,6 +15,12 @@ import { recordModelStreamTermination } from '../../../infrastructure/observabil
 import { publishAuditEventWithRunIdFallback } from './gantry-model-gateway-audit.js';
 
 type GatewayUseAuditInput = {
+  billingFailure?: ProviderBillingFailure & {
+    credentialRef: string;
+    operation: string;
+    model?: string;
+    reference?: string;
+  };
   outcome: string;
   method: string;
   status: number;
@@ -195,6 +203,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       authMode: credential.authMode,
       schemaVersion: credential.schemaVersion,
       credentialFingerprint: credential.fingerprint,
+      operation: input.binding.operation ?? input.binding.agentIdentifier,
+      requestedModel: input.binding.requestedModel,
+      correlationId: input.binding.correlationId,
       createdAtMs: Date.now(),
       expiresAtMs: Date.now() + this.tokenTtlMs,
       tokenScope: gatewayTokenScope(input.binding),
@@ -604,7 +615,26 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     if (retryAfterMs !== undefined) {
       res.setHeader('retry-after-ms', String(retryAfterMs));
     }
-    const tap = resolveGatewayTap(observation, response);
+    const observationTap = resolveGatewayTap(observation, response);
+    let billingFailure: ProviderBillingFailure | undefined;
+    const billingTap = createProviderBillingTap(
+      providerId,
+      status,
+      Boolean(isStreamingResponse),
+      (value) => {
+        billingFailure = value;
+      },
+    );
+    const tap = {
+      transform(chunk: Buffer) {
+        billingTap.transform(chunk);
+        return observationTap ? observationTap.transform(chunk) : chunk;
+      },
+      flush() {
+        billingTap.flush();
+        return observationTap ? observationTap.flush() : Buffer.alloc(0);
+      },
+    };
     let pipeError: unknown;
     let streamTermination: ModelTransportFailureMetadata | undefined;
     try {
@@ -640,6 +670,47 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       res.off('close', onClientAbort);
     }
     if (auditPromise) await auditPromise;
+    if (billingFailure) {
+      let request: Record<string, unknown> = {};
+      try {
+        request = JSON.parse(requestBody.toString('utf8'));
+      } catch {
+        /* Multipart requests have no model metadata. */
+      }
+      const metadata = request.metadata as Record<string, unknown> | undefined;
+      const safe = (value: unknown) =>
+        typeof value === 'string' && /^[a-zA-Z0-9_.:/-]{1,150}$/.test(value)
+          ? value
+          : undefined;
+      await this.publishGatewayUseAudit(tokenRecord, {
+        ...auditInput,
+        usage: undefined,
+        outcome: 'billing_failed',
+        billingFailure: {
+          ...billingFailure,
+          credentialRef:
+            credential.authMode === 'api_key' && credential.payload.apiKey
+              ? createHash('sha256')
+                  .update(credential.payload.apiKey)
+                  .digest('hex')
+              : credential.fingerprint,
+          operation:
+            safe(tokenRecord.operation) ??
+            safe(metadata?.task_type) ??
+            (tokenRecord.jobId
+              ? 'agent_job'
+              : tokenRecord.conversationId
+                ? 'agent_chat'
+                : 'model_generation'),
+          model: safe(tokenRecord.requestedModel) ?? safe(request.model),
+          reference:
+            safe(tokenRecord.correlationId) ??
+            safe(metadata?.correlation_id) ??
+            safe(tokenRecord.apiRequestId) ??
+            safe(tokenRecord.runId),
+        },
+      });
+    }
     if (pipeError) {
       if (streamTermination) {
         await this.publishGatewayUseAudit(tokenRecord, {
@@ -677,6 +748,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED,
         actor: 'gantry-model-gateway',
         payload: {
+          ...(input.billingFailure
+            ? { billingFailure: input.billingFailure }
+            : {}),
           providerId: tokenRecord.providerId,
           tokenScope: tokenRecord.tokenScope,
           ...(tokenRecord.apiKeyId ? { apiKeyId: tokenRecord.apiKeyId } : {}),

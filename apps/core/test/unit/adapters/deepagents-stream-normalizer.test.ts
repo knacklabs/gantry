@@ -33,6 +33,45 @@ function streamEvent(text: string, usage?: { input: number; output: number }) {
 }
 
 describe('normalizeDeepAgentStream', () => {
+  it('delivers completed model text when the provider disables token streaming', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    const result = await normalizeDeepAgentStream({
+      events: asStream([
+        { event: 'on_chat_model_start' },
+        {
+          event: 'on_chat_model_end',
+          data: { output: { content: 'Command completed.' } },
+        },
+      ]),
+      newSessionId: 'non-streaming',
+      modelProfile: {},
+      emit: (frame) => frames.push(frame),
+    });
+    expect(result.text).toBe('Command completed.');
+    expect(frames.map((frame) => frame.result)).toEqual(['Command completed.']);
+  });
+
+  it('does not repeat completed text after deltas, and handles a later non-streaming turn', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    const result = await normalizeDeepAgentStream({
+      events: asStream([
+        { event: 'on_chat_model_start' },
+        streamEvent('First.'),
+        { event: 'on_chat_model_end', data: { output: { content: 'First.' } } },
+        { event: 'on_chat_model_start' },
+        {
+          event: 'on_chat_model_end',
+          data: { output: { content: 'Second.' } },
+        },
+      ]),
+      newSessionId: 'mixed-streaming',
+      modelProfile: {},
+      emit: (frame) => frames.push(frame),
+    });
+    expect(result.text).toBe('First.Second.');
+    expect(frames.map((frame) => frame.result)).toEqual(['First.', 'Second.']);
+  });
+
   it('emits ONLY token-delta frames and returns the terminal payload (no final frame here)', async () => {
     const frames: RunnerOutputFrame[] = [];
     const result = await normalizeDeepAgentStream({

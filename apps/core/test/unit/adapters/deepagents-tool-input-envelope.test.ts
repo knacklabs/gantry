@@ -386,3 +386,57 @@ describe('DeepAgents tool-input envelope', () => {
     );
   });
 });
+
+describe('lossless tool argument transport', () => {
+  it('envelopes schemas with uniqueness rules that OpenAI cannot accept natively', () => {
+    const original = tool(async (value) => value, {
+      name: 'submit_batch',
+      description: 'Submit',
+      schema: {
+        type: 'object',
+        properties: {
+          ids: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+        },
+        required: ['ids'],
+        additionalProperties: false,
+      } as never,
+    });
+    const [wrapped] = envelopeToolsForProvider([original], 'openai');
+    expect(wrapped?.description).toContain('Pass arguments in the json field');
+    expect(wrapped?.description).toContain('uniqueItems');
+  });
+  it('transports native objects and object envelopes without losing fields or bypassing validation', async () => {
+    const received: unknown[] = [];
+    const original = tool(
+      async (value) => {
+        received.push(value);
+        return 'accepted';
+      },
+      {
+        name: 'submit_result',
+        description: 'Submit',
+        schema: z
+          .object({ candidate: z.record(z.string(), z.unknown()) })
+          .strict(),
+      },
+    );
+    const [wrapped] = envelopeToolsForProvider([original], 'openai');
+    const candidate = {
+      label: '資料',
+      amount: 0,
+      missing: null,
+      flags: [false, true],
+    };
+    expect(await wrapped!.invoke({ candidate })).toBe('accepted');
+    expect(await wrapped!.invoke({ json: { candidate } })).toBe('accepted');
+    await wrapped!.invoke({
+      type: 'tool_call',
+      id: 'call-1',
+      name: 'submit_result',
+      args: { candidate },
+    } as never);
+    expect(received).toEqual([{ candidate }, { candidate }, { candidate }]);
+    await wrapped!.invoke({ candidate, unexpected: true });
+    expect(received).toHaveLength(3);
+  });
+});

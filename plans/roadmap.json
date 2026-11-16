@@ -991,6 +991,22 @@
       "kind": "feature",
       "depends_on": [],
       "spec": "docs/specs/caller-bounded-selected-remote-mcp.md"
+    },
+    {
+      "key": "INTEGRATION-634",
+      "title": "Combine hardened runtime and recipe repairs",
+      "story": "Ship both contributors changes without lost behavior",
+      "acceptance_criteria": [
+        "Retain both commit histories and security controls",
+        "Verify metadata, receipts, billing and fresh/stale CAPTCHA locally",
+        "Build combined runtime/SDK/AMD64 image and raise new PR without merging"
+      ],
+      "order": 56,
+      "status": "pending",
+      "skill": "backend",
+      "kind": "feature",
+      "depends_on": [],
+      "spec": "docs/specs/combined-runtime-recipe-release.md"
     }
   ],
   "epics": [
