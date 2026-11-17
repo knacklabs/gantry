@@ -27,6 +27,8 @@ export function adaptSessionControlPort(
   control: RuntimeControlRepository,
 ): SessionControlPort {
   return {
+    appendSourceMessage: (appId, sessionId, input) =>
+      control.appendSourceMessage(appId, sessionId, input),
     async ensureAppSession(input) {
       const session = await control.ensureAppSession({
         appId: input.appId,

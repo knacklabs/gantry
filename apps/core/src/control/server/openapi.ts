@@ -1,3 +1,4 @@
+import { sourceChannelRouteDocs } from './openapi-source-channel.js';
 import {
   errors,
   type BodyKind,
@@ -18,6 +19,7 @@ import { controlOpenApiSchemas } from './openapi-schemas-control.js';
 import { openApiSchemas } from './openapi-schemas.js';
 
 const routeDocs: RouteDoc[] = [
+  ...sourceChannelRouteDocs,
   ...coreOpenApiRouteDocs,
   ...extendedOpenApiRouteDocs,
 ];

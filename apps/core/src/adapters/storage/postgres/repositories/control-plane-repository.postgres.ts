@@ -1,3 +1,5 @@
+import type { AppendSourceMessageRequest } from '@gantry/contracts';
+import { PostgresSourceChannelRepository } from './source-channel-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -44,6 +46,18 @@ export class PostgresControlPlaneRepository {
   constructor(private readonly db: CanonicalDb) {
     this.externalIngress = new PostgresExternalIngressRepository(db);
     this.jobTriggers = new PostgresJobTriggerRepository(db);
+  }
+
+  async appendSourceMessage(
+    appId: string,
+    sessionId: string,
+    input: AppendSourceMessageRequest,
+  ) {
+    return new PostgresSourceChannelRepository(this.db).append(
+      appId,
+      sessionId,
+      input,
+    );
   }
 
   async ensureAppSession(input: {

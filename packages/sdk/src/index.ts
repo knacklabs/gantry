@@ -909,3 +909,18 @@ export {
   verifyIngressSignature,
 } from './ingress-signature.js';
 export { verifyWebhookSignature } from './webhook-signature.js';
+
+export { hashSourceMessage } from './source-channel.js';
+export type {
+  SourceBinding,
+  SourceAuthority,
+  SourceMessage,
+  AppendSourceMessageRequest,
+  AppendSourceMessageResponse,
+  RequestSourceAnswer,
+  RequestSourceAnswerResponse,
+  SourceHistoryRequested,
+  SettleSourceHistory,
+  ExecutionAuthorityRequested,
+  SettleExecutionAuthority,
+} from '@gantry/contracts';

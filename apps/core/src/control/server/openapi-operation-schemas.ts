@@ -1,3 +1,7 @@
+import {
+  sourceChannelRequests,
+  sourceChannelResponses,
+} from './openapi-source-channel.js';
 import type { JsonSchema } from './openapi-route-helpers.js';
 import {
   peopleOpenApiRequestSchemas,
@@ -9,6 +13,7 @@ const ref = (name: string): JsonSchema => ({
 });
 
 export const openApiResponseSchemas: Record<string, JsonSchema> = {
+  ...sourceChannelResponses,
   completeCapabilityTask: ref('CapabilityTaskSettlementResponse'),
   cancelCapabilityTask: ref('CapabilityTaskSettlementResponse'),
   recoverCapabilityTask: ref('CapabilityTaskRecoveryResponse'),
@@ -137,6 +142,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
 };
 
 export const openApiRequestSchemas: Record<string, JsonSchema> = {
+  ...sourceChannelRequests,
   completeCapabilityTask: ref('CapabilityTaskCompleteRequest'),
   cancelCapabilityTask: ref('CapabilityTaskCancelRequest'),
   recoverCapabilityTask: ref('CapabilityTaskRecoverRequest'),

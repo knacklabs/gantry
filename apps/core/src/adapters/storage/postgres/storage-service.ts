@@ -2,7 +2,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
-import { migrate as migratePostgres } from 'drizzle-orm/node-postgres/migrator';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { PgBoss } from 'pg-boss';
@@ -167,9 +166,15 @@ export class PostgresStorageService implements StorageService {
   }
 
   async migrate(): Promise<void> {
-    await this.pool.query(
-      `CREATE SCHEMA IF NOT EXISTS ${quotePostgresIdentifier(this.schemaName)}`,
+    const namespace = await this.pool.query(
+      'SELECT 1 FROM pg_namespace WHERE nspname = $1',
+      [this.schemaName],
     );
+    if (namespace.rowCount === 0) {
+      await this.pool.query(
+        `CREATE SCHEMA ${quotePostgresIdentifier(this.schemaName)}`,
+      );
+    }
     await this.ensurePgcryptoExtension();
     await this.runSchemaMigrationsUnderLock();
     await seedDefaultRuntimeData(this.db);
@@ -262,10 +267,34 @@ export class PostgresStorageService implements StorageService {
         RUNTIME_MIGRATION_LOCK_NAMESPACE,
         RUNTIME_MIGRATION_LOCK_KEY,
       ]);
-      await migratePostgres(this.db, {
-        migrationsFolder: postgresMigrationsFolder,
-        migrationsSchema: this.schemaName,
-      });
+      // Drizzle's migrator unconditionally executes CREATE SCHEMA, even for an
+      // administrator-provisioned namespace. A runtime role needs no database
+      // CREATE privilege. Keep the same journal and transactional SQL semantics.
+      const table = `${quotePostgresIdentifier(this.schemaName)}."__drizzle_migrations"`;
+      await client.query(
+        `CREATE TABLE IF NOT EXISTS ${table} (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+      );
+      const applied = await client.query<{ created_at: string }>(
+        `SELECT created_at FROM ${table} ORDER BY created_at DESC LIMIT 1`,
+      );
+      const last = Number(applied.rows[0]?.created_at ?? 0);
+      await client.query('BEGIN');
+      try {
+        for (const migration of readMigrationFiles({
+          migrationsFolder: postgresMigrationsFolder,
+        })) {
+          if (migration.folderMillis <= last) continue;
+          for (const statement of migration.sql) await client.query(statement);
+          await client.query(
+            `INSERT INTO ${table} (hash, created_at) VALUES ($1, $2)`,
+            [migration.hash, migration.folderMillis],
+          );
+        }
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      }
     } finally {
       try {
         await client.query('SELECT pg_advisory_unlock($1, $2)', [
@@ -317,10 +346,14 @@ export class PostgresStorageService implements StorageService {
       this.schemaName,
       this.security,
     );
+    const bossNamespace = await this.pool.query(
+      'SELECT 1 FROM pg_namespace WHERE nspname = $1',
+      [PGBOSS_SCHEMA],
+    );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
       schema: PGBOSS_SCHEMA,
-      createSchema: true,
+      createSchema: bossNamespace.rowCount === 0,
       migrate: true,
       schedule: false,
       supervise: false,

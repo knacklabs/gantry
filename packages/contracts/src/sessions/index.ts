@@ -153,3 +153,6 @@ export const AgentSessionResponseSchema = z.object({
   metadata: ContractMetadataSchema.optional(),
 });
 export type AgentSessionResponse = z.infer<typeof AgentSessionResponseSchema>;
+
+export * from './source-channel.js';
+export * from './source-message-hash.js';

@@ -1,4 +1,84 @@
 export interface paths {
+    "/v1/sessions/{sessionId}/source-messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist source history
+         * @description Stores source history without admitting any model work.
+         */
+        post: operations["appendSourceMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a stored question
+         * @description Admits an explicit answer using an immutable source cutoff.
+         */
+        post: operations["requestSourceAnswer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/source-history/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle source history
+         * @description Settles one durable bounded history request.
+         */
+        post: operations["settleSourceHistory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/execution-authority/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle current authority
+         * @description Settles current answer execution authority.
+         */
+        post: operations["settleExecutionAuthority"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/status": {
         parameters: {
             query?: never;
@@ -861,6 +941,26 @@ export interface paths {
          * @description Updates install metadata, memory, or thread policy.
          */
         patch: operations["updateConversationInstall"];
+        trace?: never;
+    };
+    "/v1/capability-tasks/{taskId}/artifacts/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a capability task artifact
+         * @description Reads one JSON FileArtifact for a waiting task using a capability-audience-restricted API key and fenced task token.
+         */
+        post: operations["readCapabilityTaskArtifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/usage": {
@@ -3818,6 +3918,10 @@ export interface components {
             capabilityId: string;
             operation: string;
         };
+        CapabilityTaskArtifactReadRequest: {
+            completionToken: string;
+            artifactId: string;
+        };
         CapabilityTaskSettlementResponse: {
             /** @enum {string} */
             outcome: "completed" | "idempotent" | "late_ignored";
@@ -3832,6 +3936,12 @@ export interface components {
             status: "waiting_external";
             /** @constant */
             created: false;
+        };
+        CapabilityTaskArtifactReadResponse: {
+            artifactId: string;
+            contentHash: string;
+            contentType: string;
+            value: unknown;
         };
         LlmJsonValue: unknown;
         LlmJsonObject: unknown;
@@ -4445,6 +4555,283 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    appendSourceMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    authority: {
+                        authorityId: string;
+                        authorityVersion: string;
+                        /** @enum {string} */
+                        kind: "service" | "person";
+                        subject: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                    message: {
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        authorId: string;
+                        /** @enum {string} */
+                        authorKind: "human" | "system" | "assistant";
+                        authorDisplayName: string;
+                        text: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        replyToSourceId: string | null;
+                        revisionId: string;
+                        /** @enum {string} */
+                        origin: "human" | "revision" | "runtime_output";
+                        contentHash: string;
+                        runtimeOutputId?: string;
+                        answerGoalId?: string;
+                    };
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        stored: true;
+                        replayed: boolean;
+                        messageId: string;
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        generation: number;
+                        persistedEventId: string;
+                        contiguousPosition: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    requestSourceAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    authority: {
+                        authorityId: string;
+                        authorityVersion: string;
+                        /** @enum {string} */
+                        kind: "service" | "person";
+                        subject: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                    questionSourceId: string;
+                    sourceCutoff: string;
+                    requesterId: string;
+                    answerGoalId: string;
+                    attemptId: string;
+                    idempotencyKey: string;
+                    revisionId: string;
+                    /** @enum {boolean} */
+                    analysisReady: true;
+                    model: string;
+                    maxOutputTokens: number;
+                    /** Format: date-time */
+                    deadlineAt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                        answerGoalId: string;
+                        attemptId: string;
+                        questionMessageId: string;
+                        acceptedEventId: string;
+                        /** @enum {string} */
+                        state: "preparing" | "queued" | "running" | "completed" | "failed" | "canceled";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    settleSourceHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    interactionId: string;
+                    idempotencyKey: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    sourceVersion: string;
+                    /** @enum {string} */
+                    status: "ok" | "unavailable" | "rejected" | "temporary_failure";
+                    messages: {
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        authorId: string;
+                        /** @enum {string} */
+                        authorKind: "human" | "system" | "assistant";
+                        authorDisplayName: string;
+                        text: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        replyToSourceId: string | null;
+                        revisionId: string;
+                        /** @enum {string} */
+                        origin: "human" | "revision" | "runtime_output";
+                        contentHash: string;
+                        runtimeOutputId?: string;
+                        answerGoalId?: string;
+                    }[];
+                    returnedThrough: string;
+                    hasMore: boolean;
+                    errorCode?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    settleExecutionAuthority: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    interactionId: string;
+                    idempotencyKey: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    answerGoalId: string;
+                    attemptId: string;
+                    allowed: boolean;
+                    authorityVersion: string;
+                    /** Format: date-time */
+                    expiresAt: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getStatus: {
         parameters: {
             query?: never;
@@ -6087,6 +6474,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationInstall"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    readCapabilityTaskArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Durable external capability task id. */
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityTaskArtifactReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityTaskArtifactReadResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

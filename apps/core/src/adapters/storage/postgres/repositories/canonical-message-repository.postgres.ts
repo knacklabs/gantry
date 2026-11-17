@@ -520,7 +520,10 @@ export class PostgresCanonicalMessageRepository {
       : undefined;
     const directionFilter =
       direction === 'inbound'
-        ? eq(m.direction, 'inbound')
+        ? and(
+            eq(m.direction, 'inbound'),
+            sql`COALESCE(${m.externalRefJson}->>'store_only', 'false') <> 'true'`,
+          )
         : or(
             eq(m.direction, 'inbound'),
             and(eq(m.direction, 'outbound'), eq(m.deliveryStatus, 'sent')),

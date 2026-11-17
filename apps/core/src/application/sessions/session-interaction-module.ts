@@ -1,3 +1,7 @@
+import type {
+  AppendSourceMessageRequest,
+  AppendSourceMessageResponse,
+} from '@gantry/contracts';
 import type { AgentControlOverrides, NewMessage } from '../../domain/types.js';
 import { AgentRunResponseSchema } from '@gantry/contracts';
 import type {
@@ -52,6 +56,11 @@ export type SessionResponseRouteRecord = {
 };
 
 export interface SessionControlPort {
+  appendSourceMessage?(
+    appId: string,
+    sessionId: string,
+    input: AppendSourceMessageRequest,
+  ): Promise<AppendSourceMessageResponse>;
   ensureAppSession(input: {
     appId: string;
     conversationId: string;
@@ -109,6 +118,24 @@ export type SessionQueueIntent = {
 
 export class SessionInteractionModule {
   constructor(private readonly deps: SessionInteractionDeps) {}
+
+  async appendSourceMessage(input: {
+    appId: string;
+    sessionId: string;
+    request: AppendSourceMessageRequest;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.appendSourceMessage)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source channel persistence unavailable',
+      );
+    return this.deps.control.appendSourceMessage(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
 
   async ensureSession(input: {
     appId: string;
@@ -394,9 +421,10 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
-    const agentSession = await this.deps.repositories.agentSessions?.getAgentSession(
-      session.sessionId as never,
-    );
+    const agentSession =
+      await this.deps.repositories.agentSessions?.getAgentSession(
+        session.sessionId as never,
+      );
     if (agentSession?.status === 'archived') {
       throw new ApplicationError('CONFLICT', 'Session is archived');
     }

@@ -1,5 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { CreateSessionRequestSchema } from '@gantry/contracts';
+import {
+  AppendSourceMessageRequestSchema,
+  CreateSessionRequestSchema,
+} from '@gantry/contracts';
 import { Ajv, type AnySchema } from 'ajv';
 import type { ZodIssue } from 'zod';
 
@@ -148,6 +151,48 @@ export async function handleSessionRoutes(
   url: URL,
   pathname: string,
 ): Promise<boolean> {
+  const sourceMatch = /^\/v1\/sessions\/([^/]+)\/source-messages$/.exec(
+    pathname,
+  );
+  if (sourceMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, [
+      'sessions:write',
+    ]);
+    if (!auth) return true;
+    const parsed = AppendSourceMessageRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        formatSessionRequestIssue(parsed.error.issues[0]),
+      );
+      return true;
+    }
+    try {
+      const appId = resolveAppScopeAppId(auth, '');
+      if (!appId) {
+        sendError(
+          res,
+          403,
+          'FORBIDDEN',
+          'Source channels require app-scoped credentials',
+        );
+        return true;
+      }
+      const result = await ctx.sessionInteraction.appendSourceMessage({
+        appId,
+        sessionId: decodeURIComponent(sourceMatch[1]!),
+        request: parsed.data,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
   if (pathname === '/v1/sessions/ensure' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, [
       'sessions:write',
