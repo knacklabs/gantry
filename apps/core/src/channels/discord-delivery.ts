@@ -206,7 +206,7 @@ async function postDiscordFiles(
   uploads.forEach((file, index) => {
     form.set(
       `files[${index}]`,
-      new Blob([file.content], { type: file.contentType }),
+      new Blob([Uint8Array.from(file.content)], { type: file.contentType }),
       file.filename,
     );
   });

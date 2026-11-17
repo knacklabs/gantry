@@ -545,7 +545,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       response = await fetch(upstreamUrl, {
         method,
         headers,
-        ...(method === 'GET' ? {} : { body: requestBody }),
+        ...(method === 'GET' ? {} : { body: Buffer.from(requestBody) }),
         signal: upstreamAbort.signal,
       });
     } catch (error) {
