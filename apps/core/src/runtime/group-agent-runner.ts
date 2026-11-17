@@ -516,7 +516,7 @@ export function createGroupAgentRunner(input: {
     });
     try {
       let sourceProviderStarted = false;
-      const startSourceProvider = () => {
+      const startSourceProvider = async () => {
         if (
           !sourceProviderStarted &&
           options?.sourceAnswer?.executionAuthorityDeadline !== undefined &&
@@ -524,6 +524,17 @@ export function createGroupAgentRunner(input: {
         )
           throw new Error(
             'Fresh execution authority expired before provider start',
+          );
+        if (
+          options?.sourceAnswer &&
+          ops().renewPreparedSourceAnswer &&
+          !(await ops().renewPreparedSourceAnswer!(
+            options.sourceAnswer.id,
+            options.sourceAnswer.claimToken,
+          ))
+        )
+          throw new Error(
+            'Source execution ownership was invalidated before provider start',
           );
         sourceProviderStarted = true;
       };
@@ -557,8 +568,7 @@ export function createGroupAgentRunner(input: {
             },
           })
         : undefined;
-      if (options?.sourceAnswer && !sourceProviderStarted)
-        startSourceProvider();
+      if (options?.sourceAnswer) await startSourceProvider();
       if (sourceExecutionDeadline && Date.now() >= sourceExecutionDeadline)
         throw new Error('Source execution budget exhausted');
       const credentialBroker = await deps.getCredentialBroker?.();

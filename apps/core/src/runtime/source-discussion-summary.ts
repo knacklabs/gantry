@@ -18,7 +18,7 @@ export async function prepareSourceSummary(input: {
     'readSourceSummary' | 'saveSourceSummary'
   >;
   client?: MemoryLlmClient;
-  onFirstProviderCall?: () => void;
+  onFirstProviderCall?: () => void | Promise<void>;
   onUsage?: (usage: MemoryLlmUsage) => void;
 }): Promise<string | undefined> {
   const work = input.answer.summaryWork;
@@ -63,7 +63,7 @@ export async function prepareSourceSummary(input: {
     const remaining = input.deadline - Date.now();
     if (remaining <= 0)
       throw new Error('Source execution budget exhausted before summary');
-    if (chunk === chunks[0]) input.onFirstProviderCall?.();
+    await input.onFirstProviderCall?.();
     const output = await client.query({
       appId: input.appId,
       model: entry.runnerModel,

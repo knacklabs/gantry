@@ -10,7 +10,12 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
     const [answer] = await this.db
       .select()
       .from(s.pendingInteractionsPostgres)
-      .where(eq(s.pendingInteractionsPostgres.runId, runId));
+      .where(
+        and(
+          eq(s.pendingInteractionsPostgres.runId, runId),
+          sql`${s.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+        ),
+      );
     if (
       !answer ||
       (answer.payloadJson as { interactionType?: string }).interactionType !==

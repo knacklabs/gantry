@@ -911,4 +911,146 @@ run('durable native source channel', () => {
     expect(answer?.runId).toBeNull();
     expect(answer?.status).toBe('cancelled');
   });
+  it('persists and terminates the same goal/attempt independently in a second application', async () => {
+    const other = `source-other-${randomUUID()}`;
+    const folder = `other-${randomUUID()}`;
+    try {
+      const session = await control.ensureAppSession({
+        appId: other,
+        conversationId: 'D1',
+        chatJid: `app:${other}:D1`,
+        workspaceFolder: folder,
+      });
+      const row = make('1');
+      await control.appendSourceMessage(other, session.sessionId, row);
+      const request = {
+        binding: row.binding,
+        authority: {
+          authorityId: 'people',
+          authorityVersion: '1',
+          kind: 'person' as const,
+          subject: 'person1',
+          expiresAt: '2027-01-01T00:00:00.000Z',
+        },
+        questionSourceId: 'M1',
+        sourceCutoff: '1',
+        requesterId: 'person1',
+        answerGoalId: 'goal1',
+        attemptId: 'attempt1',
+        idempotencyKey: 'attempt1',
+        revisionId: 'R1',
+        analysisReady: true as const,
+        model: 'haiku',
+        maxOutputTokens: 2000,
+        deadlineAt: '2027-01-01T00:00:00.000Z',
+      };
+      await control.requestSourceAnswer(other, session.sessionId, request);
+      const settlement = {
+        binding: row.binding,
+        answerGoalId: 'goal1',
+        attemptId: 'attempt1',
+        allowed: true,
+        authorityVersion: '1',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      };
+      await control.settleExecutionAuthority(other, session.sessionId, {
+        ...settlement,
+        interactionId: `authority:source-answer:${other}:attempt1`,
+        idempotencyKey: 'other-admit',
+      });
+      const native = new PostgresSourceAnswerRepository(service.db);
+      expect(await native.prepared(other, `app:${other}:D1`)).toBeUndefined();
+      const [execution] = await service.db
+        .select()
+        .from(schema.pendingInteractionsPostgres)
+        .where(
+          and(
+            eq(schema.pendingInteractionsPostgres.appId, other),
+            sql`${schema.pendingInteractionsPostgres.payloadJson}#>>'{request,phase}' = 'execution'`,
+          ),
+        );
+      await control.settleExecutionAuthority(other, session.sessionId, {
+        ...settlement,
+        interactionId: execution!.id,
+        idempotencyKey: 'other-execution',
+      });
+      const prepared = await native.prepared(other, `app:${other}:D1`);
+      expect(prepared).toBeTruthy();
+      await new PostgresCanonicalSessionRepository(
+        service.db,
+      ).getAgentTurnContext({
+        appId: other,
+        workspaceFolder: folder,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        chatJid: `app:${other}:D1`,
+        providerAccountId: `control:${other}`,
+        scopeKey: 'other-source',
+        conversationKind: 'channel',
+        memoryUserId: 'person1',
+      });
+      const [agent] = await service.db
+        .select()
+        .from(schema.agentsPostgres)
+        .where(eq(schema.agentsPostgres.id, session.agentId));
+      const [config] = await service.db
+        .select()
+        .from(schema.agentConfigVersionsPostgres)
+        .where(
+          eq(
+            schema.agentConfigVersionsPostgres.id,
+            agent!.currentConfigVersionId!,
+          ),
+        );
+      const runId = `run-${randomUUID()}`;
+      await service.db
+        .insert(schema.agentRunsPostgres)
+        .values({
+          id: runId,
+          appId: other,
+          agentId: session.agentId,
+          configVersionId: config!.id,
+          sessionId: session.sessionId,
+          conversationId: session.canonicalConversationId,
+          llmProfileId: config!.llmProfileId,
+          executionProviderId: 'anthropic:claude-agent-sdk',
+          cause: 'message',
+          status: 'running',
+          createdAt: new Date().toISOString(),
+        });
+      await native.markRun(prepared!.id, runId);
+      await native.output(
+        prepared!.id,
+        runId,
+        'Second application full result',
+      );
+      await service.db.transaction((tx) =>
+        appendSourceAnswerTerminal(
+          tx,
+          runId,
+          'completed',
+          new Date().toISOString(),
+        ),
+      );
+      const outputs = await service.db
+        .select()
+        .from(schema.messagesPostgres)
+        .where(
+          sql`${schema.messagesPostgres.id} IN (${sourceAnswerOutputId(appId, 'goal1', 'attempt1')},${sourceAnswerOutputId(other, 'goal1', 'attempt1')})`,
+        );
+      expect(outputs).toHaveLength(2);
+      expect(new Set(outputs.map((item) => item.appId)).size).toBe(2);
+      const events = await new PostgresRuntimeEventRepository(
+        service.db,
+      ).listRuntimeEvents({ appId: other as never, limit: 100 });
+      expect(
+        events.find((event) => event.eventType === 'run.completed')?.payload,
+      ).toMatchObject({
+        runtimeOutputId: sourceAnswerOutputId(other, 'goal1', 'attempt1'),
+      });
+    } finally {
+      await service.db
+        .delete(schema.appsPostgres)
+        .where(eq(schema.appsPostgres.id, other));
+    }
+  });
 });

@@ -1,6 +1,6 @@
 import { sourceAnswerOutputId } from './source-answer-output-id.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import * as s from '../schema/schema.js';
 import type { CanonicalExecutor } from './canonical-graph-repository.postgres.js';
@@ -15,7 +15,12 @@ export async function appendSourceAnswerTerminal(
   const [answer] = await tx
     .select()
     .from(s.pendingInteractionsPostgres)
-    .where(eq(s.pendingInteractionsPostgres.runId, runId));
+    .where(
+      and(
+        eq(s.pendingInteractionsPostgres.runId, runId),
+        sql`${s.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+      ),
+    );
   if (
     !answer ||
     (answer.payloadJson as { interactionType?: string }).interactionType !==
