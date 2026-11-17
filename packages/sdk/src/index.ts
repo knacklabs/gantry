@@ -926,3 +926,6 @@ export type {
   ExecutionAuthorityRequested,
   SettleExecutionAuthority,
 } from '@gantry/contracts';
+
+export {SourceDocumentArtifactReceiptSchema,ReadSourceDocumentResponseSchema} from '@gantry/contracts';
+export type {SourceDocumentArtifactReceipt,ReadSourceDocument,ReadSourceDocumentResponse} from '@gantry/contracts';

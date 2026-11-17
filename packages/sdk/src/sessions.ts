@@ -1,3 +1,4 @@
+import type {ReadSourceDocument,ReadSourceDocumentResponse} from '@gantry/contracts';
 import type {
   RebuildSourceGeneration,
   RebuildSourceGenerationResponse,
@@ -35,6 +36,7 @@ export function createSessionsClient(transport: SessionTransport) {
   };
 
   return {
+    readSourceDocument:(sessionId:string,body:ReadSourceDocument,options?:{signal?:AbortSignal})=>transport.request<ReadSourceDocumentResponse>({method:'POST',path:`/v1/sessions/${encodeURIComponent(sessionId)}/source-documents/read`,body,signal:options?.signal}),
     rebuildSourceGeneration: (
       sessionId: string,
       body: RebuildSourceGeneration,
