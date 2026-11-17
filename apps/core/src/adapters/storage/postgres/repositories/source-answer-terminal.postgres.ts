@@ -114,6 +114,11 @@ export async function appendSourceAnswerTerminal(
       payloadJson: {
         ...(answer.payloadJson as Record<string, unknown>),
         terminalEventId: String(event!.eventId),
+        state: complete
+          ? 'completed'
+          : status === 'canceled'
+            ? 'canceled'
+            : 'failed',
       },
       status: complete ? 'resolved' : 'cancelled',
       resolvedAt: now,

@@ -379,6 +379,8 @@ run('durable native source channel', () => {
       await new PostgresSourceAnswerRepository(service.db).recoverRun(runId),
     ).toBe('failed');
     await native.output(answerId, runId, output);
+    // Simulate process exit after group cleanup but before fenced terminal commit.
+    await native.finishPrepared(answerId, true);
     expect(
       await new PostgresSourceAnswerRepository(service.db).recoverRun(runId),
     ).toBe('completed');
@@ -1002,21 +1004,19 @@ run('durable native source channel', () => {
           ),
         );
       const runId = `run-${randomUUID()}`;
-      await service.db
-        .insert(schema.agentRunsPostgres)
-        .values({
-          id: runId,
-          appId: other,
-          agentId: session.agentId,
-          configVersionId: config!.id,
-          sessionId: session.sessionId,
-          conversationId: session.canonicalConversationId,
-          llmProfileId: config!.llmProfileId,
-          executionProviderId: 'anthropic:claude-agent-sdk',
-          cause: 'message',
-          status: 'running',
-          createdAt: new Date().toISOString(),
-        });
+      await service.db.insert(schema.agentRunsPostgres).values({
+        id: runId,
+        appId: other,
+        agentId: session.agentId,
+        configVersionId: config!.id,
+        sessionId: session.sessionId,
+        conversationId: session.canonicalConversationId,
+        llmProfileId: config!.llmProfileId,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        cause: 'message',
+        status: 'running',
+        createdAt: new Date().toISOString(),
+      });
       await native.markRun(prepared!.id, runId);
       await native.output(
         prepared!.id,

@@ -40,7 +40,9 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         ),
       );
     const complete =
-      answer.status === 'pending' &&
+      (answer.status === 'pending' || answer.status === 'resolved') &&
+      !(answer.payloadJson as { generationInvalidated?: boolean })
+        .generationInvalidated &&
       (output?.externalRefJson as { sourceRunId?: string } | undefined)
         ?.sourceRunId === runId;
     // A full canonical result can be fenced to completion. An interrupted
