@@ -1,3 +1,4 @@
+import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
 import { and, eq, sql } from 'drizzle-orm';
 import * as s from '../schema/schema.js';
@@ -27,7 +28,13 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
   async output(id: string, runId: string, text: string) {
     if (!text.trim() || Buffer.byteLength(text) > 262144)
       fail('Complete source answer output is missing or exceeds byte limit');
+    const [owned] = await this.db
+      .select()
+      .from(s.pendingInteractionsPostgres)
+      .where(eq(s.pendingInteractionsPostgres.id, id));
+    if (!owned) fail('Source answer not found');
     await this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, owned!.appId);
       const [answer] = await tx
         .select()
         .from(s.pendingInteractionsPostgres)

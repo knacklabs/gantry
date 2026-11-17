@@ -1,3 +1,4 @@
+import { appendSourceAnswerTerminal } from '../repositories/source-answer-terminal.postgres.js';
 import { PostgresSourceAnswerRepository } from '../repositories/source-answer-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
@@ -161,6 +162,15 @@ export class PostgresRuntimeRepositoryBundle
     return this.graph.listChats();
   }
 
+  async pendingSourceAnswerQueueKeys() {
+    return new PostgresSourceAnswerRepository(this.db).pendingQueueKeys();
+  }
+  async hasQueuedSourceAnswer(appId: string, conversationJid: string) {
+    return new PostgresSourceAnswerRepository(this.db).hasQueued(
+      appId,
+      conversationJid,
+    );
+  }
   async markSourceAnswerRun(id: string, runId: string) {
     await new PostgresSourceAnswerRepository(this.db).markRun(id, runId);
   }
@@ -715,6 +725,9 @@ export class PostgresRuntimeRepositoryBundle
       resultSummary: resultSummary ?? run.resultSummary,
       errorSummary: errorSummary ?? run.errorSummary,
     });
+    await this.db.transaction((tx) =>
+      appendSourceAnswerTerminal(tx, input.runId, input.status, now),
+    );
     await this.options.runtimeEvents.publish({
       appId: run.appId,
       agentId: run.agentId,

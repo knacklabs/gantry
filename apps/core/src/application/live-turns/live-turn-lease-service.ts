@@ -33,8 +33,11 @@ import {
  */
 export const LIVE_TURN_SLOT_KEY_PREFIX = 'live:messages:';
 
-export function liveTurnSlotKey(workerInstanceId: string): string {
-  return `${LIVE_TURN_SLOT_KEY_PREFIX}${workerInstanceId}`;
+export function liveTurnSlotKey(
+  workerInstanceId: string,
+  sourceAnswer = false,
+): string {
+  return `${LIVE_TURN_SLOT_KEY_PREFIX}${workerInstanceId}${sourceAnswer ? ':source-answer' : ''}`;
 }
 
 export type LiveTurnCoordination = Pick<
@@ -194,7 +197,10 @@ export async function claimLiveTurnExecution(input: {
 }): Promise<LiveTurnClaimResult> {
   const { deps } = input;
   const slotTtlMs = input.slotTtlMs ?? input.leaseTtlMs;
-  const slotKey = liveTurnSlotKey(deps.workerInstanceId);
+  const slotKey = liveTurnSlotKey(
+    deps.workerInstanceId,
+    input.pendingMessage?.kind === 'source_answer',
+  );
   const hostSlotCapacity = input.hostSlotCapacity;
   const hostBudgetCapacity = input.hostBudgetCapacity;
 
@@ -220,7 +226,8 @@ export async function claimLiveTurnExecution(input: {
   const slotAcquired = await deps.coordination.acquireRunSlot({
     slotKey,
     holderId: provisionalHolderId,
-    capacity: input.slotCapacity,
+    capacity:
+      input.pendingMessage?.kind === 'source_answer' ? 16 : input.slotCapacity,
     ttlMs: slotTtlMs,
     runId: input.runId,
     workerInstanceId: deps.workerInstanceId,
@@ -429,9 +436,10 @@ export async function heartbeatLiveTurnLease(input: {
   hostBudgetCapacity?: number;
   slotTtlMs?: number;
   now?: string;
+  sourceAnswer?: boolean;
 }): Promise<LiveTurnHeartbeatResult> {
   const { deps } = input;
-  const slotKey = liveTurnSlotKey(deps.workerInstanceId);
+  const slotKey = liveTurnSlotKey(deps.workerInstanceId, input.sourceAnswer);
   const holderId = liveTurnSlotHolderId(
     input.turnId,
     input.lease.fencingVersion,
@@ -488,9 +496,10 @@ export async function finalizeLiveTurnExecution(input: {
   hostSlotCapacity?: number;
   hostBudgetCapacity?: number;
   now?: string;
+  sourceAnswer?: boolean;
 }): Promise<boolean> {
   const { deps } = input;
-  const slotKey = liveTurnSlotKey(deps.workerInstanceId);
+  const slotKey = liveTurnSlotKey(deps.workerInstanceId, input.sourceAnswer);
   const holderId = liveTurnSlotHolderId(
     input.turnId,
     input.fence.fencingVersion,
@@ -549,7 +558,10 @@ export async function recoverLiveTurnExecution(input: {
   now?: string;
 }): Promise<LiveTurnRecoveryResult> {
   const { deps } = input;
-  const slotKey = liveTurnSlotKey(deps.workerInstanceId);
+  const slotKey = liveTurnSlotKey(
+    deps.workerInstanceId,
+    input.turn.pendingMessage?.kind === 'source_answer',
+  );
   if (!input.turn.runId) return { outcome: 'turn_gone' };
   if (input.isEligible && !(await input.isEligible(input.turn))) {
     return { outcome: 'ineligible' };
@@ -577,7 +589,10 @@ export async function recoverLiveTurnExecution(input: {
   const slotAcquired = await deps.coordination.acquireRunSlot({
     slotKey,
     holderId: liveTurnSlotHolderId(input.turn.id, lease.fencingVersion),
-    capacity: input.slotCapacity,
+    capacity:
+      input.turn.pendingMessage?.kind === 'source_answer'
+        ? 16
+        : input.slotCapacity,
     ttlMs: input.slotTtlMs ?? input.leaseTtlMs,
     runId: input.turn.runId,
     workerInstanceId: deps.workerInstanceId,

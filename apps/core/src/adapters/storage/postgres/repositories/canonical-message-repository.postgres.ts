@@ -190,6 +190,41 @@ export class PostgresCanonicalMessageRepository {
     const providerId =
       normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
       'app';
+    if (providerId === 'app' && (msg.is_from_me || msg.is_bot_message)) {
+      const active = await tx
+        .select({ id: pgSchema.pendingInteractionsPostgres.id })
+        .from(pgSchema.pendingInteractionsPostgres)
+        .innerJoin(
+          pgSchema.controlHttpSessionsPostgres,
+          and(
+            eq(
+              pgSchema.controlHttpSessionsPostgres.appId,
+              pgSchema.pendingInteractionsPostgres.appId,
+            ),
+            eq(
+              sql<string>`${pgSchema.controlHttpSessionsPostgres.externalRefJson}->>'chatJid'`,
+              msg.chat_jid,
+            ),
+            eq(
+              sql<string>`${pgSchema.pendingInteractionsPostgres.payloadJson}#>>'{request,binding,discussionId}'`,
+              pgSchema.controlHttpSessionsPostgres.externalConversationId,
+            ),
+          ),
+        )
+        .where(
+          and(
+            sql`${pgSchema.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+            sql`${pgSchema.pendingInteractionsPostgres.payloadJson}->>'state' = 'running'`,
+            eq(pgSchema.pendingInteractionsPostgres.status, 'pending'),
+          ),
+        )
+        .limit(1);
+      if (active.length)
+        return {
+          liveAdmissionResult: undefined,
+          removedProviderStorageRefs: [],
+        };
+    }
     const requestedProviderAccountId =
       msg.providerAccountId?.trim() ||
       options.liveAdmission?.providerAccountId?.trim() ||

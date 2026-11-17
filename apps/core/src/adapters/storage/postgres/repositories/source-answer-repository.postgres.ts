@@ -1,3 +1,5 @@
+import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import { resolveModelSelectionForWorkload } from '../../../../shared/model-catalog.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type {
   RequestSourceAnswer,
@@ -96,13 +98,19 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
       Date.parse(request.deadlineAt) <= Date.now()
     )
       fail('Answer authority or deadline expired');
+    const selectedModel = resolveModelSelectionForWorkload(
+      request.model,
+      'chat',
+    );
     if (
-      request.model !== 'haiku' &&
-      request.model !== 'claude-haiku-4-5' &&
-      request.model !== 'claude-haiku-4-5-20251001'
+      !selectedModel.ok ||
+      !/^claude-haiku-4-5(?:-|$)/.test(selectedModel.entry.runnerModel)
     )
-      fail('Source answers require the approved Haiku 4.5 model');
+      fail(
+        'Source answers require a configured alias for approved Claude Haiku 4.5',
+      );
     return this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, appId);
       const session = await this.session(tx, appId, sessionId, request.binding);
       if (request.executionProfile) {
         const [agent] = await tx
@@ -247,6 +255,7 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
     input: SettleExecutionAuthority,
   ) {
     return this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, appId);
       const session = await this.session(tx, appId, sessionId, input.binding);
       const row = await this.settleInteraction(
         tx,
@@ -294,6 +303,24 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         ),
       );
     if (!pending) fail('History interaction not found');
+    if (pending!.status === 'resolved') {
+      const saved = pending!.resolutionJson as {
+        idempotencyKey: string;
+        hash: string;
+      };
+      if (
+        saved.idempotencyKey !== input.idempotencyKey ||
+        saved.hash !== hash(input)
+      )
+        fail('History settlement replay conflicts');
+      return { accepted: true as const, replayed: true };
+    }
+    if (
+      pending!.status !== 'pending' ||
+      Date.parse(pending!.expiresAt) <= Date.now()
+    )
+      fail('History interaction expired');
+
     const data = pending!.payloadJson as {
       parentAnswerId: string;
       request: {
@@ -302,6 +329,8 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         afterPosition: string;
         sourceVersion: string;
         byteLimit: number;
+        pageLimit: number;
+        missingSourceIds: string[];
       };
     };
     if (
@@ -309,11 +338,22 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
       data.request.sourceVersion !== input.sourceVersion
     )
       fail('History generation or source version mismatch');
+    if (input.messages.length > (data.request.pageLimit ?? 50))
+      fail('History page exceeds requested record limit');
+    if (
+      input.status === 'ok' &&
+      input.hasMore &&
+      input.returnedThrough === data.request.afterPosition
+    )
+      fail('History page did not advance');
     let previous = BigInt(data.request.afterPosition);
     let bytes = 0;
     for (const row of input.messages) {
       if (
-        BigInt(row.sourcePosition) !== previous + 1n ||
+        (data.request.missingSourceIds?.length
+          ? !data.request.missingSourceIds.includes(row.sourceMessageId) ||
+            BigInt(row.sourcePosition) <= previous
+          : BigInt(row.sourcePosition) !== previous + 1n) ||
         BigInt(row.sourcePosition) > BigInt(data.request.sourceCutoff)
       )
         fail('History page is not the exact ordered requested range');
@@ -359,6 +399,7 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         },
       );
     return this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, appId);
       const session = await this.session(tx, appId, sessionId, input.binding);
       const row = await this.settleInteraction(
         tx,
@@ -382,6 +423,23 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
           .from(s.pendingInteractionsPostgres)
           .where(eq(s.pendingInteractionsPostgres.id, data.parentAnswerId));
         const request = (answer!.payloadJson as AnswerPayload).request;
+        if (
+          data.request.missingSourceIds?.some(
+            (sourceId) =>
+              !input.messages.some(
+                (message) => message.sourceMessageId === sourceId,
+              ),
+          )
+        ) {
+          await this.finish(
+            tx,
+            appId,
+            data.parentAnswerId,
+            'failed',
+            'Required reply source record unavailable',
+          );
+          return { accepted: true as const, replayed: false };
+        }
         const complete = await this.historyIfNeeded(
           tx,
           session,

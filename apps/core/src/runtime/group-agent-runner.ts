@@ -778,11 +778,13 @@ export function createGroupAgentRunner(input: {
               : summarizeRuntimeResultForPersistence(output.result),
         });
       }
-      await compactionDeltaReplay.markApplied?.(ops());
-      await markPatternsContextSurfaced(
-        patternCandidateRepo,
-        patternsContext.surfacedCandidateIds,
-      );
+      if (!options?.sourceAnswer)
+        await compactionDeltaReplay.markApplied?.(ops());
+      if (!options?.sourceAnswer)
+        await markPatternsContextSurfaced(
+          patternCandidateRepo,
+          patternsContext.surfacedCandidateIds,
+        );
       try {
         const surfacedSubject = patternSubjectForScope(surfacingScope);
         if (surfacedSubject && patternCandidateRepo) {

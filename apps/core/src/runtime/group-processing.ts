@@ -316,11 +316,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             timezone: config.TIMEZONE,
           });
       const previousCursor = (await deps.getCursor(queueJid)) || '';
-      deps.setCursor(
-        queueJid,
-        cursorForMessage(missedMessages[missedMessages.length - 1]),
-      );
-      await deps.saveState();
+      if (!sourceAnswer) {
+        deps.setCursor(
+          queueJid,
+          cursorForMessage(missedMessages[missedMessages.length - 1]),
+        );
+        await deps.saveState();
+      }
       resetGroupStreamingForTurn({
         chatJid,
         groupName: group.name,
@@ -868,7 +870,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           resultOk && output === 'success' && !hadError,
           sourceAnswer.claimToken,
         );
-        deps.queue.enqueueMessageCheck(queueJid);
+        for (const key of (await opsRepository.pendingSourceAnswerQueueKeys?.()) ??
+          [])
+          if (deps.queue.enqueueSourceAnswerCheck)
+            deps.queue.enqueueSourceAnswerCheck(key);
+          else deps.queue.enqueueMessageCheck(key);
       }
       if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       options?.onRunResult?.(output);

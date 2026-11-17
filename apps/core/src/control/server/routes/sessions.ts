@@ -420,11 +420,12 @@ export async function handleSessionRoutes(
       return true;
     }
     try {
-      await ctx.sessionInteraction.requireSession({
+      const session = await ctx.sessionInteraction.requireSession({
         appId: auth.appId,
         sessionId,
       });
       const outcome = await settleCallerResolvedTool({
+        sourceAgentFolder: session.workspaceKey,
         appId: auth.appId,
         sessionId,
         interactionId,

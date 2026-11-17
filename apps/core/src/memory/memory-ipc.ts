@@ -236,6 +236,11 @@ export async function processMemoryRequest(
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
+          request.payload.scope === 'user'
+            ? 'user'
+            : request.payload.scope === 'group'
+              ? 'group'
+              : undefined,
         );
         // IPC memory reads are always scoped to the source group to prevent
         // cross-group data access from agent processes.
@@ -330,6 +335,27 @@ export async function processMemoryRequest(
         if (!hasEnoughMemoryBudget(request, nowMs)) {
           provider = 'postgres';
           return deadlineUnavailableResponse(request, provider);
+        }
+        if (
+          request.context?.sourceWorkspaceMemoryId &&
+          input.source !== 'discussion-explicit'
+        ) {
+          const existing = await getMemory().list({
+            appId: subject.appId,
+            agentId: subject.agentId,
+            subjectTypes: [subject.subjectType],
+            ...searchInputForResolvedMemorySubject(subject),
+            includeCommon: false,
+            limit: 100,
+          });
+          if (
+            existing.some(
+              (row) => row.key === input.key && row.value !== input.value,
+            )
+          )
+            throw new Error(
+              'Conflicting inferred learning requires clarification; the active instruction remains unchanged',
+            );
         }
         const saved = await runMemoryMutation(request, () =>
           getMemory().save({
@@ -430,6 +456,11 @@ export async function processMemoryRequest(
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
+          request.payload.scope === 'user'
+            ? 'user'
+            : request.payload.scope === 'group'
+              ? 'group'
+              : undefined,
         );
         if (!hasEnoughMemoryBudget(request, nowMs)) {
           provider = 'postgres';

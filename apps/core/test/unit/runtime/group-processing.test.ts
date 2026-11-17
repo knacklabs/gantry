@@ -429,6 +429,106 @@ describe('createGroupProcessor', () => {
     });
   });
 
+  it('native source answers pass only selected context and a fresh scoped Haiku execution profile to the provider boundary', async () => {
+    const chosen = [
+      makeMessage({ id: 'M1', content: 'selected ancestor' }),
+      makeMessage({ id: 'M2', content: 'selected question' }),
+    ];
+    const { deps } = setupHappyPath({
+      group: makeGroup({
+        requiresTrigger: true,
+        agentConfig: { model: 'opus' },
+      }),
+      messages: [makeMessage({ id: 'M3', content: 'excluded sibling' })],
+      agentOutput: {
+        status: 'success',
+        result:
+          '{"version":1,"answer":"ok","answerUnits":[{"text":"ok","source":"unconfirmed","citationIds":[],"metadataFields":[]}]}',
+      },
+    });
+    const request = {
+      binding: {
+        discussionId: 'D1',
+        generation: 1,
+        workspaceId: 'workspace-a',
+        tenderId: 'T1',
+      },
+      authority: {
+        authorityId: 'people',
+        authorityVersion: '1',
+        kind: 'person' as const,
+        subject: 'requester',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      },
+      questionSourceId: 'M2',
+      sourceCutoff: '2',
+      requesterId: 'requester',
+      answerGoalId: 'goal1',
+      attemptId: 'attempt1',
+      idempotencyKey: 'answer1',
+      revisionId: 'R1',
+      analysisReady: true as const,
+      model: 'haiku',
+      maxOutputTokens: 2000,
+      deadlineAt: '2027-01-01T00:00:00.000Z',
+      executionProfile: {
+        instructionsVersion: 'v1',
+        responseSchema: { type: 'object' },
+        callerResolvedTools: [
+          {
+            name: 'evidence',
+            description: 'authorized evidence',
+            inputSchema: { type: 'object' },
+          },
+        ],
+        maxToolInteractions: 4,
+        interactionTimeoutMs: 90000,
+      },
+    };
+    Object.assign(deps.opsRepository!, {
+      getPreparedSourceAnswer: vi.fn(async () => ({
+        id: 'native1',
+        request,
+        messages: chosen,
+        selectedSourceIds: ['M1', 'M2'],
+        claimToken: 'fence',
+      })),
+      getAgentTurnContext: vi.fn(async () => ({
+        appId: 'app:test',
+        agentId: 'agent:test',
+        agentSessionId: 'session1',
+        providerSessionId: 'old',
+        externalSessionId: 'old-provider-history',
+        memoryContextBlock: 'wrong workspace memory',
+      })),
+      createSessionAgentRun: vi.fn(async () => 'run1'),
+      markSourceAnswerRun: vi.fn(async () => {}),
+      persistSourceAnswerOutput: vi.fn(async () => {}),
+      finishPreparedSourceAnswer: vi.fn(async () => {}),
+      sourceWorkspaceMemoryContext: vi.fn(async () => 'workspace-a learning'),
+    });
+    await createGroupProcessor(deps).processGroupMessages('group1@g.us');
+    expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+    const call = mockSpawnAgent.mock.calls[0]![1];
+    expect(call.model).toBe('haiku');
+    expect(call).not.toHaveProperty('sessionId');
+    expect(call.effort).toBeUndefined();
+    expect(call.maxOutputTokens).toBe(2000);
+    expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBe(180000);
+    expect(call.sourceWorkspaceMemoryId).toBe('workspace-a');
+    expect(call.memoryContextBlock).toContain('workspace-a learning');
+    expect(call.memoryContextBlock).not.toContain('wrong workspace');
+    expect(
+      call.callerResolvedTools.tools.map((tool: any) => tool.name),
+    ).toEqual(['evidence']);
+    expect(mockFormatMessages).toHaveBeenCalledWith(chosen, 'UTC');
+    expect(deps.opsRepository!.persistSourceAnswerOutput).toHaveBeenCalledWith(
+      'native1',
+      'run1',
+      expect.stringContaining('answerUnits'),
+    );
+  });
+
   // =======================================================================
   // Early returns
   // =======================================================================

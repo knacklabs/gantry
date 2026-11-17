@@ -128,6 +128,11 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  hasQueuedSourceAnswer?(
+    appId: string,
+    conversationJid: string,
+  ): Promise<boolean>;
+  pendingSourceAnswerQueueKeys?(): Promise<string[]>;
   markSourceAnswerRun?(id: string, runId: string): Promise<void>;
   persistSourceAnswerOutput?(
     id: string,

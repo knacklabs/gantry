@@ -1,7 +1,9 @@
+import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
 import { sourceChannelMemorySubject } from '../../../../memory/source-channel-memory-scope.js';
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type {
   SettleExecutionAuthority,
   SourceMessage,
@@ -13,8 +15,68 @@ import {
   type PreparedSourceAnswer,
   type AnswerPayload,
   fail,
+  hash,
 } from './source-answer-base.postgres.js';
 export class SourceAnswerContextRepository extends SourceAnswerRepositoryBase {
+  async pendingQueueKeys() {
+    const rows = await this.db
+      .select({
+        appId: s.pendingInteractionsPostgres.appId,
+        payload: s.pendingInteractionsPostgres.payloadJson,
+        agent: s.pendingInteractionsPostgres.sourceAgentFolder,
+      })
+      .from(s.pendingInteractionsPostgres)
+      .where(
+        and(
+          eq(s.pendingInteractionsPostgres.status, 'pending'),
+          sql`${s.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+          sql`${s.pendingInteractionsPostgres.payloadJson}->>'state' = 'queued'`,
+        ),
+      )
+      .orderBy(asc(s.pendingInteractionsPostgres.createdAt))
+      .limit(100);
+    return rows.map((row) => {
+      const request = (row.payload as AnswerPayload).request;
+      return makeAgentThreadQueueKey(
+        `app:${row.appId}:${request.binding.discussionId}`,
+        row.agent,
+        null,
+        `control:${row.appId}`,
+      );
+    });
+  }
+  async hasQueued(appId: string, conversationJid: string) {
+    const [session] = await this.db
+      .select()
+      .from(s.controlHttpSessionsPostgres)
+      .where(
+        and(
+          eq(s.controlHttpSessionsPostgres.appId, appId),
+          eq(
+            sql<string>`${s.controlHttpSessionsPostgres.externalRefJson}->>'chatJid'`,
+            conversationJid,
+          ),
+        ),
+      );
+    if (!session) return false;
+    const [row] = await this.db
+      .select({ id: s.pendingInteractionsPostgres.id })
+      .from(s.pendingInteractionsPostgres)
+      .where(
+        and(
+          eq(s.pendingInteractionsPostgres.appId, appId),
+          eq(s.pendingInteractionsPostgres.status, 'pending'),
+          eq(
+            sql<string>`${s.pendingInteractionsPostgres.payloadJson}#>>'{request,binding,discussionId}'`,
+            session.externalConversationId,
+          ),
+          sql`${s.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+          sql`${s.pendingInteractionsPostgres.payloadJson}->>'state' = 'queued'`,
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
   async prepared(
     appId: string,
     conversationJid: string,
@@ -100,19 +162,61 @@ export class SourceAnswerContextRepository extends SourceAnswerRepositoryBase {
             eq(s.messagesPostgres.sourceMessageId, sourceId),
           ),
         );
+      if (!row) {
+        await this.db.transaction(async (tx) => {
+          await lockSourceEventApp(tx, appId);
+          const bound = await this.session(
+            tx,
+            appId,
+            session.sessionId,
+            request.binding,
+          );
+          await this.interaction(
+            tx,
+            bound,
+            answer.id,
+            request,
+            `history:${answer.id}:id:${hash(sourceId).slice(0, 24)}`,
+            'source_history',
+            {
+              sourceCutoff: request.sourceCutoff,
+              afterPosition: '0',
+              missingSourceIds: [sourceId],
+              pageLimit: 50,
+              byteLimit: 262144,
+              sourceVersion: request.revisionId,
+            },
+          );
+          await tx
+            .update(s.pendingInteractionsPostgres)
+            .set({ payloadJson: { ...payload, state: 'preparing' } })
+            .where(eq(s.pendingInteractionsPostgres.id, answer.id));
+        });
+        return undefined;
+      }
       if (
-        !row ||
         BigInt(String(row.message.sourcePosition)) >
-          BigInt(request.sourceCutoff)
-      )
-        fail('Source reply ancestor unavailable');
-      return row!;
+        BigInt(request.sourceCutoff)
+      ) {
+        await this.db.transaction((tx) =>
+          this.finish(
+            tx,
+            appId,
+            answer.id,
+            'failed',
+            'Reply ancestor exceeds frozen source cutoff',
+          ),
+        );
+        return undefined;
+      }
+      return row;
     };
     const question = await load(request.questionSourceId);
+    if (!question) return;
     const ancestry =
       (question.message.externalRefJson as { source: SourceMessage }).source
         .replyToSourceId !== null;
-    let rows: Awaited<ReturnType<typeof load>>[] = [];
+    let rows: NonNullable<Awaited<ReturnType<typeof load>>>[] = [];
     if (ancestry) {
       let current = question;
       const seen = new Set<string>();
@@ -120,12 +224,24 @@ export class SourceAnswerContextRepository extends SourceAnswerRepositoryBase {
         const source = (
           current.message.externalRefJson as { source: SourceMessage }
         ).source;
-        if (seen.has(source.sourceMessageId) || seen.size >= 100)
-          fail('Source reply ancestry cyclic or exceeds bounded context');
+        if (seen.has(source.sourceMessageId) || seen.size >= 100) {
+          await this.db.transaction((tx) =>
+            this.finish(
+              tx,
+              appId,
+              answer.id,
+              'failed',
+              'Source reply ancestry cyclic or exceeds bounded context',
+            ),
+          );
+          return;
+        }
         seen.add(source.sourceMessageId);
         rows.unshift(current);
         if (!source.replyToSourceId) break;
-        current = await load(source.replyToSourceId);
+        const parent = await load(source.replyToSourceId);
+        if (!parent) return;
+        current = parent;
       }
     } else
       rows = await this.db
@@ -168,8 +284,18 @@ export class SourceAnswerContextRepository extends SourceAnswerRepositoryBase {
         reply_to_message_id: source.replyToSourceId ?? undefined,
       } satisfies NewMessage;
     });
-    if (Buffer.byteLength(JSON.stringify(messages)) > 262144)
-      fail('Required source context exceeds pinned byte budget');
+    if (Buffer.byteLength(JSON.stringify(messages)) > 262144) {
+      await this.db.transaction((tx) =>
+        this.finish(
+          tx,
+          appId,
+          answer.id,
+          'failed',
+          'Required source context exceeds pinned byte budget',
+        ),
+      );
+      return;
+    }
     const selectedSourceIds = messages.map((row) => row.id);
     await this.db
       .update(s.pendingInteractionsPostgres)

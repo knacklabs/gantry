@@ -601,6 +601,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getHistoryCoverageDistrustEpoch: (providerAccountId) =>
       readHistoryCoverageDistrustEpoch?.(providerAccountId),
     queue: {
+      enqueueSourceAnswerCheck: (chatJid) =>
+        queue.enqueueSourceAnswerCheck(chatJid),
       enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
       notifyIdle: (chatJid) => queue.notifyIdle(chatJid),

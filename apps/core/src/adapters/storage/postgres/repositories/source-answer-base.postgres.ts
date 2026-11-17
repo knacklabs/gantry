@@ -292,12 +292,30 @@ export class SourceAnswerRepositoryBase {
         resolvedAt: new Date().toISOString(),
       })
       .where(eq(s.pendingInteractionsPostgres.id, id));
+    const [session] = await tx
+      .select()
+      .from(s.controlHttpSessionsPostgres)
+      .where(
+        and(
+          eq(s.controlHttpSessionsPostgres.appId, appId),
+          eq(
+            s.controlHttpSessionsPostgres.externalConversationId,
+            payload.request.binding.discussionId,
+          ),
+        ),
+      );
     await tx.insert(s.runtimeEventsPostgres).values({
       appId,
+      sessionId: session?.sessionId,
+      agentId: session?.agentId,
+      conversationId: session?.conversationId,
+      runId: answer.runId,
       eventType: `source.answer.${state}`,
       actor: 'system',
       correlationId: payload.request.answerGoalId,
       payloadJson: JSON.stringify({
+        answerGoalId: payload.request.answerGoalId,
+        binding: payload.request.binding,
         attemptId: payload.request.attemptId,
         error,
       }),

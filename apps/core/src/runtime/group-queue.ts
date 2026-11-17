@@ -33,6 +33,17 @@ export class GroupQueue {
   private groups = new Map<string, GroupState>();
   private stopAliases = new Map<string, Set<string>>();
   private activeMessageCount = 0;
+  private activeSourceMessageCount = 0;
+  private sourceMessageGroups = new Set<string>();
+  private hasMessageCapacity(groupJid: string) {
+    return this.sourceMessageGroups.has(groupJid)
+      ? this.activeSourceMessageCount < 16
+      : this.activeMessageCount < this.policy.maxMessageRuns;
+  }
+  enqueueSourceAnswerCheck(groupJid: string): boolean {
+    this.sourceMessageGroups.add(groupJid);
+    return this.enqueueMessageCheck(groupJid);
+  }
   private activeTaskCount = 0;
   private waitingMessageGroups: string[] = [];
   private waitingTaskGroups: string[] = [];
@@ -90,7 +101,9 @@ export class GroupQueue {
   }
 
   private deleteGroupIfIdle(groupJid: string, state: GroupState): boolean {
-    return isGroupStateIdle(state) && this.groups.delete(groupJid);
+    if (!isGroupStateIdle(state)) return false;
+    this.sourceMessageGroups.delete(groupJid);
+    return this.groups.delete(groupJid);
   }
 
   setProcessMessagesFn(fn: ProcessMessagesFn): void {
@@ -212,7 +225,11 @@ export class GroupQueue {
           : state.pendingTasks.length > 0;
 
       if (!pending) continue;
-      if (!state.active) return candidate;
+      if (
+        !state.active &&
+        (kind !== 'message' || this.hasMessageCapacity(candidate))
+      )
+        return candidate;
 
       queue.push(candidate);
     }
@@ -229,7 +246,7 @@ export class GroupQueue {
       return true;
     }
 
-    if (this.activeMessageCount >= this.policy.maxMessageRuns) {
+    if (!this.hasMessageCapacity(groupJid)) {
       if (!this.canAcceptWaitingMessageGroup(groupJid)) {
         logger.warn(
           {
@@ -512,7 +529,9 @@ export class GroupQueue {
     state.idleWaiting = false;
     state.isTaskRun = false;
     state.pendingMessages = false;
-    this.activeMessageCount++;
+    const sourceRun = this.sourceMessageGroups.has(groupJid);
+    if (sourceRun) this.activeSourceMessageCount++;
+    else this.activeMessageCount++;
 
     logger.debug(
       {
@@ -545,7 +564,8 @@ export class GroupQueue {
       state.threadId = null;
       state.requiredContinuationUserId = null;
       state.continuationHandler = null;
-      this.activeMessageCount--;
+      if (sourceRun) this.activeSourceMessageCount--;
+      else this.activeMessageCount--;
       this.removeStopAliasForQueueJid(groupJid);
       this.drainGroup(groupJid);
     }
@@ -621,7 +641,7 @@ export class GroupQueue {
       state.pendingMessages &&
       state.pendingTasks[0]?.admissionClass !== 'interactive_child'
     ) {
-      if (this.activeMessageCount >= this.policy.maxMessageRuns) {
+      if (!this.hasMessageCapacity(groupJid)) {
         if (!this.canAcceptWaitingMessageGroup(groupJid)) {
           logger.warn(
             {
@@ -678,7 +698,10 @@ export class GroupQueue {
       this.refillWaitingMessageBacklog();
       started = false;
 
-      if (this.activeMessageCount < this.policy.maxMessageRuns) {
+      if (
+        this.activeMessageCount < this.policy.maxMessageRuns ||
+        this.activeSourceMessageCount < 16
+      ) {
         const nextMessageJid = this.dequeueWaitingGroup('message');
         if (nextMessageJid) {
           this.trackRun(

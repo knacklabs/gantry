@@ -463,3 +463,12 @@ export async function recordRunScopedTransientGrant(input: {
     );
   }
 }
+
+/** Reads resolved records too, so another worker can settle a caller wait. */
+export async function readDurableCallerInteraction(input: {
+  appId: string;
+  sourceAgentFolder: string;
+  requestId: string;
+}) {
+  return backend?.repository.readCallerInteractionRecord?.(input) ?? null;
+}

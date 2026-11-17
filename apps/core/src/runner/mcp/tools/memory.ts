@@ -5,6 +5,7 @@ import {
   workspaceFolder,
   memoryDefaultScope,
   memoryUserId,
+  sourceWorkspaceMemoryId,
 } from '../context.js';
 import {
   formatMemoryReviewDecisionResponse,
@@ -71,6 +72,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Search durable Gantry memory. Returns real scoped memory statements, procedures, and source snippets with provenance; scores are only ranking metadata.',
     {
       query: z.string().describe('Search query'),
+      scope: z.enum(['group', 'user']).optional(),
       workspace_folder: z
         .string()
         .optional()
@@ -82,6 +84,7 @@ export function registerMemoryTools(server: McpServer): void {
     async (args) => {
       const response = await requestMemoryAction('memory_search', {
         query: args.query,
+        ...(args.scope ? { scope: args.scope } : {}),
         workspace_folder: args.workspace_folder || workspaceFolder,
         limit: args.limit,
       });
@@ -109,6 +112,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Save a durable memory statement to the trusted conversation scope: workspace memory in group/channel conversations and personal memory in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
     {
       workspace_folder: z.string().optional(),
+      scope: z.enum(['group', 'user']).optional(),
       kind: z
         .enum(['preference', 'decision', 'fact', 'correction', 'constraint'])
         .optional(),
@@ -126,10 +130,10 @@ export function registerMemoryTools(server: McpServer): void {
       source: z.string().optional(),
     },
     async (args) => {
-      const response = await requestMemoryAction(
-        'memory_save',
-        buildMemorySavePayload(args, { memoryDefaultScope, memoryUserId }),
-      );
+      const response = await requestMemoryAction('memory_save', {
+        ...buildMemorySavePayload(args, { memoryDefaultScope, memoryUserId }),
+        ...(args.scope ? { scope: args.scope } : {}),
+      });
       if (!response.ok) {
         return {
           content: [
@@ -191,6 +195,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Demote an active memory item from the current trusted memory subject using optimistic concurrency.',
     {
       id: z.string(),
+      scope: z.enum(['group', 'user']).optional(),
       expected_version: z.number().int().min(1).optional(),
       reason: z.string().optional(),
     },

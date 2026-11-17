@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import type {
   LiveTurnCommandAppendInput,
@@ -205,6 +205,27 @@ export abstract class PostgresInteractionRepositoryMethods {
     });
   }
 
+  async readCallerInteractionRecord(input: {
+    appId: string;
+    sourceAgentFolder: string;
+    requestId: string;
+  }): Promise<PendingInteraction | null> {
+    const table = pgSchema.pendingInteractionsPostgres;
+    const [row] = await this.db
+      .select()
+      .from(table)
+      .where(
+        and(
+          eq(table.appId, input.appId),
+          eq(table.sourceAgentFolder, input.sourceAgentFolder),
+          eq(table.kind, 'question'),
+          eq(table.requestId, input.requestId),
+        ),
+      )
+      .orderBy(desc(table.createdAt))
+      .limit(1);
+    return row ? toPendingInteraction(row) : null;
+  }
   async findPendingInteractionByRequest(input: {
     appId: string;
     kind: PendingInteractionKind;

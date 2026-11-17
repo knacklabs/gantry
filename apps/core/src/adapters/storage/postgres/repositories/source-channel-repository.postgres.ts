@@ -1,3 +1,4 @@
+import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { createHash } from 'node:crypto';
 import { and, eq, or, sql } from 'drizzle-orm';
 import type {
@@ -38,6 +39,7 @@ export class PostgresSourceChannelRepository {
     )
       conflict('Source message content hash mismatch');
     return this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, appId);
       const [session] = await tx
         .select()
         .from(schema.controlHttpSessionsPostgres)
@@ -192,6 +194,19 @@ export class PostgresSourceChannelRepository {
           );
         if (!completed)
           conflict('Runtime output has no correlated terminal result');
+        await tx
+          .update(schema.messagePartsPostgres)
+          .set({ payloadJson: { text: source.text } })
+          .where(
+            and(
+              eq(schema.messagePartsPostgres.messageId, messageId!),
+              eq(schema.messagePartsPostgres.ordinal, 0),
+            ),
+          );
+        await tx
+          .update(schema.messagesPostgres)
+          .set({ deliveryStatus: 'sent' })
+          .where(eq(schema.messagesPostgres.id, messageId!));
       } else {
         if (
           source.authorKind === 'assistant' ||

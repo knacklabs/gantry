@@ -206,6 +206,10 @@ export function effectiveEnabledMcpToolNames(
     for (const tool of callerResolvedTools.tools) {
       enabledTools.add(tool.name);
     }
+    if (process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim()) {
+      for (const name of ['memory_search', 'memory_save', 'memory_demote'])
+        enabledTools.add(name);
+    }
   }
   return applyProviderAffinity(enabledTools, rawChatJid);
 }

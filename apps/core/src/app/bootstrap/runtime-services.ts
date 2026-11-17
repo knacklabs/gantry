@@ -572,6 +572,8 @@ export async function startRuntimeServices(
     }),
   );
   const liveMessageQueue = {
+    enqueueSourceAnswerCheck: (queueJid: string) =>
+      app.queue.enqueueSourceAnswerCheck(queueJid),
     sendMessage: async (
       queueJid: string,
       text: string,

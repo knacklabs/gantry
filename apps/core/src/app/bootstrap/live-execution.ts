@@ -63,6 +63,7 @@ export type ActiveControlCommandHandler = (args: {
 }) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
+  hasQueuedSourceAnswer?: (appId: string, chatJid: string) => Promise<boolean>;
   getAgentTurnContext?: (input: {
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
@@ -250,6 +251,11 @@ export function buildLiveAdmissionProcessor(input: {
         conversationId: chatJid,
         threadId: threadId ?? null,
       };
+      const sourceAnswer =
+        (await opsRepository.hasQueuedSourceAnswer?.(
+          turnContext.appId,
+          chatJid,
+        )) ?? false;
       const replayCursor = await app.getOrRecoverCursor(queueJid);
       // Pre-check: with N pollers the common case is that another worker already
       // owns this scope. Route the continuation WITHOUT minting a run row that
@@ -279,7 +285,7 @@ export function buildLiveAdmissionProcessor(input: {
         turnId: `live-turn:${randomUUID()}`,
         runId: liveRunId,
         pendingMessage: {
-          kind: 'message_cursor',
+          kind: sourceAnswer ? 'source_answer' : 'message_cursor',
           queueJid,
           cursorBefore: replayCursor,
         },

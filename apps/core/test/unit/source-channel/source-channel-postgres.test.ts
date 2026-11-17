@@ -1,3 +1,6 @@
+import { appendSourceAnswerTerminal } from '../../../src/adapters/storage/postgres/repositories/source-answer-terminal.postgres.js';
+import { PostgresCanonicalSessionRepository } from '../../../src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
+import { PostgresRuntimeEventRepository } from '../../../src/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createClient } from '../../../../../packages/sdk/src/index.js';
@@ -279,5 +282,276 @@ run('durable native source channel', () => {
         server.close((error) => (error ? reject(error) : resolve())),
       );
     }
+  });
+  it('reuses the native SDK session, links output position five once and excludes unrelated ancestors at question six', async () => {
+    const session = (await control.getAppSessionById(sessionId))!;
+    const canonical = new PostgresCanonicalSessionRepository(service.db);
+    const turn = await canonical.getAgentTurnContext({
+      appId,
+      workspaceFolder: 'native-chat-test',
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      chatJid: `app:${appId}:D1`,
+      providerAccountId: `control:${appId}`,
+      scopeKey: 'test-source-context',
+      conversationKind: 'channel',
+      memoryUserId: 'person1',
+    });
+    expect(turn.agentSessionId).toBe(sessionId);
+    const [agent] = await service.db
+      .select()
+      .from(schema.agentsPostgres)
+      .where(eq(schema.agentsPostgres.id, session.agentId));
+    const [config] = await service.db
+      .select()
+      .from(schema.agentConfigVersionsPostgres)
+      .where(
+        eq(
+          schema.agentConfigVersionsPostgres.id,
+          agent!.currentConfigVersionId!,
+        ),
+      );
+    const runId = `run-${randomUUID()}`;
+    await service.db
+      .insert(schema.agentRunsPostgres)
+      .values({
+        id: runId,
+        appId,
+        agentId: session.agentId,
+        configVersionId: config!.id,
+        sessionId,
+        conversationId: session.canonicalConversationId,
+        llmProfileId: config!.llmProfileId,
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        cause: 'message',
+        status: 'running',
+        createdAt: new Date().toISOString(),
+      });
+    const native = new PostgresSourceAnswerRepository(service.db);
+    const answerId = `source-answer:${appId}:attempt1`;
+    await native.markRun(answerId, runId);
+    const output = JSON.stringify({
+      version: 1,
+      answer: 'Complete',
+      answerUnits: [
+        {
+          text: 'Complete',
+          source: 'unconfirmed',
+          citationIds: [],
+          metadataFields: [],
+        },
+      ],
+    });
+    await native.output(answerId, runId, output);
+    await service.db.transaction(async (tx) => {
+      await tx
+        .update(schema.agentRunsPostgres)
+        .set({ status: 'completed' })
+        .where(eq(schema.agentRunsPostgres.id, runId));
+      await appendSourceAnswerTerminal(
+        tx,
+        runId,
+        'completed',
+        new Date().toISOString(),
+      );
+    });
+    const row = make('5');
+    row.message = {
+      ...row.message,
+      authorKind: 'assistant',
+      authorId: 'agent',
+      authorDisplayName: 'Agent',
+      origin: 'runtime_output',
+      runtimeOutputId: 'source-output:attempt1',
+      answerGoalId: 'goal1',
+      text: 'Complete',
+    };
+    row.message.contentHash = hashSourceMessage(row.message);
+    const linked = await control.appendSourceMessage(appId, sessionId, row);
+    expect(linked.contiguousPosition).toBe('5');
+    expect(await control.appendSourceMessage(appId, sessionId, row)).toEqual({
+      ...linked,
+      replayed: true,
+    });
+    const outbound = await service.db
+      .select()
+      .from(schema.messagesPostgres)
+      .where(
+        and(
+          eq(schema.messagesPostgres.appId, appId),
+          eq(schema.messagesPostgres.direction, 'outbound'),
+        ),
+      );
+    expect(outbound).toHaveLength(1);
+    const six = make('6');
+    six.message.replyToSourceId = 'M2';
+    six.message.contentHash = hashSourceMessage(six.message);
+    await control.appendSourceMessage(appId, sessionId, six);
+    const request = {
+      binding: six.binding,
+      authority: {
+        authorityId: 'people',
+        authorityVersion: '1',
+        kind: 'person' as const,
+        subject: 'person1',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      },
+      questionSourceId: 'M6',
+      sourceCutoff: '6',
+      requesterId: 'person1',
+      answerGoalId: 'goal2',
+      attemptId: 'attempt2',
+      idempotencyKey: 'answer2',
+      revisionId: 'R1',
+      analysisReady: true as const,
+      model: 'haiku',
+      maxOutputTokens: 2000,
+      deadlineAt: '2027-01-01T00:00:00.000Z',
+    };
+    await control.requestSourceAnswer(appId, sessionId, request);
+    await control.settleExecutionAuthority(appId, sessionId, {
+      interactionId: `authority:source-answer:${appId}:attempt2`,
+      idempotencyKey: 'authority2',
+      binding: six.binding,
+      answerGoalId: 'goal2',
+      attemptId: 'attempt2',
+      allowed: true,
+      authorityVersion: '1',
+      expiresAt: '2027-01-01T00:00:00.000Z',
+    });
+    await native.finishPrepared(answerId, true);
+    const context = await native.prepared(appId, `app:${appId}:D1`);
+    expect(context?.selectedSourceIds).toEqual(['M1', 'M2', 'M6']);
+    if (context)
+      await native.finishPrepared(context.id, true, context.claimToken);
+    // Runtime event readers must recognize every receipt and retain run correlation.
+    const events = await new PostgresRuntimeEventRepository(
+      service.db,
+    ).listRuntimeEvents({ appId: appId as never, limit: 100 });
+    expect(
+      events.some((event) => event.eventType === 'source.message.stored'),
+    ).toBe(true);
+    expect(
+      events.find((event) => event.eventType === 'run.completed')
+        ?.correlationId,
+    ).toBe('goal1');
+    const caller = await new PostgresRuntimeEventRepository(
+      service.db,
+    ).appendRuntimeEvent({
+      appId: appId as never,
+      runId: runId as never,
+      eventType: 'interaction.pending',
+      actor: 'agent',
+      payload: {
+        interactionType: 'caller_resolved_tool',
+        interactionId: 'evidence1',
+        toolName: 'search_tender_evidence',
+        input: { queries: ['known fact'] },
+      },
+    });
+    expect(caller.sessionId).toBe(sessionId);
+    expect(caller.correlationId).toBe('goal1');
+    expect(caller.payload).toMatchObject({
+      answerGoalId: 'goal1',
+      attemptId: 'attempt1',
+    });
+  });
+
+  it('resumes bounded missing history from persisted interaction state and rejects empty progress pages', async () => {
+    const session = await control.ensureAppSession({
+      appId,
+      conversationId: 'D2',
+      chatJid: `app:${appId}:D2`,
+      workspaceFolder: 'native-chat-test',
+    });
+    const source = (position: string) => {
+      const row = make(position, `D2M${position}`);
+      row.binding = {
+        discussionId: 'D2',
+        generation: 1,
+        workspaceId: 'W2',
+        tenderId: 'T2',
+      };
+      return row;
+    };
+    await control.appendSourceMessage(appId, session.sessionId, source('1'));
+    await control.appendSourceMessage(appId, session.sessionId, source('3'));
+    const request = {
+      binding: source('3').binding,
+      authority: {
+        authorityId: 'people',
+        authorityVersion: '1',
+        kind: 'person' as const,
+        subject: 'person1',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      },
+      questionSourceId: 'D2M3',
+      sourceCutoff: '3',
+      requesterId: 'person1',
+      answerGoalId: 'history-goal',
+      attemptId: 'history-attempt',
+      idempotencyKey: 'history-answer',
+      revisionId: 'R1',
+      analysisReady: true as const,
+      model: 'haiku',
+      maxOutputTokens: 2000,
+      deadlineAt: '2027-01-01T00:00:00.000Z',
+    };
+    await control.requestSourceAnswer(appId, session.sessionId, request);
+    const interactionId = `history:source-answer:${appId}:history-attempt:1`;
+    const restart = new PostgresControlPlaneRepository(service.db);
+    await expect(
+      restart.settleSourceHistory(appId, session.sessionId, {
+        interactionId,
+        idempotencyKey: 'history-page',
+        binding: request.binding,
+        sourceVersion: 'R1',
+        status: 'ok',
+        messages: [],
+        returnedThrough: '1',
+        hasMore: true,
+      }),
+    ).rejects.toThrow(/advance/);
+    const page = {
+      interactionId,
+      idempotencyKey: 'history-page',
+      binding: request.binding,
+      sourceVersion: 'R1',
+      status: 'ok' as const,
+      messages: [source('2').message],
+      returnedThrough: '2',
+      hasMore: false,
+    };
+    expect(
+      await restart.settleSourceHistory(appId, session.sessionId, page),
+    ).toMatchObject({ accepted: true, replayed: false });
+    expect(
+      await restart.settleSourceHistory(appId, session.sessionId, page),
+    ).toMatchObject({ replayed: true });
+    await expect(
+      restart.settleSourceHistory(appId, session.sessionId, {
+        ...page,
+        returnedThrough: '3',
+      }),
+    ).rejects.toThrow(/conflict/);
+    await restart.settleExecutionAuthority(appId, session.sessionId, {
+      interactionId: `authority:source-answer:${appId}:history-attempt`,
+      idempotencyKey: 'deny',
+      binding: request.binding,
+      answerGoalId: request.answerGoalId,
+      attemptId: request.attemptId,
+      allowed: false,
+      authorityVersion: 'revoked',
+      expiresAt: '2027-01-01T00:00:00.000Z',
+    });
+    const events = await new PostgresRuntimeEventRepository(
+      service.db,
+    ).listRuntimeEvents({ appId: appId as never, limit: 100 });
+    expect(
+      events.find(
+        (row) =>
+          row.eventType === 'source.answer.canceled' &&
+          row.correlationId === request.answerGoalId,
+      )?.sessionId,
+    ).toBe(session.sessionId);
   });
 });
