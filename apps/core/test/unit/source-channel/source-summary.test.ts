@@ -49,6 +49,7 @@ describe('source scoped summary', () => {
     expect(query.mock.calls[0][0].model).toMatch(/^claude-haiku-4-5/);
     expect(query.mock.calls[0][0]).not.toHaveProperty('reasoningEffort');
     expect(query.mock.calls[0][0].toolPolicy).toBe('none');
+    expect(query.mock.calls[0][0].maxOutputTokens).toBe(4096);
     expect(save.mock.calls[0][0].work.sourceIds).toEqual(['M1']);
   });
   it('reuses a durable exact digest without another provider call', async () => {
@@ -74,6 +75,34 @@ describe('source scoped summary', () => {
     expect(text).toBe('saved exact digest');
     expect(query).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
+  });
+  it('counts the current input budget even when a durable digest is cached', async () => {
+    const query = vi.fn();
+    const countTokens = vi.fn(async () => 100001);
+    await expect(
+      prepareSourceSummary({
+        answer: {
+          id: 'a',
+          claimToken: 'c',
+          request: { model: 'haiku' } as never,
+          messages: [{ content: 'large current source' }] as never,
+          selectedSourceIds: [],
+          summaryWork: { id: 'digest1' } as never,
+        },
+        appId: 'app' as never,
+        deadline: Date.now() + 10000,
+        client: { query, countTokens, isConfigured: () => true },
+        repository: {
+          readSourceSummary: async () => 'cached digest',
+          saveSourceSummary: vi.fn(),
+        },
+      }),
+    ).rejects.toThrow('100000-token');
+    expect(query).not.toHaveBeenCalled();
+    expect(countTokens.mock.calls[0][0].prompt).toContain('cached digest');
+    expect(countTokens.mock.calls[0][0].prompt).toContain(
+      'large current source',
+    );
   });
   it('makes no call when the active execution budget is exhausted', async () => {
     const query = vi.fn();

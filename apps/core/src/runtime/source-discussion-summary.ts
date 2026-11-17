@@ -23,10 +23,9 @@ export async function prepareSourceSummary(input: {
   onUsage?: (usage: MemoryLlmUsage) => void;
 }): Promise<string | undefined> {
   let work = input.answer.summaryWork;
-  if (work) {
-    const cached = await input.repository.readSourceSummary?.(work.id);
-    if (cached) return cached;
-  }
+  const cached = work
+    ? await input.repository.readSourceSummary?.(work.id)
+    : undefined;
   const selected = resolveModelSelectionForWorkload(
     input.answer.request.model,
     'chat',
@@ -40,14 +39,15 @@ export async function prepareSourceSummary(input: {
   const remaining = input.deadline - Date.now();
   if (remaining <= 0)
     throw new Error('Source execution budget exhausted before token counting');
-  const selectedMessages = work
-    ? [...work.messages, ...input.answer.messages]
-    : input.answer.messages;
+  const selectedMessages =
+    work && !cached
+      ? [...work.messages, ...input.answer.messages]
+      : input.answer.messages;
   const inputTokens = await client.countTokens({
     appId: input.appId,
     model: input.answer.request.model,
     prompt: JSON.stringify({
-      priorSummary: input.answer.contextSummary ?? null,
+      priorSummary: cached ?? input.answer.contextSummary ?? null,
       messages: selectedMessages,
     }),
     timeoutMs: Math.min(15000, remaining),
@@ -60,6 +60,7 @@ export async function prepareSourceSummary(input: {
     throw new Error(
       'Selected source context exceeds pinned 100000-token input budget',
     );
+  if (cached) return cached;
   if (!work && inputTokens > 8000 && input.answer.summaryCandidate) {
     work = input.answer.summaryCandidate;
     input.answer.messages = input.answer.messages.slice(work.messages.length);
@@ -97,6 +98,7 @@ export async function prepareSourceSummary(input: {
     await input.onFirstProviderCall?.();
     const output = await client.query({
       toolPolicy: 'none',
+      maxOutputTokens: 4096,
       appId: input.appId,
       model: entry.runnerModel,
       modelProfile: {
