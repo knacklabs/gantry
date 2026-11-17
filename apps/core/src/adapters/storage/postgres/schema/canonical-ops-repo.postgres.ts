@@ -1,3 +1,5 @@
+import { and, eq } from 'drizzle-orm';
+import * as pgSchema from './schema.js';
 import type { SourceSummaryWork } from '../../../../domain/ports/source-discussion.js';
 import { appendSourceAnswerTerminal } from '../repositories/source-answer-terminal.postgres.js';
 import { PostgresSourceAnswerRepository } from '../repositories/source-answer-repository.postgres.js';
@@ -39,9 +41,7 @@ import type { RuntimeEventPublishInput } from '../../../../domain/events/events.
 import { PostgresCanonicalBindingRepository } from '../repositories/canonical-binding-repository.postgres.js';
 import {
   type CanonicalDb,
-  DEFAULT_LLM_PROFILE_ID,
   PostgresCanonicalGraphRepository,
-  configVersionIdForAgent,
 } from '../repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import { PostgresCanonicalMessageRepository } from '../repositories/canonical-message-repository.postgres.js';
@@ -673,6 +673,37 @@ export class PostgresRuntimeRepositoryBundle
       input.agentSessionId as never,
     );
     if (!session) return undefined;
+    const [currentConfig] = await this.db
+      .select({
+        id: pgSchema.agentConfigVersionsPostgres.id,
+        llmProfileId: pgSchema.agentConfigVersionsPostgres.llmProfileId,
+      })
+      .from(pgSchema.agentsPostgres)
+      .innerJoin(
+        pgSchema.agentConfigVersionsPostgres,
+        and(
+          eq(
+            pgSchema.agentConfigVersionsPostgres.id,
+            pgSchema.agentsPostgres.currentConfigVersionId,
+          ),
+          eq(
+            pgSchema.agentConfigVersionsPostgres.appId,
+            pgSchema.agentsPostgres.appId,
+          ),
+          eq(
+            pgSchema.agentConfigVersionsPostgres.agentId,
+            pgSchema.agentsPostgres.id,
+          ),
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.agentsPostgres.id, session.agentId),
+          eq(pgSchema.agentsPostgres.appId, session.appId),
+        ),
+      )
+      .limit(1);
+    if (!currentConfig) return undefined;
     const runId = `agent-run:${randomUUID()}`;
     const now = nowIso();
     const jobId = input.cause === 'job' ? undefined : session.jobId;
@@ -680,12 +711,12 @@ export class PostgresRuntimeRepositoryBundle
       id: runId,
       appId: session.appId,
       agentId: session.agentId,
-      configVersionId: configVersionIdForAgent(session.agentId),
+      configVersionId: currentConfig.id,
       sessionId: session.id,
       conversationId: session.conversationId,
       threadId: session.threadId,
       jobId,
-      llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      llmProfileId: currentConfig.llmProfileId,
       executionProviderId: input.executionProviderId,
       providerSessionId: input.providerSessionId ?? undefined,
       permissionDecisionIds: [],

@@ -347,7 +347,17 @@ export function buildLiveAdmissionProcessor(input: {
         providerSessionId: turnContext.providerSessionId,
         cause: 'message',
       });
-      if (!liveRunId) return false;
+      if (!liveRunId) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer current agent configuration is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const admission = await liveTurnAuthority.admit({
         queueJid,
         scope,

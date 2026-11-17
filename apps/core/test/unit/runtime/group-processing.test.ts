@@ -10447,6 +10447,34 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
           chatJid: `app:${appId}:D1`,
           workspaceFolder: folder,
         });
+        const [agentBefore] = await db.db
+          .select()
+          .from(s.agentsPostgres)
+          .where(eq(s.agentsPostgres.id, session.agentId));
+        const [originalConfig] = await db.db
+          .select()
+          .from(s.agentConfigVersionsPostgres)
+          .where(
+            eq(
+              s.agentConfigVersionsPostgres.id,
+              agentBefore!.currentConfigVersionId!,
+            ),
+          );
+        const nativeConfigId = `native-config-${randomUUID()}`;
+        await db.db
+          .insert(s.agentConfigVersionsPostgres)
+          .values({
+            ...originalConfig!,
+            id: nativeConfigId,
+            version: originalConfig!.version + 1,
+          });
+        await db.db
+          .update(s.agentsPostgres)
+          .set({ currentConfigVersionId: nativeConfigId })
+          .where(eq(s.agentsPostgres.id, session.agentId));
+        await db.db
+          .delete(s.agentConfigVersionsPostgres)
+          .where(eq(s.agentConfigVersionsPostgres.id, originalConfig!.id));
         const binding = {
           discussionId: 'D1',
           generation: 1,
@@ -10763,6 +10791,18 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
               .where(eq(s.agentRunsPostgres.appId, appId)),
           ).toHaveLength(0);
         }
+        const runs = await db.db
+          .select()
+          .from(s.agentRunsPostgres)
+          .where(eq(s.agentRunsPostgres.appId, appId));
+        for (const run of runs)
+          expect(run.configVersionId).toBe(nativeConfigId);
+        expect(
+          await db.db
+            .select()
+            .from(s.agentConfigVersionsPostgres)
+            .where(eq(s.agentConfigVersionsPostgres.id, originalConfig!.id)),
+        ).toHaveLength(0);
         const [work] = await db.db
           .select()
           .from(s.liveAdmissionWorkItemsPostgres)
