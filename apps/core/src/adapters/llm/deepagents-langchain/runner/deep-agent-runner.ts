@@ -139,6 +139,9 @@ export async function runDeepAgentTurn(input: {
   const resolved = await startupTiming.measureAsync('modelBuildMs', () =>
     buildRunnerModel({
       provider: input.provider,
+      sourceAnswer: Boolean(
+        process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim(),
+      ),
       modelId: input.modelId,
       gatewayBaseUrl: gateway.baseUrl,
       gatewayToken: gateway.token,
