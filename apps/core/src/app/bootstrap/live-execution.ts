@@ -213,6 +213,7 @@ export function buildLiveAdmissionProcessor(input: {
         sourceAppId,
         sourceChatJid,
       );
+      if (!dispatch && context?.sourceAnswerOnly) return true;
       if (dispatch) {
         nativeSourceDispatch = true;
         if (!dispatch.route) return true;

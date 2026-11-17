@@ -10375,7 +10375,7 @@ const nativeBootstrap = process.env.GANTRY_DATABASE_URL
   ? describe
   : describe.skip;
 nativeBootstrap('native HTTP admission across worker routing', () => {
-  it.each(['future', 'expired'] as const)(
+  it.each(['future', 'expired', 'count_failure'] as const)(
     'routes %s native work through the configured worker after restart',
     async (mode) => {
       vi.clearAllMocks();
@@ -10429,10 +10429,15 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
       let authority: InstanceType<typeof LiveTurnAuthority> | undefined;
       let pump: ReturnType<typeof setInterval> | undefined;
       const previous = getMemoryLlmClient();
+      const sourceCounts = vi.fn(async () => {
+        if (mode === 'count_failure')
+          throw new Error('Source token count failed (401)');
+        return 100;
+      });
       registerMemoryLlmClient({
         isConfigured: () => true,
         query: async () => '',
-        countTokens: async () => 100,
+        countTokens: sourceCounts,
       });
       try {
         await db.migrate();
@@ -10461,13 +10466,11 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
             ),
           );
         const nativeConfigId = `native-config-${randomUUID()}`;
-        await db.db
-          .insert(s.agentConfigVersionsPostgres)
-          .values({
-            ...originalConfig!,
-            id: nativeConfigId,
-            version: originalConfig!.version + 1,
-          });
+        await db.db.insert(s.agentConfigVersionsPostgres).values({
+          ...originalConfig!,
+          id: nativeConfigId,
+          version: originalConfig!.version + 1,
+        });
         await db.db
           .update(s.agentsPostgres)
           .set({ currentConfigVersionId: nativeConfigId })
@@ -10729,8 +10732,10 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
               (e) =>
                 e.eventType ===
                 (mode === 'future'
-                  ? 'source.answer.completed'
-                  : 'source.answer.failed'),
+                  ? 'run.completed'
+                  : mode === 'expired'
+                    ? 'source.answer.failed'
+                    : 'run.failed'),
             )
           )
             break;
@@ -10780,16 +10785,42 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
           expect(
             events.some(
               (e) =>
-                e.eventType === 'source.answer.failed' &&
-                e.correlationId === 'bootstrap-goal',
+                e.eventType ===
+                  (mode === 'expired'
+                    ? 'source.answer.failed'
+                    : 'run.failed') && e.correlationId === 'bootstrap-goal',
             ),
           ).toBe(true);
-          expect(
-            await db.db
+          if (mode === 'expired') {
+            expect(
+              await db.db
+                .select()
+                .from(s.agentRunsPostgres)
+                .where(eq(s.agentRunsPostgres.appId, appId)),
+            ).toHaveLength(0);
+          } else {
+            expect(sourceCounts).toHaveBeenCalledTimes(1);
+            const key = makeAgentThreadQueueKey(
+              `app:${appId}:D1`,
+              session.agentId,
+              null,
+              `control:${appId}`,
+            );
+            const runsBeforeRetry = await db.db
               .select()
               .from(s.agentRunsPostgres)
-              .where(eq(s.agentRunsPostgres.appId, appId)),
-          ).toHaveLength(0);
+              .where(eq(s.agentRunsPostgres.appId, appId));
+            queue.enqueueSourceAnswerCheck(key);
+            await new Promise((r) => setTimeout(r, 1200));
+            expect(sourceCounts).toHaveBeenCalledTimes(1);
+            expect(mockSpawnAgent).not.toHaveBeenCalled();
+            expect(
+              await db.db
+                .select()
+                .from(s.agentRunsPostgres)
+                .where(eq(s.agentRunsPostgres.appId, appId)),
+            ).toHaveLength(runsBeforeRetry.length);
+          }
         }
         const runs = await db.db
           .select()

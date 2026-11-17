@@ -546,6 +546,7 @@ export class GroupQueue {
     try {
       if (this.processMessagesFn) {
         const success = await this.processMessagesFn(groupJid, {
+          ...(sourceRun ? { sourceAnswerOnly: true } : {}),
           finalRetry: state.retryCount >= this.policy.maxRetries,
           retryCount: state.retryCount,
           maxRetries: this.policy.maxRetries,

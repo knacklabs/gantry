@@ -21,6 +21,7 @@ export type ContinuationOptions = {
 export type ContinuationHandler = () => void;
 
 export interface GroupMessageRunContext {
+  sourceAnswerOnly?: boolean;
   finalRetry: boolean;
   retryCount: number;
   maxRetries: number;
