@@ -1,3 +1,7 @@
+import type {
+  PreparedSourceAnswer,
+  SourceSummaryWork,
+} from '../ports/source-discussion.js';
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import type {
   ChatInfo,
@@ -132,6 +136,9 @@ export interface RuntimeMessageRepository {
     appId: string,
     conversationJid: string,
   ): Promise<boolean>;
+  recoverSourceAnswerRun?(
+    runId: string,
+  ): Promise<'completed' | 'failed' | undefined>;
   pendingSourceAnswerQueueKeys?(): Promise<string[]>;
   markSourceAnswerRun?(id: string, runId: string): Promise<void>;
   persistSourceAnswerOutput?(
@@ -146,19 +153,18 @@ export interface RuntimeMessageRepository {
     workspaceId: string;
     personId?: string;
   }): Promise<string>;
+  readSourceSummary?(id: string): Promise<string | undefined>;
+  saveSourceSummary?(input: {
+    answerId: string;
+    claimToken: string;
+    work: SourceSummaryWork;
+    text: string;
+    usage: Record<string, unknown>[];
+  }): Promise<string>;
   getPreparedSourceAnswer?(input: {
     appId: string;
     conversationJid: string;
-  }): Promise<
-    | {
-        id: string;
-        request: RequestSourceAnswer;
-        messages: NewMessage[];
-        selectedSourceIds: string[];
-        claimToken: string;
-      }
-    | undefined
-  >;
+  }): Promise<PreparedSourceAnswer | undefined>;
   finishPreparedSourceAnswer?(
     id: string,
     success: boolean,

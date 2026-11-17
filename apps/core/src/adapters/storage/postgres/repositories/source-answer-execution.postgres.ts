@@ -1,3 +1,4 @@
+import { sourceAnswerOutputId } from './source-answer-output-id.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
 import { and, eq, sql } from 'drizzle-orm';
@@ -5,6 +6,42 @@ import * as s from '../schema/schema.js';
 import { SourceAnswerContextRepository } from './source-answer-context.postgres.js';
 import { type AnswerPayload, fail } from './source-answer-base.postgres.js';
 export class SourceAnswerExecutionRepository extends SourceAnswerContextRepository {
+  async recoverRun(runId: string): Promise<'completed' | 'failed' | undefined> {
+    const [answer] = await this.db
+      .select()
+      .from(s.pendingInteractionsPostgres)
+      .where(eq(s.pendingInteractionsPostgres.runId, runId));
+    if (
+      !answer ||
+      (answer.payloadJson as { interactionType?: string }).interactionType !==
+        'source_answer'
+    )
+      return;
+    const request = (answer.payloadJson as AnswerPayload).request;
+    const [output] = await this.db
+      .select()
+      .from(s.messagesPostgres)
+      .where(
+        and(
+          eq(
+            s.messagesPostgres.id,
+            sourceAnswerOutputId(
+              answer.appId,
+              request.answerGoalId,
+              request.attemptId,
+            ),
+          ),
+          eq(s.messagesPostgres.appId, answer.appId),
+        ),
+      );
+    const complete =
+      answer.status === 'pending' &&
+      (output?.externalRefJson as { sourceRunId?: string } | undefined)
+        ?.sourceRunId === runId;
+    // A full canonical result can be fenced to completion. An interrupted
+    // provider operation is visibly failed, never guessed or resubmitted.
+    return complete ? 'completed' : 'failed';
+  }
   async markRun(id: string, runId: string) {
     const [answer] = await this.db
       .select()
@@ -66,7 +103,11 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
           ),
         );
       if (!session) fail('Source answer session absent');
-      const outputId = `source-output:${payload.request.attemptId}`;
+      const outputId = sourceAnswerOutputId(
+        answer!.appId,
+        payload.request.answerGoalId,
+        payload.request.attemptId,
+      );
       const inserted = await tx
         .insert(s.messagesPostgres)
         .values({

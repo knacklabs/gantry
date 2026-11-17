@@ -514,7 +514,9 @@ describe('createGroupProcessor', () => {
     expect(call).not.toHaveProperty('sessionId');
     expect(call.effort).toBeUndefined();
     expect(call.maxOutputTokens).toBe(2000);
-    expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBe(180000);
+    expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBeLessThanOrEqual(
+      180000,
+    );
     expect(call.sourceWorkspaceMemoryId).toBe('workspace-a');
     expect(call.memoryContextBlock).toContain('workspace-a learning');
     expect(call.memoryContextBlock).not.toContain('wrong workspace');

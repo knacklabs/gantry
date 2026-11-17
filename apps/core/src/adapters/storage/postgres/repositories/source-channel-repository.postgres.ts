@@ -1,7 +1,10 @@
+import { rebuildSourceGeneration } from './source-generation-rebuild.postgres.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { createHash } from 'node:crypto';
 import { and, eq, or, sql } from 'drizzle-orm';
 import type {
+  RebuildSourceGeneration,
+  RebuildSourceGenerationResponse,
   AppendSourceMessageRequest,
   AppendSourceMessageResponse,
   SourceBinding,
@@ -12,6 +15,7 @@ import { ApplicationError } from '../../../../application/common/application-err
 import { sourceMessageHashInput } from '@gantry/contracts';
 
 type SourceReceipt = AppendSourceMessageRequest['message'] & {
+  generation?: number;
   idempotencyKey: string;
   persistedEventId: string;
 };
@@ -22,6 +26,14 @@ const conflict = (message: string): never => {
 /** The transaction writes only canonical history and a storage receipt. No admission exists here. */
 export class PostgresSourceChannelRepository {
   constructor(private readonly db: CanonicalDb) {}
+
+  async rebuild(
+    appId: string,
+    sessionId: string,
+    input: RebuildSourceGeneration,
+  ): Promise<RebuildSourceGenerationResponse> {
+    return rebuildSourceGeneration(this.db, appId, sessionId, input);
+  }
 
   async append(
     appId: string,
@@ -146,7 +158,7 @@ export class PostgresSourceChannelRepository {
         );
       const source = input.message;
       const messageId =
-        source.origin === 'runtime_output'
+        source.origin === 'runtime_output' && input.binding.generation === 1
           ? source.runtimeOutputId
           : `source:${sessionId}:${input.binding.generation}:${source.sourceMessageId}`;
       if (!messageId) conflict('Runtime output id required');
@@ -158,7 +170,7 @@ export class PostgresSourceChannelRepository {
           .from(schema.messagesPostgres)
           .where(
             and(
-              eq(schema.messagesPostgres.id, messageId!),
+              eq(schema.messagesPostgres.id, source.runtimeOutputId!),
               eq(
                 schema.messagesPostgres.conversationId,
                 session.conversationId,
@@ -194,6 +206,25 @@ export class PostgresSourceChannelRepository {
           );
         if (!completed)
           conflict('Runtime output has no correlated terminal result');
+        if (input.binding.generation > 1) {
+          await tx.insert(schema.messagesPostgres).values({
+            ...output!,
+            id: messageId!,
+            externalMessageId: `generation:${input.binding.generation}:${source.sourceMessageId}`,
+            sourceGeneration: null,
+            sourcePosition: null,
+            sourceMessageId: null,
+            sourceIdempotencyKey: null,
+            sourceContentHash: null,
+            externalRefJson: { ...association },
+          });
+          await tx.insert(schema.messagePartsPostgres).values({
+            messageId: messageId!,
+            ordinal: 0,
+            kind: 'text',
+            payloadJson: { text: source.text },
+          });
+        }
         await tx
           .update(schema.messagePartsPostgres)
           .set({ payloadJson: { text: source.text } })
@@ -220,7 +251,10 @@ export class PostgresSourceChannelRepository {
           providerId: 'app',
           providerAccountId: `control:${appId}`,
           conversationId: session.conversationId,
-          externalMessageId: source.sourceMessageId,
+          externalMessageId:
+            input.binding.generation === 1
+              ? source.sourceMessageId
+              : `generation:${input.binding.generation}:${source.sourceMessageId}`,
           sourceGeneration: input.binding.generation,
           sourceIdempotencyKey: input.idempotencyKey,
           sourcePosition: BigInt(source.sourcePosition),
@@ -260,6 +294,7 @@ export class PostgresSourceChannelRepository {
         .returning({ id: schema.runtimeEventsPostgres.eventId });
       const stored: SourceReceipt = {
         ...source,
+        generation: input.binding.generation,
         idempotencyKey: input.idempotencyKey,
         persistedEventId: String(event!.id),
       };
@@ -312,7 +347,7 @@ function receipt(
     messageId,
     sourceMessageId: source.sourceMessageId,
     sourcePosition: source.sourcePosition,
-    generation: 1,
+    generation: source.generation ?? 1,
     persistedEventId: source.persistedEventId,
     contiguousPosition,
   };

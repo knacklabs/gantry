@@ -14,13 +14,7 @@ import { ApplicationError } from '../../../../application/common/application-err
 import { enqueueLiveAdmissionWorkItemWithExecutor } from './live-admission-work-item-repository.postgres.js';
 import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import type { NewMessage } from '../../../../domain/types.js';
-export interface PreparedSourceAnswer {
-  id: string;
-  request: RequestSourceAnswer;
-  messages: NewMessage[];
-  selectedSourceIds: string[];
-  claimToken: string;
-}
+export type { PreparedSourceAnswer } from '../../../../domain/ports/source-discussion.js';
 export const fail = (message: string): never => {
   throw new ApplicationError('CONFLICT', message);
 };
@@ -249,7 +243,7 @@ export class SourceAnswerRepositoryBase {
     const admission = await enqueueLiveAdmissionWorkItemWithExecutor(
       tx,
       {
-        id: `admission:${id}`,
+        id: `admission:${id}:${(payload as { preparationVersion?: number }).preparationVersion ?? 0}`,
         appId: session.appId,
         agentId: session.agentId,
         agentSessionId: session.sessionId,
@@ -259,7 +253,7 @@ export class SourceAnswerRepositoryBase {
         messageId: payload.questionMessageId,
         messageCursor: request.sourceCutoff,
         senderUserId: request.requesterId,
-        idempotencyKey: `admission:${id}`,
+        idempotencyKey: `admission:${id}:${(payload as { preparationVersion?: number }).preparationVersion ?? 0}`,
         triggerDecision: { source: 'source_answer', answerId: id },
       },
       100,

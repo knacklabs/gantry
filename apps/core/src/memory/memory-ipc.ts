@@ -336,27 +336,6 @@ export async function processMemoryRequest(
           provider = 'postgres';
           return deadlineUnavailableResponse(request, provider);
         }
-        if (
-          request.context?.sourceWorkspaceMemoryId &&
-          input.source !== 'discussion-explicit'
-        ) {
-          const existing = await getMemory().list({
-            appId: subject.appId,
-            agentId: subject.agentId,
-            subjectTypes: [subject.subjectType],
-            ...searchInputForResolvedMemorySubject(subject),
-            includeCommon: false,
-            limit: 100,
-          });
-          if (
-            existing.some(
-              (row) => row.key === input.key && row.value !== input.value,
-            )
-          )
-            throw new Error(
-              'Conflicting inferred learning requires clarification; the active instruction remains unchanged',
-            );
-        }
         const saved = await runMemoryMutation(request, () =>
           getMemory().save({
             ...subject,
@@ -369,6 +348,14 @@ export async function processMemoryRequest(
             why: input.why,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
+            ...(request.context?.sourceWorkspaceMemoryId
+              ? {
+                  sourceLearningWrite:
+                    input.source === 'discussion-explicit'
+                      ? ('explicit' as const)
+                      : ('inferred' as const),
+                }
+              : {}),
             actorId: 'mcp-tool',
             isAdminWrite: false,
             evidenceText: input.why || input.value,
@@ -621,6 +608,14 @@ export async function processMemoryRequest(
             why: input.trigger || undefined,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
+            ...(request.context?.sourceWorkspaceMemoryId
+              ? {
+                  sourceLearningWrite:
+                    input.source === 'discussion-explicit'
+                      ? ('explicit' as const)
+                      : ('inferred' as const),
+                }
+              : {}),
             actorId: 'mcp-tool',
             isAdminWrite: false,
             evidenceText: input.body,

@@ -1,4 +1,8 @@
 import type {
+  RebuildSourceGeneration,
+  RebuildSourceGenerationResponse,
+} from '@gantry/contracts';
+import type {
   RequestSourceAnswer,
   RequestSourceAnswerResponse,
   SettleSourceHistory,
@@ -83,6 +87,11 @@ export interface SessionControlPort {
     sessionId: string,
     input: SettleExecutionAuthority,
   ): Promise<{ accepted: true; replayed: boolean }>;
+  rebuildSourceGeneration?(
+    appId: string,
+    sessionId: string,
+    input: RebuildSourceGeneration,
+  ): Promise<RebuildSourceGenerationResponse>;
   appendSourceMessage?(
     appId: string,
     sessionId: string,
@@ -216,6 +225,19 @@ export class SessionInteractionModule {
     );
   }
 
+  async rebuildSourceGeneration(input: {
+    appId: string;
+    sessionId: string;
+    request: RebuildSourceGeneration;
+  }) {
+    if (!this.deps.control.rebuildSourceGeneration)
+      throw new Error('Native source generation rebuild unavailable');
+    return this.deps.control.rebuildSourceGeneration(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
   async appendSourceMessage(input: {
     appId: string;
     sessionId: string;

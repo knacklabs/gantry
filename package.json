@@ -1,6 +1,6 @@
 {
   "name": "@gantry/runtime",
-  "version": "1.2.54",
+  "version": "1.2.55",
   "description": "Provider-neutral agent runtime. Lightweight, secure, customizable.",
   "author": "Gantry Contributors",
   "license": "MIT",

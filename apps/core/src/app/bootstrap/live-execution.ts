@@ -597,6 +597,10 @@ export function startLiveExecutionServices(input: {
               app,
               liveTurnAuthority,
               liveTurnLeaseDeps,
+              sourceRecovery:
+                messageLoopDeps.opsRepository?.recoverSourceAnswerRun?.bind(
+                  messageLoopDeps.opsRepository,
+                ),
               warn,
             }),
         });
@@ -650,6 +654,9 @@ async function resumeRecoveredTurn(input: {
   };
   liveTurnAuthority: LiveTurnAuthority;
   liveTurnLeaseDeps: LiveTurnLeaseDeps;
+  sourceRecovery?: (
+    runId: string,
+  ) => Promise<'completed' | 'failed' | undefined>;
   warn: WarnLog;
 }): Promise<void> {
   const { turn, lease, app, liveTurnAuthority, liveTurnLeaseDeps, warn } =
@@ -673,6 +680,29 @@ async function resumeRecoveredTurn(input: {
       fencingVersion: lease.fencingVersion,
     },
   });
+  if (pendingMessage?.kind === 'source_answer') {
+    const recovered = turn.runId
+      ? await input.sourceRecovery?.(turn.runId)
+      : undefined;
+    const complete = recovered === 'completed';
+    await liveTurnAuthority.finalize(
+      queueJid,
+      complete ? 'completed' : 'failed',
+      {
+        status: complete ? 'completed' : 'failed',
+        ...(complete
+          ? {
+              resultSummary:
+                'Recovered full durable source answer without another provider call.',
+            }
+          : {
+              errorSummary:
+                'Provider process interrupted before durable full source answer. Submit a new explicit attempt.',
+            }),
+      },
+    );
+    return;
+  }
   const replayQueueJid =
     pendingMessage?.queueJid === queueJid ? queueJid : null;
   const cursorBefore =

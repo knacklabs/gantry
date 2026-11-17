@@ -1,3 +1,4 @@
+import { sourceAnswerOutputId } from './source-answer-output-id.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { and, eq } from 'drizzle-orm';
 import type { RequestSourceAnswer } from '@gantry/contracts';
@@ -40,12 +41,36 @@ export async function appendSourceAnswerTerminal(
     );
   if (!session) return;
   await lockSourceEventApp(tx, answer.appId);
-  const runtimeOutputId = `source-output:${payload.request.attemptId}`;
+  const runtimeOutputId = sourceAnswerOutputId(
+    answer!.appId,
+    payload.request.answerGoalId,
+    payload.request.attemptId,
+  );
   const [output] = await tx
     .select()
     .from(s.messagesPostgres)
-    .where(eq(s.messagesPostgres.id, runtimeOutputId));
-  const complete = status === 'completed' && !!output;
+    .where(
+      and(
+        eq(s.messagesPostgres.id, runtimeOutputId),
+        eq(s.messagesPostgres.appId, answer.appId),
+        eq(s.messagesPostgres.conversationId, session.conversationId),
+      ),
+    );
+  const outputRef = output?.externalRefJson as
+    | {
+        sourceRunId?: string;
+        sourceAnswerGoalId?: string;
+        sourceAnswerAttemptId?: string;
+      }
+    | undefined;
+  const complete =
+    status === 'completed' &&
+    !(answer.payloadJson as { generationInvalidated?: boolean })
+      .generationInvalidated &&
+    !!output &&
+    outputRef?.sourceRunId === runId &&
+    outputRef.sourceAnswerGoalId === payload.request.answerGoalId &&
+    outputRef.sourceAnswerAttemptId === payload.request.attemptId;
   const [event] = await tx
     .insert(s.runtimeEventsPostgres)
     .values({
@@ -74,6 +99,10 @@ export async function appendSourceAnswerTerminal(
       }),
     })
     .returning();
+  if (answer.runLeaseToken)
+    await tx
+      .delete(s.runSlotsPostgres)
+      .where(eq(s.runSlotsPostgres.holderId, answer.runLeaseToken));
   await tx
     .update(s.pendingInteractionsPostgres)
     .set({

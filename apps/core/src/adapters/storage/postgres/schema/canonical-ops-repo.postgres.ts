@@ -1,3 +1,4 @@
+import type { SourceSummaryWork } from '../../../../domain/ports/source-discussion.js';
 import { appendSourceAnswerTerminal } from '../repositories/source-answer-terminal.postgres.js';
 import { PostgresSourceAnswerRepository } from '../repositories/source-answer-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
@@ -162,6 +163,9 @@ export class PostgresRuntimeRepositoryBundle
     return this.graph.listChats();
   }
 
+  async recoverSourceAnswerRun(runId: string) {
+    return new PostgresSourceAnswerRepository(this.db).recoverRun(runId);
+  }
   async pendingSourceAnswerQueueKeys() {
     return new PostgresSourceAnswerRepository(this.db).pendingQueueKeys();
   }
@@ -170,6 +174,18 @@ export class PostgresRuntimeRepositoryBundle
       appId,
       conversationJid,
     );
+  }
+  async readSourceSummary(id: string) {
+    return new PostgresSourceAnswerRepository(this.db).readSummary(id);
+  }
+  async saveSourceSummary(input: {
+    answerId: string;
+    claimToken: string;
+    work: SourceSummaryWork;
+    text: string;
+    usage: Record<string, unknown>[];
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).saveSummary(input);
   }
   async markSourceAnswerRun(id: string, runId: string) {
     await new PostgresSourceAnswerRepository(this.db).markRun(id, runId);

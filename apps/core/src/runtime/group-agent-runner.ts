@@ -1,4 +1,6 @@
-import type { RequestSourceAnswer } from '@gantry/contracts';
+import { normalizeModelUsage } from '../shared/model-usage.js';
+import type { PreparedSourceAnswer } from '../domain/ports/source-discussion.js';
+import { prepareSourceSummary } from './source-discussion-summary.js';
 // prettier-ignore
 import type { AgentControlOverrides, ConversationRoute } from '../domain/types.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
@@ -105,15 +107,14 @@ export function createGroupAgentRunner(input: {
         externalSessionId: string;
       };
       maintenanceCompaction?: boolean;
-      sourceAnswer?: {
-        id: string;
-        request: RequestSourceAnswer;
-        selectedSourceIds: string[];
-      };
+      sourceAnswer?: PreparedSourceAnswer;
       responseSchema?: Record<string, unknown>;
       agentControls?: AgentControlOverrides;
     },
   ): Promise<GroupAgentRunResult> {
+    const sourceExecutionDeadline = options?.sourceAnswer
+      ? Date.now() + Math.min(180000, options.timeoutMs ?? 180000)
+      : undefined;
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
     const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
@@ -514,9 +515,57 @@ export function createGroupAgentRunner(input: {
         turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
     });
     try {
+      let sourceProviderStarted = false;
+      const startSourceProvider = () => {
+        if (
+          !sourceProviderStarted &&
+          options?.sourceAnswer?.executionAuthorityDeadline !== undefined &&
+          Date.now() >= options.sourceAnswer.executionAuthorityDeadline
+        )
+          throw new Error(
+            'Fresh execution authority expired before provider start',
+          );
+        sourceProviderStarted = true;
+      };
+      const sourceSummary = options?.sourceAnswer
+        ? await prepareSourceSummary({
+            answer: options.sourceAnswer,
+            appId: runtimeAppId as import('../domain/app/app.js').AppId,
+            deadline: sourceExecutionDeadline!,
+            repository: ops(),
+            onFirstProviderCall: startSourceProvider,
+            onUsage: (value) => {
+              const usage = normalizeModelUsage({
+                message: { usage: value },
+                fallbackModel: options.sourceAnswer!.request.model,
+              });
+              if (usage)
+                void deps.publishRuntimeEvent?.({
+                  appId: runtimeAppId as import('../domain/app/app.js').AppId,
+                  runId: runState.runId as never,
+                  agentId: turnContext?.agentId as never,
+                  sessionId: turnContext?.agentSessionId as never,
+                  eventType: 'model.usage',
+                  actor: 'agent',
+                  payload: {
+                    usage,
+                    modelAlias: options.sourceAnswer!.request.model,
+                    providerId: usage.provider,
+                    stage: 'source_summary',
+                  },
+                });
+            },
+          })
+        : undefined;
+      if (options?.sourceAnswer && !sourceProviderStarted)
+        startSourceProvider();
+      if (sourceExecutionDeadline && Date.now() >= sourceExecutionDeadline)
+        throw new Error('Source execution budget exhausted');
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({
-        timeoutMs: options?.timeoutMs,
+        timeoutMs: sourceExecutionDeadline
+          ? Math.max(1, sourceExecutionDeadline - Date.now())
+          : options?.timeoutMs,
         credentialBroker,
         skillRepository: deps.getSkillRepository?.(),
         skillArtifactStore: deps.getSkillArtifactStore?.(),
@@ -566,7 +615,9 @@ export function createGroupAgentRunner(input: {
         runAgentImpl(
           group,
           {
-            prompt: maintenanceCompactionPrompt ?? prompt,
+            prompt: sourceSummary
+              ? `Historical discussion summary (bounded exact source coverage; not tender evidence):\n${sourceSummary}\n\nRecent or reply-chain source messages:\n${prompt}`
+              : (maintenanceCompactionPrompt ?? prompt),
             ...(options?.sourceAnswer?.request.executionProfile
               ? {
                   callerResolvedTools: {

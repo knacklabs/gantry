@@ -1,3 +1,4 @@
+import { RebuildSourceGenerationSchema } from '@gantry/contracts';
 import { z } from 'zod';
 import { SourceAnswerExecutionProfileSchema } from '@gantry/contracts';
 import {
@@ -195,6 +196,46 @@ export async function handleSessionRoutes(
           agentId: decodeURIComponent(profileMatch[1]!),
           profile: parsed.data.profile,
           concurrency: parsed.data.concurrency,
+        }),
+      );
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+  const rebuildMatch =
+    /^\/v1\/sessions\/([^/]+)\/source-generation\/rebuild$/.exec(pathname);
+  if (rebuildMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const appId = resolveAppScopeAppId(auth, '');
+    if (!appId) {
+      sendError(
+        res,
+        403,
+        'FORBIDDEN',
+        'Source rebuild requires app-scoped administrator',
+      );
+      return true;
+    }
+    const parsed = RebuildSourceGenerationSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        formatSessionRequestIssue(parsed.error.issues[0]),
+      );
+      return true;
+    }
+    try {
+      sendJson(
+        res,
+        200,
+        await ctx.sessionInteraction.rebuildSourceGeneration({
+          appId,
+          sessionId: decodeURIComponent(rebuildMatch[1]!),
+          request: parsed.data,
         }),
       );
     } catch (error) {

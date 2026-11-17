@@ -37,12 +37,43 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         )
         .for('update');
       if (!agent) fail('Agent not found in app');
-      const [config] = await tx
+      let [config] = await tx
         .select()
         .from(s.agentConfigVersionsPostgres)
         .where(
           eq(s.agentConfigVersionsPostgres.id, agent!.currentConfigVersionId!),
         );
+      if (!config && !agent!.currentConfigVersionId) {
+        const configId = `config:${agentId}:source:1`;
+        const profileId = `llm:source:${appId}:${agentId}`;
+        await tx
+          .insert(s.llmProfilesPostgres)
+          .values({
+            id: profileId,
+            appId,
+            purpose: 'source-answer',
+            responseFamily: 'anthropic',
+            modelAlias: 'haiku',
+            thinkingJson: '{}',
+            budgetJson: '{}',
+          })
+          .onConflictDoNothing();
+        [config] = await tx
+          .insert(s.agentConfigVersionsPostgres)
+          .values({
+            id: configId,
+            appId,
+            agentId,
+            version: 1,
+            promptProfileRef: 'runtime-default',
+            llmProfileId: profileId,
+          })
+          .returning();
+        await tx
+          .update(s.agentsPostgres)
+          .set({ currentConfigVersionId: configId })
+          .where(eq(s.agentsPostgres.id, agentId));
+      }
       if (!config) fail('Agent configuration absent');
       const limits = JSON.parse(config!.runtimeLimitsJson) as {
         metadata?: Record<string, unknown>;

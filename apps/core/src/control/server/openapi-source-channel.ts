@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  RebuildSourceGenerationSchema,
+  RebuildSourceGenerationResponseSchema,
   AppendSourceMessageRequestSchema,
   AppendSourceMessageResponseSchema,
   RequestSourceAnswerSchema,
@@ -10,6 +12,16 @@ import {
 } from '@gantry/contracts';
 import { doc, ids } from './openapi-route-helpers.js';
 export const sourceChannelRouteDocs = [
+  doc(
+    'post',
+    '/v1/sessions/{sessionId}/source-generation/rebuild',
+    'rebuildSourceGeneration',
+    'Sessions',
+    'Rebuild source generation',
+    'Invalidates derived context and attempts while preserving canonical prior source history. Does not admit model work.',
+    ['agents:admin'],
+    { body: 'json', parameters: [ids.session], conflict: true },
+  ),
   doc(
     'put',
     '/v1/agents/{agentId}/source-channel-profile',
@@ -64,6 +76,7 @@ export const sourceChannelRouteDocs = [
 const json = (schema: z.ZodType) =>
   z.toJSONSchema(schema, { target: 'openapi-3.0' });
 export const sourceChannelRequests = {
+  rebuildSourceGeneration: json(RebuildSourceGenerationSchema),
   configureSourceChannelProfile: json(
     z
       .object({
@@ -82,6 +95,7 @@ const settled = json(
   z.object({ accepted: z.literal(true), replayed: z.boolean() }).strict(),
 );
 export const sourceChannelResponses = {
+  rebuildSourceGeneration: json(RebuildSourceGenerationResponseSchema),
   configureSourceChannelProfile: json(
     z
       .object({

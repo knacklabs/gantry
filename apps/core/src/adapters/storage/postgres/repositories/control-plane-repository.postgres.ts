@@ -1,3 +1,4 @@
+import type { RebuildSourceGeneration } from '@gantry/contracts';
 import { PostgresSourceAnswerRepository } from './source-answer-repository.postgres.js';
 import type {
   RequestSourceAnswer,
@@ -101,6 +102,17 @@ export class PostgresControlPlaneRepository {
     );
   }
 
+  async rebuildSourceGeneration(
+    appId: string,
+    sessionId: string,
+    input: RebuildSourceGeneration,
+  ) {
+    return new PostgresSourceChannelRepository(this.db).rebuild(
+      appId,
+      sessionId,
+      input,
+    );
+  }
   async appendSourceMessage(
     appId: string,
     sessionId: string,

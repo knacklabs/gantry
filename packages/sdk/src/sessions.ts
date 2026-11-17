@@ -1,4 +1,8 @@
 import type {
+  RebuildSourceGeneration,
+  RebuildSourceGenerationResponse,
+} from '@gantry/contracts';
+import type {
   AppendSourceMessageRequest,
   AppendSourceMessageResponse,
   RequestSourceAnswer,
@@ -31,6 +35,15 @@ export function createSessionsClient(transport: SessionTransport) {
   };
 
   return {
+    rebuildSourceGeneration: (
+      sessionId: string,
+      body: RebuildSourceGeneration,
+    ) =>
+      transport.request<RebuildSourceGenerationResponse>({
+        method: 'POST',
+        path: `/v1/sessions/${encodeURIComponent(sessionId)}/source-generation/rebuild`,
+        body,
+      }),
     appendSourceMessage: (
       sessionId: string,
       body: AppendSourceMessageRequest,

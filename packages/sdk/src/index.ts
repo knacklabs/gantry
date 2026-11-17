@@ -912,6 +912,8 @@ export { verifyWebhookSignature } from './webhook-signature.js';
 
 export { hashSourceMessage } from './source-channel.js';
 export type {
+  RebuildSourceGeneration,
+  RebuildSourceGenerationResponse,
   SourceBinding,
   SourceAuthority,
   SourceMessage,

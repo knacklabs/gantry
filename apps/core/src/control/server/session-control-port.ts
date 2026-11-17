@@ -40,6 +40,8 @@ export function adaptSessionControlPort(
       control.settleSourceHistory(appId, sessionId, input),
     settleExecutionAuthority: (appId, sessionId, input) =>
       control.settleExecutionAuthority(appId, sessionId, input),
+    rebuildSourceGeneration: (appId, sessionId, input) =>
+      control.rebuildSourceGeneration(appId, sessionId, input),
     appendSourceMessage: (appId, sessionId, input) =>
       control.appendSourceMessage(appId, sessionId, input),
     async ensureAppSession(input) {

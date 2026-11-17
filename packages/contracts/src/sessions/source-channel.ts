@@ -150,7 +150,7 @@ export const ExecutionAuthorityRequestedSchema = z
     authority: SourceAuthoritySchema,
     answerGoalId: id,
     attemptId: id,
-    phase: z.enum(['admission', 'evidence', 'publication']),
+    phase: z.enum(['admission', 'execution', 'evidence', 'publication']),
   })
   .strict();
 export const SettleExecutionAuthoritySchema = z
@@ -188,4 +188,27 @@ export type ExecutionAuthorityRequested = z.infer<
 >;
 export type SettleExecutionAuthority = z.infer<
   typeof SettleExecutionAuthoritySchema
+>;
+
+export const RebuildSourceGenerationSchema = z
+  .object({
+    binding: SourceBindingSchema,
+    nextGeneration: count,
+    idempotencyKey: id,
+    reason: z.string().min(1).max(1000),
+  })
+  .strict();
+export type RebuildSourceGeneration = z.infer<
+  typeof RebuildSourceGenerationSchema
+>;
+export const RebuildSourceGenerationResponseSchema = z
+  .object({
+    binding: SourceBindingSchema,
+    contiguousPosition: checkpoint,
+    persistedEventId: position,
+    replayed: z.boolean(),
+  })
+  .strict();
+export type RebuildSourceGenerationResponse = z.infer<
+  typeof RebuildSourceGenerationResponseSchema
 >;

@@ -1,4 +1,24 @@
 export interface paths {
+    "/v1/sessions/{sessionId}/source-generation/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild source generation
+         * @description Invalidates derived context and attempts while preserving canonical prior source history. Does not admit model work.
+         */
+        post: operations["rebuildSourceGeneration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agentId}/source-channel-profile": {
         parameters: {
             query?: never;
@@ -3486,7 +3506,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -3504,7 +3524,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -3515,7 +3535,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -4575,6 +4595,60 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    rebuildSourceGeneration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    nextGeneration: number;
+                    idempotencyKey: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        binding: {
+                            discussionId: string;
+                            generation: number;
+                            workspaceId: string;
+                            tenderId: string;
+                        };
+                        contiguousPosition: string;
+                        persistedEventId: string;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     configureSourceChannelProfile: {
         parameters: {
             query?: never;

@@ -359,6 +359,8 @@ export interface AppMemorySearchResult {
 }
 
 export interface SaveAppMemoryInput extends Partial<MemoryBoundaryContext> {
+  /** Trusted runtime policy; never parsed from model tool arguments. */
+  sourceLearningWrite?: 'explicit' | 'inferred';
   subjectType?: MemorySubjectType;
   subjectId?: string;
   visibility?: MemoryVisibility;
