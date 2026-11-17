@@ -1,3 +1,4 @@
+import { lunaValidationAlias } from './chat-validation-luna-config.mjs';
 /** Isolated operator bootstrap. This script never generates model output. */
 import fs from 'node:fs';
 import { parseArgs, parseEnv } from 'node:util';
@@ -70,36 +71,8 @@ if (!state.settings)
   throw new Error('Canonical app settings must be provisioned first');
 const settings = structuredClone(state.settings);
 settings.model_aliases ??= {};
-for (const alias of values.alias) {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95}$/.test(alias))
-    throw new Error('Invalid isolated model alias');
-  settings.model_aliases[alias] = {
-    provider: 'openai',
-    provider_model_id: 'gpt-6-luna',
-    display_name: 'Isolated validation GPT-6 Luna',
-    aliases: [alias],
-    recommended_alias: alias,
-    supported_workloads: [
-      'chat',
-      'one_time_job',
-      'recurring_job',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
-    context_window_tokens: 1050000,
-    max_output_tokens: 128000,
-    // Standard short-context rates verified at developers.openai.com/api/docs/pricing.
-    input_usd_per_million_tokens: 0.1,
-    output_usd_per_million_tokens: 0.5,
-    cached_input_usd_per_million_tokens: 0.01,
-    cache_write_usd_per_million_tokens: 0.125,
-    supports_thinking: true,
-    supported_effort_levels: ['low', 'medium', 'high', 'xhigh'],
-    supports_tools: true,
-    source: 'isolated-chat-validation',
-  };
-}
+for (const alias of values.alias)
+  settings.model_aliases[alias] = lunaValidationAlias(alias);
 const updated = await client.settings.updateDesiredState({
   settings,
   expectedRevision: state.revision,
