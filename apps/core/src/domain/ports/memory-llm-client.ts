@@ -11,6 +11,8 @@ export interface MemoryLlmModelProfile {
 
 export interface MemoryLlmQueryOpts {
   toolPolicy?: 'none';
+  maxOutputTokens?: number;
+  operationId?: string;
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;

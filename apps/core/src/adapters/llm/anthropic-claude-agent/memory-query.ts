@@ -36,6 +36,8 @@ import { logger } from '../../../infrastructure/logging/logger.js';
 
 export interface ClaudeQueryOpts {
   toolPolicy?: 'none';
+  maxOutputTokens?: number;
+  operationId?: string;
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
@@ -294,7 +296,8 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   const modelEntry = opts.modelProfile
     ? findModelByRunnerModel(opts.modelProfile.runnerModel)
     : findModelByRunnerModel(opts.model);
-  const runId = `memory-query:${randomUUID()}` as AgentRunId;
+  const runId = (opts.operationId ??
+    `memory-query:${randomUUID()}`) as AgentRunId;
   const gateway = await resolveGantryMemoryInjection(
     opts.appId,
     modelEntry?.modelRoute.id ?? 'anthropic',
@@ -324,7 +327,10 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
       ...scrubAmbientAgentCredentials(injection.env),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,
       ...(opts.toolPolicy === 'none'
-        ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4096', MAX_THINKING_TOKENS: '0' }
+        ? {
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(opts.maxOutputTokens ?? 4096),
+            MAX_THINKING_TOKENS: '0',
+          }
         : {}),
     };
     const abortController = new AbortController();

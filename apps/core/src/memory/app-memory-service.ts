@@ -1,3 +1,7 @@
+import {
+  assertSourceLearningActivation,
+  recordSourceLearningActivation,
+} from './source-learning-activation.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -205,6 +209,18 @@ export class AppMemoryService {
           await tx.execute(
             sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['source-learning', subjectIdFor(subject), key])},0))`,
           );
+        const activation = await assertSourceLearningActivation(
+          tx,
+          input,
+          subject,
+        );
+        if (activation?.existing) return toAppItem(activation.existing);
+        const finish = async (
+          row: typeof pgSchema.memoryItemsPostgres.$inferSelect,
+        ) => {
+          await recordSourceLearningActivation(tx, activation?.candidate, row);
+          return toAppItem(row);
+        };
         const existing = await findActiveMemoryByKey({ db: tx, subject, key });
         if (
           input.sourceLearningWrite === 'inferred' &&
@@ -224,6 +240,21 @@ export class AppMemoryService {
           existingSource: existing ? parseItemSource(existing) : null,
           timestamp: now,
         });
+        if (existing) {
+          const [updated] = await tx
+            .update(pgSchema.memoryItemsPostgres)
+            .set(base)
+            .where(
+              and(
+                eq(pgSchema.memoryItemsPostgres.id, existing.id),
+                eq(pgSchema.memoryItemsPostgres.status, 'active'),
+              ),
+            )
+            .returning();
+          if (!updated)
+            throw new Error('Memory key changed during source save');
+          return finish(updated);
+        }
         const [inserted] = await tx
           .insert(pgSchema.memoryItemsPostgres)
           .values({
@@ -233,7 +264,7 @@ export class AppMemoryService {
           })
           .onConflictDoNothing()
           .returning();
-        if (inserted) return toAppItem(inserted);
+        if (inserted) return finish(inserted);
         const conflicting = await findActiveMemoryByKey({
           db: tx,
           subject,
@@ -267,7 +298,7 @@ export class AppMemoryService {
           )
           .returning();
         if (!row) throw new Error('Memory key changed during save');
-        return toAppItem(row);
+        return finish(row);
       });
     }
     const existing = await findActiveMemoryByKey({

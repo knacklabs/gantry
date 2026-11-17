@@ -1,3 +1,4 @@
+import { sourceChannelNativePersonId } from '../../../../memory/source-channel-memory-scope.js';
 import { configureSourceChannelProfile } from './source-channel-profile.postgres.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { resolveModelSelectionForWorkload } from '../../../../shared/model-catalog.js';
@@ -233,7 +234,30 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
           'canceled',
           'Current authority denied',
         );
-      else await this.admitIfReady(tx, session, data.parentAnswerId);
+      else {
+        const [parent] = await tx
+          .select()
+          .from(s.pendingInteractionsPostgres)
+          .where(
+            and(
+              eq(s.pendingInteractionsPostgres.appId, appId),
+              eq(s.pendingInteractionsPostgres.id, data.parentAnswerId),
+            ),
+          );
+        const requester = (parent?.payloadJson as AnswerPayload | undefined)
+          ?.request.requesterId;
+        if (!requester) fail('Source requester absent');
+        await tx
+          .insert(s.usersPostgres)
+          .values({
+            id: sourceChannelNativePersonId(appId, requester!),
+            appId,
+            kind: 'human',
+            status: 'active',
+          })
+          .onConflictDoNothing();
+        await this.admitIfReady(tx, session, data.parentAnswerId);
+      }
       return { accepted: true as const, replayed: row.status === 'resolved' };
     });
   }

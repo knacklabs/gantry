@@ -558,6 +558,7 @@ async function spawnAgentWithContext(
         chatJid: input.chatJid,
         personId: input.memoryUserId,
         sourceWorkspaceMemoryId: input.sourceWorkspaceMemoryId,
+        sourceRunId: input.sourceWorkspaceMemoryId ? input.runId : undefined,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,

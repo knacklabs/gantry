@@ -101,7 +101,32 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: sourceWorkspaceMemoryId
+              ? JSON.stringify(
+                  (
+                    response.data as {
+                      results?: Array<{
+                        item: {
+                          id: string;
+                          subjectType: string;
+                          key: string;
+                          value: string;
+                          version: number;
+                        };
+                      }>;
+                    }
+                  )?.results?.map((row) => ({
+                    id: row.item.id,
+                    scope: row.item.subjectType,
+                    key: row.item.key,
+                    value: row.item.value,
+                    version: row.item.version,
+                  })) ?? [],
+                )
+              : formatMemoryToolResponse(response),
+          },
         ],
       };
     },
@@ -109,7 +134,9 @@ export function registerMemoryTools(server: McpServer): void {
 
   server.tool(
     'memory_save',
-    'Save a durable memory statement to the trusted conversation scope: workspace memory in group/channel conversations and personal memory in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
+    sourceWorkspaceMemoryId
+      ? 'Propose a free-form reusable human instruction in the fixed workspace/person scope. It is independently checked by Claude before activation. Supply supporting_source_ids from actual selected human messages, including the current question. Inferred learning needs repeated corrections. Tender/project/document facts, uncertain guesses and sensitive profiles cannot become reusable learning.'
+      : 'Save a durable memory statement to the trusted conversation scope: workspace memory in group/channel conversations and personal memory in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
     {
       workspace_folder: z.string().optional(),
       scope: z.enum(['group', 'user']).optional(),
@@ -128,6 +155,14 @@ export function registerMemoryTools(server: McpServer): void {
         ),
       confidence: z.number().min(0).max(1).optional(),
       source: z.string().optional(),
+      supporting_source_ids: z
+        .array(z.string().min(1).max(256))
+        .min(1)
+        .max(8)
+        .optional()
+        .describe(
+          'Required in source discussions: exact current selected human source IDs supporting this reusable instruction. Include the current question. Inferred rules require repeated human corrections.',
+        ),
     },
     async (args) => {
       const response = await requestMemoryAction('memory_save', {

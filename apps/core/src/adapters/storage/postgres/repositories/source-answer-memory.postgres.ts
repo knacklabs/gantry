@@ -1,3 +1,4 @@
+import { parseItemSource } from '../../../../memory/app-memory-canonical-codec.js';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { subjectIdFor } from '../../../../memory/app-memory-boundaries.js';
 import { sourceChannelMemorySubject } from '../../../../memory/source-channel-memory-scope.js';
@@ -59,7 +60,7 @@ export class SourceAnswerMemoryRepository extends SourceAnswerSummaryRepository 
                 scope: row.subjectType,
                 key: row.key,
                 value: (row.valueJson as { value?: string }).value ?? '',
-                version: row.updatedAt,
+                version: parseItemSource(row).version,
               }),
             )
             .join('\n')

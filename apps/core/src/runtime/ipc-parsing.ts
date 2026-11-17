@@ -67,6 +67,7 @@ export interface ParsedMemoryIpcRequest {
     chatJid?: string;
     personId?: string;
     sourceWorkspaceMemoryId?: string;
+    sourceRunId?: string;
     defaultScope?: 'user' | 'group';
     reviewerIsControlApprover?: boolean;
   };
@@ -273,6 +274,7 @@ export function parseMemoryIpcRequest(
     responseKeyId,
     userId: personId,
     sourceWorkspaceMemoryId,
+    sourceRunId,
     defaultScope,
     reviewerIsControlApprover,
     allowedActions,
@@ -328,6 +330,7 @@ export function parseMemoryIpcRequest(
             ...(chatJid ? { chatJid } : {}),
             ...(personId ? { personId } : {}),
             ...(sourceWorkspaceMemoryId ? { sourceWorkspaceMemoryId } : {}),
+            ...(sourceRunId ? { sourceRunId } : {}),
             ...(defaultScope ? { defaultScope } : {}),
             ...(reviewerIsControlApprover ? { reviewerIsControlApprover } : {}),
           },

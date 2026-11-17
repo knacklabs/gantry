@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   sourceChannelMemorySubject,
+  sourceChannelNativePersonId,
   assertSourceLearningContent,
 } from '../../../src/memory/source-channel-memory-scope.js';
 describe('native workspace memory boundaries', () => {
@@ -26,7 +27,15 @@ describe('native workspace memory boundaries', () => {
         .subjectId,
     );
   });
-  it('admits process preferences and rejects tender fact promotion', () => {
+  it('keeps the native person FK app-scoped while retaining workspace-specific preference subjects', () => {
+    expect(sourceChannelNativePersonId('app-A', 'same-person')).not.toBe(
+      sourceChannelNativePersonId('app-B', 'same-person'),
+    );
+    expect(sourceChannelMemorySubject({ ...base, scope: 'user' }).userId).toBe(
+      sourceChannelNativePersonId(base.appId, base.personId),
+    );
+  });
+  it('limits structural learning kinds before the independent semantic check', () => {
     expect(() =>
       assertSourceLearningContent({
         kind: 'preference',
@@ -41,12 +50,14 @@ describe('native workspace memory boundaries', () => {
         value: 'Submission closes tomorrow',
       }),
     ).toThrow(/general/);
+    // A kind label cannot establish generality. The independent source-grounded
+    // validator decides whether free-form content can activate.
     expect(() =>
       assertSourceLearningContent({
-        kind: 'preference',
-        key: 'source',
-        value: 'Clause 3 requires 10 years experience',
+        kind: 'constraint',
+        key: 'qualification',
+        value: 'Project ALPHA requires ISO 27001 certification',
       }),
-    ).toThrow(/Tender facts/);
+    ).not.toThrow();
   });
 });

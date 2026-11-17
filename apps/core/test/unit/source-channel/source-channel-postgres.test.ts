@@ -632,6 +632,48 @@ run('durable native source channel', () => {
         personId: 'person1',
       }),
     ).not.toContain('Check both stages');
+    const personal = sourceChannelMemorySubject({
+      appId,
+      agentId: session.agentId,
+      workspaceId: 'W1',
+      personId: 'person1',
+      scope: 'user',
+    });
+    await memory.save({
+      ...personal,
+      kind: 'preference',
+      key: 'chat_style',
+      value: 'Use short chat answers',
+      source: 'discussion-explicit',
+      sourceLearningWrite: 'explicit',
+    });
+    expect(
+      await native.memoryContext({
+        answerId: 'none',
+        appId,
+        agentId: session.agentId,
+        workspaceId: 'W1',
+        personId: 'person1',
+      }),
+    ).toContain('Use short chat answers');
+    expect(
+      await native.memoryContext({
+        answerId: 'none',
+        appId,
+        agentId: session.agentId,
+        workspaceId: 'W1',
+        personId: 'person2',
+      }),
+    ).not.toContain('Use short chat answers');
+    expect(
+      await native.memoryContext({
+        answerId: 'none',
+        appId,
+        agentId: session.agentId,
+        workspaceId: 'W2',
+        personId: 'person1',
+      }),
+    ).not.toContain('Use short chat answers');
     const results = await Promise.allSettled(
       Array.from({ length: 8 }, (_, i) =>
         memory.save({
