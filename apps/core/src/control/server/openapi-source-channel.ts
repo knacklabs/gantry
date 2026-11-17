@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import {
+  ReadSourceDocumentSchema,
+  ReadSourceDocumentResponseSchema,
   RebuildSourceGenerationSchema,
   RebuildSourceGenerationResponseSchema,
   AppendSourceMessageRequestSchema,
@@ -12,6 +14,16 @@ import {
 } from '@gantry/contracts';
 import { doc, ids } from './openapi-route-helpers.js';
 export const sourceChannelRouteDocs = [
+  doc(
+    'post',
+    '/v1/sessions/{sessionId}/source-documents/read',
+    'readSourceDocument',
+    'Sessions',
+    'Read generated source document',
+    'Returns a verified goal-bound artifact receipt and bounded binary bytes for trusted application publication.',
+    ['sessions:read'],
+    { body: 'json', parameters: [ids.session], conflict: true },
+  ),
   doc(
     'post',
     '/v1/sessions/{sessionId}/source-generation/rebuild',
@@ -76,6 +88,7 @@ export const sourceChannelRouteDocs = [
 const json = (schema: z.ZodType) =>
   z.toJSONSchema(schema, { target: 'openapi-3.0' });
 export const sourceChannelRequests = {
+  readSourceDocument: json(ReadSourceDocumentSchema),
   rebuildSourceGeneration: json(RebuildSourceGenerationSchema),
   configureSourceChannelProfile: json(
     z
@@ -95,6 +108,7 @@ const settled = json(
   z.object({ accepted: z.literal(true), replayed: z.boolean() }).strict(),
 );
 export const sourceChannelResponses = {
+  readSourceDocument: json(ReadSourceDocumentResponseSchema),
   rebuildSourceGeneration: json(RebuildSourceGenerationResponseSchema),
   configureSourceChannelProfile: json(
     z

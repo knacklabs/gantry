@@ -1,4 +1,24 @@
 export interface paths {
+    "/v1/sessions/{sessionId}/source-documents/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read generated source document
+         * @description Returns a verified goal-bound artifact receipt and bounded binary bytes for trusted application publication.
+         */
+        post: operations["readSourceDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{sessionId}/source-generation/rebuild": {
         parameters: {
             query?: never;
@@ -4595,6 +4615,76 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readSourceDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    artifactId: string;
+                    answerGoalId: string;
+                    attemptId: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        receipt: {
+                            artifactId: string;
+                            sessionId: string;
+                            runId: string;
+                            answerGoalId: string;
+                            attemptId: string;
+                            binding: {
+                                discussionId: string;
+                                generation: number;
+                                workspaceId: string;
+                                tenderId: string;
+                            };
+                            /** @enum {string} */
+                            format: "pdf" | "docx";
+                            fileName: string;
+                            /** @enum {string} */
+                            contentType: "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                            sizeBytes: number;
+                            sha256: string;
+                            rendererVersion: string;
+                            manifestHash: string;
+                            citationIds: string[];
+                            metadataFields: string[];
+                        };
+                        bytesBase64: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     rebuildSourceGeneration: {
         parameters: {
             query?: never;
