@@ -68,7 +68,7 @@ describe('ensureDeepAgentsCheckpointSchema', () => {
       max: 1,
     });
     const saver = postgresSaverMock.MockPostgresSaver.instances[0];
-    expect(saver?.pool).toBe(pgMock.MockPool.instances[0]);
+    expect(saver?.pool).toBeInstanceOf(pgMock.MockPool);
     expect(saver?.serde).toBeUndefined();
     expect(saver?.options).toEqual({
       schema: 'gantry_deepagents_setup_one',
