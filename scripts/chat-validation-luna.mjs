@@ -89,6 +89,11 @@ for (const alias of values.alias) {
     ],
     context_window_tokens: 1050000,
     max_output_tokens: 128000,
+    // Standard short-context rates verified at developers.openai.com/api/docs/pricing.
+    input_usd_per_million_tokens: 0.1,
+    output_usd_per_million_tokens: 0.5,
+    cached_input_usd_per_million_tokens: 0.01,
+    cache_write_usd_per_million_tokens: 0.125,
     supports_thinking: true,
     supported_effort_levels: ['low', 'medium', 'high', 'xhigh'],
     supports_tools: true,
