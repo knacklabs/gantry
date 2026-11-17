@@ -20,7 +20,9 @@ run('trusted checkpoint tunnel', () => {
       undefined,
       original,
     );
-    expect(projection.checkpointer?.databaseUrl).toBe(original.databaseUrl);
+    expect(projection.checkpointer?.databaseUrl === original.databaseUrl).toBe(
+      true,
+    );
     expect(projection.checkpointer?.proxyTargetAuthority).toMatch(
       /^gantry-runtime-checkpoint\.internal:\d+$/,
     );
