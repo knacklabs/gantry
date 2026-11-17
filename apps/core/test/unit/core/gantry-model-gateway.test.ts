@@ -3014,3 +3014,95 @@ describe('provider billing events through real gateway HTTP requests', () => {
     },
   );
 });
+
+it.each(['ok', 'upstream_401', 'gateway_401'] as const)(
+  'crosses source counting and the real loopback gateway (%s)',
+  async (mode) => {
+    const { countAnthropicSourceTokens } =
+      await import('@core/adapters/llm/anthropic-claude-agent/source-token-count.js');
+    const injectionModule =
+      await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-fixture-upstream');
+    const audit = vi.fn(async () => {});
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    const binding = {
+      profile: 'gantry',
+      purpose: 'model_runtime',
+      appId,
+      runId: 'source-token-count:fixture' as never,
+      modelRouteId: 'anthropic' as never,
+    };
+    const injection = await broker.getInjection({ binding });
+    if (mode === 'gateway_401')
+      for (const key of Object.keys(injection.env))
+        if (key.includes('TOKEN') || key === 'ANTHROPIC_API_KEY')
+          injection.env[key] = 'gtw_invalid_fixture';
+    const resolve = vi
+      .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+      .mockResolvedValue({
+        injection,
+        revoke: () => broker.revokeInjection({ binding }),
+      });
+    const nativeFetch = globalThis.fetch;
+    const upstream = vi.fn(
+      async () =>
+        new Response(
+          mode === 'upstream_401'
+            ? JSON.stringify({
+                error: {
+                  type: 'authentication_error',
+                  message: 'fixture rejected',
+                },
+              })
+            : JSON.stringify({ input_tokens: 37 }),
+          {
+            status: mode === 'upstream_401' ? 401 : 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal(
+      'fetch',
+      async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        String(url).startsWith('https://api.anthropic.com/')
+          ? upstream(url, init)
+          : nativeFetch(url, init),
+    );
+    try {
+      const operation = countAnthropicSourceTokens({
+        appId,
+        model: 'haiku',
+        prompt: 'Exact authorized source',
+        timeoutMs: 2000,
+      });
+      if (mode === 'ok') expect(await operation).toBe(37);
+      else await expect(operation).rejects.toThrow(/401/);
+      if (mode === 'gateway_401') expect(upstream).not.toHaveBeenCalled();
+      else {
+        expect(upstream).toHaveBeenCalledTimes(1);
+        const [url, options] = upstream.mock.calls[0];
+        expect(String(url)).toBe(
+          'https://api.anthropic.com/v1/messages/count_tokens',
+        );
+        expect(options?.headers).toMatchObject({
+          'x-api-key': 'sk-ant-fixture-upstream',
+        });
+        expect(options?.headers).not.toHaveProperty('authorization');
+      }
+      if (mode === 'upstream_401')
+        expect(audit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              outcome: 'upstream_error',
+              status: 401,
+            }),
+          }),
+        );
+    } finally {
+      resolve.mockRestore();
+      vi.unstubAllGlobals();
+      await broker.close();
+    }
+  },
+);
