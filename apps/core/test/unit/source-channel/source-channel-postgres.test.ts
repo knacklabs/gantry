@@ -364,6 +364,19 @@ run('durable native source channel', () => {
     const native = new PostgresSourceAnswerRepository(service.db);
     const answerId = `source-answer:${appId}:attempt1`;
     await native.markRun(answerId, runId);
+    await native.markRun(answerId, runId);
+    const runningEvents = await new PostgresRuntimeEventRepository(
+      service.db,
+    ).listRuntimeEvents({
+      appId: appId as never,
+      eventTypes: ['source.answer.running'],
+    });
+    expect(runningEvents).toHaveLength(1);
+    expect(runningEvents[0]).toMatchObject({
+      runId,
+      correlationId: 'goal1',
+      payload: { attemptId: 'attempt1', binding: make('1').binding },
+    });
     const output = JSON.stringify({
       version: 1,
       answer: 'Complete',

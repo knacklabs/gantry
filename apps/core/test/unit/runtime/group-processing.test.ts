@@ -10428,6 +10428,7 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
       let loop: ReturnType<typeof startLiveAdmissionWorkLoop> | undefined;
       let authority: InstanceType<typeof LiveTurnAuthority> | undefined;
       let pump: ReturnType<typeof setInterval> | undefined;
+      let restoreEventExchange: (() => void) | undefined;
       const previous = getMemoryLlmClient();
       const sourceCounts = vi.fn(async () => {
         if (mode === 'count_failure')
@@ -10485,6 +10486,22 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
           tenderId: 'T1',
         };
         const token = randomUUID();
+        const runtimeStore =
+          await import('@core/adapters/storage/postgres/runtime-store.js');
+        const { RuntimeEventExchange } =
+          await import('@core/application/runtime-events/runtime-event-exchange.js');
+        const { PostgresRuntimeEventRepository } =
+          await import('@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js');
+        const { handleRuntimeEventRoutes } =
+          await import('@core/control/server/routes/runtime-events.js');
+        const exchange = new RuntimeEventExchange(
+          new PostgresRuntimeEventRepository(db.db),
+          { notify: async () => {}, subscribe: () => () => {} },
+        );
+        const eventExchange = vi
+          .spyOn(runtimeStore, 'getRuntimeEventExchange')
+          .mockReturnValue(exchange);
+        restoreEventExchange = () => eventExchange.mockRestore();
         const module = new SessionInteractionModule({
           control: adaptSessionControlPort(control),
           ops: ops as never,
@@ -10500,15 +10517,25 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
             {
               kid: 'bootstrap-test',
               tokenHash: createHash('sha256').update(token).digest(),
-              scopes: new Set(['sessions:write']),
+              scopes: new Set(['sessions:write', 'sessions:read', 'jobs:read']),
               appId,
             },
           ],
           sessionInteraction: module,
+          state: { activeStreams: 0 },
+          maxConcurrentStreams: 4,
         } as never;
         server = createServer((req, res) => {
           const url = new URL(req.url!, 'http://localhost');
-          void handleSessionRoutes(req, res, ctx, url, url.pathname)
+          void (async () =>
+            (await handleRuntimeEventRoutes(
+              req,
+              res,
+              ctx,
+              url,
+              url.pathname,
+            )) ||
+            (await handleSessionRoutes(req, res, ctx, url, url.pathname)))()
             .then((ok) => {
               if (!ok) {
                 res.statusCode = 404;
@@ -10742,6 +10769,38 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
           await new Promise((r) => setTimeout(r, 25));
         }
         if (mode === 'future') {
+          const streamAbort = new AbortController();
+          const stream = sdk.runtimeEvents
+            .stream({
+              sessionId: session.sessionId,
+              eventType: 'source.answer.running',
+              signal: streamAbort.signal,
+            })
+            [Symbol.asyncIterator]();
+          const timer = setTimeout(() => streamAbort.abort(), 3000);
+          try {
+            const running = await stream.next();
+            expect(running.value).toMatchObject({
+              eventType: 'source.answer.running',
+              sessionId: session.sessionId,
+              correlationId: 'bootstrap-goal',
+              payload: {
+                answerGoalId: 'bootstrap-goal',
+                attemptId: 'bootstrap-attempt',
+                binding,
+              },
+            });
+            expect(running.value!.runId).toBeTruthy();
+            const repeated = await sdk.runtimeEvents.list({
+              sessionId: session.sessionId,
+              eventType: 'source.answer.running',
+            });
+            expect(repeated.events).toHaveLength(1);
+          } finally {
+            clearTimeout(timer);
+            streamAbort.abort();
+            await stream.return?.();
+          }
           if (!Object.keys(routes).length)
             throw new Error(
               JSON.stringify(
@@ -10841,6 +10900,7 @@ nativeBootstrap('native HTTP admission across worker routing', () => {
         expect(work?.claimWorkerInstanceId).toBe(workerId);
       } finally {
         vi.useRealTimers();
+        restoreEventExchange?.();
         if (pump) clearInterval(pump);
         await loop?.stop();
         await queue?.shutdown(1000);

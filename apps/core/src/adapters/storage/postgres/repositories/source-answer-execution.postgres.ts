@@ -51,24 +51,94 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
     return complete ? 'completed' : 'failed';
   }
   async markRun(id: string, runId: string) {
-    const [answer] = await this.db
+    const [owner] = await this.db
       .select()
       .from(s.pendingInteractionsPostgres)
       .where(eq(s.pendingInteractionsPostgres.id, id));
-    if (!answer || answer.status !== 'pending')
-      fail('Source answer no longer active');
-    if (answer!.runId && answer!.runId !== runId)
-      fail('Source answer already associated with another native run');
-    await this.db
-      .update(s.pendingInteractionsPostgres)
-      .set({
-        runId,
-        payloadJson: {
-          ...(answer!.payloadJson as Record<string, unknown>),
-          state: 'running',
-        },
-      })
-      .where(eq(s.pendingInteractionsPostgres.id, id));
+    if (!owner) fail('Source answer no longer active');
+    await this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, owner!.appId);
+      const [answer] = await tx
+        .select()
+        .from(s.pendingInteractionsPostgres)
+        .where(eq(s.pendingInteractionsPostgres.id, id))
+        .for('update');
+      if (!answer || answer.status !== 'pending')
+        fail('Source answer no longer active');
+      const payload = answer!.payloadJson as AnswerPayload & {
+        runningEventId?: string;
+        generationInvalidated?: boolean;
+      };
+      if (
+        payload.interactionType !== 'source_answer' ||
+        payload.generationInvalidated
+      )
+        fail('Source answer generation was invalidated');
+      if (answer!.runId && answer!.runId !== runId)
+        fail('Source answer already associated with another native run');
+      if (payload.runningEventId) return;
+      const [session] = await tx
+        .select()
+        .from(s.controlHttpSessionsPostgres)
+        .where(
+          and(
+            eq(s.controlHttpSessionsPostgres.appId, answer!.appId),
+            eq(
+              s.controlHttpSessionsPostgres.externalConversationId,
+              payload.request.binding.discussionId,
+            ),
+          ),
+        );
+      const [run] = await tx
+        .select()
+        .from(s.agentRunsPostgres)
+        .where(
+          and(
+            eq(s.agentRunsPostgres.id, runId),
+            eq(s.agentRunsPostgres.appId, answer!.appId),
+          ),
+        );
+      if (
+        !session ||
+        !run ||
+        run.agentId !== session.agentId ||
+        run.sessionId !== session.sessionId ||
+        run.status !== 'running'
+      )
+        fail('Source answer native execution identity is invalid');
+      const startedAt = run!.startedAt ?? run!.createdAt;
+      const [event] = await tx
+        .insert(s.runtimeEventsPostgres)
+        .values({
+          appId: answer!.appId,
+          agentId: session!.agentId,
+          sessionId: session!.sessionId,
+          runId,
+          conversationId: session!.conversationId,
+          eventType: 'source.answer.running',
+          actor: 'runtime',
+          correlationId: payload.request.answerGoalId,
+          createdAt: new Date().toISOString(),
+          payloadJson: JSON.stringify({
+            answerGoalId: payload.request.answerGoalId,
+            attemptId: payload.request.attemptId,
+            binding: payload.request.binding,
+            startedAt,
+          }),
+        })
+        .returning();
+      await tx
+        .update(s.pendingInteractionsPostgres)
+        .set({
+          runId,
+          payloadJson: {
+            ...payload,
+            state: 'running',
+            runningEventId: String(event!.eventId),
+          },
+        })
+        .where(eq(s.pendingInteractionsPostgres.id, id));
+    });
   }
   async output(id: string, runId: string, text: string) {
     if (!text.trim() || Buffer.byteLength(text) > 262144)
