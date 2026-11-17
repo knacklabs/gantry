@@ -1,3 +1,4 @@
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { randomUUID } from 'node:crypto';
 import type {
   LiveAdmissionWakeupSource,
@@ -63,6 +64,15 @@ export type ActiveControlCommandHandler = (args: {
 }) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
+  failSourceAnswerDispatch?: (
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ) => Promise<void>;
+  sourceAnswerDispatchRoute?: (
+    appId: string,
+    conversationJid: string,
+  ) => Promise<{ source: true; route?: ConversationRoute } | undefined>;
   hasQueuedSourceAnswer?: (appId: string, chatJid: string) => Promise<boolean>;
   getAgentTurnContext?: (input: {
     agentFolder: string;
@@ -101,6 +111,10 @@ interface AdmissionOpsRepository {
 }
 
 interface AdmissionApp {
+  projectConversationRoute?: (
+    jid: string,
+    group: ConversationRoute,
+  ) => Promise<void>;
   getConversationRoutes(): Record<string, ConversationRoute>;
   resolveExecutionProviderId?: (
     route: ConversationRoute,
@@ -191,6 +205,41 @@ export function buildLiveAdmissionProcessor(input: {
     queueJid: string,
     context?: GroupMessageRunContext,
   ): Promise<boolean> => {
+    let nativeSourceDispatch = false;
+    const sourceChatJid = parseAgentThreadQueueKey(queueJid).chatJid;
+    const sourceAppId = appIdFromConversationJid(sourceChatJid);
+    if (sourceAppId && opsRepository.sourceAnswerDispatchRoute) {
+      const dispatch = await opsRepository.sourceAnswerDispatchRoute(
+        sourceAppId,
+        sourceChatJid,
+      );
+      if (dispatch) {
+        nativeSourceDispatch = true;
+        if (!dispatch.route) return true;
+        try {
+          if (!app.projectConversationRoute)
+            throw new Error('Source answer route projection is unavailable');
+          await app.projectConversationRoute(sourceChatJid, dispatch.route);
+          if (
+            !findConversationRouteForQueue(
+              app.getConversationRoutes(),
+              queueJid,
+              (candidate) => agentIdForFolder(candidate.folder),
+            )
+          )
+            throw new Error('Source answer route did not materialize');
+        } catch {
+          if (!opsRepository.failSourceAnswerDispatch)
+            throw new Error('Source answer routing prerequisite failed');
+          await opsRepository.failSourceAnswerDispatch(
+            sourceAppId,
+            sourceChatJid,
+            'Source answer routing prerequisite unavailable',
+          );
+          return true;
+        }
+      }
+    }
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
@@ -231,7 +280,17 @@ export function buildLiveAdmissionProcessor(input: {
         queueJid,
         (candidate) => agentIdForFolder(candidate.folder),
       );
-      if (!route) return false;
+      if (!route) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer route projection is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const executionProviderId =
         (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
@@ -244,7 +303,17 @@ export function buildLiveAdmissionProcessor(input: {
         conversationKind: route.conversationKind,
         hydrateMemory: false,
       });
-      if (!turnContext?.agentSessionId) return false;
+      if (!turnContext?.agentSessionId) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer native session context is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const scope: LiveTurnScope = {
         appId: turnContext.appId,
         agentSessionId: turnContext.agentSessionId,

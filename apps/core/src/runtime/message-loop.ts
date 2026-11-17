@@ -538,6 +538,13 @@ export async function recoverPendingMessages(
   deps: MessageLoopDeps,
 ): Promise<void> {
   const opsRepository = resolveMessageRepository(deps);
+  for (const queueJid of (await opsRepository.pendingSourceAnswerQueueKeys?.()) ??
+    []) {
+    const accepted = await (deps.queue.enqueueSourceAnswerCheck?.(queueJid) ??
+      deps.queue.enqueueMessageCheck(queueJid));
+    if (accepted === false)
+      throw new Error('Queued source answer recovery admission is unavailable');
+  }
   const routesByChatAgentThread = new Map<
     string,
     [string, ConversationRoute]

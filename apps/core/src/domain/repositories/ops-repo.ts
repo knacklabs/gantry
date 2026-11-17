@@ -132,6 +132,15 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  failSourceAnswerDispatch?(
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ): Promise<void>;
+  sourceAnswerDispatchRoute?(
+    appId: string,
+    conversationJid: string,
+  ): Promise<{ source: true; route?: ConversationRoute } | undefined>;
   hasQueuedSourceAnswer?(
     appId: string,
     conversationJid: string,

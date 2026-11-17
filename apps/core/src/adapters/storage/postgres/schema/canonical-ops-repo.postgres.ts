@@ -166,6 +166,23 @@ export class PostgresRuntimeRepositoryBundle
   async recoverSourceAnswerRun(runId: string) {
     return new PostgresSourceAnswerRepository(this.db).recoverRun(runId);
   }
+  async failSourceAnswerDispatch(
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ) {
+    await new PostgresSourceAnswerRepository(this.db).dispatchRoute(
+      appId,
+      conversationJid,
+      reason,
+    );
+  }
+  async sourceAnswerDispatchRoute(appId: string, conversationJid: string) {
+    return new PostgresSourceAnswerRepository(this.db).dispatchRoute(
+      appId,
+      conversationJid,
+    );
+  }
   async pendingSourceAnswerQueueKeys() {
     return new PostgresSourceAnswerRepository(this.db).pendingQueueKeys();
   }

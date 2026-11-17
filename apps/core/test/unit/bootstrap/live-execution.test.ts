@@ -283,3 +283,50 @@ describe('startLiveExecutionServices', () => {
     );
   });
 });
+
+it('fails explicit source work when its required route cannot be projected', async () => {
+  const fail = vi.fn(async () => {});
+  const process = vi.fn(async () => true);
+  const queueJid = makeAgentThreadQueueKey(
+    'app:tenant:D1',
+    'agent:interactive',
+    null,
+    'control:tenant',
+  );
+  const processor = buildLiveAdmissionProcessor({
+    liveTurnAuthority: undefined,
+    app: {
+      getConversationRoutes: () => ({}),
+      projectConversationRoute: async () => {},
+      processGroupMessages: process,
+      getOrRecoverCursor: async () => '',
+      setAgentCursor: () => {},
+      saveState: () => {},
+    },
+    opsRepository: {
+      sourceAnswerDispatchRoute: async () => ({
+        source: true,
+        route: {
+          name: 'Interactive',
+          folder: 'interactive',
+          trigger: '',
+          added_at: '2026-11-17T00:00:00Z',
+          providerAccountId: 'control:tenant',
+        },
+      }),
+      failSourceAnswerDispatch: fail,
+    },
+    executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+    messageFetchPageSize: 50,
+    timezone: 'UTC',
+    enqueueMessageCheck: () => {},
+    warn: () => {},
+  });
+  expect(await processor(queueJid)).toBe(true);
+  expect(fail).toHaveBeenCalledWith(
+    'tenant',
+    'app:tenant:D1',
+    'Source answer routing prerequisite unavailable',
+  );
+  expect(process).not.toHaveBeenCalled();
+});
