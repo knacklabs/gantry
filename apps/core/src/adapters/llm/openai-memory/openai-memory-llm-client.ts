@@ -1,3 +1,4 @@
+import { countOpenAiSourceTokens } from './source-token-count.js';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -33,6 +34,7 @@ export function createOpenAiMemoryLlmClient(): MemoryLlmClient {
   return {
     isConfigured: hasGatewayMemoryAccess,
     query: runOpenAiMemoryQuery,
+    countTokens: countOpenAiSourceTokens,
     batch: createOpenAiChatBatchCapability(),
   };
 }

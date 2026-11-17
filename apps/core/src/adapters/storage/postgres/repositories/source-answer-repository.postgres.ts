@@ -1,4 +1,5 @@
 import { sourceChannelNativePersonId } from '../../../../memory/source-channel-memory-scope.js';
+import { sourceChatModelAllowed } from '../../../../shared/source-chat-model-policy.js';
 import { configureSourceChannelProfile } from './source-channel-profile.postgres.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { resolveModelSelectionForWorkload } from '../../../../shared/model-catalog.js';
@@ -56,7 +57,7 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
     );
     if (
       !selectedModel.ok ||
-      !/^claude-haiku-4-5(?:-|$)/.test(selectedModel.entry.runnerModel)
+      !sourceChatModelAllowed(selectedModel.entry, appId)
     )
       fail(
         'Source answers require a configured alias for approved Claude Haiku 4.5',

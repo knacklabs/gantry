@@ -543,3 +543,60 @@ describe('deepagents model factory', () => {
     expect(profile.maxInputTokens).toBeUndefined();
   });
 });
+
+it('constructs exact isolated Luna Responses with explicitly disabled reasoning and bounded output', async () => {
+  const resolved = await buildRunnerModel({
+    provider: 'openai',
+    modelId: 'gpt-6-luna',
+    gatewayBaseUrl: loopbackBaseUrl,
+    gatewayToken,
+    configuredThinking: { mode: 'off' },
+    maxOutputTokens: 2000,
+  });
+  const model = await (
+    resolved.model as unknown as {
+      _getModelInstance(): Promise<{
+        model: string;
+        useResponsesApi: boolean;
+        reasoning?: { effort: string };
+        maxTokens?: number;
+        bindTools(tools: unknown[]): unknown;
+        withStructuredOutput(schema: unknown, options: unknown): unknown;
+      }>;
+    }
+  )._getModelInstance();
+  expect(model.model).toBe('gpt-6-luna');
+  expect(model.useResponsesApi).toBe(true);
+  expect(model.reasoning).toEqual({ effort: 'none' });
+  expect(model.maxTokens).toBe(2000);
+  expect(() =>
+    model.bindTools([
+      {
+        type: 'function',
+        function: {
+          name: 'get_tender_metadata',
+          description: 'Authorized metadata',
+          parameters: {
+            type: 'object',
+            properties: {
+              requestedFields: { type: 'array', items: { type: 'string' } },
+            },
+            required: ['requestedFields'],
+            additionalProperties: false,
+          },
+        },
+      },
+    ]),
+  ).not.toThrow();
+  expect(() =>
+    model.withStructuredOutput(
+      {
+        type: 'object',
+        properties: { answer: { type: 'string' } },
+        required: ['answer'],
+        additionalProperties: false,
+      },
+      { name: 'source_answer', strict: true },
+    ),
+  ).not.toThrow();
+});

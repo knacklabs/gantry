@@ -3106,3 +3106,82 @@ it.each(['ok', 'upstream_401', 'gateway_401'] as const)(
     }
   },
 );
+
+it('counts exact Luna input through the real scoped OpenAI gateway without model generation', async () => {
+  const { countOpenAiSourceTokens } =
+    await import('@core/adapters/llm/openai-memory/source-token-count.js');
+  const injectionModule =
+    await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+  const catalog = await import('@core/shared/model-catalog.js');
+  const base = catalog.findModelByRunnerModel('gpt')!;
+  const model = vi
+    .spyOn(catalog, 'resolveModelSelectionForWorkload')
+    .mockReturnValue({
+      ok: true,
+      entry: {
+        ...base,
+        runnerModel: 'gpt-6-luna',
+        modelRoute: {
+          ...base.modelRoute,
+          id: 'openai',
+          providerModelId: 'gpt-6-luna',
+        },
+      },
+    } as never);
+  const repo = new MutableModelCredentialRepository();
+  repo.set('openai', 'sk-openai-fixture');
+  const broker = new GantryModelGatewayBroker(repo);
+  const binding = {
+    profile: 'gantry',
+    purpose: 'model_runtime',
+    appId,
+    runId: 'source-token-count:luna-fixture' as never,
+    modelRouteId: 'openai' as never,
+  };
+  const injection = await broker.getInjection({ binding });
+  const resolve = vi
+    .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+    .mockResolvedValue({
+      injection,
+      revoke: () => broker.revokeInjection({ binding }),
+    });
+  const nativeFetch = globalThis.fetch;
+  const upstream = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({ object: 'response.input_tokens', input_tokens: 41 }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+  vi.stubGlobal(
+    'fetch',
+    async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      String(url).startsWith('https://api.openai.com/')
+        ? upstream(url, init)
+        : nativeFetch(url, init),
+  );
+  try {
+    expect(
+      await countOpenAiSourceTokens({
+        appId,
+        model: 'manipal.chat',
+        prompt: 'Authorized discussion',
+      }),
+    ).toBe(41);
+    const [url, options] = upstream.mock.calls[0];
+    expect(String(url)).toBe(
+      'https://api.openai.com/v1/responses/input_tokens',
+    );
+    expect(options?.headers).toMatchObject({
+      authorization: 'Bearer sk-openai-fixture',
+    });
+    expect(JSON.parse(Buffer.from(options?.body as Buffer).toString())).toEqual(
+      { model: 'gpt-6-luna', input: 'Authorized discussion' },
+    );
+  } finally {
+    resolve.mockRestore();
+    model.mockRestore();
+    vi.unstubAllGlobals();
+    await broker.close();
+  }
+});

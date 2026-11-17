@@ -1,3 +1,4 @@
+import { sourceChatModelAllowed } from '../shared/source-chat-model-policy.js';
 import type { PreparedSourceAnswer } from '../domain/ports/source-discussion.js';
 import type { AppId } from '../domain/app/app.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
@@ -30,10 +31,7 @@ export async function prepareSourceSummary(input: {
     input.answer.request.model,
     'chat',
   );
-  if (
-    !selected.ok ||
-    !/^claude-haiku-4-5(?:-|$)/.test(selected.entry.runnerModel)
-  )
+  if (!selected.ok || !sourceChatModelAllowed(selected.entry, input.appId))
     throw new Error('Source summary requires approved Haiku 4.5');
   const entry = selected.entry;
   const client = input.client ?? getMemoryLlmClient();

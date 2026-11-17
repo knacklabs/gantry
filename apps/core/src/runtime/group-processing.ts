@@ -1,3 +1,4 @@
+import { sourceChatLunaValidationEnabled } from '../shared/source-chat-model-policy.js';
 import { formatMessages } from '../messaging/router.js';
 import * as config from '../config/index.js';
 import {
@@ -107,6 +108,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           responseSchema: sourceAnswer.request.executionProfile?.responseSchema,
           agentControls: {
             maxOutputTokens: sourceAnswer.request.maxOutputTokens,
+            ...(sourceChatLunaValidationEnabled(turnAppId)
+              ? { thinking: { mode: 'off' as const } }
+              : {}),
           },
         }
       : await collectPendingMessagesSince({
