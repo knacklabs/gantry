@@ -1,3 +1,4 @@
+import { ReadSourceDocumentSchema } from '@gantry/contracts';
 import { RebuildSourceGenerationSchema } from '@gantry/contracts';
 import { z } from 'zod';
 import { SourceAnswerExecutionProfileSchema } from '@gantry/contracts';
@@ -196,6 +197,41 @@ export async function handleSessionRoutes(
           agentId: decodeURIComponent(profileMatch[1]!),
           profile: parsed.data.profile,
           concurrency: parsed.data.concurrency,
+        }),
+      );
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+  const documentMatch =
+    /^\/v1\/sessions\/([^/]+)\/source-documents\/read$/.exec(pathname);
+  if (documentMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    const appId = resolveAppScopeAppId(auth, '');
+    if (!appId) {
+      sendError(res, 403, 'FORBIDDEN', 'App scope required');
+      return true;
+    }
+    const parsed = ReadSourceDocumentSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        formatSessionRequestIssue(parsed.error.issues[0]),
+      );
+      return true;
+    }
+    try {
+      sendJson(
+        res,
+        200,
+        await ctx.sessionInteraction.readSourceDocument({
+          appId,
+          sessionId: decodeURIComponent(documentMatch[1]!),
+          request: parsed.data,
         }),
       );
     } catch (error) {

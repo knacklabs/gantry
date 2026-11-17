@@ -1,3 +1,4 @@
+import { handleSourceDocumentTask } from './ipc-source-document-handler.js';
 import {
   describeFileArtifact,
   type FileArtifactId,
@@ -47,6 +48,17 @@ const fileArtifactHandler: TaskHandler = async (context) => {
 
   const payload = data.payload || {};
   const action = toTrimmedString(payload.action, { maxLen: 32 });
+  if (action === 'render_source_document') {
+    try {
+      acceptData(
+        'Source document generated.',
+        await handleSourceDocumentTask(context),
+      );
+    } catch {
+      reject('Source document generation failed or was canceled.', 'forbidden');
+    }
+    return;
+  }
   if (
     action !== 'list' &&
     action !== 'read' &&

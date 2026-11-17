@@ -298,3 +298,39 @@ it('does not expose reviewer tools to a direct caller job', () => {
   });
   expect(projection.selectedToolNames).toEqual(['submit_result']);
 });
+
+it('retains only guarded native source tools and scope in the OpenAI lane', () => {
+  const input = {
+    configuredAllowedTools: [],
+    hideAuthorityTools: true,
+    processEnv: {
+      ...BASE_ENV,
+      GANTRY_APP_ID: 'app',
+      GANTRY_CHAT_JID: 'app:app:D1',
+      GANTRY_RUN_ID: 'native-run',
+      GANTRY_SOURCE_WORKSPACE_MEMORY_ID: 'W1',
+      GANTRY_MEMORY_IPC_AUTH_TOKEN: 'scoped',
+      GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify({
+        tools: [{ name: 'get_tender_metadata' }],
+      }),
+    },
+  };
+  const source = buildGantryMcpProjection(input);
+  for (const name of [
+    'memory_search',
+    'memory_save',
+    'memory_demote',
+    'source_document',
+    'get_tender_metadata',
+  ])
+    expect(source.selectedToolNames).toContain(name);
+  expect(source.selectedToolNames).not.toContain('file');
+  expect(source.selectedToolNames).not.toContain('brain_write');
+  expect(source.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID).toBe('W1');
+  expect(source.env.GANTRY_RUN_ID).toBe('native-run');
+  expect(JSON.parse(source.env.GANTRY_MEMORY_IPC_ACTIONS_JSON)).toEqual([
+    'memory_search',
+    'memory_save',
+    'memory_demote',
+  ]);
+});

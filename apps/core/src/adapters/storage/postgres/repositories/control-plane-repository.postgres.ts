@@ -1,3 +1,5 @@
+import { readSourceDocumentForSession } from './source-document-read.postgres.js';
+import type { ReadSourceDocument } from '@gantry/contracts';
 import type { RebuildSourceGeneration } from '@gantry/contracts';
 import { PostgresSourceAnswerRepository } from './source-answer-repository.postgres.js';
 import type {
@@ -55,6 +57,13 @@ export class PostgresControlPlaneRepository {
     this.jobTriggers = new PostgresJobTriggerRepository(db);
   }
 
+  async readSourceDocument(
+    appId: string,
+    sessionId: string,
+    input: ReadSourceDocument,
+  ) {
+    return readSourceDocumentForSession(this.db, appId, sessionId, input);
+  }
   async configureSourceChannelProfile(
     appId: string,
     agentId: string,

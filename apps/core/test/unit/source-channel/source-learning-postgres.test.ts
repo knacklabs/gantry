@@ -1,3 +1,10 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { PostgresFileArtifactStore } from '../../../src/adapters/storage/postgres/repositories/file-artifact-repository.postgres.js';
+import { LocalFileArtifactBytes } from '../../../src/adapters/artifacts/files/local-file-artifact-bytes.js';
+import { readSourceDocumentForSession } from '../../../src/adapters/storage/postgres/repositories/source-document-read.postgres.js';
+import { createSourceDocument } from '../../../src/source-documents/service.js';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID, createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -25,6 +32,8 @@ run('source learning activation through durable SDK authority', () => {
   const appId = `learning-${randomUUID()}`;
   const folder = `learning-${randomUUID()}`;
   let db: PostgresStorageService;
+  let fileStore: PostgresFileArtifactStore;
+  let fileRoot: string;
   let control: PostgresControlPlaneRepository;
   let native: PostgresSourceAnswerRepository;
   let memory: AppMemoryService;
@@ -40,9 +49,17 @@ run('source learning activation through durable SDK authority', () => {
     control = new PostgresControlPlaneRepository(db.db);
     native = new PostgresSourceAnswerRepository(db.db);
     memory = new AppMemoryService(db.db);
+    fileRoot = await mkdtemp(path.join(tmpdir(), 'native-source-documents-'));
+    fileStore = new PostgresFileArtifactStore(
+      db.db,
+      new LocalFileArtifactBytes(fileRoot),
+    );
+    const controlPort = adaptSessionControlPort(control);
+    controlPort.readSourceDocument = (a, id, input) =>
+      readSourceDocumentForSession(db.db, a, id, input, fileStore);
     const token = randomUUID();
     const module = new SessionInteractionModule({
-      control: adaptSessionControlPort(control),
+      control: controlPort,
       ops: {} as never,
       repositories: {} as never,
       runtimeEvents: {} as never,
@@ -55,7 +72,7 @@ run('source learning activation through durable SDK authority', () => {
         {
           kid: 'learning-test',
           tokenHash: createHash('sha256').update(token).digest(),
-          scopes: new Set(['sessions:write']),
+          scopes: new Set(['sessions:write', 'sessions:read']),
           appId,
         },
       ],
@@ -139,6 +156,7 @@ run('source learning activation through durable SDK authority', () => {
     if (db) {
       await db.db.delete(s.appsPostgres).where(eq(s.appsPostgres.id, appId));
       await db.close();
+      if (fileRoot) await rm(fileRoot, { recursive: true, force: true });
     }
   });
   async function attempt(texts: string[], personId = 'person1') {
@@ -221,21 +239,19 @@ run('source learning activation through durable SDK authority', () => {
         eq(s.agentConfigVersionsPostgres.id, agent!.currentConfigVersionId!),
       );
     const runId = `run-${randomUUID()}`;
-    await db.db
-      .insert(s.agentRunsPostgres)
-      .values({
-        id: runId,
-        appId,
-        agentId: session.agentId,
-        configVersionId: config!.id,
-        sessionId: session.sessionId,
-        conversationId: session.canonicalConversationId,
-        llmProfileId: config!.llmProfileId,
-        executionProviderId: 'anthropic:claude-agent-sdk',
-        cause: 'message',
-        status: 'running',
-        createdAt: new Date().toISOString(),
-      });
+    await db.db.insert(s.agentRunsPostgres).values({
+      id: runId,
+      appId,
+      agentId: session.agentId,
+      configVersionId: config!.id,
+      sessionId: session.sessionId,
+      conversationId: session.canonicalConversationId,
+      llmProfileId: config!.llmProfileId,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      cause: 'message',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+    });
     await native.markRun(prepared.id, runId);
     return {
       prepared,
@@ -262,6 +278,89 @@ run('source learning activation through durable SDK authority', () => {
     supportingSourceIds: ids,
     reason: 'General supported instruction',
   });
+  it('registers only host-rendered goal-bound bytes and reads them through the actual session SDK boundary', async () => {
+    const a = await attempt(['Generate a PDF with a basic unconfirmed note.']);
+    const bytes = Buffer.from('%PDF-1.7\nNative source document');
+    let renders = 0;
+    const document = {
+      version: 1 as const,
+      format: 'pdf' as const,
+      fileName: 'answer.pdf',
+      title: 'Answer',
+      blocks: [{ type: 'paragraph' as const, text: 'Unconfirmed note' }],
+    };
+    const launch = async () => {
+      renders++;
+      return {
+        bytes,
+        result: {
+          version: 1 as const,
+          rendererVersion: 'fixture-v1',
+          fileName: 'answer.pdf',
+          contentType: 'application/pdf' as const,
+          bytesBase64: bytes.toString('base64'),
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          sizeBytes: bytes.length,
+        },
+      };
+    };
+    const input = {
+      scope: a.scope,
+      document,
+      citationIds: [],
+      metadataFields: [],
+      store: fileStore,
+      repository: new PostgresSourceLearningRepository(db.db),
+      launch,
+    };
+    try {
+      const receipt = await createSourceDocument(input);
+      expect(receipt.runId).toBe(a.scope.runId);
+      expect(JSON.stringify(receipt)).not.toContain(bytes.toString('base64'));
+      expect(await createSourceDocument(input)).toEqual(receipt);
+      expect(renders).toBe(1);
+      const body = {
+        artifactId: receipt.artifactId,
+        answerGoalId: receipt.answerGoalId,
+        attemptId: receipt.attemptId,
+        binding: receipt.binding,
+      };
+      const read = await sdk.sessions.readSourceDocument(
+        receipt.sessionId,
+        body,
+      );
+      expect(Buffer.from(read.bytesBase64, 'base64')).toEqual(bytes);
+      expect(read.receipt).toEqual(receipt);
+      await expect(
+        sdk.sessions.readSourceDocument(receipt.sessionId, {
+          ...body,
+          attemptId: 'foreign',
+        }),
+      ).rejects.toThrow();
+      await expect(
+        native.output(
+          a.prepared.id,
+          a.scope.runId,
+          JSON.stringify({ artifacts: [{ ...receipt, runId: 'foreign' }] }),
+        ),
+      ).rejects.toThrow(/receipt/);
+      await native.output(
+        a.prepared.id,
+        a.scope.runId,
+        JSON.stringify({ artifacts: [receipt] }),
+      );
+      await expect(
+        createSourceDocument({
+          ...input,
+          document: { ...document, title: 'Second' },
+        }),
+      ).resolves.toMatchObject({ format: 'pdf' });
+      for(const title of ['Third','Fourth'])await expect(createSourceDocument({...input,document:{...document,title}})).resolves.toMatchObject({format:'pdf'});
+      await expect(createSourceDocument({...input,document:{...document,title:'Fifth'}})).rejects.toThrow(/four documents/);
+    } finally {
+      await a.finish();
+    }
+  }, 30000);
   it('activates free-form repeated learning once, records separate usage and recalls only general values in another discussion', async () => {
     const a = await attempt([
       'Please check technical and financial eligibility separately.',

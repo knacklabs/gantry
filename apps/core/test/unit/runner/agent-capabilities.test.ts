@@ -1222,26 +1222,26 @@ describe('agent capability composition', () => {
       workspaceFolder: 'external_evaluation',
       isScheduledJob: true,
       browserProfileName: 'public_readonly_research',
-      configuredAllowedTools: [
-        'Browser',
-        'WebSearch',
-        'AgentDelegation',
+      configuredAllowedTools: ['Browser', 'WebSearch', 'AgentDelegation'],
+      semanticCapabilities: [
+        {
+          capabilityId: 'example.external-evaluator',
+          version: '1',
+          displayName: 'Example External Evaluator',
+          category: 'evaluation',
+          risk: 'write',
+          can: 'Validate and evaluate an artifact.',
+          cannot: 'Browse or activate application data.',
+          credentialSource: 'configured_access',
+          implementationBindings: [
+            {
+              kind: 'mcp_pattern',
+              mcpServer: 'example-evaluator',
+              mcpToolPatterns: ['compile', 'submit'],
+            },
+          ],
+        },
       ],
-      semanticCapabilities: [{
-        capabilityId: 'example.external-evaluator',
-        version: '1',
-        displayName: 'Example External Evaluator',
-        category: 'evaluation',
-        risk: 'write',
-        can: 'Validate and evaluate an artifact.',
-        cannot: 'Browse or activate application data.',
-        credentialSource: 'configured_access',
-        implementationBindings: [{
-          kind: 'mcp_pattern',
-          mcpServer: 'example-evaluator',
-          mcpToolPatterns: ['compile', 'submit'],
-        }],
-      }],
       callerResolvedTools: {
         sessionId: 'session-1',
         tools: [
@@ -1261,27 +1261,27 @@ describe('agent capability composition', () => {
     const gantryNames = JSON.parse(
       profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON ?? '[]',
     ) as string[];
-    expect(gantryNames).toEqual(expect.arrayContaining([
-      'browser_open',
-      'browser_inspect',
-      'browser_act',
-      'browser_captcha_challenge',
-      'browser_captcha_settle',
-      'file',
-      'job_checkpoint_status',
-      'job_checkpoint_save',
-      'mcp_call_tool',
-      'external_capability_call',
-      'resolve_external_interaction',
-    ]));
+    expect(gantryNames).toEqual(
+      expect.arrayContaining([
+        'browser_open',
+        'browser_inspect',
+        'browser_act',
+        'browser_captcha_challenge',
+        'browser_captcha_settle',
+        'file',
+        'job_checkpoint_status',
+        'job_checkpoint_save',
+        'mcp_call_tool',
+        'external_capability_call',
+        'resolve_external_interaction',
+      ]),
+    );
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__file');
     expect(profile.allowedTools).toContain(
       'mcp__gantry__job_checkpoint_status',
     );
-    expect(profile.allowedTools).toContain(
-      'mcp__gantry__job_checkpoint_save',
-    );
+    expect(profile.allowedTools).toContain('mcp__gantry__job_checkpoint_save');
     expect(profile.availableTools).toContain('mcp__gantry__mcp_call_tool');
     expect(profile.allowedTools).toContain(
       'mcp__gantry__resolve_external_interaction',
@@ -1390,4 +1390,51 @@ describe('agent capability composition', () => {
     );
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
   });
+});
+
+it('projects only the guarded source operations alongside caller tools for a locked native source answer', () => {
+  const base = {
+    mcpServerPath: '/trusted/mcp.js',
+    appId: 'app',
+    agentId: 'agent:interactive',
+    chatJid: 'app:app:D1',
+    workspaceFolder: 'interactive',
+    accessPreset: 'locked' as const,
+    callerResolvedTools: {
+      tools: [
+        {
+          name: 'evidence',
+          description: 'Evidence',
+          inputSchema: { type: 'object' },
+        },
+      ],
+      responseTimeoutMs: 1000,
+      maxInteractions: 4,
+    },
+  };
+  const ordinary = composeAgentCapabilities(base);
+  const source = composeAgentCapabilities({
+    ...base,
+    sourceWorkspaceMemoryId: 'W1',
+  });
+  for (const name of [
+    'memory_search',
+    'memory_save',
+    'memory_demote',
+    'source_document',
+  ]) {
+    expect(source.allowedTools).toContain(`mcp__gantry__${name}`);
+    expect(ordinary.allowedTools).not.toContain(`mcp__gantry__${name}`);
+  }
+  expect(source.allowedTools).not.toContain('Bash');
+  expect(source.allowedTools).not.toContain('mcp__gantry__file');
+  const server = source.mcpServers.gantry;
+  if (!server || server.type === 'http' || server.type === 'sse')
+    throw new Error('stdio MCP absent');
+  expect(JSON.parse(server.env!.GANTRY_MEMORY_IPC_ACTIONS_JSON)).toEqual([
+    'memory_search',
+    'memory_save',
+    'memory_demote',
+  ]);
+  expect(server.env!.GANTRY_SOURCE_WORKSPACE_MEMORY_ID).toBe('W1');
 });

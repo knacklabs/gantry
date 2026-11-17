@@ -1,3 +1,4 @@
+import { assertSourceDocumentOutput } from './source-document-output.postgres.js';
 import { sourceAnswerOutputId } from './source-answer-output-id.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
@@ -110,6 +111,14 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
           ),
         );
       if (!session) fail('Source answer session absent');
+      await assertSourceDocumentOutput(tx, {
+        appId: answer!.appId,
+        agentId: session!.agentId,
+        sessionId: session!.sessionId,
+        runId,
+        request: payload.request,
+        text,
+      });
       const outputId = sourceAnswerOutputId(
         answer!.appId,
         payload.request.answerGoalId,

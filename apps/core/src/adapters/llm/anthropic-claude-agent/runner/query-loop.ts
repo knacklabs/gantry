@@ -352,6 +352,7 @@ export async function runQuery(
     ipcAuthToken: process.env.GANTRY_IPC_AUTH_TOKEN,
     browserIpcAuthToken: process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN,
     memoryIpcAuthToken: process.env.GANTRY_MEMORY_IPC_AUTH_TOKEN,
+    sourceWorkspaceMemoryId: process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID,
     ipcResponseVerifyKey: process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY,
     ipcResponseKeyId: process.env.GANTRY_IPC_RESPONSE_KEY_ID,
     externalMcpServers: readExternalMcpServers(),

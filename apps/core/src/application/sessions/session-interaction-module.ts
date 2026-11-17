@@ -1,4 +1,8 @@
 import type {
+  ReadSourceDocument,
+  ReadSourceDocumentResponse,
+} from '@gantry/contracts';
+import type {
   RebuildSourceGeneration,
   RebuildSourceGenerationResponse,
 } from '@gantry/contracts';
@@ -66,6 +70,11 @@ export type SessionResponseRouteRecord = {
 };
 
 export interface SessionControlPort {
+  readSourceDocument?(
+    appId: string,
+    sessionId: string,
+    input: ReadSourceDocument,
+  ): Promise<ReadSourceDocumentResponse>;
   configureSourceChannelProfile?(
     appId: string,
     agentId: string,
@@ -155,6 +164,23 @@ export type SessionQueueIntent = {
 export class SessionInteractionModule {
   constructor(private readonly deps: SessionInteractionDeps) {}
 
+  async readSourceDocument(input: {
+    appId: string;
+    sessionId: string;
+    request: ReadSourceDocument;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.readSourceDocument)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source document read unavailable',
+      );
+    return this.deps.control.readSourceDocument(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
   async configureSourceChannelProfile(input: {
     appId: string;
     agentId: string;

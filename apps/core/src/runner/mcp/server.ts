@@ -1,3 +1,4 @@
+import { registerSourceDocumentTools } from './tools/source-document.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerBrainTools } from './tools/brain.js';
 import { registerAttachmentTools } from './tools/attachment.js';
@@ -132,6 +133,7 @@ export function createGantryMcpServer(): McpServer {
   registerBrowserTools(filteredServer);
   registerCanvasTools(filteredServer);
   registerFileTools(filteredServer);
+  registerSourceDocumentTools(filteredServer);
   registerProfileTools(filteredServer);
   registerServiceTools(filteredServer);
 
@@ -207,7 +209,12 @@ export function effectiveEnabledMcpToolNames(
       enabledTools.add(tool.name);
     }
     if (process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim()) {
-      for (const name of ['memory_search', 'memory_save', 'memory_demote'])
+      for (const name of [
+        'memory_search',
+        'memory_save',
+        'memory_demote',
+        'source_document',
+      ])
         enabledTools.add(name);
     }
   }

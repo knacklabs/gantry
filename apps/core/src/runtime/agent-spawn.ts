@@ -404,9 +404,7 @@ async function spawnAgentWithContext(
       },
     );
     const memoryIpcAllowedActions = input.sourceWorkspaceMemoryId
-      ? configuredMemoryActions.filter((action) =>
-          ['memory_search', 'memory_save', 'memory_demote'].includes(action),
-        )
+      ? (['memory_search', 'memory_save', 'memory_demote'] as const)
       : configuredMemoryActions;
     const upstreamProxyUrl =
       projectedCredentials.proxy?.https || projectedCredentials.proxy?.http;

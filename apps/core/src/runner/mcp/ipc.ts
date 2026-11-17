@@ -142,9 +142,7 @@ export async function requestMemoryAction(
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       defaultScope: memoryDefaultScope,
       ...(sourceWorkspaceMemoryId ? { sourceWorkspaceMemoryId } : {}),
-      ...(sourceWorkspaceMemoryId && process.env.GANTRY_AGENT_RUN_HANDLE
-        ? { sourceRunId: process.env.GANTRY_AGENT_RUN_HANDLE }
-        : {}),
+      ...(sourceWorkspaceMemoryId && runId ? { sourceRunId: runId } : {}),
       allowedActions: memoryIpcAllowedActions,
       reviewerIsControlApprover: memoryReviewerIsControlApprover,
     },

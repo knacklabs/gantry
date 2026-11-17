@@ -34,6 +34,8 @@ export function adaptSessionControlPort(
         profile,
         concurrency,
       ),
+    readSourceDocument: (appId, sessionId, input) =>
+      control.readSourceDocument(appId, sessionId, input),
     requestSourceAnswer: (appId, sessionId, input) =>
       control.requestSourceAnswer(appId, sessionId, input),
     settleSourceHistory: (appId, sessionId, input) =>

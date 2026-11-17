@@ -121,7 +121,7 @@ export class PostgresSourceLearningRepository extends SourceAnswerRepositoryBase
       slotKey: `source-learning:${context.scope.appId}:${context.scope.runId}`,
       holderId: holder,
       capacity: 1,
-      ttlMs: 30000,
+      ttlMs: 60000,
     });
   }
   async release(context: SourceLearningContext, holder: string) {
