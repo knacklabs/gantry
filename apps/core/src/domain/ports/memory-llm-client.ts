@@ -102,5 +102,6 @@ export interface MemoryLlmBatchCapability {
 export interface MemoryLlmClient {
   isConfigured(): boolean;
   query(opts: MemoryLlmQueryOpts): Promise<string>;
+  countTokens?(opts: MemoryLlmQueryOpts): Promise<number>;
   batch?: MemoryLlmBatchCapability;
 }

@@ -1,6 +1,7 @@
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import type { NewMessage } from '../types.js';
 export interface SourceSummaryWork {
+  inputTokens?: number;
   id: string;
   mode: 'recent' | 'ancestry';
   generation: number;
@@ -22,4 +23,5 @@ export interface PreparedSourceAnswer {
   executionAuthorityDeadline?: number;
   contextSummary?: string;
   summaryWork?: SourceSummaryWork;
+  summaryCandidate?: SourceSummaryWork;
 }

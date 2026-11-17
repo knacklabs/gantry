@@ -254,20 +254,18 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
     });
     const selectedSourceIds = messages.map((row) => row.id);
     let summaryWork: SourceSummaryWork | undefined;
+    let summaryCandidate: SourceSummaryWork | undefined;
     let contextSummary = prior?.digest;
-    if (
-      (messages.length > 80 ||
-        Buffer.byteLength(JSON.stringify(messages)) > 32768) &&
-      messages.length > 2
-    ) {
+    if (messages.length > 2) {
+      const requiresSummary = messages.length > 80;
       const keep = Math.min(20, Math.max(2, messages.length - 1));
       const older = messages.slice(0, -keep);
-      messages = messages.slice(-keep);
+      if (requiresSummary) messages = messages.slice(-keep);
       const sourceIds = older.map((row) => row.id);
       const throughPosition = String(
         rows[rows.length - keep - 1]!.message.sourcePosition,
       );
-      summaryWork = {
+      summaryCandidate = {
         id: `source-digest:${hash([appId, session.sessionId, request.binding, ancestry ? 'ancestry' : 'recent', prior?.id ?? null, sourceIds, profileVersion])}`,
         mode: ancestry ? 'ancestry' : 'recent',
         generation: request.binding.generation,
@@ -280,6 +278,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
         previousText: prior?.digest,
         messages: older,
       };
+      if (requiresSummary) summaryWork = summaryCandidate;
     }
     if (
       Buffer.byteLength(JSON.stringify(messages)) > 262144 ||
@@ -445,6 +444,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
       ),
       contextSummary,
       summaryWork,
+      summaryCandidate,
     };
   }
 }

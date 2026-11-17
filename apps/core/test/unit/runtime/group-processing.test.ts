@@ -1,3 +1,7 @@
+import {
+  registerMemoryLlmClient,
+  getMemoryLlmClient,
+} from '../../../src/memory/memory-llm-port.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ChildProcess } from 'child_process';
 import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
@@ -430,6 +434,12 @@ describe('createGroupProcessor', () => {
   });
 
   it('native source answers pass only selected context and a fresh scoped Haiku execution profile to the provider boundary', async () => {
+    const previousMemoryClient = getMemoryLlmClient();
+    registerMemoryLlmClient({
+      isConfigured: () => true,
+      query: async () => '',
+      countTokens: async () => 100,
+    });
     const chosen = [
       makeMessage({ id: 'M1', content: 'selected ancestor' }),
       makeMessage({ id: 'M2', content: 'selected question' }),
@@ -529,6 +539,7 @@ describe('createGroupProcessor', () => {
       'run1',
       expect.stringContaining('answerUnits'),
     );
+    registerMemoryLlmClient(previousMemoryClient);
   });
 
   // =======================================================================

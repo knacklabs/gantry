@@ -9,6 +9,7 @@ const { values } = parseArgs({
     'base-url': { type: 'string' },
     'credential-only': { type: 'boolean' },
     'register-app': { type: 'boolean' },
+    'inspect-effective': { type: 'boolean' },
     alias: { type: 'string', default: 'manipal.chat' },
   },
 });
@@ -19,7 +20,44 @@ if (!db.pathname.startsWith('/chat_validation_'))
   throw new Error(
     'Refusing a database outside the isolated chat_validation_ namespace',
   );
-if (values['register-app']) {
+if (values['inspect-effective']) {
+  const appId = process.env.GANTRY_CONTROL_APP_ID?.trim();
+  const schema = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA ?? 'gantry';
+  if (!appId || !/^[_a-zA-Z][_a-zA-Z0-9]*$/.test(schema))
+    throw new Error('Invalid isolated app/schema configuration');
+  const { Pool } = await import('pg');
+  const pool = new Pool({ connectionString: process.env.GANTRY_DATABASE_URL });
+  try {
+    const result = await pool.query(
+      `SELECT revision, settings_document_json FROM "${schema}".settings_revisions WHERE app_id=$1 ORDER BY revision DESC LIMIT 1`,
+      [appId],
+    );
+    const row = result.rows[0];
+    if (!row)
+      throw new Error('No canonical settings head exists for configured app');
+    const doc = row.settings_document_json;
+    const model = doc.model_aliases?.[values.alias];
+    const tracing = doc.observability?.tracing;
+    console.log(
+      JSON.stringify({
+        appId,
+        canonicalRevision: row.revision,
+        alias: values.alias,
+        aliasConfigured: !!model,
+        provider: model?.provider ?? null,
+        providerModel: model?.provider_model_id ?? null,
+        supportsThinking: model?.supports_thinking ?? null,
+        supportedEffortLevels: model?.supported_effort_levels ?? [],
+        tracingEnabled: tracing?.enabled === true,
+        tracingEndpointConfigured:
+          typeof tracing?.endpoint === 'string' && tracing.endpoint.length > 0,
+        paidCalls: 0,
+      }),
+    );
+  } finally {
+    await pool.end();
+  }
+} else if (values['register-app']) {
   const appId = process.env.GANTRY_CONTROL_APP_ID?.trim();
   const schema = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA ?? 'gantry';
   if (

@@ -21,12 +21,11 @@ export async function prepareSourceSummary(input: {
   onFirstProviderCall?: () => void | Promise<void>;
   onUsage?: (usage: MemoryLlmUsage) => void;
 }): Promise<string | undefined> {
-  const work = input.answer.summaryWork;
-  if (!work) return input.answer.contextSummary;
-  const cached = await input.repository.readSourceSummary?.(work.id);
-  if (cached) return cached;
-  if (!input.repository.saveSourceSummary)
-    throw new Error('Durable source summary storage unavailable');
+  let work = input.answer.summaryWork;
+  if (work) {
+    const cached = await input.repository.readSourceSummary?.(work.id);
+    if (cached) return cached;
+  }
   const selected = resolveModelSelectionForWorkload(
     input.answer.request.model,
     'chat',
@@ -38,6 +37,40 @@ export async function prepareSourceSummary(input: {
     throw new Error('Source summary requires approved Haiku 4.5');
   const entry = selected.entry;
   const client = input.client ?? getMemoryLlmClient();
+  if (!client.countTokens)
+    throw new Error('Native source token counting is unavailable');
+  const remaining = input.deadline - Date.now();
+  if (remaining <= 0)
+    throw new Error('Source execution budget exhausted before token counting');
+  const selectedMessages = work
+    ? [...work.messages, ...input.answer.messages]
+    : input.answer.messages;
+  const inputTokens = await client.countTokens({
+    appId: input.appId,
+    model: input.answer.request.model,
+    prompt: JSON.stringify({
+      priorSummary: input.answer.contextSummary ?? null,
+      messages: selectedMessages,
+    }),
+    timeoutMs: Math.min(15000, remaining),
+  });
+  if (
+    !Number.isSafeInteger(inputTokens) ||
+    inputTokens < 0 ||
+    inputTokens > 100000
+  )
+    throw new Error(
+      'Selected source context exceeds pinned 100000-token input budget',
+    );
+  if (!work && inputTokens > 8000 && input.answer.summaryCandidate) {
+    work = input.answer.summaryCandidate;
+    input.answer.messages = input.answer.messages.slice(work.messages.length);
+    input.answer.summaryWork = work;
+  }
+  if (!work) return input.answer.contextSummary;
+  work = { ...work, inputTokens };
+  if (!input.repository.saveSourceSummary)
+    throw new Error('Durable source summary storage unavailable');
   const chunks: string[][] = [];
   let current: string[] = [];
   let bytes = 0;

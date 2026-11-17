@@ -124,6 +124,7 @@ export class SourceAnswerSummaryRepository extends SourceAnswerRepositoryBase {
         previousDigestId: input.work.previousDigestId,
         usage: input.usage,
         successfulAnswer: false,
+        selectedInputTokens: input.work.inputTokens,
       };
       await tx
         .insert(s.agentSessionDigestsPostgres)

@@ -1,3 +1,5 @@
+import { formatMessages } from '../messaging/router.js';
+import { TIMEZONE } from '../config/index.js';
 import { normalizeModelUsage } from '../shared/model-usage.js';
 import type { PreparedSourceAnswer } from '../domain/ports/source-discussion.js';
 import { prepareSourceSummary } from './source-discussion-summary.js';
@@ -626,7 +628,7 @@ export function createGroupAgentRunner(input: {
           group,
           {
             prompt: sourceSummary
-              ? `Historical discussion summary (bounded exact source coverage; not tender evidence):\n${sourceSummary}\n\nRecent or reply-chain source messages:\n${prompt}`
+              ? `Historical discussion summary (bounded exact source coverage; not tender evidence):\n${sourceSummary}\n\nRecent or reply-chain source messages:\n${options?.sourceAnswer ? formatMessages(options.sourceAnswer.messages, TIMEZONE) : prompt}`
               : (maintenanceCompactionPrompt ?? prompt),
             ...(options?.sourceAnswer?.request.executionProfile
               ? {
