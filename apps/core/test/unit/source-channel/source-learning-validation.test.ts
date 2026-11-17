@@ -1,4 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as catalog from '../../../src/shared/model-catalog.js';
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 import { validateSourceLearningProposal } from '../../../src/memory/source-learning-validation.js';
 const scope = {
   appId: 'app',
@@ -52,6 +57,52 @@ const allow = {
   reason: 'Repeated human process instruction',
 };
 describe('separate source learning validation', () => {
+  it('uses exact Luna for a separate check only in the approved isolated application', async () => {
+    const haiku = catalog.resolveModelSelectionForWorkload('haiku', 'chat');
+    if (!haiku.ok) throw new Error('Haiku fixture missing');
+    vi.spyOn(catalog, 'resolveModelSelectionForWorkload').mockReturnValue({
+      ...haiku,
+      entry: {
+        ...haiku.entry,
+        runnerModel: 'gpt-6-luna',
+        responseFamily: 'openai',
+        modelRoute: { ...haiku.entry.modelRoute, id: 'openai' },
+      },
+    });
+    vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
+    vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
+    vi.stubEnv('GANTRY_APP_ID', 'app');
+    const query = vi.fn(async () => JSON.stringify(allow));
+    expect(
+      (
+        await validateSourceLearningProposal({
+          candidateId: 'candidate',
+          context,
+          evidence,
+          proposal,
+          client: { isConfigured: () => true, query },
+        })
+      ).allowed,
+    ).toBe(true);
+    expect(query.mock.calls[0][0]).toMatchObject({
+      model: 'gpt-6-luna',
+      toolPolicy: 'none',
+      maxOutputTokens: 1024,
+      operationId: 'source-learning:candidate',
+    });
+    vi.stubEnv('GANTRY_APP_ID', 'another-app');
+    await expect(
+      validateSourceLearningProposal({
+        candidateId: 'candidate',
+        context,
+        evidence,
+        proposal,
+        client: { isConfigured: () => true, query },
+      }),
+    ).rejects.toThrow('approved');
+    expect(query).toHaveBeenCalledOnce();
+  });
+
   it('uses a separate bounded Haiku query with exact human evidence and no tools', async () => {
     const query = vi.fn(async () => JSON.stringify(allow));
     const result = await validateSourceLearningProposal({

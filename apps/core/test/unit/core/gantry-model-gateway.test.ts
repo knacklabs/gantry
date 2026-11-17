@@ -3185,3 +3185,112 @@ it('counts exact Luna input through the real scoped OpenAI gateway without model
     await broker.close();
   }
 });
+
+it.each([200, 401])(
+  'separate Luna learning check crosses the real gateway and revokes its token (status %s)',
+  async (status) => {
+    const injectionModule =
+      await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+    vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
+    vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
+    vi.stubEnv('GANTRY_APP_ID', appId);
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'sk-openai-fixture');
+    const broker = new GantryModelGatewayBroker(repo);
+    const binding = {
+      profile: 'gantry',
+      purpose: 'model_runtime',
+      appId,
+      runId: 'source-learning:gateway-fixture' as never,
+      modelRouteId: 'openai' as never,
+    };
+    const injection = await broker.getInjection({ binding });
+    const access = vi
+      .spyOn(injectionModule, 'hasGatewayMemoryAccess')
+      .mockReturnValue(true);
+    const revoke = vi.fn(() => broker.revokeInjection({ binding }));
+    const resolve = vi
+      .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+      .mockResolvedValue({ injection, revoke });
+    const nativeFetch = globalThis.fetch;
+    const upstream = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify(
+            status === 200
+              ? {
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      content: [
+                        { type: 'output_text', text: '{"decision":"reject"}' },
+                      ],
+                    },
+                  ],
+                  usage: { input_tokens: 40, output_tokens: 8 },
+                }
+              : { error: { message: 'private upstream diagnostic' } },
+          ),
+          { status, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal(
+      'fetch',
+      async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        String(url).startsWith('https://api.openai.com/')
+          ? upstream(url, init)
+          : nativeFetch(url, init),
+    );
+    try {
+      const usage = vi.fn();
+      const result = createOpenAiMemoryLlmClient().query({
+        appId,
+        model: 'gpt-6-luna',
+        modelProfile: {
+          alias: 'manipal.chat',
+          runnerModel: 'gpt-6-luna',
+          responseFamily: 'openai',
+          modelRoute: 'openai',
+          modelRouteLabel: 'OpenAI',
+          displayName: 'Luna',
+        },
+        prompt: 'Check exact source evidence and return JSON',
+        toolPolicy: 'none',
+        maxOutputTokens: 1024,
+        operationId: binding.runId,
+        onUsage: usage,
+      });
+      if (status === 200) {
+        expect(await result).toBe('{"decision":"reject"}');
+        expect(usage).toHaveBeenCalledWith({
+          input_tokens: 40,
+          output_tokens: 8,
+        });
+      } else
+        await expect(result).rejects.toThrow(
+          'Source validation Responses query failed (401)',
+        );
+      expect(upstream).toHaveBeenCalledOnce();
+      const [url, options] = upstream.mock.calls[0];
+      expect(String(url)).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(Buffer.from(options?.body as Buffer).toString());
+      expect(body).toMatchObject({
+        model: 'gpt-6-luna',
+        max_output_tokens: 1024,
+        tools: [],
+        reasoning: { effort: 'none' },
+        store: false,
+      });
+      expect(revoke).toHaveBeenCalledOnce();
+    } finally {
+      resolve.mockRestore();
+      access.mockRestore();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await broker.close();
+    }
+  },
+);

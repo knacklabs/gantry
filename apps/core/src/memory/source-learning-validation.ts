@@ -1,3 +1,4 @@
+import { sourceChatModelAllowed } from '../shared/source-chat-model-policy.js';
 import { z } from 'zod';
 import type {
   MemoryLlmClient,
@@ -57,8 +58,8 @@ export async function validateSourceLearningProposal(input: {
   if (remaining < 1000)
     throw new Error('Learning validation execution budget exhausted');
   const model = resolveModelSelectionForWorkload(context.request.model, 'chat');
-  if (!model.ok || !/^claude-haiku-4-5(?:-|$)/.test(model.entry.runnerModel))
-    throw new Error('Learning validation requires approved Haiku4.5');
+  if (!model.ok || !sourceChatModelAllowed(model.entry, context.scope.appId))
+    throw new Error('Learning validation requires an approved scoped model');
   const entry = model.entry;
   const raw = await input.client.query({
     appId: context.scope.appId as never,
