@@ -186,6 +186,22 @@ describe('Anthropic memory query gateway credentials', () => {
     ]);
   });
 
+  it('disables all native tools for source-only text summarization', async () => {
+    const { runClaudeQuery } =
+      await import('@core/adapters/llm/anthropic-claude-agent/memory-query.js');
+    await runClaudeQuery({
+      appId: 'app:test' as never,
+      model: 'claude-haiku-4-5-20251001',
+      prompt: 'Authorized source messages',
+      toolPolicy: 'none',
+    });
+    expect(queryMock.mock.calls.at(-1)?.[0].options).toMatchObject({
+      tools: [],
+      mcpServers: {},
+      maxTurns: 1,
+    });
+  });
+
   it('reports Anthropic SDK result usage through onUsage', async () => {
     queryMock.mockReturnValueOnce(
       (async function* () {

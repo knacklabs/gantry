@@ -48,6 +48,7 @@ describe('source scoped summary', () => {
     expect(query.mock.calls[0][0].prompt).toContain('Exact parent');
     expect(query.mock.calls[0][0].model).toMatch(/^claude-haiku-4-5/);
     expect(query.mock.calls[0][0]).not.toHaveProperty('reasoningEffort');
+    expect(query.mock.calls[0][0].toolPolicy).toBe('none');
     expect(save.mock.calls[0][0].work.sourceIds).toEqual(['M1']);
   });
   it('reuses a durable exact digest without another provider call', async () => {

@@ -98,6 +98,7 @@ export async function prepareSourceSummary(input: {
       throw new Error('Source execution budget exhausted before summary');
     await input.onFirstProviderCall?.();
     const output = await client.query({
+      toolPolicy: 'none',
       appId: input.appId,
       model: entry.runnerModel,
       modelProfile: {

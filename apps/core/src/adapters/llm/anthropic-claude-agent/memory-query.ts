@@ -35,6 +35,7 @@ import {
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 export interface ClaudeQueryOpts {
+  toolPolicy?: 'none';
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
@@ -336,6 +337,7 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
         abortController,
         model: opts.model,
         maxTurns: 1,
+        ...(opts.toolPolicy === 'none' ? { tools: [], mcpServers: {} } : {}),
         systemPrompt: buildCacheableSystemPrompt(opts.systemPrompt),
         env: sdkEnv,
         settings: {

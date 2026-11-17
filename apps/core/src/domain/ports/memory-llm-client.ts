@@ -10,6 +10,7 @@ export interface MemoryLlmModelProfile {
 }
 
 export interface MemoryLlmQueryOpts {
+  toolPolicy?: 'none';
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
