@@ -323,6 +323,9 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
     const sdkEnv = {
       ...scrubAmbientAgentCredentials(injection.env),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,
+      ...(opts.toolPolicy === 'none'
+        ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4096', MAX_THINKING_TOKENS: '0' }
+        : {}),
     };
     const abortController = new AbortController();
     const onAbort = () => abortController.abort(abortReason(opts.signal!));

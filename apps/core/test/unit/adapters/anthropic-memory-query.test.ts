@@ -199,6 +199,10 @@ describe('Anthropic memory query gateway credentials', () => {
       tools: [],
       mcpServers: {},
       maxTurns: 1,
+      env: expect.objectContaining({
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4096',
+        MAX_THINKING_TOKENS: '0',
+      }),
     });
   });
 

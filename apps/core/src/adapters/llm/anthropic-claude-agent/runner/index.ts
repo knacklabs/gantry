@@ -1,3 +1,4 @@
+import { sourceChannelNativeControls } from './source-channel-model-controls.js';
 /**
  * Gantry Agent Runner
  * Runs as the child agent process, receives config via stdin, outputs result to stdout.
@@ -83,11 +84,16 @@ async function main(): Promise<void> {
   setExternalMcpServerEgressEnv(agentInput.toolNetworkEnv);
   const mcpServerPath = resolveMcpServerPath(import.meta.url);
   const configuredModel = resolveConfiguredModel();
-  const configuredThinking = resolveThinkingOptions(
-    agentInput.thinking,
-    agentInput.configuredThinking,
-    agentInput.effort,
-  );
+  const configuredThinking =
+    sourceChannelNativeControls(
+      process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID,
+      agentInput.maxOutputTokens,
+    ) ??
+    resolveThinkingOptions(
+      agentInput.thinking,
+      agentInput.configuredThinking,
+      agentInput.effort,
+    );
   if (configuredModel.model) {
     log(
       `Configured model: ${configuredModel.model} (source: ${configuredModel.source})`,
