@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import type {
   AppendSourceMessageRequest,
   AppendSourceMessageResponse,
@@ -85,7 +85,27 @@ export class PostgresSourceChannelRepository {
         })
         .from(schema.messagesPostgres)
         .where(
-          eq(schema.messagesPostgres.conversationId, session.conversationId),
+          and(
+            eq(schema.messagesPostgres.conversationId, session.conversationId),
+            eq(
+              schema.messagesPostgres.sourceGeneration,
+              input.binding.generation,
+            ),
+            or(
+              eq(
+                schema.messagesPostgres.sourceMessageId,
+                input.message.sourceMessageId,
+              ),
+              eq(
+                schema.messagesPostgres.sourcePosition,
+                BigInt(input.message.sourcePosition),
+              ),
+              eq(
+                schema.messagesPostgres.sourceIdempotencyKey,
+                input.idempotencyKey,
+              ),
+            ),
+          ),
         );
       const sources = rows
         .map((row) => ({
@@ -120,7 +140,7 @@ export class PostgresSourceChannelRepository {
           prior.id,
           prior.source,
           true,
-          contiguous(sources.map((row) => row.source.sourcePosition)),
+          String(ref.sourceContiguousPosition ?? '0'),
         );
       const source = input.message;
       const messageId =
@@ -145,6 +165,16 @@ export class PostgresSourceChannelRepository {
             ),
           );
         if (!output) conflict('Runtime output not found in discussion');
+        const association = output!.externalRefJson as {
+          sourceAnswerGoalId?: string;
+          sourceRunId?: string;
+        };
+        if (
+          association.sourceAnswerGoalId !== source.answerGoalId ||
+          !association.sourceRunId
+        )
+          conflict('Runtime output goal association mismatch');
+
         const [completed] = await tx
           .select()
           .from(schema.runtimeEventsPostgres)
@@ -157,6 +187,7 @@ export class PostgresSourceChannelRepository {
                 source.answerGoalId!,
               ),
               eq(schema.runtimeEventsPostgres.eventType, 'run.completed'),
+              eq(schema.runtimeEventsPostgres.runId, association.sourceRunId!),
             ),
           );
         if (!completed)
@@ -168,31 +199,32 @@ export class PostgresSourceChannelRepository {
           source.answerGoalId
         )
           conflict('Assistant source must reconcile runtime output');
-        await tx
-          .insert(schema.messagesPostgres)
-          .values({
-            id: messageId!,
-            appId,
-            providerId: 'app',
-            providerAccountId: `control:${appId}`,
-            conversationId: session.conversationId,
-            externalMessageId: source.sourceMessageId,
-            direction: 'inbound',
-            senderUserId: source.authorId,
-            senderDisplayName: source.authorDisplayName,
-            trust: source.authorKind === 'system' ? 'system' : 'trusted',
-            createdAt: source.createdAt,
-            receivedAt: new Date().toISOString(),
-            externalRefJson: {},
-          });
-        await tx
-          .insert(schema.messagePartsPostgres)
-          .values({
-            messageId: messageId!,
-            ordinal: 0,
-            kind: 'text',
-            payloadJson: { text: source.text },
-          });
+        await tx.insert(schema.messagesPostgres).values({
+          id: messageId!,
+          appId,
+          providerId: 'app',
+          providerAccountId: `control:${appId}`,
+          conversationId: session.conversationId,
+          externalMessageId: source.sourceMessageId,
+          sourceGeneration: input.binding.generation,
+          sourceIdempotencyKey: input.idempotencyKey,
+          sourcePosition: BigInt(source.sourcePosition),
+          sourceMessageId: source.sourceMessageId,
+          sourceContentHash: source.contentHash,
+          direction: 'inbound',
+          senderUserId: source.authorId,
+          senderDisplayName: source.authorDisplayName,
+          trust: source.authorKind === 'system' ? 'system' : 'trusted',
+          createdAt: source.createdAt,
+          receivedAt: new Date().toISOString(),
+          externalRefJson: {},
+        });
+        await tx.insert(schema.messagePartsPostgres).values({
+          messageId: messageId!,
+          ordinal: 0,
+          kind: 'text',
+          payloadJson: { text: source.text },
+        });
       }
       const [event] = await tx
         .insert(schema.runtimeEventsPostgres)
@@ -220,15 +252,28 @@ export class PostgresSourceChannelRepository {
       await tx
         .update(schema.messagesPostgres)
         .set({
+          sourceGeneration: input.binding.generation,
+          sourceIdempotencyKey: input.idempotencyKey,
+          sourcePosition: BigInt(source.sourcePosition),
+          sourceMessageId: source.sourceMessageId,
+          sourceContentHash: source.contentHash,
           externalRefJson: sql`COALESCE(${schema.messagesPostgres.externalRefJson}, '{}'::jsonb) || ${JSON.stringify({ id: source.sourceMessageId, chat_jid: `app:${appId}:${input.binding.discussionId}`, provider: 'app', external_message_id: source.sourceMessageId, reply_to_message_id: source.replyToSourceId, store_only: true, source: metadata })}::jsonb`,
         })
         .where(eq(schema.messagesPostgres.id, messageId!));
+      const checkpoint = String(ref.sourceContiguousPosition ?? '0');
+      const result = await tx.execute<{ through: string }>(sql`WITH ordered AS (
+        SELECT source_position, row_number() OVER (ORDER BY source_position) AS ordinal
+        FROM ${schema.messagesPostgres}
+        WHERE conversation_id=${session.conversationId} AND source_generation=${input.binding.generation} AND source_position > ${checkpoint}::bigint
+      ) SELECT COALESCE(MAX(source_position) FILTER (WHERE source_position = ${checkpoint}::bigint + ordinal), ${checkpoint}::bigint)::text AS through FROM ordered`);
+      const through = result.rows[0]!.through;
       await tx
         .update(schema.controlHttpSessionsPostgres)
         .set({
           externalRefJson: {
             ...ref,
             sourceBinding: input.binding,
+            sourceContiguousPosition: through,
             sourceAuthority: {
               authorityId: input.authority.authorityId,
               subject: input.authority.subject,
@@ -236,28 +281,9 @@ export class PostgresSourceChannelRepository {
           },
         })
         .where(eq(schema.controlHttpSessionsPostgres.sessionId, sessionId));
-      return receipt(
-        messageId!,
-        stored,
-        false,
-        contiguous([
-          ...sources.map((row) => row.source.sourcePosition),
-          source.sourcePosition,
-        ]),
-      );
+      return receipt(messageId!, stored, false, through);
     });
   }
-}
-function contiguous(positions: string[]): string {
-  const ordered = positions
-    .map(BigInt)
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  let through = 0n;
-  for (const value of ordered) {
-    if (value === through + 1n) through = value;
-    else if (value > through + 1n) break;
-  }
-  return String(through);
 }
 function receipt(
   messageId: string,

@@ -433,3 +433,6 @@ function selectedMcpCapabilitiesForSource(serverName: string): string[] {
     .map((capability) => capability.capabilityId)
     .sort();
 }
+
+export const sourceWorkspaceMemoryId =
+  process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim() || undefined;

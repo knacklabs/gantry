@@ -1,3 +1,4 @@
+import type { RequestSourceAnswer } from '@gantry/contracts';
 import type * as OpenApi from './openapi-types.js';
 
 type TransportLike = {
@@ -65,6 +66,19 @@ export type AgentAccessDocument = {
 
 export function createAgentAdminClient(transport: TransportLike) {
   return {
+    configureSourceChannelProfile: (
+      agentId: string,
+      body: {
+        appId: string;
+        profile: NonNullable<RequestSourceAnswer['executionProfile']>;
+        concurrency: number;
+      },
+    ) =>
+      transport.request<{ profileHash: string; effectiveConcurrency: number }>({
+        method: 'PUT',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/source-channel-profile`,
+        body,
+      }),
     list: () =>
       transport.request<OpenApi.ListAgentsResponse>({
         method: 'GET',

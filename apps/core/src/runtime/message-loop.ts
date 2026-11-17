@@ -472,6 +472,8 @@ export async function processLiveAdmissionWorkItem(
   deps: MessageLoopDeps,
   item: LiveAdmissionWorkItem,
 ): Promise<MessageAdmissionProcessingResult> {
+  if (item.triggerDecision.source === 'source_answer')
+    return enqueueMessageCheck(deps, item.queueJid);
   const opsRepository = resolveMessageRepository(deps);
   const { chatJid, threadId, agentId, providerAccountId } =
     parseAgentThreadQueueKey(item.queueJid);

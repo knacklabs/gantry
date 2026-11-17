@@ -6,9 +6,20 @@ import {
   RequestSourceAnswerResponseSchema,
   SettleSourceHistorySchema,
   SettleExecutionAuthoritySchema,
+  SourceAnswerExecutionProfileSchema,
 } from '@gantry/contracts';
 import { doc, ids } from './openapi-route-helpers.js';
 export const sourceChannelRouteDocs = [
+  doc(
+    'put',
+    '/v1/agents/{agentId}/source-channel-profile',
+    'configureSourceChannelProfile',
+    'Agents',
+    'Provision native source profile',
+    'Pins the app agent allowed answer tools and native source capacity.',
+    ['agents:admin'],
+    { body: 'json', parameters: [ids.agent] },
+  ),
   doc(
     'post',
     '/v1/sessions/{sessionId}/source-messages',
@@ -53,6 +64,15 @@ export const sourceChannelRouteDocs = [
 const json = (schema: z.ZodType) =>
   z.toJSONSchema(schema, { target: 'openapi-3.0' });
 export const sourceChannelRequests = {
+  configureSourceChannelProfile: json(
+    z
+      .object({
+        appId: z.string(),
+        profile: SourceAnswerExecutionProfileSchema,
+        concurrency: z.number().int().min(1).max(16),
+      })
+      .strict(),
+  ),
   appendSourceMessage: json(AppendSourceMessageRequestSchema),
   requestSourceAnswer: json(RequestSourceAnswerSchema),
   settleSourceHistory: json(SettleSourceHistorySchema),
@@ -62,6 +82,14 @@ const settled = json(
   z.object({ accepted: z.literal(true), replayed: z.boolean() }).strict(),
 );
 export const sourceChannelResponses = {
+  configureSourceChannelProfile: json(
+    z
+      .object({
+        profileHash: z.string(),
+        effectiveConcurrency: z.number().int(),
+      })
+      .strict(),
+  ),
   appendSourceMessage: json(AppendSourceMessageResponseSchema),
   requestSourceAnswer: json(RequestSourceAnswerResponseSchema),
   settleSourceHistory: settled,

@@ -1,3 +1,4 @@
+import { PostgresSourceAnswerRepository } from '../repositories/source-answer-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 
@@ -158,6 +159,48 @@ export class PostgresRuntimeRepositoryBundle
 
   async getAllChats(): Promise<ChatInfo[]> {
     return this.graph.listChats();
+  }
+
+  async markSourceAnswerRun(id: string, runId: string) {
+    await new PostgresSourceAnswerRepository(this.db).markRun(id, runId);
+  }
+  async persistSourceAnswerOutput(id: string, runId: string, text: string) {
+    await new PostgresSourceAnswerRepository(this.db).output(id, runId, text);
+  }
+  async sourceWorkspaceMemoryContext(input: {
+    answerId: string;
+    appId: string;
+    agentId: string;
+    workspaceId: string;
+    personId?: string;
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).memoryContext(input);
+  }
+  async getPreparedSourceAnswer(input: {
+    appId: string;
+    conversationJid: string;
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).prepared(
+      input.appId,
+      input.conversationJid,
+    );
+  }
+  async finishPreparedSourceAnswer(
+    id: string,
+    success: boolean,
+    claimToken?: string,
+  ) {
+    await new PostgresSourceAnswerRepository(this.db).finishPrepared(
+      id,
+      success,
+      claimToken,
+    );
+  }
+  async renewPreparedSourceAnswer(id: string, claimToken: string) {
+    return new PostgresSourceAnswerRepository(this.db).renewPrepared(
+      id,
+      claimToken,
+    );
   }
 
   async storeMessage(msg: NewMessage): Promise<void> {

@@ -1,3 +1,4 @@
+import type { RequestSourceAnswer } from '@gantry/contracts';
 // prettier-ignore
 import type { AgentControlOverrides, ConversationRoute } from '../domain/types.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
@@ -104,6 +105,11 @@ export function createGroupAgentRunner(input: {
         externalSessionId: string;
       };
       maintenanceCompaction?: boolean;
+      sourceAnswer?: {
+        id: string;
+        request: RequestSourceAnswer;
+        selectedSourceIds: string[];
+      };
       responseSchema?: Record<string, unknown>;
       agentControls?: AgentControlOverrides;
     },
@@ -111,9 +117,19 @@ export function createGroupAgentRunner(input: {
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
     const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
-      deps.getDefaultInteractiveModel?.(group.folder) ?? 'opus';
+      options?.sourceAnswer?.request.model ??
+      deps.getDefaultInteractiveModel?.(group.folder) ??
+      'opus';
     const initialProvider = await resolveInitialGroupExecutionProviderId({
-      group,
+      group: options?.sourceAnswer
+        ? {
+            ...group,
+            agentConfig: {
+              ...group.agentConfig,
+              model: options.sourceAnswer.request.model,
+            },
+          }
+        : group,
       appId: turnAppId,
       defaultModel: defaultInteractiveModel,
       listConfiguredProviders: deps.getConfiguredModelProviders,
@@ -151,7 +167,7 @@ export function createGroupAgentRunner(input: {
         memoryUserId: options?.memoryContext?.userId,
         hydrationMode: 'first_visible',
         promoteReadyProviderSession,
-        hydrateMemory,
+        hydrateMemory: options?.sourceAnswer ? false : hydrateMemory,
         query:
           options?.memoryContext?.source === 'message'
             ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
@@ -170,7 +186,9 @@ export function createGroupAgentRunner(input: {
     const turnContext = compactionDeltaReplay.turnContext;
     const runtimeAppId = turnContext?.appId ?? turnAppId;
     const defaultRuntimeModel =
-      group.agentConfig?.model ?? defaultInteractiveModel;
+      options?.sourceAnswer?.request.model ??
+      group.agentConfig?.model ??
+      defaultInteractiveModel;
     const forwardedRuntimeEventKeys = new Set<string>();
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
@@ -191,9 +209,10 @@ export function createGroupAgentRunner(input: {
     let resumeProviderSessionId =
       options?.maintenanceProviderSession?.providerSessionId ??
       turnContext?.providerSessionId;
-    let resumeExternalSessionId =
-      options?.maintenanceProviderSession?.externalSessionId ??
-      turnContext?.externalSessionId;
+    let resumeExternalSessionId = options?.sourceAnswer
+      ? undefined
+      : (options?.maintenanceProviderSession?.externalSessionId ??
+        turnContext?.externalSessionId);
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -451,10 +470,21 @@ export function createGroupAgentRunner(input: {
         outcome: surfacingGate.failClosedOutcome,
       });
     }
+    const sourceMemoryContext =
+      options?.sourceAnswer && turnContext?.agentId
+        ? await ops().sourceWorkspaceMemoryContext?.({
+            answerId: options.sourceAnswer.id,
+            appId: runtimeAppId,
+            agentId: turnContext.agentId,
+            workspaceId: options.sourceAnswer.request.binding.workspaceId,
+            personId: options.memoryContext?.userId,
+          })
+        : undefined;
     const memoryContextBlock = [
-      compactionDeltaReplay.block,
-      turnContext?.memoryContextBlock,
-      patternsContext.block,
+      sourceMemoryContext,
+      options?.sourceAnswer ? undefined : compactionDeltaReplay.block,
+      options?.sourceAnswer ? undefined : turnContext?.memoryContextBlock,
+      options?.sourceAnswer ? undefined : patternsContext.block,
       approvedSkillContextBlock,
     ]
       .filter((block): block is string => Boolean(block?.trim()))
@@ -472,6 +502,11 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
+    if (options?.sourceAnswer && runState.runId)
+      await ops().markSourceAnswerRun?.(
+        options.sourceAnswer.id,
+        runState.runId,
+      );
     updateLogContext({
       runId: runState.runId,
       appId: runtimeAppId,
@@ -532,15 +567,37 @@ export function createGroupAgentRunner(input: {
           group,
           {
             prompt: maintenanceCompactionPrompt ?? prompt,
+            ...(options?.sourceAnswer?.request.executionProfile
+              ? {
+                  callerResolvedTools: {
+                    sessionId: turnContext!.agentSessionId,
+                    tools:
+                      options.sourceAnswer.request.executionProfile
+                        .callerResolvedTools,
+                    maxInteractions:
+                      options.sourceAnswer.request.executionProfile
+                        .maxToolInteractions,
+                    interactionTimeoutMs:
+                      options.sourceAnswer.request.executionProfile
+                        .interactionTimeoutMs,
+                  },
+                }
+              : {}),
             appId: runtimeAppId,
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
-            ...(agentInput.model ? { model: agentInput.model } : {}),
+            ...(options?.sourceAnswer
+              ? { model: options.sourceAnswer.request.model }
+              : agentInput.model
+                ? { model: agentInput.model }
+                : {}),
             chatJid,
             // Exact key the finalizer consumes activity with; stored with the
             // browser credential so the IPC side never rebuilds it.
             turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
+            sourceWorkspaceMemoryId:
+              options?.sourceAnswer?.request.binding.workspaceId,
             memoryDefaultScope: defaultMemoryScope,
             memoryReviewerIsControlApprover,
             persona: group.agentConfig?.persona,
@@ -631,7 +688,9 @@ export function createGroupAgentRunner(input: {
         });
       }
       output = await runFamilyFailoverLoop({
-        candidates: failoverCandidates,
+        candidates: options?.sourceAnswer
+          ? [options.sourceAnswer.request.model]
+          : failoverCandidates,
         initialOutput: output,
         fallbackProviderId: executionProviderId,
         agentHarness,
@@ -690,6 +749,17 @@ export function createGroupAgentRunner(input: {
           });
         }
         return 'error';
+      }
+      if (options?.sourceAnswer && runState.runId) {
+        if (!output.result)
+          throw new Error(
+            'Source answer completed without full structured result',
+          );
+        await ops().persistSourceAnswerOutput?.(
+          options.sourceAnswer.id,
+          runState.runId,
+          output.result,
+        );
       }
       if (!liveRunFenced) {
         await completeSuccessfulRuntimeSessionRun({

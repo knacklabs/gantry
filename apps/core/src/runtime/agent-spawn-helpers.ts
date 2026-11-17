@@ -92,6 +92,7 @@ export function buildBaseRunnerEnv(input: {
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: string;
+  sourceWorkspaceMemoryId?: string;
   memoryReviewerIsControlApprover?: boolean;
   hideAuthorityTools: boolean;
   agentAccessPreset: string;
@@ -185,6 +186,7 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_THREAD_ID: input.threadId || '',
     GANTRY_MEMORY_USER_ID: input.memoryUserId || '',
     GANTRY_MEMORY_DEFAULT_SCOPE: input.memoryDefaultScope || 'group',
+    GANTRY_SOURCE_WORKSPACE_MEMORY_ID: input.sourceWorkspaceMemoryId || '',
     GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER:
       input.memoryReviewerIsControlApprover ? '1' : '',
     GANTRY_NO_PERMISSION_TOOLS: input.hideAuthorityTools ? '1' : '',

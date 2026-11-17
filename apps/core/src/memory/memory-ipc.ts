@@ -1,3 +1,7 @@
+import {
+  sourceChannelMemorySubject,
+  assertSourceLearningContent,
+} from './source-channel-memory-scope.js';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -58,6 +62,7 @@ import { incrementOperationalError } from '../shared/operational-error-counters.
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
+  sourceWorkspaceMemoryId?: string;
   appId: string;
   agentId: string;
   threadId?: string;
@@ -180,6 +185,17 @@ export function resolveTrustedMemorySubject(
 ) {
   if (!context?.appId?.trim()) {
     throw new Error('memory IPC context.appId is required');
+  }
+  if (context.sourceWorkspaceMemoryId) {
+    if (scope === 'global')
+      throw new Error('Source discussion memory cannot widen to common scope');
+    return sourceChannelMemorySubject({
+      appId: context.appId,
+      agentId: context.agentId,
+      workspaceId: context.sourceWorkspaceMemoryId,
+      personId: context.personId,
+      scope: scope ?? 'group',
+    });
   }
   const defaultScope = context?.defaultScope === 'user' ? 'user' : 'group';
   if (scope && scope !== defaultScope) {
@@ -304,6 +320,8 @@ export async function processMemoryRequest(
       }
       case 'memory_save': {
         const input = parseSaveMemoryInput(request.payload);
+        if (request.context?.sourceWorkspaceMemoryId)
+          assertSourceLearningContent(input);
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,

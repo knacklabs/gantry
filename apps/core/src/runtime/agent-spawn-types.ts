@@ -69,6 +69,7 @@ export interface AgentInput {
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
+  sourceWorkspaceMemoryId?: string;
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;

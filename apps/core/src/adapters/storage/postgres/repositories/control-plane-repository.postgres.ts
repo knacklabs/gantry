@@ -1,3 +1,9 @@
+import { PostgresSourceAnswerRepository } from './source-answer-repository.postgres.js';
+import type {
+  RequestSourceAnswer,
+  SettleSourceHistory,
+  SettleExecutionAuthority,
+} from '@gantry/contracts';
 import type { AppendSourceMessageRequest } from '@gantry/contracts';
 import { PostgresSourceChannelRepository } from './source-channel-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
@@ -46,6 +52,53 @@ export class PostgresControlPlaneRepository {
   constructor(private readonly db: CanonicalDb) {
     this.externalIngress = new PostgresExternalIngressRepository(db);
     this.jobTriggers = new PostgresJobTriggerRepository(db);
+  }
+
+  async configureSourceChannelProfile(
+    appId: string,
+    agentId: string,
+    profile: NonNullable<RequestSourceAnswer['executionProfile']>,
+    concurrency: number,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).configureProfile(
+      appId,
+      agentId,
+      profile,
+      concurrency,
+    );
+  }
+  async requestSourceAnswer(
+    appId: string,
+    sessionId: string,
+    input: RequestSourceAnswer,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).request(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+  async settleSourceHistory(
+    appId: string,
+    sessionId: string,
+    input: SettleSourceHistory,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).settleHistory(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+  async settleExecutionAuthority(
+    appId: string,
+    sessionId: string,
+    input: SettleExecutionAuthority,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).settleAuthority(
+      appId,
+      sessionId,
+      input,
+    );
   }
 
   async appendSourceMessage(

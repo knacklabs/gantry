@@ -1,3 +1,4 @@
+import type { RequestSourceAnswer } from '@gantry/contracts';
 import type {
   ChatInfo,
   Job,
@@ -127,6 +128,38 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  markSourceAnswerRun?(id: string, runId: string): Promise<void>;
+  persistSourceAnswerOutput?(
+    id: string,
+    runId: string,
+    text: string,
+  ): Promise<void>;
+  sourceWorkspaceMemoryContext?(input: {
+    answerId: string;
+    appId: string;
+    agentId: string;
+    workspaceId: string;
+    personId?: string;
+  }): Promise<string>;
+  getPreparedSourceAnswer?(input: {
+    appId: string;
+    conversationJid: string;
+  }): Promise<
+    | {
+        id: string;
+        request: RequestSourceAnswer;
+        messages: NewMessage[];
+        selectedSourceIds: string[];
+        claimToken: string;
+      }
+    | undefined
+  >;
+  finishPreparedSourceAnswer?(
+    id: string,
+    success: boolean,
+    claimToken?: string,
+  ): Promise<void>;
+  renewPreparedSourceAnswer?(id: string, claimToken: string): Promise<boolean>;
   storeMessage(msg: NewMessage): Promise<void>;
   storeMessageWithLiveAdmission?(
     msg: NewMessage,

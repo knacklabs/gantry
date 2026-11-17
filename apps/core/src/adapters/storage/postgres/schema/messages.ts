@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   index,
   integer,
   jsonb,
@@ -38,6 +39,11 @@ export const messagesPostgres = pgTable(
       { onDelete: 'cascade' },
     ),
     externalMessageId: text('external_message_id'),
+    sourceGeneration: integer('source_generation'),
+    sourcePosition: bigint('source_position', { mode: 'bigint' }),
+    sourceMessageId: text('source_message_id'),
+    sourceIdempotencyKey: text('source_idempotency_key'),
+    sourceContentHash: text('source_content_hash'),
     externalRefJson: jsonb('external_ref_json'),
     direction: text('direction').notNull(),
     senderUserId: text('sender_user_id'),
@@ -59,6 +65,21 @@ export const messagesPostgres = pgTable(
     deliveryError: text('delivery_error'),
   },
   (table) => ({
+    sourceIdempotency: uniqueIndex('idx_messages_source_idempotency').on(
+      table.conversationId,
+      table.sourceGeneration,
+      table.sourceIdempotencyKey,
+    ),
+    sourceIdentity: uniqueIndex('idx_messages_source_identity').on(
+      table.conversationId,
+      table.sourceGeneration,
+      table.sourceMessageId,
+    ),
+    sourcePosition: uniqueIndex('idx_messages_source_position').on(
+      table.conversationId,
+      table.sourceGeneration,
+      table.sourcePosition,
+    ),
     conversationCursorIdx: index('idx_messages_conversation_cursor').on(
       table.conversationId,
       table.threadId,

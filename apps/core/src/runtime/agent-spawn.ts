@@ -396,13 +396,18 @@ async function spawnAgentWithContext(
     const networkAttribution = egressNetworkAttributionFromRuntimeAccess(
       effectiveRuntimeAccess,
     );
-    const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
+    const configuredMemoryActions = selectedMemoryIpcActionsFromToolRules(
       trustedToolPolicyRules ?? [],
       {
         excludeAuthorityTools: hideAuthorityTools,
         memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       },
     );
+    const memoryIpcAllowedActions = input.sourceWorkspaceMemoryId
+      ? configuredMemoryActions.filter((action) =>
+          ['memory_search', 'memory_save', 'memory_demote'].includes(action),
+        )
+      : configuredMemoryActions;
     const upstreamProxyUrl =
       projectedCredentials.proxy?.https || projectedCredentials.proxy?.http;
     const runnerInputPatch = preparedExecution.runnerInputPatch ?? {};
@@ -552,6 +557,7 @@ async function spawnAgentWithContext(
         agentId: input.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
         chatJid: input.chatJid,
         personId: input.memoryUserId,
+        sourceWorkspaceMemoryId: input.sourceWorkspaceMemoryId,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,
@@ -562,6 +568,7 @@ async function spawnAgentWithContext(
       responseKeyId: ipcAuth.responseKeyId,
       threadId: input.threadId,
       memoryUserId: input.memoryUserId,
+      sourceWorkspaceMemoryId: input.sourceWorkspaceMemoryId,
       memoryDefaultScope: input.memoryDefaultScope,
       memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       hideAuthorityTools,

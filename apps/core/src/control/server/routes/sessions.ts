@@ -1,3 +1,10 @@
+import { z } from 'zod';
+import { SourceAnswerExecutionProfileSchema } from '@gantry/contracts';
+import {
+  RequestSourceAnswerSchema,
+  SettleSourceHistorySchema,
+  SettleExecutionAuthoritySchema,
+} from '@gantry/contracts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   AppendSourceMessageRequestSchema,
@@ -151,6 +158,138 @@ export async function handleSessionRoutes(
   url: URL,
   pathname: string,
 ): Promise<boolean> {
+  const profileMatch = /^\/v1\/agents\/([^/]+)\/source-channel-profile$/.exec(
+    pathname,
+  );
+  if (profileMatch && req.method === 'PUT') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const parsed = z
+      .object({
+        appId: z.string().min(1),
+        profile: SourceAnswerExecutionProfileSchema,
+        concurrency: z.number().int().min(1).max(16),
+      })
+      .strict()
+      .safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        formatSessionRequestIssue(parsed.error.issues[0]),
+      );
+      return true;
+    }
+    const appId = resolveAppScopeAppId(auth, parsed.data.appId);
+    if (!appId) {
+      sendError(res, 403, 'FORBIDDEN', 'App scope required');
+      return true;
+    }
+    try {
+      sendJson(
+        res,
+        200,
+        await ctx.sessionInteraction.configureSourceChannelProfile({
+          appId,
+          agentId: decodeURIComponent(profileMatch[1]!),
+          profile: parsed.data.profile,
+          concurrency: parsed.data.concurrency,
+        }),
+      );
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+  const answerMatch =
+    /^\/v1\/sessions\/([^/]+)\/(answers|source-history\/settle|execution-authority\/settle)$/.exec(
+      pathname,
+    );
+  if (answerMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, [
+      'sessions:write',
+    ]);
+    if (!auth) return true;
+    const appId = resolveAppScopeAppId(auth, '');
+    if (!appId) {
+      sendError(
+        res,
+        403,
+        'FORBIDDEN',
+        'Source channels require app-scoped credentials',
+      );
+      return true;
+    }
+    const sessionId = decodeURIComponent(answerMatch[1]!);
+    const body = await readJson(req);
+    try {
+      if (answerMatch[2] === 'answers') {
+        const parsed = RequestSourceAnswerSchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            formatSessionRequestIssue(parsed.error.issues[0]),
+          );
+          return true;
+        }
+        sendJson(
+          res,
+          200,
+          await ctx.sessionInteraction.requestSourceAnswer({
+            appId,
+            sessionId,
+            request: parsed.data,
+          }),
+        );
+      } else if (answerMatch[2] === 'source-history/settle') {
+        const parsed = SettleSourceHistorySchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            formatSessionRequestIssue(parsed.error.issues[0]),
+          );
+          return true;
+        }
+        sendJson(
+          res,
+          200,
+          await ctx.sessionInteraction.settleSourceHistory({
+            appId,
+            sessionId,
+            request: parsed.data,
+          }),
+        );
+      } else {
+        const parsed = SettleExecutionAuthoritySchema.safeParse(body);
+        if (!parsed.success) {
+          sendError(
+            res,
+            400,
+            'INVALID_REQUEST',
+            formatSessionRequestIssue(parsed.error.issues[0]),
+          );
+          return true;
+        }
+        sendJson(
+          res,
+          200,
+          await ctx.sessionInteraction.settleExecutionAuthority({
+            appId,
+            sessionId,
+            request: parsed.data,
+          }),
+        );
+      }
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
   const sourceMatch = /^\/v1\/sessions\/([^/]+)\/source-messages$/.exec(
     pathname,
   );

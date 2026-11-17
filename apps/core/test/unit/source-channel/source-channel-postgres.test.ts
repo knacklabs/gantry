@@ -1,3 +1,10 @@
+import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { createClient } from '../../../../../packages/sdk/src/index.js';
+import { handleSessionRoutes } from '../../../src/control/server/routes/sessions.js';
+import { SessionInteractionModule } from '../../../src/application/sessions/session-interaction-module.js';
+import { adaptSessionControlPort } from '../../../src/control/server/session-control-port.js';
+import type { ControlRouteContext } from '../../../src/control/server/handler-context.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
@@ -6,6 +13,7 @@ import { PostgresControlPlaneRepository } from '../../../src/adapters/storage/po
 import { PostgresCanonicalMessageRepository } from '../../../src/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 import * as schema from '../../../src/adapters/storage/postgres/schema/schema.js';
 import { hashSourceMessage } from '../../../../../packages/sdk/src/source-channel.js';
+import { PostgresSourceAnswerRepository } from '../../../src/adapters/storage/postgres/repositories/source-answer-repository.postgres.js';
 import type { AppendSourceMessageRequest } from '@gantry/contracts';
 
 const run = process.env.GANTRY_DATABASE_URL ? describe : describe.skip;
@@ -27,7 +35,7 @@ run('durable native source channel', () => {
       authorDisplayName: 'Alice',
       text,
       createdAt: '2026-11-17T00:00:00.000Z',
-      replyToSourceId: null,
+      replyToSourceId: sourceMessageId === 'M2' ? 'M1' : null,
       revisionId: 'R1',
       origin: 'human' as const,
     };
@@ -106,6 +114,81 @@ run('durable native source channel', () => {
       control.appendSourceMessage(appId, sessionId, wrong),
     ).rejects.toThrow(/binding/i);
   });
+  it('accepts an explicit stored question and waits durably for current authority without another message', async () => {
+    const input = {
+      binding: make('2').binding,
+      authority: {
+        authorityId: 'people',
+        authorityVersion: '1',
+        kind: 'person' as const,
+        subject: 'person1',
+        expiresAt: '2027-01-01T00:00:00.000Z',
+      },
+      questionSourceId: 'M2',
+      sourceCutoff: '2',
+      requesterId: 'person1',
+      answerGoalId: 'goal1',
+      attemptId: 'attempt1',
+      idempotencyKey: 'answer1',
+      revisionId: 'R1',
+      analysisReady: true as const,
+      model: 'haiku',
+      maxOutputTokens: 2000,
+      deadlineAt: '2027-01-01T00:00:00.000Z',
+    };
+    const accepted = await control.requestSourceAnswer(appId, sessionId, input);
+    expect(accepted.state).toBe('preparing');
+    expect(
+      (await control.requestSourceAnswer(appId, sessionId, input)).replayed,
+    ).toBe(true);
+    const rows = await service.db
+      .select()
+      .from(schema.messagesPostgres)
+      .where(eq(schema.messagesPostgres.appId, appId));
+    expect(rows).toHaveLength(2);
+    await expect(
+      control.requestSourceAnswer(appId, sessionId, {
+        ...input,
+        sourceCutoff: '1',
+      }),
+    ).rejects.toThrow(/conflict/);
+    const pending = await service.db
+      .select()
+      .from(schema.pendingInteractionsPostgres)
+      .where(eq(schema.pendingInteractionsPostgres.appId, appId));
+    expect(
+      pending.some(
+        (row) =>
+          (row.payloadJson as any).request?.interactionType ===
+          'execution_authority',
+      ),
+    ).toBe(true);
+    const authority = pending.find(
+      (row) =>
+        (row.payloadJson as any).request?.interactionType ===
+        'execution_authority',
+    )!;
+    const settlement = {
+      interactionId: authority.id,
+      idempotencyKey: 'authority-reply',
+      binding: input.binding,
+      answerGoalId: 'goal1',
+      attemptId: 'attempt1',
+      allowed: true,
+      authorityVersion: '1',
+      expiresAt: '2027-01-01T00:00:00.000Z',
+    };
+    expect(
+      await control.settleExecutionAuthority(appId, sessionId, settlement),
+    ).toMatchObject({ accepted: true, replayed: false });
+    expect(
+      await control.settleExecutionAuthority(appId, sessionId, settlement),
+    ).toMatchObject({ replayed: true });
+    const native = new PostgresSourceAnswerRepository(service.db);
+    const prepared = await native.prepared(appId, `app:${appId}:D1`);
+    expect(prepared?.selectedSourceIds).toEqual(['M1', 'M2']);
+    expect(prepared?.request.model).toBe('haiku');
+  });
   it('serializes concurrent deliveries and retains a single receipt across repository restart', async () => {
     const receipts = await Promise.all(
       Array.from({ length: 8 }, () =>
@@ -119,5 +202,82 @@ run('durable native source channel', () => {
       (await restart.appendSourceMessage(appId, sessionId, make('3')))
         .persistedEventId,
     ).toBe(receipts[0]!.persistedEventId);
+  });
+  it('crosses the actual SDK HTTP receiver and returns a durable replayable receipt', async () => {
+    const token = randomUUID();
+    const module = new SessionInteractionModule({
+      control: adaptSessionControlPort(control),
+      ops: {} as never,
+      repositories: {} as never,
+      runtimeEvents: {} as never,
+      now: () => new Date().toISOString() as never,
+      createId: randomUUID,
+      stableHash: (value) => createHash('sha256').update(value).digest('hex'),
+    });
+    const ctx = {
+      keys: [
+        {
+          kid: 'test',
+          tokenHash: createHash('sha256').update(token).digest(),
+          scopes: new Set(['sessions:write', 'agents:admin']),
+          appId,
+        },
+      ],
+      sessionInteraction: module,
+    } as ControlRouteContext;
+    const server = createServer((req, res) => {
+      const url = new URL(req.url!, 'http://localhost');
+      void handleSessionRoutes(req, res, ctx, url, url.pathname)
+        .then((handled) => {
+          if (!handled) {
+            res.statusCode = 404;
+            res.end();
+          }
+        })
+        .catch(() => {
+          res.statusCode = 500;
+          res.end('unexpected test server failure');
+        });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string')
+        throw new Error('HTTP fixture not listening');
+      const sdk = createClient({
+        baseUrl: `http://127.0.0.1:${addr.port}`,
+        apiKey: token,
+      });
+      const first = await sdk.sessions.appendSourceMessage(
+        sessionId,
+        make('4'),
+      );
+      expect(first.stored).toBe(true);
+      expect(
+        await sdk.sessions.appendSourceMessage(sessionId, make('4')),
+      ).toEqual({ ...first, replayed: true });
+      await expect(
+        sdk.sessions.appendSourceMessage(sessionId, {
+          ...make('5'),
+          lastReadPosition: '2',
+        } as any),
+      ).rejects.toThrow(/Unsupported session request field/);
+      const rows = await service.db
+        .select()
+        .from(schema.messagesPostgres)
+        .where(
+          and(
+            eq(schema.messagesPostgres.appId, appId),
+            eq(schema.messagesPostgres.sourceMessageId, 'M4'),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 });

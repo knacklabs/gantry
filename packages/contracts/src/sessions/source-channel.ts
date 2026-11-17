@@ -58,6 +58,25 @@ export const AppendSourceMessageResponseSchema = z
     contiguousPosition: checkpoint,
   })
   .strict();
+export const SourceAnswerExecutionProfileSchema = z
+  .object({
+    instructionsVersion: id,
+    responseSchema: z.record(z.string(), z.unknown()),
+    callerResolvedTools: z
+      .array(
+        z
+          .object({
+            name: id,
+            description: z.string().min(1).max(1000),
+            inputSchema: z.record(z.string(), z.unknown()),
+          })
+          .strict(),
+      )
+      .max(8),
+    maxToolInteractions: count.max(16),
+    interactionTimeoutMs: count.max(180000),
+  })
+  .strict();
 export const RequestSourceAnswerSchema = z
   .object({
     binding: SourceBindingSchema,
@@ -70,6 +89,7 @@ export const RequestSourceAnswerSchema = z
     idempotencyKey: id,
     revisionId: id,
     analysisReady: z.literal(true),
+    executionProfile: SourceAnswerExecutionProfileSchema.optional(),
     model: id,
     maxOutputTokens: count.max(32000),
     deadlineAt: z.string().datetime(),

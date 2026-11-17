@@ -1,4 +1,24 @@
 export interface paths {
+    "/v1/agents/{agentId}/source-channel-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Provision native source profile
+         * @description Pins the app agent allowed answer tools and native source capacity.
+         */
+        put: operations["configureSourceChannelProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{sessionId}/source-messages": {
         parameters: {
             query?: never;
@@ -4555,6 +4575,60 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    configureSourceChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent id. */
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    appId: string;
+                    profile: {
+                        instructionsVersion: string;
+                        responseSchema: {
+                            [key: string]: unknown;
+                        };
+                        callerResolvedTools: {
+                            name: string;
+                            description: string;
+                            inputSchema: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        maxToolInteractions: number;
+                        interactionTimeoutMs: number;
+                    };
+                    concurrency: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        profileHash: string;
+                        effectiveConcurrency: number;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     appendSourceMessage: {
         parameters: {
             query?: never;
@@ -4672,6 +4746,21 @@ export interface operations {
                     revisionId: string;
                     /** @enum {boolean} */
                     analysisReady: true;
+                    executionProfile?: {
+                        instructionsVersion: string;
+                        responseSchema: {
+                            [key: string]: unknown;
+                        };
+                        callerResolvedTools: {
+                            name: string;
+                            description: string;
+                            inputSchema: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        maxToolInteractions: number;
+                        interactionTimeoutMs: number;
+                    };
                     model: string;
                     maxOutputTokens: number;
                     /** Format: date-time */
