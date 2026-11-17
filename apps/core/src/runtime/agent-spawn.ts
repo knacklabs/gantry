@@ -429,7 +429,11 @@ async function spawnAgentWithContext(
       runnerSandboxProviderId,
       sandboxAllowedNetworkHosts,
       runnerInput.modelCredentialEnv,
+      runnerInputPatch.deepAgentCheckpointer,
     );
+    if (sandboxRuntimeNetwork.checkpointer)
+      runnerInputPatch.deepAgentCheckpointer =
+        sandboxRuntimeNetwork.checkpointer;
     runnerInput.modelCredentialEnv = sandboxRuntimeNetwork.modelCredentialEnv;
     runnerInputPatch.modelCredentialEnv =
       sandboxRuntimeNetwork.modelCredentialEnv;

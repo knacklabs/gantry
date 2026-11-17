@@ -1,3 +1,4 @@
+import type { DeepAgentCheckpointerConfig } from '../adapters/llm/deepagents-langchain/runner/session-store.js';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -337,14 +338,39 @@ export function buildSandboxRuntimeNetworkProjection(
   providerId: string,
   allowedNetworkHosts: readonly string[],
   modelCredentialEnv: Record<string, string> | undefined,
+  checkpointer?: DeepAgentCheckpointerConfig,
 ): {
   modelCredentialEnv: Record<string, string> | undefined;
   networkProjection: SandboxRuntimeNetworkProjection;
+  checkpointer?: DeepAgentCheckpointerConfig;
 } {
   if (providerId !== 'sandbox_runtime') {
-    return { modelCredentialEnv, networkProjection: {} };
+    return {
+      modelCredentialEnv,
+      networkProjection: {},
+      ...(checkpointer ? { checkpointer } : {}),
+    };
   }
   const projection = projectSandboxRuntimeModelGatewayEnv(modelCredentialEnv);
+  // The endpoint comes only from the trusted adapter's runtime storage config.
+  // Rewrite CONNECT authority, never the pg URL, so TLS keeps its original identity.
+  let projectedCheckpointer = checkpointer;
+  if (checkpointer) {
+    const database = new URL(checkpointer.databaseUrl);
+    if (!['postgres:', 'postgresql:'].includes(database.protocol))
+      throw new Error('Invalid runtime checkpoint protocol');
+    const host = database.hostname.replace(/^\[|\]$/g, '');
+    const authority = `gantry-runtime-checkpoint.internal:${database.port || '5432'}`;
+    projection.allowedNetworkHosts.push(authority);
+    projection.privateNetworkHostMappings.push({
+      authority,
+      connectHost: host,
+    });
+    projectedCheckpointer = {
+      ...checkpointer,
+      proxyTargetAuthority: authority,
+    };
+  }
   const mergedHosts =
     projection.allowedNetworkHosts.length > 0
       ? [
@@ -355,6 +381,7 @@ export function buildSandboxRuntimeNetworkProjection(
         ]
       : [...allowedNetworkHosts];
   return {
+    ...(projectedCheckpointer ? { checkpointer: projectedCheckpointer } : {}),
     modelCredentialEnv: projection.modelCredentialEnv,
     networkProjection: {
       allowedNetworkHosts: mergedHosts,

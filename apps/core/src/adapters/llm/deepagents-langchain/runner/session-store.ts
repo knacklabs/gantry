@@ -21,6 +21,7 @@ export interface DeepAgentCheckpointerConfig {
   databaseUrl: string;
   schema: string;
   proxyUrl?: string;
+  proxyTargetAuthority?: string;
 }
 
 export type DeepAgentCheckpointSaver = PostgresSaver;
@@ -88,6 +89,13 @@ export class DeepAgentSessionStore {
         'DeepAgents runner is missing Postgres checkpointer configuration for live session persistence.',
       );
     }
+    if (
+      this.config.proxyTargetAuthority &&
+      this.config.proxyTargetAuthority !==
+        `gantry-runtime-checkpoint.internal:${new URL(databaseUrl).port || '5432'}`
+    ) {
+      throw new Error('Invalid trusted checkpoint proxy authority');
+    }
     const poolConfig: pg.PoolConfig = {
       connectionString: databaseUrl,
       max: RUNNER_CHECKPOINT_POOL_MAX_CONNECTIONS,
@@ -96,7 +104,11 @@ export class DeepAgentSessionStore {
     if (proxyUrl) {
       // pg uses this factory instead of opening databaseUrl directly, so
       // sandboxed runners reach private Postgres only through Gantry egress.
-      poolConfig.stream = () => new HttpConnectPostgresStream(proxyUrl);
+      poolConfig.stream = () =>
+        new HttpConnectPostgresStream(
+          proxyUrl,
+          this.config.proxyTargetAuthority,
+        );
     }
     const pool = new pg.Pool(poolConfig);
     return createDeepAgentCheckpointSaverFromPool(pool, schema, this.timing);
@@ -113,7 +125,10 @@ class HttpConnectPostgresStream extends Duplex {
     callback: (error?: Error | null) => void;
   }> = [];
 
-  constructor(proxyUrl: string) {
+  constructor(
+    proxyUrl: string,
+    private readonly proxyTargetAuthority?: string,
+  ) {
     super();
     const proxy = parseHttpProxyUrl(proxyUrl);
     this.socket.on('error', (error) => this.destroy(error));
@@ -150,7 +165,8 @@ class HttpConnectPostgresStream extends Duplex {
       typeof hostOrCallback === 'string' ? hostOrCallback : 'localhost';
     this.connectCallback =
       typeof hostOrCallback === 'function' ? hostOrCallback : callback;
-    this.targetAuthority = postgresAuthority(host, portOrPath);
+    this.targetAuthority =
+      this.proxyTargetAuthority ?? postgresAuthority(host, portOrPath);
     this.socket.on('data', this.handleProxyData);
     this.socket.connect(this.proxyPort, this.proxyHost);
     return this;

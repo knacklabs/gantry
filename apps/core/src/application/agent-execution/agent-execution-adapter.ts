@@ -147,6 +147,7 @@ export interface PreparedAgentExecution {
       databaseUrl: string;
       schema: string;
       proxyUrl?: string;
+      proxyTargetAuthority?: string;
     };
     deepAgentSkills?: DeepAgentSkillProjection;
   };
