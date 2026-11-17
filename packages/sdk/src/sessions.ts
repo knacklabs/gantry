@@ -49,11 +49,13 @@ export function createSessionsClient(transport: SessionTransport) {
     appendSourceMessage: (
       sessionId: string,
       body: AppendSourceMessageRequest,
+      options?: { signal?: AbortSignal },
     ) =>
       transport.request<AppendSourceMessageResponse>({
         method: 'POST',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/source-messages`,
         body,
+        signal: options?.signal,
       }),
     requestAnswer: (sessionId: string, body: RequestSourceAnswer) =>
       transport.request<RequestSourceAnswerResponse>({
@@ -77,11 +79,15 @@ export function createSessionsClient(transport: SessionTransport) {
         body,
       }),
     createTypingTracker: () => new SessionTypingTracker(),
-    ensure: (input: OpenApi.EnsureSessionRequest) =>
+    ensure: (
+      input: OpenApi.EnsureSessionRequest,
+      options?: { signal?: AbortSignal },
+    ) =>
       transport.request<OpenApi.EnsureSessionResponse>({
         method: 'POST',
         path: '/v1/sessions/ensure',
         body: input,
+        signal: options?.signal,
       }),
     sendMessage: ({ sessionId, ...body }: OpenApi.SendSessionMessageInput) =>
       transport.request<OpenApi.SendSessionMessageResponse>({

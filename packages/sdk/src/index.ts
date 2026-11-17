@@ -208,6 +208,11 @@ class Transport {
   requestWithMetadata<T>(
     options: RequestOptions,
   ): Promise<TransportResponse<T>> {
+    if (options.signal?.aborted) {
+      return Promise.reject(
+        options.signal.reason ?? new Error('Gantry request aborted'),
+      );
+    }
     const url = new URL(options.path, this.baseUrl);
     const mod = url.protocol === 'https:' ? https : http;
     const body =
@@ -238,6 +243,7 @@ class Transport {
           socketPath: this.socketPath,
           method: options.method,
           headers,
+          signal: options.signal,
         },
         (res) => {
           const chunks: Buffer[] = [];
@@ -269,13 +275,6 @@ class Transport {
         req.destroy(new Error('Gantry request timed out'));
       });
       req.on('error', reject);
-      if (options.signal) {
-        options.signal.addEventListener(
-          'abort',
-          () => req.destroy(new Error('Gantry request aborted')),
-          { once: true },
-        );
-      }
       if (body) req.write(body);
       req.end();
     });
