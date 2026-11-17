@@ -243,13 +243,7 @@ export class PostgresControlPlaneRepository {
             agentId: graph.agentId,
             defaultResponseMode: input.defaultResponseMode ?? 'sse',
             defaultWebhookId: input.defaultWebhookId ?? null,
-            externalRefJson: jsonb({
-              externalConversationId: input.conversationId,
-              chatJid: input.chatJid,
-              workspaceFolder: workspaceKey,
-              title: input.title ?? null,
-              ...(appUser ? { appUser } : {}),
-            }),
+            externalRefJson: sql`COALESCE(${pgSchema.controlHttpSessionsPostgres.externalRefJson},'{}'::jsonb) || ${JSON.stringify({ externalConversationId: input.conversationId, chatJid: input.chatJid, workspaceFolder: workspaceKey, title: input.title ?? null, ...(appUser ? { appUser } : {}) })}::jsonb`,
             updatedAt: now,
           },
         })

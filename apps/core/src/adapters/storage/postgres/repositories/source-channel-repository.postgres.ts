@@ -76,8 +76,6 @@ export class PostgresSourceChannelRepository {
           binding.tenderId !== input.binding.tenderId)
       )
         conflict('Source binding or generation differs');
-      if (!binding && input.binding.generation !== 1)
-        conflict('Initial source generation must be 1');
       const service = ref.sourceAuthority as
         | { authorityId: string; subject: string }
         | undefined;
@@ -149,13 +147,36 @@ export class PostgresSourceChannelRepository {
         )
       )
         conflict('Source position already belongs to another message');
-      if (prior)
-        return receipt(
-          prior.id,
-          prior.source,
-          true,
-          String(ref.sourceContiguousPosition ?? '0'),
-        );
+      if (!binding && input.binding.generation !== 1 && !prior)
+        conflict('Initial source generation must be 1');
+      if (prior) {
+        let contiguous = String(ref.sourceContiguousPosition ?? '0');
+        if (
+          !binding ||
+          !service ||
+          ref.sourceContiguousPosition === undefined
+        ) {
+          const result = await tx.execute<{ through: string }>(
+            sql`WITH ordered AS (SELECT source_position,row_number() OVER (ORDER BY source_position) AS ordinal FROM ${schema.messagesPostgres} WHERE conversation_id=${session.conversationId} AND source_generation=${input.binding.generation}) SELECT COALESCE(MAX(source_position) FILTER (WHERE source_position=ordinal),0)::text AS through FROM ordered`,
+          );
+          contiguous = result.rows[0]!.through;
+          await tx
+            .update(schema.controlHttpSessionsPostgres)
+            .set({
+              externalRefJson: {
+                ...ref,
+                sourceBinding: input.binding,
+                sourceContiguousPosition: contiguous,
+                sourceAuthority: {
+                  authorityId: input.authority.authorityId,
+                  subject: input.authority.subject,
+                },
+              },
+            })
+            .where(eq(schema.controlHttpSessionsPostgres.sessionId, sessionId));
+        }
+        return receipt(prior.id, prior.source, true, contiguous);
+      }
       const source = input.message;
       const messageId =
         source.origin === 'runtime_output' && input.binding.generation === 1
