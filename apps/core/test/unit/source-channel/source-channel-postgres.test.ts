@@ -1,3 +1,4 @@
+import { PostgresAgentRepository } from '../../../src/adapters/storage/postgres/repositories/agent-repository.postgres.js';
 import { AppMemoryService } from '../../../src/memory/app-memory-service.js';
 import { sourceChannelMemorySubject } from '../../../src/memory/source-channel-memory-scope.js';
 import { sourceAnswerOutputId } from '../../../src/adapters/storage/postgres/repositories/source-answer-output-id.js';
@@ -764,6 +765,51 @@ run('durable native source channel', () => {
       .from(schema.agentsPostgres)
       .where(eq(schema.agentsPostgres.id, agentId));
     expect(agent?.currentConfigVersionId).toBeTruthy();
+  });
+  it('retains native config across desired-state agent saves and re-provisions after a historical cleared pointer', async () => {
+    const agentId = `agent:${appId}:fresh`;
+    const [before] = await service.db
+      .select()
+      .from(schema.agentsPostgres)
+      .where(eq(schema.agentsPostgres.id, agentId));
+    expect(before?.currentConfigVersionId).toBeTruthy();
+    await new PostgresAgentRepository(service.db).saveAgent({
+      id: agentId as never,
+      appId: appId as never,
+      name: 'Fresh source agent',
+      status: 'active',
+      createdAt: before!.createdAt,
+      updatedAt: new Date().toISOString(),
+    });
+    const [saved] = await service.db
+      .select()
+      .from(schema.agentsPostgres)
+      .where(eq(schema.agentsPostgres.id, agentId));
+    expect(saved?.currentConfigVersionId).toBe(before!.currentConfigVersionId);
+    // Simulate the prior released projection defect without patching operator data.
+    await service.db
+      .update(schema.agentsPostgres)
+      .set({ currentConfigVersionId: null })
+      .where(eq(schema.agentsPostgres.id, agentId));
+    await control.configureSourceChannelProfile(
+      appId,
+      agentId,
+      {
+        instructionsVersion: 'test-v1',
+        responseSchema: { type: 'object' },
+        callerResolvedTools: [],
+        maxToolInteractions: 1,
+        interactionTimeoutMs: 1000,
+      },
+      4,
+    );
+    const [recovered] = await service.db
+      .select()
+      .from(schema.agentsPostgres)
+      .where(eq(schema.agentsPostgres.id, agentId));
+    expect(recovered?.currentConfigVersionId).toBe(
+      before!.currentConfigVersionId,
+    );
   });
   it('builds durable source-only summaries with exact generation and scope coverage', async () => {
     for (let pos = 2; pos <= 90; pos++) {

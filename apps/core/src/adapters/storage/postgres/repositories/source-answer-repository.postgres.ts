@@ -1,3 +1,4 @@
+import { configureSourceChannelProfile } from './source-channel-profile.postgres.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
 import { resolveModelSelectionForWorkload } from '../../../../shared/model-catalog.js';
 import { and, eq, sql } from 'drizzle-orm';
@@ -25,94 +26,13 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
     profile: NonNullable<RequestSourceAnswer['executionProfile']>,
     concurrency: number,
   ) {
-    return this.db.transaction(async (tx) => {
-      const [agent] = await tx
-        .select()
-        .from(s.agentsPostgres)
-        .where(
-          and(
-            eq(s.agentsPostgres.id, agentId),
-            eq(s.agentsPostgres.appId, appId),
-          ),
-        )
-        .for('update');
-      if (!agent) fail('Agent not found in app');
-      let [config] = await tx
-        .select()
-        .from(s.agentConfigVersionsPostgres)
-        .where(
-          eq(s.agentConfigVersionsPostgres.id, agent!.currentConfigVersionId!),
-        );
-      if (!config && !agent!.currentConfigVersionId) {
-        const configId = `config:${agentId}:source:1`;
-        const profileId = `llm:source:${appId}:${agentId}`;
-        await tx
-          .insert(s.llmProfilesPostgres)
-          .values({
-            id: profileId,
-            appId,
-            purpose: 'source-answer',
-            responseFamily: 'anthropic',
-            modelAlias: 'haiku',
-            thinkingJson: '{}',
-            budgetJson: '{}',
-          })
-          .onConflictDoNothing();
-        [config] = await tx
-          .insert(s.agentConfigVersionsPostgres)
-          .values({
-            id: configId,
-            appId,
-            agentId,
-            version: 1,
-            promptProfileRef: 'runtime-default',
-            llmProfileId: profileId,
-          })
-          .returning();
-        await tx
-          .update(s.agentsPostgres)
-          .set({ currentConfigVersionId: configId })
-          .where(eq(s.agentsPostgres.id, agentId));
-      }
-      if (!config) fail('Agent configuration absent');
-      const limits = JSON.parse(config!.runtimeLimitsJson) as {
-        metadata?: Record<string, unknown>;
-      };
-      const profileHash = hash(profile);
-      const effectiveConcurrency = Math.min(
-        16,
-        Math.max(1, Math.floor(concurrency)),
-      );
-      if (
-        limits.metadata?.sourceChannelProfileHash === profileHash &&
-        limits.metadata?.sourceChannelConcurrency === effectiveConcurrency
-      )
-        return { profileHash, effectiveConcurrency };
-      const version = config!.version + 1;
-      const id = `${agentId}:source-profile:${version}`;
-      await tx.insert(s.agentConfigVersionsPostgres).values({
-        ...config!,
-        id,
-        version,
-        runtimeLimitsJson: JSON.stringify({
-          ...limits,
-          metadata: {
-            ...limits.metadata,
-            sourceChannelProfileHash: profileHash,
-            sourceChannelConcurrency: effectiveConcurrency,
-          },
-        }),
-        createdAt: new Date().toISOString(),
-      });
-      await tx
-        .update(s.agentsPostgres)
-        .set({
-          currentConfigVersionId: id,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(s.agentsPostgres.id, agentId));
-      return { profileHash, effectiveConcurrency };
-    });
+    return configureSourceChannelProfile(
+      this.db,
+      appId,
+      agentId,
+      profile,
+      concurrency,
+    );
   }
   async request(
     appId: string,
