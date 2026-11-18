@@ -1,3 +1,7 @@
+import {
+  SourceDocumentArtifactReceiptSchema,
+  type SourceDocumentArtifactReceipt,
+} from '@gantry/contracts';
 import { createDeepAgent, StateBackend } from 'deepagents';
 import { InlineCallerEvidenceBackend } from './inline-caller-evidence-backend.js';
 import type { FileData, FilesystemPermission } from 'deepagents';
@@ -46,6 +50,7 @@ import { nowMs } from '../../../../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import {
   appendStructuredOutputContract,
+  DeepAgentStructuredOutputError,
   serializeValidatedStructuredOutput,
   STRUCTURED_OUTPUT_ENVELOPE_SCHEMA,
 } from './structured-output-envelope.js';
@@ -324,6 +329,11 @@ export async function runDeepAgentTurn(input: {
       currentFiles: hasProjectedSkills ? skillProjection?.files : undefined,
     });
     let structuredResponse: unknown;
+    const sourceWorkspace =
+      process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim();
+    const sourceDocuments = sourceWorkspace
+      ? new Map<string, SourceDocumentArtifactReceipt>()
+      : undefined;
     const events = startupTiming.measure('streamIteratorMs', () =>
       agent.streamEvents(
         {
@@ -344,9 +354,52 @@ export async function runDeepAgentTurn(input: {
       'streamNormalizeMs',
       () =>
         normalizeDeepAgentStream({
-          events: captureStructuredResponse(events, (value) => {
-            structuredResponse = value;
-          }),
+          events: captureStructuredResponse(
+            events,
+            (value) => {
+              structuredResponse = value;
+            },
+            sourceDocuments
+              ? (output) => {
+                  if (
+                    output &&
+                    typeof output === 'object' &&
+                    (('status' in output && output.status === 'error') ||
+                      ('isError' in output && output.isError === true))
+                  )
+                    return;
+                  let value: unknown;
+                  try {
+                    value = JSON.parse(textFromChunk(output));
+                  } catch {
+                    return;
+                  }
+                  const parsed =
+                    SourceDocumentArtifactReceiptSchema.safeParse(value);
+                  if (!parsed.success) return;
+                  const receipt = parsed.data;
+                  if (
+                    receipt.runId !== input.agentInput.runId ||
+                    receipt.sessionId !==
+                      input.agentInput.callerResolvedTools?.sessionId ||
+                    receipt.binding.workspaceId !== sourceWorkspace
+                  )
+                    throw new DeepAgentStructuredOutputError(
+                      'Source document tool returned a foreign artifact receipt.',
+                    );
+                  const previous = sourceDocuments.get(receipt.artifactId);
+                  if (
+                    previous &&
+                    JSON.stringify(previous) !== JSON.stringify(receipt)
+                  )
+                    throw new DeepAgentStructuredOutputError(
+                      'Source document tool returned conflicting artifact receipts.',
+                    );
+                  sourceDocuments.set(receipt.artifactId, receipt);
+                  logElapsed(`Trusted source document receipt captured (count=${sourceDocuments.size})`);
+                }
+              : undefined,
+          ),
           newSessionId: input.newSessionId,
           modelId: resolved.modelId,
           modelProfile: { maxInputTokens: profile.maxInputTokens },
@@ -386,6 +439,7 @@ export async function runDeepAgentTurn(input: {
           structuredResponse ??
             structuredResponseFromFinalText(normalized.text),
           input.agentInput.responseSchema,
+          sourceDocuments,
         )
       : normalized.terminalResult;
     const text = input.agentInput.responseSchema
@@ -431,9 +485,12 @@ export async function runDeepAgentTurn(input: {
 async function* captureStructuredResponse(
   events: AsyncIterable<LangGraphStreamEvent>,
   capture: (value: unknown) => void,
+  captureSourceDocument?: (output: unknown) => void,
 ): AsyncIterable<LangGraphStreamEvent> {
   let currentModelText = '';
   for await (const event of events) {
+    if (event.event === 'on_tool_end' && event.name === 'source_document')
+      captureSourceDocument?.(event.data?.output);
     if (event.event === 'on_chat_model_start') currentModelText = '';
     if (event.event === 'on_chat_model_stream') {
       currentModelText += textFromChunk(event.data?.chunk);
