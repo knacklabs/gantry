@@ -300,7 +300,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           ? { jid: chatJid, ...latestMessageReactionTarget }
           : null,
       );
-      const memoryUserId = await resolveActionMemoryUserId();
+      const memoryUserId =
+        sourceAnswer?.request.requesterId ??
+        (await resolveActionMemoryUserId());
       const { prompt, recallQuery } = sourceAnswer
         ? {
             prompt: formatMessages(sourceAnswer.messages, config.TIMEZONE),

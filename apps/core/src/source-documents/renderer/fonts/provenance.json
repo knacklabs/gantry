@@ -38,6 +38,12 @@
       "url": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansKannada/NotoSansKannada-Bold.ttf",
       "sha256": "9eb680d4160918e4bf1e63183932c363d105548c05e0a5013f873ca56d781127",
       "sizeBytes": 156124
+    },
+    {
+      "file": "NotoSansSymbols2-Regular.ttf",
+      "url": "https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansSymbols2/NotoSansSymbols2-Regular.ttf",
+      "sha256": "630846d528dbe4c4981370a4d0a9475a1fd1491a129bb411f8e157cdb5de13c6",
+      "sizeBytes": 656852
     }
   ]
 }
