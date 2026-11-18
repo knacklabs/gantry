@@ -1,4 +1,4 @@
-import Ajv from 'ajv';
+import { Ajv } from 'ajv';
 import { formatMessages } from '../messaging/router.js';
 import { TIMEZONE } from '../config/index.js';
 import { normalizeModelUsage } from '../shared/model-usage.js';
