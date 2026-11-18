@@ -63,9 +63,12 @@ export function computeHostCapacityPlan(input: {
     role === 'job-worker' && hasExplicitHostExecutionIdentity()
       ? Math.min(desiredInteractive, cpuThreads)
       : 0;
+  // Class maxima may overlap. The shared host lease budget still caps the
+  // actual total. Keep one interactive slot available instead of stranding
+  // every configured interactive slot while long background work is pending.
   const backgroundBudget =
     runsInteractive && runsBackground
-      ? cpuThreads - interactiveCapacity
+      ? cpuThreads - Math.min(interactiveCapacity, 1)
       : cpuThreads - reservedInteractiveBudget;
   const backgroundCapacity = runsBackground
     ? Math.min(desiredBackground, backgroundBudget)
