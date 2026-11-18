@@ -477,6 +477,7 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getAgentRepository: resolved.getAgentRepository,
       getSkillRepository: resolved.getSkillRepository,
+      getFileArtifactStore: resolved.getFileArtifactStore,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getJobSemanticCheckpointRepository:
         resolved.getJobSemanticCheckpointRepository,
