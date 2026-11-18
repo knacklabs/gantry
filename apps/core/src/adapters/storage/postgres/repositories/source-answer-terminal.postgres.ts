@@ -1,5 +1,8 @@
 import { sourceAnswerOutputId } from './source-answer-output-id.js';
-import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import {
+  appendSourceRuntimeEvent,
+  lockSourceEventApp,
+} from './source-channel-event-lock.postgres.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import * as s from '../schema/schema.js';
@@ -76,34 +79,31 @@ export async function appendSourceAnswerTerminal(
     outputRef?.sourceRunId === runId &&
     outputRef.sourceAnswerGoalId === payload.request.answerGoalId &&
     outputRef.sourceAnswerAttemptId === payload.request.attemptId;
-  const [event] = await tx
-    .insert(s.runtimeEventsPostgres)
-    .values({
-      appId: answer.appId,
-      agentId: session.agentId,
-      sessionId: session.sessionId,
-      runId,
-      conversationId: session.conversationId,
-      eventType: complete
-        ? 'run.completed'
-        : status === 'canceled'
-          ? 'run.canceled'
-          : 'run.failed',
-      actor: 'agent',
-      correlationId: payload.request.answerGoalId,
-      createdAt: now,
-      payloadJson: JSON.stringify({
-        answerGoalId: payload.request.answerGoalId,
-        attemptId: payload.request.attemptId,
-        ...(complete
-          ? { runtimeOutputId }
-          : {
-              errorSummary:
-                'Native source answer failed before complete fenced output',
-            }),
-      }),
-    })
-    .returning();
+  const [event] = await appendSourceRuntimeEvent(tx, {
+    appId: answer.appId,
+    agentId: session.agentId,
+    sessionId: session.sessionId,
+    runId,
+    conversationId: session.conversationId,
+    eventType: complete
+      ? 'run.completed'
+      : status === 'canceled'
+        ? 'run.canceled'
+        : 'run.failed',
+    actor: 'agent',
+    correlationId: payload.request.answerGoalId,
+    createdAt: now,
+    payloadJson: JSON.stringify({
+      answerGoalId: payload.request.answerGoalId,
+      attemptId: payload.request.attemptId,
+      ...(complete
+        ? { runtimeOutputId }
+        : {
+            errorSummary:
+              'Native source answer failed before complete fenced output',
+          }),
+    }),
+  });
   if (answer.runLeaseToken)
     await tx
       .delete(s.runSlotsPostgres)

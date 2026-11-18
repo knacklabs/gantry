@@ -1,7 +1,10 @@
 import { sourceChannelNativePersonId } from '../../../../memory/source-channel-memory-scope.js';
 import { sourceChatModelAllowed } from '../../../../shared/source-chat-model-policy.js';
 import { configureSourceChannelProfile } from './source-channel-profile.postgres.js';
-import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import {
+  appendSourceRuntimeEvent,
+  lockSourceEventApp,
+} from './source-channel-event-lock.postgres.js';
 import { resolveModelSelectionForWorkload } from '../../../../shared/model-catalog.js';
 import { and, eq, sql } from 'drizzle-orm';
 import type {
@@ -152,23 +155,20 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         fail('Person pending answer limit reached');
       if (requests.some((row) => row.answerGoalId === request.answerGoalId))
         fail('Answer goal already has an active attempt');
-      const [event] = await tx
-        .insert(s.runtimeEventsPostgres)
-        .values({
-          appId,
-          sessionId,
-          agentId: session.agentId,
-          conversationId: session.conversationId,
-          eventType: 'source.answer.accepted',
-          actor: 'sdk',
-          correlationId: request.answerGoalId,
-          payloadJson: JSON.stringify({
-            attemptId: request.attemptId,
-            answerGoalId: request.answerGoalId,
-            questionMessageId: question.id,
-          }),
-        })
-        .returning();
+      const [event] = await appendSourceRuntimeEvent(tx, {
+        appId,
+        sessionId,
+        agentId: session.agentId,
+        conversationId: session.conversationId,
+        eventType: 'source.answer.accepted',
+        actor: 'sdk',
+        correlationId: request.answerGoalId,
+        payloadJson: JSON.stringify({
+          attemptId: request.attemptId,
+          answerGoalId: request.answerGoalId,
+          questionMessageId: question.id,
+        }),
+      });
       const payload: AnswerPayload = {
         interactionType: 'source_answer',
         request,

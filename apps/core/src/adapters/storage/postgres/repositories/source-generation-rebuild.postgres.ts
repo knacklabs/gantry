@@ -7,7 +7,10 @@ import { and, eq, sql } from 'drizzle-orm';
 import { ApplicationError } from '../../../../application/common/application-error.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { hash } from './source-answer-base.postgres.js';
-import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import {
+  appendSourceRuntimeEvent,
+  lockSourceEventApp,
+} from './source-channel-event-lock.postgres.js';
 import * as schema from '../schema/schema.js';
 const conflict = (message: string): never => {
   throw new ApplicationError('CONFLICT', message);
@@ -120,7 +123,7 @@ export async function rebuildSourceGeneration(
           answerGoalId: string;
           attemptId: string;
         };
-        await tx.insert(schema.runtimeEventsPostgres).values({
+        await appendSourceRuntimeEvent(tx, {
           appId,
           agentId: session!.agentId,
           sessionId,
@@ -138,24 +141,21 @@ export async function rebuildSourceGeneration(
       }
     }
     const next = { ...current, generation: input.nextGeneration };
-    const [event] = await tx
-      .insert(schema.runtimeEventsPostgres)
-      .values({
-        appId,
-        agentId: session!.agentId,
-        sessionId,
-        conversationId: session!.conversationId,
-        eventType: 'source.generation.rebuilt',
-        actor: 'sdk',
-        payloadJson: JSON.stringify({
-          binding: next,
-          priorGeneration: current.generation,
-          reason: input.reason,
-          idempotencyKey: input.idempotencyKey,
-          requestHash: hash(input),
-        }),
-      })
-      .returning();
+    const [event] = await appendSourceRuntimeEvent(tx, {
+      appId,
+      agentId: session!.agentId,
+      sessionId,
+      conversationId: session!.conversationId,
+      eventType: 'source.generation.rebuilt',
+      actor: 'sdk',
+      payloadJson: JSON.stringify({
+        binding: next,
+        priorGeneration: current.generation,
+        reason: input.reason,
+        idempotencyKey: input.idempotencyKey,
+        requestHash: hash(input),
+      }),
+    });
     const receipt = {
       binding: next,
       contiguousPosition: '0',

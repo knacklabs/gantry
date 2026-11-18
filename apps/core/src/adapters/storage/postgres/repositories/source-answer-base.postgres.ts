@@ -1,3 +1,4 @@
+import { appendSourceRuntimeEvent } from './source-channel-event-lock.postgres.js';
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import type {
@@ -113,7 +114,7 @@ export class SourceAnswerRepositoryBase {
       .onConflictDoNothing()
       .returning();
     if (inserted.length)
-      await tx.insert(s.runtimeEventsPostgres).values({
+      await appendSourceRuntimeEvent(tx, {
         appId: session.appId,
         sessionId: session.sessionId,
         agentId: session.agentId,
@@ -298,7 +299,7 @@ export class SourceAnswerRepositoryBase {
           ),
         ),
       );
-    await tx.insert(s.runtimeEventsPostgres).values({
+    await appendSourceRuntimeEvent(tx, {
       appId,
       sessionId: session?.sessionId,
       agentId: session?.agentId,

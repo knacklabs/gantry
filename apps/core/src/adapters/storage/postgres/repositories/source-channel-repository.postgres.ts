@@ -1,5 +1,8 @@
 import { rebuildSourceGeneration } from './source-generation-rebuild.postgres.js';
-import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import {
+  appendSourceRuntimeEvent,
+  lockSourceEventApp,
+} from './source-channel-event-lock.postgres.js';
 import { createHash } from 'node:crypto';
 import { and, eq, or, sql } from 'drizzle-orm';
 import type {
@@ -296,28 +299,25 @@ export class PostgresSourceChannelRepository {
           payloadJson: { text: source.text },
         });
       }
-      const [event] = await tx
-        .insert(schema.runtimeEventsPostgres)
-        .values({
-          appId,
-          agentId: session.agentId,
-          sessionId,
-          conversationId: session.conversationId,
-          eventType: 'source.message.stored',
-          actor: 'sdk',
-          payloadJson: JSON.stringify({
-            sourceMessageId: source.sourceMessageId,
-            sourcePosition: source.sourcePosition,
-            generation: input.binding.generation,
-            messageId,
-          }),
-        })
-        .returning({ id: schema.runtimeEventsPostgres.eventId });
+      const [event] = await appendSourceRuntimeEvent(tx, {
+        appId,
+        agentId: session.agentId,
+        sessionId,
+        conversationId: session.conversationId,
+        eventType: 'source.message.stored',
+        actor: 'sdk',
+        payloadJson: JSON.stringify({
+          sourceMessageId: source.sourceMessageId,
+          sourcePosition: source.sourcePosition,
+          generation: input.binding.generation,
+          messageId,
+        }),
+      });
       const stored: SourceReceipt = {
         ...source,
         generation: input.binding.generation,
         idempotencyKey: input.idempotencyKey,
-        persistedEventId: String(event!.id),
+        persistedEventId: String(event!.eventId),
       };
       const { text: _text, ...metadata } = stored;
       await tx

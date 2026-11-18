@@ -1,6 +1,9 @@
 import { assertSourceDocumentOutput } from './source-document-output.postgres.js';
 import { sourceAnswerOutputId } from './source-answer-output-id.js';
-import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
+import {
+  appendSourceRuntimeEvent,
+  lockSourceEventApp,
+} from './source-channel-event-lock.postgres.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
 import { and, eq, sql } from 'drizzle-orm';
 import * as s from '../schema/schema.js';
@@ -107,26 +110,23 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
       )
         fail('Source answer native execution identity is invalid');
       const startedAt = run!.startedAt ?? run!.createdAt;
-      const [event] = await tx
-        .insert(s.runtimeEventsPostgres)
-        .values({
-          appId: answer!.appId,
-          agentId: session!.agentId,
-          sessionId: session!.sessionId,
-          runId,
-          conversationId: session!.conversationId,
-          eventType: 'source.answer.running',
-          actor: 'runtime',
-          correlationId: payload.request.answerGoalId,
-          createdAt: new Date().toISOString(),
-          payloadJson: JSON.stringify({
-            answerGoalId: payload.request.answerGoalId,
-            attemptId: payload.request.attemptId,
-            binding: payload.request.binding,
-            startedAt,
-          }),
-        })
-        .returning();
+      const [event] = await appendSourceRuntimeEvent(tx, {
+        appId: answer!.appId,
+        agentId: session!.agentId,
+        sessionId: session!.sessionId,
+        runId,
+        conversationId: session!.conversationId,
+        eventType: 'source.answer.running',
+        actor: 'runtime',
+        correlationId: payload.request.answerGoalId,
+        createdAt: new Date().toISOString(),
+        payloadJson: JSON.stringify({
+          answerGoalId: payload.request.answerGoalId,
+          attemptId: payload.request.attemptId,
+          binding: payload.request.binding,
+          startedAt,
+        }),
+      });
       await tx
         .update(s.pendingInteractionsPostgres)
         .set({
@@ -222,7 +222,7 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         kind: 'text',
         payloadJson: { text },
       });
-      await tx.insert(s.runtimeEventsPostgres).values({
+      await appendSourceRuntimeEvent(tx, {
         appId: session!.appId,
         agentId: session!.agentId,
         sessionId: session!.sessionId,
