@@ -370,7 +370,15 @@ export async function runDeepAgentTurn(input: {
                     return;
                   let value: unknown;
                   try {
-                    value = JSON.parse(textFromChunk(output));
+                    value = JSON.parse(
+                      typeof output === 'string'
+                        ? output
+                        : textFromChunk(
+                            Array.isArray(output)
+                              ? { content: output }
+                              : output,
+                          ),
+                    );
                   } catch {
                     return;
                   }
@@ -396,7 +404,9 @@ export async function runDeepAgentTurn(input: {
                       'Source document tool returned conflicting artifact receipts.',
                     );
                   sourceDocuments.set(receipt.artifactId, receipt);
-                  logElapsed(`Trusted source document receipt captured (count=${sourceDocuments.size})`);
+                  logElapsed(
+                    `Trusted source document receipt captured (count=${sourceDocuments.size})`,
+                  );
                 }
               : undefined,
           ),
