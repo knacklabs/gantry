@@ -14,6 +14,13 @@ const sandboxOpenrouterBaseUrl =
   'http://model-gateway.gantry.internal:4567/openrouter';
 const gatewayToken = 'gtw_token';
 
+async function inspectModel<T>(model: unknown): Promise<T> {
+  const configurable = model as { _getModelInstance?: () => Promise<T> };
+  return configurable._getModelInstance
+    ? configurable._getModelInstance()
+    : (model as T);
+}
+
 describe('deepagents model factory', () => {
   it('builds a ChatOpenAI via initChatModel for the openai provider', async () => {
     const resolved = await buildRunnerModel({
@@ -40,12 +47,30 @@ describe('deepagents model factory', () => {
     expect(underlying.constructor.name).toBe('ChatOpenAI');
     expect(underlying.model).toBe('gpt-5.5');
     expect(underlying.streamUsage).toBe(true);
-    expect(underlying.clientConfig?.baseURL).toBe(loopbackBaseUrl);
+    expect(underlying.clientConfig?.baseURL).toBe(`${loopbackBaseUrl}/v1`);
     expect(
       (underlying as { modelKwargs?: Record<string, unknown> }).modelKwargs,
     ).not.toHaveProperty('prompt_cache_key');
     expect(underlying.apiKey).toBe(gatewayToken);
     expect(resolved.modelId).toBe('gpt-5.5');
+  });
+
+  it('uses the Responses API for GPT-5.6 even without an explicit effort', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'openai',
+      modelId: 'gpt-5.6-luna',
+      gatewayBaseUrl: loopbackBaseUrl,
+      gatewayToken,
+    });
+    const model = resolved.model as unknown as {
+      constructor: { name: string };
+      useResponsesApi?: boolean;
+      clientConfig?: { baseURL?: string };
+    };
+
+    expect(model.constructor.name).toBe('ChatOpenAI');
+    expect(model.useResponsesApi).toBe(true);
+    expect(model.clientConfig?.baseURL).toBe(`${loopbackBaseUrl}/v1`);
   });
 
   it('adds prompt_cache_key to ChatOpenAI modelKwargs only when present', async () => {
@@ -95,23 +120,21 @@ describe('deepagents model factory', () => {
       configuredThinking: { mode: 'on' },
       maxOutputTokens: 4096,
     });
-    const underlying = await (
-      resolved.model as unknown as {
-        _getModelInstance: () => Promise<{
-          reasoning?: { effort?: string };
-          maxTokens?: number;
-          invocationParams(
-            options: Record<string, unknown>,
-          ): Record<string, unknown>;
-        }>;
-      }
-    )._getModelInstance();
+    const underlying = await inspectModel<{
+      reasoning?: { effort?: string };
+      useResponsesApi?: boolean;
+      maxTokens?: number;
+      invocationParams(
+        options: Record<string, unknown>,
+      ): Record<string, unknown>;
+    }>(resolved.model);
 
     expect(underlying.reasoning).toEqual({ effort: 'high' });
+    expect(underlying.useResponsesApi).toBe(true);
     expect(underlying.maxTokens).toBe(4096);
     expect(underlying.invocationParams({})).toMatchObject({
-      reasoning_effort: 'high',
-      max_completion_tokens: 4096,
+      reasoning: { effort: 'high' },
+      max_output_tokens: 4096,
     });
   });
 
@@ -126,17 +149,18 @@ describe('deepagents model factory', () => {
       gatewayToken,
       configuredThinking: thinking,
     });
-    const underlying = await (
-      resolved.model as unknown as {
-        _getModelInstance: () => Promise<{
-          invocationParams(
-            options: Record<string, unknown>,
-          ): Record<string, unknown>;
-        }>;
-      }
-    )._getModelInstance();
+    const underlying = await inspectModel<{
+      invocationParams(
+        options: Record<string, unknown>,
+      ): Record<string, unknown>;
+    }>(resolved.model);
 
-    expect(underlying.invocationParams({}).reasoning_effort).toBe(effort);
+    const invocation = underlying.invocationParams({});
+    if (effort === 'none') {
+      expect(invocation.reasoning_effort).toBe(effort);
+    } else {
+      expect(invocation.reasoning).toEqual({ effort });
+    }
   });
 
   it('does not inject reasoning or output controls when absent', async () => {
@@ -150,6 +174,7 @@ describe('deepagents model factory', () => {
       resolved.model as unknown as {
         _getModelInstance: () => Promise<{
           reasoning?: unknown;
+          useResponsesApi?: boolean;
           maxTokens?: number;
           invocationParams(
             options: Record<string, unknown>,
@@ -159,6 +184,7 @@ describe('deepagents model factory', () => {
     )._getModelInstance();
 
     expect(underlying.reasoning).toBeUndefined();
+    expect(underlying.useResponsesApi).toBe(false);
     expect(underlying.maxTokens).toBeUndefined();
     expect(underlying.invocationParams({}).reasoning_effort).toBeUndefined();
   });
@@ -422,7 +448,9 @@ describe('deepagents model factory', () => {
         }>;
       }
     )._getModelInstance();
-    expect(underlying.clientConfig?.baseURL).toBe(sandboxGatewayBaseUrl);
+    expect(underlying.clientConfig?.baseURL).toBe(
+      `${sandboxGatewayBaseUrl}/v1`,
+    );
   });
 
   it('rejects a non-gateway token', async () => {

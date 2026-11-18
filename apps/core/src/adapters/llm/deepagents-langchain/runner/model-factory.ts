@@ -1,4 +1,5 @@
 import { initChatModel } from 'langchain/chat_models/universal';
+import { ChatOpenAI } from '@langchain/openai';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatOpenRouterInput } from '@langchain/openrouter';
 import type {
@@ -20,9 +21,11 @@ import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 //   <id>", ...)` regardless of the real upstream provider, because we hit OUR
 //   loopback gateway (not api.openai.com); the gateway routes by pathSegment to
 //   the real upstream. `initChatModel` resolves ChatOpenAI and forwards `apiKey`
-//   + `configuration.baseURL` to it. The OpenAI SDK posts `<baseURL>/chat/
-//   completions` (baseURL is the raw loopback gateway base, no `/v1`), and the
-//   gateway prepends each provider's real upstreamPathPrefix.
+//   + `configuration.baseURL` to it. Native OpenAI uses the gateway's canonical
+//   `/v1` API base and switches to the Responses API when reasoning is enabled;
+//   this is required for reasoning plus function tools. Other compatible
+//   providers keep their raw gateway base because the gateway prepends each
+//   provider's real upstreamPathPrefix.
 // - `openrouter`: first-party `@langchain/openrouter` `ChatOpenRouter` (talks
 //   OpenRouter REST/chat-completions via fetch). `initChatModel` does NOT know
 //   `openrouter`, so it is constructed directly. Its `buildUrl()` appends
@@ -133,9 +136,42 @@ export async function buildRunnerModel(input: {
     // which routes to the real upstream (groq/deepseek/xai/...) by pathSegment.
     // initChatModel only knows the LangChain class, and ChatOpenAI is the right
     // class for every OpenAI-chat-completions-compatible upstream.
+    const sdkBaseURL =
+      provider === 'openai' ? `${trimTrailingSlash(baseURL)}/v1` : baseURL;
+    const useResponsesApi =
+      provider === 'openai' &&
+      (input.modelId.startsWith('gpt-5.6-') ||
+        (reasoningEffort !== undefined && reasoningEffort !== 'none'));
+    if (useResponsesApi) {
+      // Construct native OpenAI directly. The universal ConfigurableModel can
+      // reconstruct the bound model inside DeepAgents and fall back to Chat
+      // Completions, which rejects reasoning plus function tools for Luna.
+      const model = new ChatOpenAI({
+        model: input.modelId,
+        apiKey,
+        configuration: { baseURL: sdkBaseURL },
+        useResponsesApi: true,
+        ...(input.promptCacheKey
+          ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
+          : {}),
+        ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+        ...(maxOutputTokens !== undefined
+          ? { maxTokens: maxOutputTokens }
+          : {}),
+        streamUsage: true,
+        ...(maxInputTokens !== undefined
+          ? { profile: { maxInputTokens } }
+          : {}),
+      });
+      return {
+        model,
+        endpointFamily: 'openai',
+        modelId: input.modelId,
+      };
+    }
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
-      configuration: { baseURL },
+      configuration: { baseURL: sdkBaseURL },
       ...(input.promptCacheKey
         ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
         : {}),
