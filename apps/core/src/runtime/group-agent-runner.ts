@@ -1,3 +1,4 @@
+import Ajv from 'ajv';
 import { formatMessages } from '../messaging/router.js';
 import { TIMEZONE } from '../config/index.js';
 import { normalizeModelUsage } from '../shared/model-usage.js';
@@ -155,6 +156,57 @@ export function createGroupAgentRunner(input: {
     const modelStatus = createModelStatus(group.folder, sessionThreadId);
     const runTokenBudget = createConfiguredRunTokenBudget(group.folder);
     const streamedResult = createRuntimeResultSummaryAccumulator();
+    let sourceStructuredResult: string | undefined;
+    let sourceStructuredError: Error | undefined;
+    let sourceRunnerError: AgentOutput | undefined;
+    const sourceSchema =
+      options?.sourceAnswer?.request.executionProfile?.responseSchema;
+    const validateSourceResult = sourceSchema
+      ? new Ajv({
+          addUsedSchema: false,
+          allErrors: true,
+          strict: false,
+        }).compile(sourceSchema)
+      : undefined;
+    const observeSourceTerminal = (output: AgentOutput): void => {
+      if (!options?.sourceAnswer) return;
+      if (output.status === 'error') {
+        sourceRunnerError = output;
+        return;
+      }
+      if (
+        !output.structuredResultValidated ||
+        output.continuedByFollowup ||
+        output.runtimeEventOnly ||
+        output.sessionInit ||
+        output.compactBoundary ||
+        output.interactionBoundary
+      )
+        return;
+      try {
+        if (
+          typeof output.result !== 'string' ||
+          !validateSourceResult ||
+          !validateSourceResult(JSON.parse(output.result))
+        )
+          throw new Error(
+            'Source answer terminal failed its approved response schema',
+          );
+        if (
+          sourceStructuredResult !== undefined &&
+          sourceStructuredResult !== output.result
+        )
+          throw new Error(
+            'Source answer produced conflicting complete structured results',
+          );
+        sourceStructuredResult = output.result;
+      } catch (error) {
+        sourceStructuredError =
+          error instanceof Error
+            ? error
+            : new Error('Invalid source answer terminal');
+      }
+    };
     const loadTurnContext = async (
       promoteReadyProviderSession: boolean,
       hydrateMemory = true,
@@ -287,6 +339,7 @@ export function createGroupAgentRunner(input: {
       await updateRunProviderMetadata({ providerSessionId: nextSessionId });
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
+      observeSourceTerminal(output);
       await persistProviderSessionFromOutput(output);
       let normalizedUsageRuntimeEvent:
         | NonNullable<AgentOutput['runtimeEvents']>[number]
@@ -635,8 +688,12 @@ export function createGroupAgentRunner(input: {
                   callerResolvedTools: {
                     sessionId: turnContext!.agentSessionId,
                     tools:
-                      options.sourceAnswer.request.executionProfile
-                        .callerResolvedTools,
+                      options.sourceAnswer.request.executionProfile.callerResolvedTools.map(
+                        (tool) => ({
+                          ...tool,
+                          transportMode: 'direct_caller' as const,
+                        }),
+                      ),
                     maxInteractions:
                       options.sourceAnswer.request.executionProfile
                         .maxToolInteractions,
@@ -778,6 +835,8 @@ export function createGroupAgentRunner(input: {
         log: (message) =>
           logger.warn({ group: group.name }, redactString(message)),
       });
+      observeSourceTerminal(output);
+      if (sourceRunnerError) output = sourceRunnerError;
       await forwardRuntimeEvents({
         output,
         publishRuntimeEvent: deps.publishRuntimeEvent,
@@ -813,15 +872,16 @@ export function createGroupAgentRunner(input: {
         }
         return 'error';
       }
+      if (sourceStructuredError) throw sourceStructuredError;
       if (options?.sourceAnswer && runState.runId) {
-        if (!output.result)
+        if (!sourceStructuredResult)
           throw new Error(
-            'Source answer completed without full structured result',
+            'Source answer completed without full validated structured result',
           );
         await ops().persistSourceAnswerOutput?.(
           options.sourceAnswer.id,
           runState.runId,
-          output.result,
+          sourceStructuredResult,
         );
       }
       if (!liveRunFenced) {

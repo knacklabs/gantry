@@ -3,7 +3,10 @@ import {
   getMemoryLlmClient,
 } from '../../../src/memory/memory-llm-port.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
 import {
   decodeGroupMessageCursor,
@@ -435,114 +438,358 @@ describe('createGroupProcessor', () => {
     });
   });
 
-  it('native source answers pass only selected context and a fresh scoped Haiku execution profile to the provider boundary', async () => {
-    const previousMemoryClient = getMemoryLlmClient();
-    registerMemoryLlmClient({
-      isConfigured: () => true,
-      query: async () => '',
-      countTokens: async () => 100,
-    });
-    const chosen = [
-      makeMessage({ id: 'M1', content: 'selected ancestor' }),
-      makeMessage({ id: 'M2', content: 'selected question' }),
-    ];
-    const { deps } = setupHappyPath({
-      group: makeGroup({
-        requiresTrigger: true,
-        agentConfig: { model: 'opus' },
-      }),
-      messages: [makeMessage({ id: 'M3', content: 'excluded sibling' })],
-      agentOutput: {
-        status: 'success',
-        result:
-          '{"version":1,"answer":"ok","answerUnits":[{"text":"ok","source":"unconfirmed","citationIds":[],"metadataFields":[]}]}',
-      },
-    });
-    const request = {
-      binding: {
-        discussionId: 'D1',
-        generation: 1,
-        workspaceId: 'workspace-a',
-        tenderId: 'T1',
-      },
-      authority: {
-        authorityId: 'people',
-        authorityVersion: '1',
-        kind: 'person' as const,
-        subject: 'requester',
-        expiresAt: '2027-01-01T00:00:00.000Z',
-      },
-      questionSourceId: 'M2',
-      sourceCutoff: '2',
-      requesterId: 'requester',
-      answerGoalId: 'goal1',
-      attemptId: 'attempt1',
-      idempotencyKey: 'answer1',
-      revisionId: 'R1',
-      analysisReady: true as const,
-      model: 'haiku',
-      maxOutputTokens: 2000,
-      deadlineAt: '2027-01-01T00:00:00.000Z',
-      executionProfile: {
-        instructionsVersion: 'v1',
-        responseSchema: { type: 'object' },
-        callerResolvedTools: [
+  it.each([
+    'direct',
+    'streamed',
+    'large',
+    'partial',
+    'invalid',
+    'missing',
+    'conflict',
+    'canceled',
+    'invalid-canceled',
+    'failed',
+    'fenced',
+  ] as const)(
+    'native source answer preserves exact validated terminal across %s transport',
+    async (scenario) => {
+      const previousMemoryClient = getMemoryLlmClient();
+      registerMemoryLlmClient({
+        isConfigured: () => true,
+        query: async () => '',
+        countTokens: async () => 100,
+      });
+      const chosen = [
+        makeMessage({ id: 'M1', content: 'selected ancestor' }),
+        makeMessage({ id: 'M2', content: 'selected question' }),
+      ];
+      const { deps } = setupHappyPath({
+        group: makeGroup({
+          requiresTrigger: true,
+          agentConfig: { model: 'opus' },
+        }),
+        messages: [makeMessage({ id: 'M3', content: 'excluded sibling' })],
+        agentOutput: {
+          status: 'success',
+          result:
+            '{"version":1,"answer":"ok","answerUnits":[{"text":"ok","source":"unconfirmed","citationIds":[],"metadataFields":[]}]}',
+          structuredResultValidated: true,
+        },
+      });
+      const request = {
+        binding: {
+          discussionId: 'D1',
+          generation: 1,
+          workspaceId: 'workspace-a',
+          tenderId: 'T1',
+        },
+        authority: {
+          authorityId: 'people',
+          authorityVersion: '1',
+          kind: 'person' as const,
+          subject: 'requester',
+          expiresAt: '2027-01-01T00:00:00.000Z',
+        },
+        questionSourceId: 'M2',
+        sourceCutoff: '2',
+        requesterId: 'requester',
+        answerGoalId: 'goal1',
+        attemptId: 'attempt1',
+        idempotencyKey: 'answer1',
+        revisionId: 'R1',
+        analysisReady: true as const,
+        model: 'haiku',
+        maxOutputTokens: 2000,
+        deadlineAt: '2027-01-01T00:00:00.000Z',
+        executionProfile: {
+          instructionsVersion: 'v1',
+          responseSchema: {
+            type: 'object',
+            required: ['version', 'answer', 'answerUnits'],
+            additionalProperties: false,
+            properties: {
+              version: { const: 1 },
+              answer: { type: 'string' },
+              answerUnits: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  required: ['text', 'source', 'citationIds', 'metadataFields'],
+                  properties: {
+                    text: { type: 'string' },
+                    source: { type: 'string' },
+                    citationIds: { type: 'array' },
+                    metadataFields: { type: 'array' },
+                  },
+                },
+              },
+            },
+          },
+          callerResolvedTools: [
+            {
+              name: 'get_tender_metadata',
+              description: 'authorized evidence',
+              inputSchema: { type: 'object' },
+            },
+            {
+              name: 'search_tender_evidence',
+              description: 'authorized search',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxToolInteractions: 4,
+          interactionTimeoutMs: 90000,
+        },
+      };
+      Object.assign(deps.opsRepository!, {
+        getPreparedSourceAnswer: vi.fn(async () => ({
+          id: 'native1',
+          request,
+          messages: chosen,
+          selectedSourceIds: ['M1', 'M2'],
+          claimToken: 'fence',
+        })),
+        getAgentTurnContext: vi.fn(async () => ({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'session1',
+          providerSessionId: 'old',
+          externalSessionId: 'old-provider-history',
+          memoryContextBlock: 'wrong workspace memory',
+        })),
+        createSessionAgentRun: vi.fn(async () => 'run1'),
+        markSourceAnswerRun: vi.fn(async () => {}),
+        persistSourceAnswerOutput: vi.fn(async () => {}),
+        finishPreparedSourceAnswer: vi.fn(async () => {}),
+        sourceWorkspaceMemoryContext: vi.fn(async () => 'workspace-a learning'),
+      });
+      const full = JSON.stringify({
+        version: 1,
+        answer: scenario === 'large' ? 'complete '.repeat(1000) : 'ok',
+        answerUnits: [
           {
-            name: 'evidence',
-            description: 'authorized evidence',
-            inputSchema: { type: 'object' },
+            text: 'ok',
+            source: 'unconfirmed',
+            citationIds: [],
+            metadataFields: [],
           },
         ],
-        maxToolInteractions: 4,
-        interactionTimeoutMs: 90000,
-      },
-    };
-    Object.assign(deps.opsRepository!, {
-      getPreparedSourceAnswer: vi.fn(async () => ({
-        id: 'native1',
-        request,
-        messages: chosen,
-        selectedSourceIds: ['M1', 'M2'],
-        claimToken: 'fence',
-      })),
-      getAgentTurnContext: vi.fn(async () => ({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'session1',
-        providerSessionId: 'old',
-        externalSessionId: 'old-provider-history',
-        memoryContextBlock: 'wrong workspace memory',
-      })),
-      createSessionAgentRun: vi.fn(async () => 'run1'),
-      markSourceAnswerRun: vi.fn(async () => {}),
-      persistSourceAnswerOutput: vi.fn(async () => {}),
-      finishPreparedSourceAnswer: vi.fn(async () => {}),
-      sourceWorkspaceMemoryContext: vi.fn(async () => 'workspace-a learning'),
-    });
-    await createGroupProcessor(deps).processGroupMessages('group1@g.us');
-    expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
-    const call = mockSpawnAgent.mock.calls[0]![1];
-    expect(call.model).toBe('haiku');
-    expect(call).not.toHaveProperty('sessionId');
-    expect(call.effort).toBeUndefined();
-    expect(call.maxOutputTokens).toBe(2000);
-    expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBeLessThanOrEqual(
-      180000,
-    );
-    expect(call.sourceWorkspaceMemoryId).toBe('workspace-a');
-    expect(call.memoryContextBlock).toContain('workspace-a learning');
-    expect(call.memoryContextBlock).not.toContain('wrong workspace');
-    expect(
-      call.callerResolvedTools.tools.map((tool: any) => tool.name),
-    ).toEqual(['evidence']);
-    expect(mockFormatMessages).toHaveBeenCalledWith(chosen, 'UTC');
-    expect(deps.opsRepository!.persistSourceAnswerOutput).toHaveBeenCalledWith(
-      'native1',
-      'run1',
-      expect.stringContaining('answerUnits'),
-    );
-    registerMemoryLlmClient(previousMemoryClient);
-  });
+      });
+      if (scenario === 'fenced')
+        vi.mocked(
+          deps.opsRepository!.persistSourceAnswerOutput!,
+        ).mockRejectedValueOnce(new Error('Source answer slot lease expired'));
+      if (scenario !== 'direct')
+        mockSpawnAgent.mockImplementationOnce(
+          async (group, agentInput, onProcess, onOutput, options) => {
+            const { executeRunnerProcess } = await vi.importActual<
+              typeof import('@core/runtime/agent-spawn-process.js')
+            >('@core/runtime/agent-spawn-process.js');
+            const dir = fs.mkdtempSync(
+              path.join(os.tmpdir(), 'source-terminal-stream-'),
+            );
+            const terminal = {
+              status: 'success',
+              result: full,
+              structuredResultValidated: true,
+            };
+            const frames =
+              scenario === 'streamed' ||
+              scenario === 'large' ||
+              scenario === 'fenced'
+                ? [{ status: 'success', result: 'partial text' }, terminal]
+                : scenario === 'partial'
+                  ? [{ status: 'success', result: 'partial text' }]
+                  : scenario === 'invalid'
+                    ? [{ ...terminal, result: '{"answer":"incomplete"}' }]
+                    : scenario === 'missing'
+                      ? []
+                      : scenario === 'conflict'
+                        ? [
+                            terminal,
+                            {
+                              ...terminal,
+                              result: full.replaceAll('ok', 'different'),
+                            },
+                          ]
+                        : scenario === 'failed'
+                          ? [
+                              { status: 'success', result: 'partial text' },
+                              {
+                                status: 'error',
+                                result: null,
+                                error: 'Provider failed',
+                              },
+                            ]
+                          : [
+                              {
+                                ...terminal,
+                                result:
+                                  scenario === 'invalid-canceled'
+                                    ? 'invalid JSON'
+                                    : full,
+                              },
+                              {
+                                status: 'error',
+                                result: null,
+                                error: 'Stopped by request',
+                              },
+                            ];
+            const code =
+              "process.stdin.resume();process.stdin.on('end',()=>{for(const frame of " +
+              JSON.stringify(frames) +
+              ")process.stdout.write('---GANTRY_OUTPUT_START---'+JSON.stringify(frame)+'---GANTRY_OUTPUT_END---');})";
+            try {
+              const output = await executeRunnerProcess({
+                group,
+                input: agentInput,
+                command: process.execPath,
+                args: ['-e', code],
+                env: { HOME: dir },
+                onProcess,
+                onOutput,
+                options: {
+                  ...options,
+                  runnerSandboxProvider: {
+                    id: 'test-node',
+                    enforcing: true,
+                    start: (spec) =>
+                      spawn(spec.command, spec.args, {
+                        cwd: dir,
+                        env: spec.env,
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                      }),
+                  },
+                },
+                runnerLabel: 'test-node',
+                processName: 'source-terminal',
+                startTime: Date.now(),
+                logsDir: dir,
+                runtimeDetails: [],
+                sandbox: {
+                  cwd: dir,
+                  workspaceRoot: dir,
+                  configFilePath: path.join(dir, 'sandbox.json'),
+                  allowedNetworkHosts: [],
+                  runtimeReadPaths: [],
+                  runtimeWritePaths: [],
+                  protectedReadPaths: [],
+                  protectedWritePaths: [],
+                  resourceLimits: {
+                    cpuSeconds: 0,
+                    memoryMb: 0,
+                    maxProcesses: 0,
+                  },
+                  sandboxProfile: {
+                    id: 'test-node',
+                    network: 'none',
+                    filesystem: 'workspace_write',
+                  },
+                  principal: {},
+                },
+              } as never);
+              expect(output.result).toBeNull();
+              return output;
+            } finally {
+              fs.rmSync(dir, { recursive: true, force: true });
+            }
+          },
+        );
+      await createGroupProcessor(deps).processGroupMessages('group1@g.us');
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+      const call = mockSpawnAgent.mock.calls[0]![1];
+      expect(call.model).toBe('haiku');
+      expect(call).not.toHaveProperty('sessionId');
+      expect(call.effort).toBeUndefined();
+      expect(call.maxOutputTokens).toBe(2000);
+      expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBeLessThanOrEqual(
+        180000,
+      );
+      expect(call.sourceWorkspaceMemoryId).toBe('workspace-a');
+      expect(call.memoryContextBlock).toContain('workspace-a learning');
+      expect(call.memoryContextBlock).not.toContain('wrong workspace');
+      expect(call.callerResolvedTools.tools).toEqual(
+        request.executionProfile.callerResolvedTools.map((tool) => ({
+          ...tool,
+          transportMode: 'direct_caller',
+        })),
+      );
+      if (scenario === 'direct') {
+        const { buildGantryMcpProjection } = await vi.importActual<
+          typeof import('@core/adapters/llm/deepagents-langchain/runner/gantry-mcp-env.js')
+        >('@core/adapters/llm/deepagents-langchain/runner/gantry-mcp-env.js');
+        const previousWorkspace = process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID;
+        const previousIpc = process.env.GANTRY_IPC_DIR;
+        process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID = 'workspace-a';
+        process.env.GANTRY_IPC_DIR = '/tmp/source-tool-manifest-test';
+        try {
+          const { effectiveEnabledMcpToolNames } = await vi.importActual<
+            typeof import('@core/runner/mcp/server.js')
+          >('@core/runner/mcp/server.js');
+          const projection = buildGantryMcpProjection({
+            configuredAllowedTools: [],
+            hideAuthorityTools: true,
+            processEnv: {
+              GANTRY_CHAT_JID: 'app:test:D1',
+              GANTRY_SOURCE_WORKSPACE_MEMORY_ID: 'workspace-a',
+              GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify(
+                call.callerResolvedTools,
+              ),
+            },
+          });
+          const names = effectiveEnabledMcpToolNames(
+            projection.env.GANTRY_MCP_TOOL_NAMES_JSON,
+            undefined,
+            undefined,
+            false,
+            undefined,
+            'app:test:D1',
+            'interactive',
+            projection.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
+          );
+          expect([...names].sort()).toEqual(
+            [
+              'get_tender_metadata',
+              'search_tender_evidence',
+              'memory_search',
+              'memory_save',
+              'memory_demote',
+              'source_document',
+            ].sort(),
+          );
+        } finally {
+          if (previousWorkspace === undefined)
+            delete process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID;
+          else
+            process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID = previousWorkspace;
+          if (previousIpc === undefined) delete process.env.GANTRY_IPC_DIR;
+          else process.env.GANTRY_IPC_DIR = previousIpc;
+        }
+      }
+      expect(mockFormatMessages).toHaveBeenCalledWith(chosen, 'UTC');
+      if (
+        scenario === 'direct' ||
+        scenario === 'streamed' ||
+        scenario === 'large'
+      ) {
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).toHaveBeenCalledExactlyOnceWith('native1', 'run1', full);
+      } else if (scenario === 'fenced') {
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).toHaveBeenCalledExactlyOnceWith('native1', 'run1', full);
+        expect(
+          deps.opsRepository!.finishPreparedSourceAnswer,
+        ).toHaveBeenCalledWith('native1', false, 'fence');
+      } else
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).not.toHaveBeenCalled();
+      registerMemoryLlmClient(previousMemoryClient);
+    },
+  );
 
   // =======================================================================
   // Early returns
