@@ -183,6 +183,7 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         );
       if (!session) fail('Source answer session absent');
       await assertSourceDocumentOutput(tx, {
+        answerId:id,conversationId:session!.conversationId,
         appId: answer!.appId,
         agentId: session!.agentId,
         sessionId: session!.sessionId,

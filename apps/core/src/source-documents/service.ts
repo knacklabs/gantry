@@ -1,24 +1,38 @@
+import { selectedSourceDocument } from '../adapters/storage/postgres/repositories/source-document-output.postgres.js';
+import type { SourceDocumentArtifactReceipt } from '@gantry/contracts';
 import { randomUUID } from 'node:crypto';
 import { hash } from '../adapters/storage/postgres/repositories/source-answer-base.postgres.js';
 import { PostgresSourceLearningRepository } from '../adapters/storage/postgres/repositories/source-learning-repository.postgres.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { sourceChannelMemorySubject } from '../memory/source-channel-memory-scope.js';
-import type { SourceLearningScope } from '../domain/ports/source-learning.js';
+import type {
+  SourceLearningContext,
+  SourceLearningScope,
+} from '../domain/ports/source-learning.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import { launchSourceDocumentRenderer } from './launcher.js';
 import type { SourceDocumentRendererRequest } from './renderer/types.js';
 import {
   SOURCE_DOCUMENT_CREATED_BY,
   sourceDocumentReceipt,
+  canonicalSourceDocument,
+  readConvertibleSourceDocument,
+  convertSourceDocumentRequest,
 } from './artifacts.js';
 export async function createSourceDocument(input: {
   scope: SourceLearningScope;
-  document: SourceDocumentRendererRequest;
-  citationIds: string[];
-  metadataFields: string[];
+  document?: SourceDocumentRendererRequest;
+  citationIds?: string[];
+  metadataFields?: string[];
+  convertExistingArtifactId?: string;
+  targetFormat?: 'pdf' | 'docx';
   store: FileArtifactStore;
   repository?: PostgresSourceLearningRepository;
   launch?: typeof launchSourceDocumentRenderer;
+  selectOriginal?: (
+    context: SourceLearningContext,
+    artifactId: string,
+  ) => ReturnType<typeof selectedSourceDocument>;
 }) {
   const repo =
     input.repository ??
@@ -28,26 +42,72 @@ export async function createSourceDocument(input: {
     scope: 'group',
   });
   const context = await repo.context(input.scope, subject);
-  for (const refs of [input.citationIds, input.metadataFields])
+  let document = input.document;
+  let citationIds = input.citationIds;
+  let metadataFields = input.metadataFields;
+  let conversion: SourceDocumentArtifactReceipt['conversion'];
+  if (input.convertExistingArtifactId !== undefined) {
     if (
-      !Array.isArray(refs) ||
-      refs.length > 100 ||
-      refs.some((ref) => typeof ref !== 'string' || !ref || ref.length > 256) ||
-      new Set(refs).size !== refs.length
+      document !== undefined ||
+      citationIds !== undefined ||
+      metadataFields !== undefined ||
+      !['pdf', 'docx'].includes(input.targetFormat ?? '')
     )
-      throw new Error('Invalid source document references');
+      throw new Error('Conversion cannot replace original document content');
+    const selected = await (
+      input.selectOriginal ??
+      ((context, id) =>
+        selectedSourceDocument(getRuntimeStorage().service.db, context, id))
+    )(context, input.convertExistingArtifactId);
+    const original = await input.store.readFileArtifact({
+      appId: input.scope.appId,
+      agentId: input.scope.agentId,
+      id: input.convertExistingArtifactId as never,
+    });
+    const preserved = await readConvertibleSourceDocument(
+      input.store,
+      original.artifact,
+    );
+    if (
+      hash(preserved.receipt) !== hash(selected.receipt) ||
+      preserved.canonical.revisionId !== context.request.revisionId
+    )
+      throw new Error('Original document conversion proof mismatch');
+    document = convertSourceDocumentRequest(
+      preserved.document,
+      preserved.canonical,
+      input.targetFormat!,
+    );
+    citationIds = preserved.canonical.citationIds;
+    metadataFields = preserved.canonical.metadataFields;
+    conversion = {
+      artifactId: selected.receipt.artifactId,
+      sourceMessageId: selected.sourceMessageId,
+      sha256: selected.receipt.sha256,
+      manifestHash: selected.receipt.manifestHash,
+    };
+  } else if (input.targetFormat !== undefined)
+    throw new Error('Conversion requires an original artifact');
+  if (!document || !citationIds || !metadataFields)
+    throw new Error('Document content is required');
+  const canonical = canonicalSourceDocument(document, {
+    citationIds,
+    metadataFields,
+    revisionId: context.request.revisionId,
+  });
   const holder = randomUUID();
   if (!(await repo.acquire(context, holder)))
     throw new Error('Another native source operation is in progress');
   try {
     const manifestHash = hash({
-      document: input.document,
-      citationIds: input.citationIds,
-      metadataFields: input.metadataFields,
+      document,
+      citationIds,
+      metadataFields,
       answerGoalId: context.request.answerGoalId,
       attemptId: context.request.attemptId,
       runId: input.scope.runId,
       binding: context.request.binding,
+      ...(conversion ? { conversion } : {}),
     });
     const virtualScope = `source-document_${hash([input.scope.appId, context.request.answerGoalId, context.request.attemptId])}`;
     const owner = { appId: input.scope.appId, agentId: input.scope.agentId };
@@ -57,7 +117,7 @@ export async function createSourceDocument(input: {
       limit: 5,
     });
     const existing = artifacts.find(
-      (row) => row.path === `${manifestHash}.${input.document.format}`,
+      (row) => row.path === `${manifestHash}.${document.format}`,
     );
     const candidate = {
       id: `source-document:${manifestHash}`,
@@ -100,7 +160,7 @@ export async function createSourceDocument(input: {
     let rendered;
     try {
       rendered = await (input.launch ?? launchSourceDocumentRenderer)(
-        input.document,
+        document,
         { deadlineAtMs: context.deadlineAtMs, signal: abort.signal },
       );
     } finally {
@@ -119,24 +179,29 @@ export async function createSourceDocument(input: {
       answerGoalId: context.request.answerGoalId,
       attemptId: context.request.attemptId,
       binding: context.request.binding,
-      format: input.document.format,
+      format: document.format,
       fileName: output.fileName,
       contentType: output.contentType,
       sizeBytes: output.sizeBytes,
       sha256: output.sha256,
       rendererVersion: output.rendererVersion,
       manifestHash,
-      citationIds: input.citationIds,
-      metadataFields: input.metadataFields,
+      citationIds,
+      metadataFields,
+      canonicalContentHash: canonical.canonicalContentHash,
+      ...(conversion ? { conversion } : {}),
     };
     const artifact = await input.store.writeFileArtifact({
       ...owner,
       virtualScope,
-      virtualPath: `${manifestHash}.${input.document.format}`,
+      virtualPath: `${manifestHash}.${document.format}`,
       content: rendered.bytes,
       contentType: output.contentType,
       createdBy: SOURCE_DOCUMENT_CREATED_BY,
-      metadata: { sourceDocument: metadata },
+      metadata: {
+        sourceDocument: metadata,
+        sourceDocumentCanonical: canonical,
+      },
     });
     return sourceDocumentReceipt(artifact);
   } finally {

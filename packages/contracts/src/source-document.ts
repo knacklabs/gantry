@@ -27,10 +27,14 @@ export const SourceDocumentArtifactReceiptSchema = z
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     rendererVersion: z.string().min(1).max(100),
     manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    canonicalContentHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    conversion: z.object({artifactId:id,sourceMessageId:id,sha256:z.string().regex(/^[a-f0-9]{64}$/),manifestHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict().optional(),
     citationIds: z.array(id).max(100),
     metadataFields: z.array(id).max(100),
   })
-  .strict();
+  .strict().superRefine((receipt,ctx)=>{
+    if(receipt.conversion&&!receipt.canonicalContentHash)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Conversion requires canonical content integrity'});
+  });
 export const ReadSourceDocumentSchema = z
   .object({
     artifactId: id,
@@ -53,3 +57,5 @@ export const ReadSourceDocumentResponseSchema = z
 export type ReadSourceDocumentResponse = z.infer<
   typeof ReadSourceDocumentResponseSchema
 >;
+export const ConvertSourceDocumentRequestSchema=z.object({convertExistingArtifactId:id,targetFormat:z.enum(['pdf','docx'])}).strict();
+export type ConvertSourceDocumentRequest=z.infer<typeof ConvertSourceDocumentRequestSchema>;

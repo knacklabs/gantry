@@ -44,18 +44,53 @@ const block = z.discriminatedUnion('type', [
     .strict(),
 ]);
 export function registerSourceDocumentTools(server: McpServer) {
-  server.tool(
-    'source_document',
-    'Generate a downloadable PDF or Word DOCX from bounded cited text in the current authorized answer. Use actual evidence citation IDs and metadata fields. Returns only a trusted artifact receipt. Include that exact receipt in the final structured answer artifacts array. No filesystem paths or binary bytes are returned.',
-    {
+  const creation = z
+    .object({
       format: z.enum(['pdf', 'docx']),
       fileName: z.string().min(1).max(128),
       title: z.string().min(1).max(200),
       blocks: z.array(block).min(1).max(200),
       citationIds: z.array(z.string().min(1).max(256)).max(100),
       metadataFields: z.array(z.string().min(1).max(256)).max(100),
+    })
+    .strict();
+  const conversion = z
+    .object({
+      convertExistingArtifactId: z.string().min(1).max(256),
+      targetFormat: z.enum(['pdf', 'docx']),
+    })
+    .strict();
+  const operation = z.union([creation, conversion]);
+  const advertised = z
+    .object({
+      ...Object.fromEntries(
+        Object.entries(creation.shape).map(([name, schema]) => [
+          name,
+          schema.optional(),
+        ]),
+      ),
+      convertExistingArtifactId:
+        conversion.shape.convertExistingArtifactId.optional(),
+      targetFormat: conversion.shape.targetFormat.optional(),
+    })
+    .strict()
+    .superRefine((value, ctx) => {
+      if (!operation.safeParse(value).success)
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            'Choose exactly one complete creation or format-only conversion operation',
+        });
+    });
+  server.registerTool(
+    'source_document',
+    {
+      description:
+        'Create a cited PDF/DOCX, or convert an existing selected published artifact by supplying ONLY convertExistingArtifactId and targetFormat. Conversion preserves the original title, blocks and references exactly. Never rewrite content for a format-only request. Returns a trusted receipt for final artifacts; no file bytes or paths.',
+      inputSchema: advertised,
     },
-    async (args) => {
+    async (rawArgs) => {
+      const args = operation.parse(rawArgs);
       if (!sourceWorkspaceMemoryId || !runId)
         throw new Error(
           'Document generation requires an active authorized source answer',
@@ -77,7 +112,7 @@ export function registerSourceDocumentTools(server: McpServer) {
               ? { responseKeyId: IPC_RESPONSE_KEY_ID }
               : {}),
             sourceWorkspaceMemoryId,
-  runId,
+            runId,
             sourceRunId: runId,
             defaultScope: memoryDefaultScope,
             allowedActions: memoryIpcAllowedActions,
@@ -86,7 +121,11 @@ export function registerSourceDocumentTools(server: McpServer) {
           expiresAt: new Date(Date.now() + 55000).toISOString(),
         },
       );
-      const { citationIds, metadataFields, ...document } = args;
+      const conversionRequest =
+        'convertExistingArtifactId' in args ? args : undefined;
+      const creationRequest = 'format' in args ? args : undefined;
+      const { citationIds, metadataFields, ...document } =
+        creationRequest ?? {};
       writeIpcFile(TASKS_DIR, {
         type: 'file_artifact',
         taskId,
@@ -94,9 +133,13 @@ export function registerSourceDocumentTools(server: McpServer) {
         targetJid: chatJid,
         payload: {
           action: 'render_source_document',
-          document: { version: 1, ...document },
-          citationIds,
-          metadataFields,
+          ...(conversionRequest
+            ? conversionRequest
+            : {
+                document: { version: 1, ...document },
+                citationIds,
+                metadataFields,
+              }),
           authorization,
         },
       });
