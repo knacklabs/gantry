@@ -1,3 +1,4 @@
+import {sourceMessageArtifacts} from './source-message-artifacts.postgres.js';
 import { rebuildSourceGeneration } from './source-generation-rebuild.postgres.js';
 import {
   appendSourceRuntimeEvent,
@@ -230,6 +231,11 @@ export class PostgresSourceChannelRepository {
           );
         if (!completed)
           conflict('Runtime output has no correlated terminal result');
+        const artifacts=await sourceMessageArtifacts(tx,{appId,sessionId,binding:input.binding,messages:[output!]});
+        const sourceArtifacts=artifacts.get(output!.id)??[];
+        // Preserve native-owned metadata before replacing the display text with its canonical app projection.
+        (association as Record<string,unknown>).sourceArtifacts=sourceArtifacts;
+        await tx.update(schema.messagesPostgres).set({externalRefJson:association}).where(eq(schema.messagesPostgres.id,output!.id));
         if (input.binding.generation > 1) {
           await tx.insert(schema.messagesPostgres).values({
             ...output!,

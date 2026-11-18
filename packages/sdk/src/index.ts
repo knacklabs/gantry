@@ -928,3 +928,6 @@ export type {
 
 export {SourceDocumentArtifactReceiptSchema,ReadSourceDocumentResponseSchema} from '@gantry/contracts';
 export type {SourceDocumentArtifactReceipt,ReadSourceDocument,ReadSourceDocumentResponse} from '@gantry/contracts';
+export { SourceContextReceiptSchema } from './source-channel.js';
+export type { SourceContextReceipt, SourceContextSource } from './source-channel.js';
+export {hashSourceContextReceipt} from './source-channel.js';

@@ -212,3 +212,35 @@ export const RebuildSourceGenerationResponseSchema = z
 export type RebuildSourceGenerationResponse = z.infer<
   typeof RebuildSourceGenerationResponseSchema
 >;
+
+export const SourceContextSourceSchema = z.object({
+  sourceMessageId: id,
+  sourcePosition: position,
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export const SourceContextReceiptSchema = z.object({
+  version: z.literal(1),
+  binding: SourceBindingSchema,
+  answerGoalId: id,
+  attemptId: id,
+  questionSourceId: id,
+  sourceCutoff: position,
+  revisionId: id,
+  selectionMode: z.enum(['recent', 'ancestry']),
+  sources: z.array(SourceContextSourceSchema).max(1000),
+  summary: z.object({
+    digestId: id,
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    coveredRange: z.object({after: checkpoint, through: position}).strict().optional(),
+    coveredSourceIds: z.array(id).max(1000).optional(),
+    citedSources: z.array(SourceContextSourceSchema).max(100),
+  }).strict().optional(),
+  receiptHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict();
+export type SourceContextSource = z.infer<typeof SourceContextSourceSchema>;
+export type SourceContextReceipt = z.infer<typeof SourceContextReceiptSchema>;
+/** Receipt v1 encoding: recursive JSON with UTF-16 lexical object-key order; array order is preserved. */
+export function sourceContextReceiptHashInput(value:Omit<SourceContextReceipt,'receiptHash'>):string {
+  const canonical=(item:unknown):string=>Array.isArray(item)?'['+item.map(canonical).join(',')+']':item&&typeof item==='object'?'{'+Object.entries(item).filter(([,v])=>v!==undefined).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([key,v])=>JSON.stringify(key)+':'+canonical(v)).join(',')+'}':JSON.stringify(item);
+  return canonical(value);
+}

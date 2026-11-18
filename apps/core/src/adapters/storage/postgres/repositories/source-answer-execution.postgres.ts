@@ -1,3 +1,4 @@
+import { buildSourceContextReceipt, type ContextProofSnapshot } from './source-context-receipt.postgres.js';
 import { assertSourceDocumentOutput } from './source-document-output.postgres.js';
 import { sourceAnswerOutputId } from './source-answer-output-id.js';
 import {
@@ -189,6 +190,14 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         request: payload.request,
         text,
       });
+      let sourceArtifacts:unknown[]=[];
+      try{const parsed=JSON.parse(text) as {artifacts?:unknown[]}|null;sourceArtifacts=parsed?.artifacts??[];}catch{/* Legacy source profiles may return plain text. */}
+      const contextPayload = payload as AnswerPayload & {contextSnapshot?:ContextProofSnapshot;contextSummaryId?:string};
+      const contextReceipt = contextPayload.contextSnapshot?.sources ? await buildSourceContextReceipt(tx, {
+        request:payload.request,snapshot:contextPayload.contextSnapshot,summaryId:contextPayload.contextSummaryId,
+        sessionId:session!.sessionId,conversationId:session!.conversationId,appId:session!.appId,text,
+      }) : undefined;
+      if(payload.request.executionProfile?.instructionsVersion==='tender-discussion-v1.0.3'&&!contextReceipt)fail('Required source context proof absent');
       const outputId = sourceAnswerOutputId(
         answer!.appId,
         payload.request.answerGoalId,
@@ -211,6 +220,8 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
             sourceAnswerGoalId: payload.request.answerGoalId,
             sourceAnswerAttemptId: payload.request.attemptId,
             sourceRunId: runId,
+            sourceArtifacts,
+            ...(contextReceipt ? {contextReceipt} : {}),
           },
         })
         .onConflictDoNothing()
@@ -233,6 +244,7 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         correlationId: payload.request.answerGoalId,
         payloadJson: JSON.stringify({
           text,
+          ...(contextReceipt ? {contextReceipt} : {}),
           runtimeOutputId: outputId,
           answerGoalId: payload.request.answerGoalId,
           attemptId: payload.request.attemptId,

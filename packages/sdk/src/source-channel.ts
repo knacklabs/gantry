@@ -9,3 +9,10 @@ export function hashSourceMessage(
     .update(sourceMessageHashInput(message))
     .digest('hex');
 }
+
+export { SourceContextReceiptSchema } from '@gantry/contracts';
+export type { SourceContextReceipt, SourceContextSource } from '@gantry/contracts';
+import {sourceContextReceiptHashInput,type SourceContextReceipt} from '@gantry/contracts';
+export function hashSourceContextReceipt(receipt:Omit<SourceContextReceipt,'receiptHash'>):string {
+  return createHash('sha256').update(sourceContextReceiptHashInput(receipt)).digest('hex');
+}
