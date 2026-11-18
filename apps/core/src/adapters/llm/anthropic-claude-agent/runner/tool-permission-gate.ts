@@ -109,6 +109,13 @@ export function createPermissionApprovalContextChannel() {
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
+  // A locked agent never shows a permission prompt (the host denies it), so do
+  // not end the interaction there: that would post held-back working text.
+  const lockedPreset = input.sdkEnv.GANTRY_AGENT_ACCESS_PRESET === 'locked' ||
+    process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked';
+  const emitPromptBoundary = (): void => {
+    if (!lockedPreset) input.emitInteractionBoundary();
+  };
   const currentModel = findModelByRunnerModel(input.configuredModel);
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();
@@ -484,7 +491,7 @@ export function createCanUseToolCallback(
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
-      input.emitInteractionBoundary();
+      emitPromptBoundary();
       emitToolActivity(
         input.agentInput,
         input.getNewSessionId,
@@ -619,7 +626,7 @@ export function createCanUseToolCallback(
       };
     }
     const publicToolName = permissionRequestToolName(toolName);
-    input.emitInteractionBoundary();
+    emitPromptBoundary();
     emitToolActivity(
       input.agentInput,
       input.getNewSessionId,

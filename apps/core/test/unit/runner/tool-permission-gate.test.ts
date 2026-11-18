@@ -1151,6 +1151,25 @@ describe('tool permission gate', () => {
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('does not end the interaction before a locked agent is auto-denied', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValue({
+      approved: false,
+      reason: 'capability not provisioned: locked access preset',
+    });
+    const emitInteractionBoundary = vi.fn();
+    const options = {
+      capabilities: { allowedTools: [], alwaysAllowedTools: [], permissionMode: 'deny' } as never,
+      emitInteractionBoundary,
+    };
+    const locked = makeCallback({ ...options, sdkEnv: { GANTRY_AGENT_ACCESS_PRESET: 'locked' } });
+    await locked('Bash', { command: 'npm install left-pad' }, makePermissionOptions() as never);
+    expect(emitInteractionBoundary).not.toHaveBeenCalled();
+
+    const full = makeCallback({ ...options, sdkEnv: { GANTRY_AGENT_ACCESS_PRESET: 'full' } });
+    await full('Bash', { command: 'npm install left-pad' }, makePermissionOptions() as never);
+    expect(emitInteractionBoundary).toHaveBeenCalledTimes(1);
+  });
+
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValue({
       approved: false,
