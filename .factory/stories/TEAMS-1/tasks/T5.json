@@ -9,31 +9,24 @@
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "f9507dcdaad544f9b173e70ad4e5027140696186be555261e26b9d3a2f60268b",
-    "changed": "b2f57e4d4470e314b2bcad916b77b3656d37afe92906ab9b6ac8e08b45791583",
-    "commit": "9a20aaddb18fe4170d4a959ce857b6c9a7c8b5b6",
+    "branch_diff": "b027f50571785ee30db9d8dd9bc549eb705952783e35cb2056ad226b357cb10d",
+    "changed": "967d8fcc1efbbffceea4c89380bdb247e1dee296c4e14c0c2f7ac0354fcc7ac9",
+    "commit": "0a9f003365af2a44090dcb9f27c0745d16001faa",
     "dismissals": [],
     "findings": [
       {
-        "body": "This fixture uses a channel ID ending in `@thread.tacv2`, but its only Graph membership interceptor handles `/chats/.../members`. The changed membership validator classifies that ID as a channel and requests team/channel discovery followed by `/teams/{team}/channels/{channel}/members`. Those requests have no interceptor, and the Microsoft harness disables external networking, so membership verification fails closed and the permitted submitter cannot complete the required approval scenario. Update the Microsoft HTTP fixtures to cover the actual channel membership requests and verify that the waiting flow resolves.",
-        "file": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
-        "line": 209,
-        "priority": "P1",
-        "title": "Not done: authorized approval end-to-end proof"
-      },
-      {
-        "body": "The previously reported scope gap remains: typing indicators are explicitly deferred, but the branch advertises expiring typing and implements its delivery. Remove the typing additions from `index.ts`, `sdk-client.ts`, and `types.ts`, along with their assertions in `teams.test.ts` and `live-ux-dispatcher.test.ts`. None of the covered Done-when items requires this capability.",
+        "body": "The previously reported gap remains: typing indicators are explicitly deferred, but this change advertises expiring typing and implements its delivery. Remove the typing additions from `index.ts`, `sdk-client.ts`, and `types.ts`, plus their assertions in `teams.test.ts` and `live-ux-dispatcher.test.ts`. None of the covered Done-when items requires this capability.",
         "file": "apps/core/src/channels/teams/index.ts",
         "line": 115,
         "priority": "P2",
         "title": "Simpler: Teams typing support \u2192 retain the deferred capability"
       }
     ],
-    "id": "285701f5-cc9a-4932-9984-868de90e1a89",
-    "status": "blocked"
+    "id": "eedbc411-fc25-4f6f-8f9b-b033bbca0c3a",
+    "status": "clean"
   },
   "round": 6,
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-10-22T23:16:15+00:00",
@@ -97,6 +90,10 @@
     },
     {
       "at": "2026-11-19T12:34:25+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-19T13:17:40+00:00",
       "step": "review"
     }
   ],
