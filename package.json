@@ -181,6 +181,6 @@
       "body-parser": "2.4.0",
       "follow-redirects": "1.16.2"
     },
-    "node-forge": "1.4.1"
+    "node-forge": "1.4.3"
   }
 }
