@@ -71,7 +71,7 @@ import { hydrateChannelConversationContext } from './channel-wiring-conversation
 import { createChannelWiringStreamReset } from './channel-wiring-stream-reset.js';
 import { createChannelWiringLiveUx } from './channel-wiring-live-ux.js';
 import {
-  connectProviderAccountChannels,
+  connectEnabledProviderAccountChannels,
   type BoundProviderAccountChannel,
 } from '../../channels/provider-account-channel-connect.js';
 import { createPermissionApprovalRequester } from '../../channels/permission-approval-requester.js';
@@ -79,6 +79,7 @@ import * as routeProviderAccount from './channel-wiring-route-provider-account.j
 import { syncChannelGroups } from './channel-wiring-group-sync.js';
 import { fetchHistoricalAttachmentFromChannel } from './channel-wiring-historical-attachments.js';
 import { createChannelAttachmentDeletionHandler } from './channel-wiring-attachment-deletion.js';
+import { createDurableChannelInbound } from './durable-inbound-messages.js';
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 type BoundChannel = BoundProviderAccountChannel['channel'];
 export function createChannelWiring(
@@ -223,14 +224,24 @@ export function createChannelWiring(
     messageActionRouter,
     logger: resolved.logger,
   });
+  const persistenceHandlers = createChannelPersistenceHandlers({
+    app,
+    resolved,
+    ops,
+    persistenceQueue,
+    runtimeSettings: () => currentRuntimeSettings,
+  });
+  const durableInbound = createDurableChannelInbound({
+    appId: resolved.appId,
+    accounts: () => currentRuntimeSettings.providerAccounts,
+    providerForJid,
+    repository: () => getRuntimeStorage().repositories.inboundEvents,
+    processMessage: persistenceHandlers.onMessage,
+    warn: (context, message) => resolved.logger.warn(context, message),
+  });
   const channelOpts = {
-    ...createChannelPersistenceHandlers({
-      app,
-      resolved,
-      ops,
-      persistenceQueue,
-      runtimeSettings: () => currentRuntimeSettings,
-    }),
+    ...persistenceHandlers,
+    onMessage: durableInbound.onMessage,
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
@@ -253,29 +264,18 @@ export function createChannelWiring(
     options?: { providerInbound?: boolean },
   ): Promise<void> {
     currentRuntimeSettings = runtimeSettings;
-    const inboundEnabled =
-      runtimeSettings.runtime.liveTurns.enabled &&
-      (options?.providerInbound ?? true);
-    for (const provider of resolved.providerIds) {
-      if (!provider.isEnabled(runtimeSettings)) {
-        resolved.logger.info(
-          { channel: provider.id },
-          'Channel disabled in settings.yaml — skipping connect',
-        );
-        continue;
-      }
-      await connectProviderAccountChannels({
-        provider,
-        appId: resolved.appId,
-        runtimeSettings,
-        channelOpts,
-        inboundEnabled,
-        connectedChannels,
-        connectedChannelLeases,
-        inboundLeasePrefix: PROVIDER_INBOUND_LEASE_PREFIX,
-        logger: resolved.logger,
-      });
-    }
+    await connectEnabledProviderAccountChannels({
+      providers: resolved.providerIds,
+      appId: resolved.appId,
+      runtimeSettings,
+      channelOpts,
+      providerInbound: options?.providerInbound,
+      connectedChannels,
+      connectedChannelLeases,
+      inboundLeasePrefix: PROVIDER_INBOUND_LEASE_PREFIX,
+      logger: resolved.logger,
+      onDurableInboundConnected: durableInbound.track,
+    });
   }
   const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
   const describeDestinationJid = (jid: string) =>
@@ -703,6 +703,7 @@ export function createChannelWiring(
     }
     connectedChannels.length = 0;
     connectedChannelLeases.length = 0;
+    durableInbound.clear();
     userQuestionResponder.clear();
   }
   return {
@@ -713,6 +714,7 @@ export function createChannelWiring(
     setRuntimeSecrets: (provider) => { resolved.runtimeSecrets = provider; },
     describeDestinationJid,
     connectEnabledChannels,
+    recoverInboundMessages: durableInbound.recover,
     hasConnectedChannels,
     hasChannel,
     supportsStreaming,

@@ -23,7 +23,7 @@ describe('LocalFileArtifactBytes', () => {
     const stored = await bytes.putBytes({
       id: 'file-artifact:test' as never,
       appId: 'app-1',
-      agentId: 'agent-1',
+      agentId: 'agent:main_agent',
       virtualScope: 'scratch',
       virtualPath: 'notes/today.md',
       version: 1,

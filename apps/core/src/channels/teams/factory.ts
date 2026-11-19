@@ -25,12 +25,10 @@ export async function createTeamsChannel(
     return null;
   }
   const sdkClient =
-    deps.sdkClient ?? createMicrosoftTeamsSdkClient(credentials);
-  if (!sdkClient) {
-    logger.warn(
-      'Teams: Microsoft Teams SDK transport is not configured for this scaffold',
-    );
-    return null;
-  }
+    deps.sdkClient ??
+    createMicrosoftTeamsSdkClient(credentials, {
+      providerAccountId: opts.providerAccountId ?? 'teams_default',
+      inboundProviderAccountIds: opts.inboundProviderAccountIds,
+    });
   return new TeamsChannel(credentials, opts, sdkClient);
 }

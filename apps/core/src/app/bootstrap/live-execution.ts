@@ -462,6 +462,7 @@ export function startLiveExecutionServices(input: {
     | ((turn: LiveTurn) => Promise<void> | void)
     | undefined;
   recoverPendingMessages?: typeof defaultRecoverPendingMessages;
+  recoverInboundMessages?: () => Promise<void>;
   startLiveAdmissionWorkLoop?: typeof defaultStartLiveAdmissionWorkLoop;
   liveAdmissionWakeupSource?: LiveAdmissionWakeupSource;
   registerActiveAdmissionLoop: (
@@ -521,6 +522,7 @@ export function startLiveExecutionServices(input: {
     return handle;
   }
   const admissionLoop = startLiveAdmissionWorkLoop({
+    beforePoll: input.recoverInboundMessages,
     liveAdmissions: liveTurnLeaseDeps.liveTurns,
     appId: input.appId,
     workerInstanceId: liveTurnLeaseDeps.workerInstanceId,
