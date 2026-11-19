@@ -67,10 +67,18 @@ export function createGroupOutputBuffer(input: {
   let pendingOutputRawChars = 0;
   let pendingOutputHasParts = false;
 
+  // Set when a new assistant text segment starts after a tool call. The next
+  // streamed chunk asks the channel to drop earlier text (working notes).
+  let replaceStreamedText = false;
+
   const sendStreamingChunk = async (
     text: string,
     options: StreamingChunkOptions,
   ) => {
+    if (replaceStreamedText) {
+      replaceStreamedText = false;
+      options = { ...options, replace: true };
+    }
     try {
       const receipt = await input.channelRuntime.sendStreamingChunk(
         input.chatJid,
@@ -222,7 +230,12 @@ export function createGroupOutputBuffer(input: {
   };
 
   return {
-    appendRawOutput: async (raw: string) => {
+    appendRawOutput: async (
+      raw: string,
+      segment: { newTextSegment?: boolean } = {},
+    ) => {
+      if (segment.newTextSegment && input.supportsStreamingChunks)
+        replaceStreamedText = true;
       pendingOutputHasParts = true;
       pendingOutputRawChars += raw.length;
       pendingOutputVisible.append(raw);

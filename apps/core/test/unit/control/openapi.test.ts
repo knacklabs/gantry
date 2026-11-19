@@ -44,6 +44,7 @@ import { handleSessionRoutes } from '@core/control/server/routes/sessions.js';
 import { handleSettingsRoutes } from '@core/control/server/routes/settings.js';
 import { handleSkillRoutes } from '@core/control/server/routes/skills.js';
 import { handleSystemRoutes } from '@core/control/server/routes/system.js';
+import { handleTeamsActivityRoutes } from '@core/control/server/routes/teams-activities.js';
 import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
 
@@ -149,6 +150,7 @@ const expectedControlRoutes = [
   'POST /v1/people/{personId}/merge:preview',
   'POST /v1/people/{personId}/unmerge',
   'GET /v1/providers',
+  'POST /v1/providers/teams/{providerAccountId}/activities',
   'GET /v1/runs',
   'GET /v1/runs/{runId}',
   'GET /v1/runs/{runId}/events',
@@ -364,6 +366,10 @@ function mockContext(): ControlRouteContext {
     countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
+    processTeamsActivity: async ({ response }) => {
+      response.statusCode = 200;
+      response.end();
+    },
     getSelectedAgentHarness: () => 'auto',
   };
 }
@@ -381,6 +387,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleCapabilityCatalogRoutes(req, res, ctx, pathname),
     () => handleSessionRoutes(req, res, ctx, url, pathname),
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
+    () => handleTeamsActivityRoutes(req, res, ctx, pathname),
     () => handlePeopleRoutes(req, res, ctx, url, pathname),
     () => handleMemoryRoutes(req, res, ctx, url, pathname),
     () => handleObserverRoutes(req, res, ctx, url, pathname),

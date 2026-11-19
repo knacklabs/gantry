@@ -41,6 +41,7 @@ export interface RunnerOutputFrame {
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;
+  newTextSegment?: boolean;
   usage?: NormalizedModelUsage;
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;

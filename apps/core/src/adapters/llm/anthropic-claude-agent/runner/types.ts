@@ -73,6 +73,8 @@ export interface AgentRunnerOutput {
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;
+  /** Text starts a new assistant segment after a tool call; earlier text was a working note. */
+  newTextSegment?: boolean;
   usage?: NormalizedModelUsage;
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;

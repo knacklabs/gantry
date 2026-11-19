@@ -544,7 +544,7 @@ describe('Teams Adaptive Card payloads', () => {
   });
 });
 
-describe('TeamsChannel adapter scaffold', () => {
+describe('TeamsChannel adapter', () => {
   it('truthfully declares Teams reactions unsupported', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -657,6 +657,7 @@ describe('TeamsChannel adapter scaffold', () => {
         tenantId: 'tenant-id',
       },
       onMessage: expect.any(Function),
+      inbound: true,
     });
 
     await startInput?.onMessage({
@@ -673,14 +674,9 @@ describe('TeamsChannel adapter scaffold', () => {
       conversationType: 'channel',
     });
 
-    expect(opts.onChatMetadata).toHaveBeenCalledWith(
-      'teams:19:abc@thread.v2',
-      '2026-04-30T00:00:00.000Z',
-      'Engineering',
-      'teams',
-      true,
-      { providerAccountId: 'teams_default' },
-    );
+    // Conversation identity travels in the durable message. A separate metadata
+    // write before saving could reject an inbound message before it is safe.
+    expect(opts.onChatMetadata).not.toHaveBeenCalled();
     expect(opts.onMessage).toHaveBeenCalledWith(
       'teams:19:abc@thread.v2',
       expect.objectContaining({
@@ -690,6 +686,8 @@ describe('TeamsChannel adapter scaffold', () => {
         sender: 'user-1',
         sender_name: 'Ravi',
         content: 'hello from Teams',
+        name: 'Engineering',
+        isGroup: true,
         thread_id: 'root-message',
       }),
     );
@@ -2183,6 +2181,83 @@ describe('TeamsChannel adapter scaffold', () => {
     );
   });
 
+  it('skips plain Teams progress cards when TEAMS_PROGRESS_MESSAGES is off', async () => {
+    vi.stubEnv('TEAMS_PROGRESS_MESSAGES', 'off');
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'progress-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await expect(
+      channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Working...', {
+        threadId: 'root-message',
+        generation: 3,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Done.', {
+        threadId: 'root-message',
+        generation: 3,
+        done: true,
+        replaceOnly: true,
+      }),
+    ).resolves.toBe(true);
+    await channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Working...', {
+      generation: 4,
+      actionAffordances: [
+        { kind: 'scheduler_pause_job', label: 'Pause', jobId: 'job-4' },
+      ],
+    });
+
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a plain Teams typing indicator in chats but not in channels', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendTyping: vi.fn(async () => {}),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    expect(channel.liveUx.typing).toBe('expiring');
+    await channel.setTyping('teams:19:abc@thread.v2', true);
+    await channel.setTyping('teams:19:abc@thread.v2', false);
+    await channel.setTyping('teams:19:channel@thread.tacv2', true);
+
+    expect(sdkClient.sendTyping).toHaveBeenCalledTimes(1);
+    expect(sdkClient.sendTyping).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+    });
+  });
+
   it('sends action-only Teams progress cards with a scheduler action and no status body', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),
@@ -2304,6 +2379,46 @@ describe('TeamsChannel adapter scaffold', () => {
       }),
     );
     expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('drops earlier streamed text when a chunk replaces the stream', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    const jid = 'teams:19:abc@thread.v2';
+    await channel.sendStreamingChunk(jid, 'Let me check the output shape.');
+    await vi.advanceTimersByTimeAsync(1800);
+    await channel.sendStreamingChunk(jid, 'The answer is 42.', {
+      replace: true,
+    });
+    await channel.sendStreamingChunk(jid, '', { done: true });
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'The answer is 42.' })],
+        }),
+      }),
+    );
+    vi.useRealTimers();
   });
 
   it('serializes Teams streaming updates for the same stream', async () => {
@@ -2624,6 +2739,7 @@ describe('TeamsChannel adapter scaffold', () => {
         tenantId: 'tenant-id',
       },
       onMessage: expect.any(Function),
+      inbound: false,
     });
     await startInput?.onMessage({
       conversationId: '19:abc@thread.v2',

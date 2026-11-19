@@ -20,7 +20,6 @@ import type {
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { resolveTeamsInboundIdentity } from './conversation-context.js';
 import {
   buildTeamsUserQuestionCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
@@ -112,9 +111,12 @@ export { createTeamsChannel } from './factory.js';
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
   readonly liveUx = {
-    typing: 'none',
+    // Teams shows typing for a few seconds; Gantry refreshes it while a run works.
+    typing: 'expiring',
     reactions: 'none',
-    canonicalTarget: (target: { jid: string }) => ({ key: target.jid }),
+    canonicalTarget: (target: { jid: string; threadId?: string }) => ({
+      key: `${target.jid}\n${target.threadId ?? ''}`,
+    }),
   } as const;
   private connected = false;
   private outboundReady = false;
@@ -124,6 +126,10 @@ export class TeamsChannel implements ChannelAdapter {
   >();
   private readonly pendingTodos: TeamsTodoMessages = new Map();
   private readonly pendingProgress: TeamsProgressMessages = new Map();
+  // TEAMS_PROGRESS_MESSAGES=off hides plain status cards; streamed answers
+  // already show that the agent is working.
+  private readonly hidePlainProgress =
+    process.env.TEAMS_PROGRESS_MESSAGES?.trim().toLowerCase() === 'off';
   private readonly jobPermissionCardDeliveries =
     new JobPermissionCardDeliverySettlement();
   private readonly activeStreams = new Map<string, TeamsStreamingState>();
@@ -172,6 +178,7 @@ export class TeamsChannel implements ChannelAdapter {
       options.interactionCallbacks ?? inboundEnabled;
     await this.sdkClient.start({
       credentials: this.credentials,
+      inbound: inboundEnabled,
       onMessage: async (message) => {
         if (inboundEnabled) {
           await this.ingestMessage(message);
@@ -282,6 +289,17 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
+  async setTyping(jid: string, isTyping: boolean): Promise<void> {
+    // Teams has no "stop typing"; the indicator ends on its own or on reply.
+    if (!isTyping || !this.outboundReady || !this.sdkClient.sendTyping) return;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return;
+    // Teams shows typing only in chats, and only for a plain typing activity:
+    // a reply-addressed one is ignored, and channels never show typing.
+    if (/@thread\.(tacv2|skype)$/.test(conversationId)) return;
+    await this.sdkClient.sendTyping({ conversationId });
+  }
+
   async sendProgressUpdate(
     jid: string,
     text: string,
@@ -294,6 +312,7 @@ export class TeamsChannel implements ChannelAdapter {
       jid,
       text,
       options,
+      hidePlainProgress: this.hidePlainProgress,
     });
   }
 
@@ -405,19 +424,11 @@ export class TeamsChannel implements ChannelAdapter {
     if (!content && attachments.length === 0) return;
 
     const isGroup = message.conversationType !== 'personal';
-    const messageIdentity = await resolveTeamsInboundIdentity({
-      opts: this.opts,
-      jid,
-      timestamp,
-      conversationName: message.conversationName,
-      threadId: message.threadId,
-      isGroup,
-    });
-
     const normalized: NewMessage = {
       id: message.id || `teams:${message.conversationId}:${timestamp}`,
       chat_jid: jid,
-      ...messageIdentity,
+      name: message.conversationName,
+      isGroup,
       provider: 'teams',
       sender,
       sender_name: senderName,
@@ -428,6 +439,7 @@ export class TeamsChannel implements ChannelAdapter {
       thread_id: message.threadId,
       reply_to_message_id: message.replyToId,
       external_message_id: message.id,
+      mentionsBot: message.mentionsBot,
       ...(attachments.length > 0 ? { attachments } : {}),
     };
     await this.opts.onMessage(jid, normalized);

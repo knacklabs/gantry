@@ -40,6 +40,7 @@ export async function startTestControlServer(input: {
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
   liveTurnsEnabled?: boolean;
+  processTeamsActivity?: ControlRouteContext['processTeamsActivity'];
   resolveObserverStatus?: ControlRouteContext['resolveObserverStatus'];
 }) {
   const port = await reserveControlPort();
@@ -54,6 +55,7 @@ export async function startTestControlServer(input: {
     ...(input.extraKeys ?? []),
   ]);
   const handle = startControlServer({
+    processTeamsActivity: input.processTeamsActivity,
     app:
       input.runtimeApp ??
       ({ queue: { enqueueMessageCheck: async () => undefined } } as never),

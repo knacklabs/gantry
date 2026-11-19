@@ -255,7 +255,7 @@ export async function listTeamsChannels(options: {
         membershipType?: string;
         isArchived?: boolean;
       }>({
-        firstUrl: `${GRAPH_ROOT}/teams/${encodeURIComponent(teamId)}/channels?$top=${limit}`,
+        firstUrl: `${GRAPH_ROOT}/teams/${encodeURIComponent(teamId)}/channels`,
         accessToken,
         timeoutMs: options.timeoutMs,
       });

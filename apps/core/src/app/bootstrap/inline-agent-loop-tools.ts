@@ -48,7 +48,10 @@ import {
   permissionDecisionName,
   permissionTelemetryContext,
 } from '../../runtime/ipc-permission-telemetry.js';
-import { sanitizeIpcToolInput } from '../../runtime/ipc-tool-input-sanitization.js';
+import {
+  sanitizeIpcToolInput,
+  toolInputMaxDepthForTool,
+} from '../../runtime/ipc-tool-input-sanitization.js';
 import {
   coordinatePermissionDecision,
   findPermissionRoute,
@@ -163,7 +166,11 @@ export function createInlineCoreTools(
     toolInput: unknown,
     signal?: AbortSignal,
   ) => {
-    const classifierInput = sanitizeIpcToolInput(toolInput, CLASSIFIER_MAX);
+    const classifierInput = sanitizeIpcToolInput(
+      toolInput,
+      CLASSIFIER_MAX,
+      toolInputMaxDepthForTool(request.toolName),
+    );
     const promotionRepository = deps.getPermissionPromotionRepository();
     return consultPermissionClassifierBeforePrompt({
       permissionMode: run.permissionMode,
@@ -385,10 +392,18 @@ export function createInlineCoreTools(
       });
       const permissionRequestId = `permission-${randomUUID()}`;
       const suggestions = synthesizeHostPermissionSuggestions(name, toolInput);
-      const displayToolInput = sanitizeIpcToolInput(toolInput);
+      const displayToolInput = sanitizeIpcToolInput(
+        toolInput,
+        undefined,
+        toolInputMaxDepthForTool(name),
+      );
       // The same full view the IPC request carries, so the rails and the
       // judge see the whole action rather than the trimmed display copy.
-      const classifierView = sanitizeIpcToolInput(toolInput, CLASSIFIER_MAX);
+      const classifierView = sanitizeIpcToolInput(
+        toolInput,
+        CLASSIFIER_MAX,
+        toolInputMaxDepthForTool(name),
+      );
       const request: PermissionApprovalRequest & {
         toolInputRedactedPaths?: string[];
         toolInputTruncatedPaths?: string[];

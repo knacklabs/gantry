@@ -16,6 +16,8 @@ import type {
   ConversationRepository,
 } from '../../domain/ports/repositories.js';
 import { ApplicationError } from '../common/application-error.js';
+import type { PersonIdentityService } from '../identity/person-identity-service.js';
+import { identityResolvedEvent } from '../identity/identity-runtime-events.js';
 
 export interface ConversationMembershipValidationInput {
   providerId: ProviderId;
@@ -50,6 +52,7 @@ export class ConversationAdministrationService {
       conversations: ConversationRepository;
     },
     private readonly membershipValidator?: ConversationMembershipValidator,
+    private readonly resolveIdentity?: PersonIdentityService['resolve'],
   ) {}
 
   async getAdminSummary(input: {
@@ -88,7 +91,50 @@ export class ConversationAdministrationService {
           .join(' '),
       );
     }
-    const { conversation } = await this.requireConversation(input);
+    const { conversation, providerAccount } =
+      await this.requireConversation(input);
+    if (this.resolveIdentity) {
+      for (const externalUserId of userIds) {
+        const known =
+          await this.repositories.conversations.resolveConversationApproverPrincipal(
+            {
+              appId: input.appId,
+              conversationId: conversation.id,
+              externalUserId,
+            },
+          );
+        if (known) continue;
+        const identity = await this.resolveIdentity(
+          {
+            appId: input.appId,
+            provider: String(providerAccount.providerId),
+            providerAccountId: providerAccount.id,
+            externalUserId,
+            evidenceType: 'provider_user',
+            createIfMissing: true,
+          },
+          (resolved) =>
+            identityResolvedEvent({
+              appId: input.appId,
+              source: 'control_api',
+              provider: String(providerAccount.providerId),
+              providerAccountId: providerAccount.id,
+              evidenceType: 'provider_user',
+              status: resolved.status,
+              personId: resolved.personId,
+              verificationStatus: resolved.verificationStatus,
+              memoryHydrationEligible: resolved.memoryHydrationEligible,
+              conversationJid: conversation.id,
+            }),
+        );
+        if (!identity.personId || identity.isServicePerson) {
+          throw new ApplicationError(
+            'INVALID_CONTROL_ALLOWLIST',
+            'The verified conversation member could not be recognized as an active person.',
+          );
+        }
+      }
+    }
     const rows =
       await this.repositories.conversations.replaceConversationApprovers({
         appId: input.appId,

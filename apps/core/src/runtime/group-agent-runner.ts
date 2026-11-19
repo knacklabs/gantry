@@ -290,6 +290,15 @@ export function createGroupAgentRunner(input: {
             usageEventId: output.usageEventId,
             getDefaultModel: () => defaultRuntimeModel,
           });
+          logger.info(
+            {
+              runId: runState.runId,
+              jid: chatJid,
+              ...output.usage,
+              model: output.usage.model ?? defaultRuntimeModel,
+            },
+            'Run model usage',
+          );
           normalizedUsageRuntimeEvent = {
             eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
             payload: {

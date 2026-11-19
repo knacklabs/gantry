@@ -225,9 +225,18 @@ async function rebindConfiguredConversationBindings(input: {
           now: input.now,
         })
       : undefined;
-    const installId = `agent-conversation-binding:${encodeURIComponent(
-      binding.agent,
-    )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id'];
+    const existingInstall = await providerAccounts.getConversationInstall({
+      appId: input.appId,
+      agentId,
+      conversationId: installConversation.id,
+      ...(threadId ? { threadId } : {}),
+      exactThreadId: true,
+    });
+    const installId =
+      existingInstall?.id ??
+      (`agent-conversation-binding:${encodeURIComponent(
+        binding.agent,
+      )}:${encodeURIComponent(bindingKey)}` as ConversationInstall['id']);
     desiredInstallIds.add(installId);
     installConversationIds.add(installConversation.id);
     await providerAccounts.saveConversationInstall({
@@ -367,6 +376,29 @@ async function replaceStoredConversationApprovers(input: {
         input.participantSourceConversation?.id ?? input.conversation.id,
       ),
     );
+    if (userIds.some((externalUserId) => !knownMembers.has(externalUserId))) {
+      const storedApprovers = new Set(
+        (
+          await input.conversations.listConversationApprovers(
+            input.conversation.id,
+          )
+        ).map((approver) => approver.externalUserId),
+      );
+      for (const externalUserId of userIds) {
+        if (
+          knownMembers.has(externalUserId) ||
+          !storedApprovers.has(externalUserId)
+        )
+          continue;
+        const principal =
+          await input.conversations.resolveConversationApproverPrincipal({
+            appId: input.appId,
+            conversationId: input.conversation.id,
+            externalUserId,
+          });
+        if (principal) knownMembers.add(externalUserId);
+      }
+    }
     const invalidUserIds = userIds.filter((id) => !knownMembers.has(id));
     if (invalidUserIds.length > 0) {
       throw new Error(

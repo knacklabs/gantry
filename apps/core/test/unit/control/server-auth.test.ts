@@ -7,13 +7,6 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ProviderListResponseSchema,
-  ConversationListResponseSchema,
-  ConversationResponseSchema,
-  ConversationThreadListResponseSchema,
-  MessageListResponseSchema,
-} from '@gantry/contracts';
-import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
@@ -376,6 +369,11 @@ const ingressSignatureCrypto = {
 };
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  resolveRuntimePersonIdentity: vi.fn(async () => {
+    throw new Error(
+      'This control fixture does not create provider identities.',
+    );
+  }),
   tryAcquireRuntimeAdvisoryLease: vi.fn(async () => ({
     release: vi.fn(async () => {}),
   })),

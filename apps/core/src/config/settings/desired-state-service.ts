@@ -8,19 +8,11 @@ import type {
 } from '../../domain/provider/provider.js';
 import {
   buildDesiredStateCapabilityReplacement,
-  inlineAgentRuntimeCapabilityErrors,
   replaceDesiredStateCapabilities,
   replaceDesiredStateToolSources,
-  settingsCapabilityToToolReference,
 } from './desired-state-capability-reconcile.js';
 import { exportCurrentDesiredState } from './desired-state-current-export.js';
-import {
-  normalizeConfiguredCapabilities,
-  normalizeConfiguredCapabilitiesInSettings,
-  semanticCapabilityDefinitionsById,
-  semanticCapabilityDefinitionsFromCatalogTools,
-  skillActionDefinitionsForSkills,
-} from './configured-capability-normalization.js';
+import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import {
   agentIdForFolder,
   configuredAgentConfig,
@@ -30,17 +22,8 @@ import {
   hasAnyCapability,
   isInternalProviderAccount,
   listDbOnlyGroupJids,
-  loadMcpServersById,
   normalizeRuntimeSecretRefs,
 } from './desired-state-service-helpers.js';
-import {
-  resolveConfiguredSkillReferences,
-  selectedSkillsFromResolvedSkillReferences,
-} from './desired-state-skill-references.js';
-import {
-  formatSkillMaterializationCollisionFragment,
-  skillMaterializationCollisions,
-} from '../../domain/skills/skill-identity.js';
 export {
   agentIdForFolder,
   classifySettingsChanges,
@@ -64,11 +47,11 @@ import type {
   RuntimeProviderAccountSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
-import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { makeAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { validateDesiredStateCapabilityReferences } from './desired-state-capability-validation.js';
 import { reconcileDesiredConversations } from './desired-state-conversation-reconcile.js';
+import { stripProviderPrefix } from './desired-state-provider-conversations.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -350,10 +333,25 @@ export class SettingsDesiredStateService {
           binding.providerAccountId,
         );
         configuredJids.add(routeKey);
+        const provider = binding.providerAccountId
+          ? settings.providerAccounts[binding.providerAccountId]?.provider
+          : undefined;
+        const storedConversation =
+          provider && binding.providerAccountId
+            ? await this.deps.repositories.conversations?.getConversationByExternalRef(
+                {
+                  appId: this.appId,
+                  providerId: provider as ProviderId,
+                  providerAccountId:
+                    binding.providerAccountId as ProviderAccountId,
+                  externalConversationId: stripProviderPrefix(binding.jid),
+                },
+              )
+            : undefined;
         await this.deps.ops.setConversationRoute(routeKey, {
           name: agent.name,
           folder,
-          conversationId: binding.conversationId,
+          conversationId: storedConversation?.id ?? binding.conversationId,
           trigger: binding.trigger,
           added_at: binding.addedAt,
           requiresTrigger: binding.requiresTrigger,

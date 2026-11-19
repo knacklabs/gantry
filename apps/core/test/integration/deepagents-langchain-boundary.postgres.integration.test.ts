@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 
@@ -139,6 +138,11 @@ async function startFakeOpenAiGateway(): Promise<FakeGateway> {
         body,
         path: req.url ?? '',
       });
+      if (req.url !== '/openai/v1/chat/completions') {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'OpenAI request must use v1.' }));
+        return;
+      }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       const id = 'chatcmpl-integration';
       const chunks = [
@@ -769,6 +773,10 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
         apiKey: 'gtw_integrationtoken',
       });
 
+      expect(gateway.requests.length).toBeGreaterThan(0);
+      for (const request of gateway.requests) {
+        expect(request.path).toBe('/openai/v1/chat/completions');
+      }
       expect(result.code).toBe(0);
       const frames = parseFrames(result.stdout);
 
@@ -811,18 +819,15 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
       expect(usageFrame?.contextUsage?.maxTokens).toBeGreaterThan(0);
 
       // Env hygiene: only the run-scoped gateway token reaches the upstream.
-      expect(gateway.requests.length).toBeGreaterThan(0);
       expect(
         gateway.requests.some((request) =>
           request.body.includes('initial memory'),
         ),
       ).toBe(true);
-      // The OpenAI SDK appends /chat/completions to the projected gateway
-      // baseUrl (.../openai); the real Gantry gateway maps that to
-      // api.openai.com/v1/chat/completions (proven in the gateway unit test).
+      // OpenAI's versioned API path must survive the runner and gateway;
+      // the fake model rejects a request outside that public HTTP contract.
       for (const request of gateway.requests) {
         expect(request.authorization).toBe('Bearer gtw_integrationtoken');
-        expect(request.path).toContain('/openai/chat/completions');
         expect(request.body).not.toContain('gtw_');
       }
 
@@ -1368,7 +1373,7 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
     );
     const temp = makeTempRoot();
     try {
-      const result = await runRunner({
+      await runRunner({
         stdin: {
           prompt: 'run the command',
           workspaceFolder: 'group',

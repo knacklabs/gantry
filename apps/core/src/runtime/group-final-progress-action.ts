@@ -21,6 +21,7 @@ export function createGroupDoneProgressSender(input: {
   return async (
     state: FinalProgressState,
     generation = input.progressGeneration(),
+    extraOptions: Pick<ProgressUpdateOptions, 'replaceOnly'> = {},
   ) => {
     if (!input.supportsProgress) return;
     if (input.progressGeneration() === generation) input.pause();
@@ -28,7 +29,7 @@ export function createGroupDoneProgressSender(input: {
     await sendFinalProgressUpdate({
       enabled: true,
       state,
-      options: input.buildOptions(generation),
+      options: { ...input.buildOptions(generation), ...extraOptions },
       send: input.send,
       onError: input.onError,
     });
@@ -40,12 +41,13 @@ export function resolveGroupFinalProgressAction(input: {
   finalRetry?: boolean;
   retryCount?: number;
   maxRetries?: number;
+  outputSentToUser?: boolean;
   awaitingResponseReceipt: boolean;
   sentAnyTurnDoneProgress: boolean;
   activeGenerationHasOutput: boolean;
   sentTurnDoneProgressGeneration: number | null;
   progressGeneration: number;
-}): { retryText?: string; sendDone: boolean } {
+}): { retryText?: string; sendDone: boolean; doneReplaceOnly?: boolean } {
   if (
     input.finalProgressState === 'failed' &&
     input.finalRetry !== true &&
@@ -57,7 +59,15 @@ export function resolveGroupFinalProgressAction(input: {
       sendDone: false,
     };
   }
-  return { sendDone: shouldSendTurnFinalProgress(input) };
+  const sendDone = shouldSendTurnFinalProgress(input);
+  // A delivered answer already closes the turn, so "Done." may only update an
+  // existing progress card (no stale "Working"), never post a new message.
+  // "Done." stays a normal message for completed runs with no visible answer.
+  return input.finalProgressState === 'completed' &&
+    input.outputSentToUser &&
+    sendDone
+    ? { sendDone, doneReplaceOnly: true }
+    : { sendDone };
 }
 
 export async function sendGroupFinalProgress(input: {
@@ -78,7 +88,11 @@ export async function sendGroupFinalProgress(input: {
     text: string,
     options?: ProgressUpdateOptions,
   ) => Promise<void | boolean>;
-  sendDone: (state: FinalProgressState) => Promise<void>;
+  sendDone: (
+    state: FinalProgressState,
+    generation?: number,
+    extraOptions?: Pick<ProgressUpdateOptions, 'replaceOnly'>,
+  ) => Promise<void>;
 }): Promise<void> {
   const finalProgressState = resolveGroupTurnFinalProgressState(input);
   const action = resolveGroupFinalProgressAction({
@@ -96,6 +110,8 @@ export async function sendGroupFinalProgress(input: {
       )
       .catch(() => undefined);
   } else if (action.sendDone) {
-    await input.sendDone(finalProgressState);
+    await (action.doneReplaceOnly
+      ? input.sendDone(finalProgressState, undefined, { replaceOnly: true })
+      : input.sendDone(finalProgressState));
   }
 }

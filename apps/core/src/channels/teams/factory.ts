@@ -1,6 +1,7 @@
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { TeamsChannel } from './index.js';
+import { getRuntimeTeamsConversationRouteStore } from './conversation-route-store.postgres.js';
 import { createMicrosoftTeamsSdkClient } from './sdk-client.js';
 import {
   readTeamsCredentials,
@@ -25,12 +26,11 @@ export async function createTeamsChannel(
     return null;
   }
   const sdkClient =
-    deps.sdkClient ?? createMicrosoftTeamsSdkClient(credentials);
-  if (!sdkClient) {
-    logger.warn(
-      'Teams: Microsoft Teams SDK transport is not configured for this scaffold',
-    );
-    return null;
-  }
+    deps.sdkClient ??
+    createMicrosoftTeamsSdkClient(credentials, {
+      providerAccountId: opts.providerAccountId ?? 'teams_default',
+      inboundProviderAccountIds: opts.inboundProviderAccountIds,
+      routeStore: getRuntimeTeamsConversationRouteStore(),
+    });
   return new TeamsChannel(credentials, opts, sdkClient);
 }

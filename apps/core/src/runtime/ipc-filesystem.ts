@@ -214,13 +214,23 @@ export function recoverStaleIpcRootLock(
       recoveryReason: 'invalid_or_missing_pid',
     };
   }
-  if (details.pid === process.pid) {
+  // Container restarts often reuse the same pid, so a lock from our own pid
+  // that was written before this process started belongs to a dead process.
+  const startedAtMs = details.startedAt ? Date.parse(details.startedAt) : NaN;
+  const processStartMs = Date.now() - process.uptime() * 1000;
+  const predatesThisProcess =
+    details.pid === process.pid &&
+    Number.isFinite(startedAtMs) &&
+    startedAtMs < processStartMs - 1000;
+  if (details.pid === process.pid && !predatesThisProcess) {
     return { ...details, recovered: false, recoveryReason: 'same_process' };
   }
-  if (isProcessAlive(details.pid)) {
+  if (!predatesThisProcess && isProcessAlive(details.pid)) {
     return { ...details, recovered: false, recoveryReason: 'pid_alive' };
   }
-  const recoveryReason = 'pid_not_running';
+  const recoveryReason = predatesThisProcess
+    ? 'pid_reused_after_restart'
+    : 'pid_not_running';
   try {
     fs.rmSync(lockPath, { force: true });
     return { ...details, recovered: true, recoveryReason };

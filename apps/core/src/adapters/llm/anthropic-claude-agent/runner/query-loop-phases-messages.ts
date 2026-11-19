@@ -6,7 +6,7 @@ import { assertRequiredMcpServerReady } from './mcp-server-validation.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
 // prettier-ignore
-import { hasTopLevelAssistantContent, sdkResultFailureMessage, shouldPrefixVisibleBoundary, topLevelAssistantText } from './sdk-message-output.js';
+import { hasTopLevelAssistantContent, sdkResultFailureMessage, hasTopLevelToolUse, shouldPrefixVisibleBoundary, topLevelAssistantText } from './sdk-message-output.js';
 import { toolSearchStartupRuntimeEvent } from './tool-search-decision.js';
 import { runnerStartupTimingRuntimeEvent } from './runner-startup-diagnostic.js';
 import { taskRuntimeEvent } from './task-runtime-event.js';
@@ -102,13 +102,17 @@ export function handleAssistantMessage(
       context.sawStructuredTextSinceLastResult = true;
       context.pendingStructuredToPartialBoundary = true;
       context.visibleTextSinceLastResult += visibleText;
+      const newTextSegment = context.toolUseSinceLastText;
+      context.toolUseSinceLastText = false;
       writeOutput({
         status: 'success',
         result: visibleText,
         newSessionId: context.newSessionId,
+        ...(newTextSegment ? { newTextSegment: true } : {}),
       });
       emitStartupTimingDiagnostic(context);
     }
+    if (hasTopLevelToolUse(message)) context.toolUseSinceLastText = true;
   }
 }
 
@@ -194,10 +198,13 @@ export function handleStreamEvent(
         context.pendingStructuredToPartialBoundary = false;
         context.sawPartialTextSinceLastResult = true;
         context.visibleTextSinceLastResult += visibleText;
+        const newTextSegment = context.toolUseSinceLastText;
+        context.toolUseSinceLastText = false;
         writeOutput({
           status: 'success',
           result: visibleText,
           newSessionId: context.newSessionId,
+          ...(newTextSegment ? { newTextSegment: true } : {}),
         });
         if (context.firstVisibleOutputMs !== undefined)
           emitStartupTimingDiagnostic(context);

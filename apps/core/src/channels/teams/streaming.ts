@@ -39,6 +39,7 @@ export async function applyTeamsStreamingChunk(input: {
 }): Promise<StreamingChunkResult> {
   const current = input.activeStreams.get(input.key);
   if (current !== input.state) return false;
+  if (input.options.replace) input.state.rawBuffer = '';
   if (input.text) input.state.rawBuffer += input.text;
   if (!input.state.rawBuffer.trim() && input.options.done) {
     input.activeStreams.delete(input.key);

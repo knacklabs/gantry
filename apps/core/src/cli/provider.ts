@@ -569,6 +569,8 @@ async function formatConversationInfo(conversationId: string): Promise<string> {
 
 async function conversationAdministrationService(): Promise<ConversationAdministrationService> {
   const repositories = await runtimeRepositories();
+  const { resolveRuntimePersonIdentity } =
+    await import('../adapters/storage/postgres/runtime-store.js');
   return new ConversationAdministrationService(
     {
       providerAccounts: getProviderAccountsRepo(repositories) as never,
@@ -580,6 +582,7 @@ async function conversationAdministrationService(): Promise<ConversationAdminist
         repository: repositories.capabilitySecrets,
       }),
     ),
+    resolveRuntimePersonIdentity,
   );
 }
 

@@ -52,6 +52,50 @@ describe.skipIf(!hasPostgresIntegrationDatabase)(
       await runtime?.cleanup();
     });
 
+    it('recovers pending thread heads after restart and fences stale settlements', async () => {
+      const scope = {
+        appId: 'inbox-app',
+        providerId: 'teams',
+        connectionId: 'teams-recovery',
+      };
+      const first = await inbox.save(event({ ...scope, eventKey: 'first' }));
+      await inbox.save(event({ ...scope, eventKey: 'second' }));
+      await inbox.save(event({ ...scope, connectionId: 'another-bot' }));
+      if (first.outcome !== 'saved') throw new Error('Expected saved event');
+      const restarted = new PostgresInboundEventRepository(runtime.service.db);
+      const [claimed] = await restarted.claimHeads({ scope, limit: 4 });
+      expect(claimed.id).toBe(first.event.id);
+      expect(await restarted.claimHeads({ scope, limit: 4 })).toEqual([]);
+      const guard = {
+        appId: scope.appId,
+        eventId: claimed.id,
+        claimToken: claimed.claimToken,
+        deadlineAt: claimed.deadlineAt,
+      };
+      expect(await restarted.settle({ ...guard, claimToken: 'stale' })).toEqual(
+        {
+          outcome: 'stale_claim',
+        },
+      );
+      expect(await restarted.release(guard)).toEqual({ outcome: 'applied' });
+      const [reclaimed] = await restarted.claimHeads({ scope, limit: 4 });
+      expect(reclaimed.id).toBe(claimed.id);
+      expect(reclaimed.claimToken).not.toBe(claimed.claimToken);
+      expect(await restarted.settle(guard)).toEqual({ outcome: 'stale_claim' });
+      expect(
+        await restarted.settle({
+          ...guard,
+          claimToken: reclaimed.claimToken,
+        }),
+      ).toEqual({ outcome: 'applied' });
+      expect(await restarted.get(claimed.id, scope.appId)).toMatchObject({
+        state: 'completed',
+        payload: null,
+      });
+      const [next] = await restarted.claimHeads({ scope, limit: 4 });
+      expect(next.eventKey).toBe('second');
+    });
+
     it('saves typed messages and slash events once across shared-account restart', async () => {
       const first = await inbox.save(event());
       expect(first.outcome).toBe('saved');

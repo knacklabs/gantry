@@ -105,6 +105,17 @@ export async function handleBrowserControlRoutes(input: {
   )
     return true;
   if (
+    isBrowserChannelAccountsPath(input.pathname) &&
+    (await handleBrowserChannelAccountRoutes(
+      input.req,
+      input.res,
+      input.ctx,
+      input.pathname,
+      settings,
+    ))
+  )
+    return true;
+  if (
     isBrowserAgentsPath(input.pathname) &&
     (await handleBrowserAgentRoutes(
       input.req,
@@ -112,17 +123,6 @@ export async function handleBrowserControlRoutes(input: {
       input.ctx,
       input.pathname,
       input.url,
-      settings,
-    ))
-  )
-    return true;
-  if (
-    isBrowserChannelAccountsPath(input.pathname) &&
-    (await handleBrowserChannelAccountRoutes(
-      input.req,
-      input.res,
-      input.ctx,
-      input.pathname,
       settings,
     ))
   )

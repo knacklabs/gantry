@@ -91,6 +91,7 @@ export interface QueryLoopContext {
   sawStructuredTextSinceLastResult: boolean;
   visibleTextSinceLastResult: string;
   pendingStructuredToPartialBoundary: boolean;
+  toolUseSinceLastText: boolean;
   nudgedScheduledRunToFinish: boolean;
   primeToolAttempts: AgentRunnerToolAttemptOutput[];
   heartbeat: ReturnType<typeof startJobHeartbeat>;
@@ -231,6 +232,7 @@ export function createQueryLoopContext(
     sawStructuredTextSinceLastResult: false,
     visibleTextSinceLastResult: '',
     pendingStructuredToPartialBoundary: false,
+    toolUseSinceLastText: false,
     nudgedScheduledRunToFinish: false,
     primeToolAttempts: [],
     heartbeat,

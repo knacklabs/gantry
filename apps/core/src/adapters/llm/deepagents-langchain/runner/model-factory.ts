@@ -20,9 +20,9 @@ import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 //   <id>", ...)` regardless of the real upstream provider, because we hit OUR
 //   loopback gateway (not api.openai.com); the gateway routes by pathSegment to
 //   the real upstream. `initChatModel` resolves ChatOpenAI and forwards `apiKey`
-//   + `configuration.baseURL` to it. The OpenAI SDK posts `<baseURL>/chat/
-//   completions` (baseURL is the raw loopback gateway base, no `/v1`), and the
-//   gateway prepends each provider's real upstreamPathPrefix.
+//   + `configuration.baseURL` to it. OpenAI needs `/v1` on its loopback base
+//   because its gateway upstream has no path prefix. Other compatible
+//   providers use the raw base; the gateway prepends their upstreamPathPrefix.
 // - `openrouter`: first-party `@langchain/openrouter` `ChatOpenRouter` (talks
 //   OpenRouter REST/chat-completions via fetch). `initChatModel` does NOT know
 //   `openrouter`, so it is constructed directly. Its `buildUrl()` appends
@@ -135,7 +135,10 @@ export async function buildRunnerModel(input: {
     // class for every OpenAI-chat-completions-compatible upstream.
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
-      configuration: { baseURL },
+      configuration: {
+        baseURL:
+          provider === 'openai' ? `${trimTrailingSlash(baseURL)}/v1` : baseURL,
+      },
       ...(input.promptCacheKey
         ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
         : {}),

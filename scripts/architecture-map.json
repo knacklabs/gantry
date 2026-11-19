@@ -204,6 +204,7 @@
     "@slack/bolt",
     "grammy",
     "@grammyjs/",
+    "@microsoft/teams.",
     "playwright",
     "dockerode"
   ],

@@ -66,6 +66,31 @@ async function send(server: Server, method: string, path: string) {
 }
 
 describe('control server route profile', () => {
+  it.each(['full', 'ops'] as const)(
+    'mounts authenticated provider activity ingress in the %s profile',
+    async (routeProfile) => {
+      const processTeamsActivity = vi.fn(
+        async ({ providerAccountId, request, response }) => {
+          expect(providerAccountId).toBe('teams_alias');
+          expect(request.readableFlowing).toBeNull();
+          response.writeHead(204).end();
+        },
+      );
+      server = await startTestControlServer({
+        token: TOKEN,
+        appId: APP_ID,
+        scopes: [],
+        routeProfile,
+        processTeamsActivity,
+      });
+      const response = await fetch(
+        `${server.baseUrl}/v1/providers/teams/teams_alias/activities`,
+        { method: 'POST', body: 'untouched provider body' },
+      );
+      expect(response.status).toBe(204);
+      expect(processTeamsActivity).toHaveBeenCalledTimes(1);
+    },
+  );
   it('ops profile serves operational + read-only routes and 404s admin routes', async () => {
     server = await startTestControlServer({
       token: TOKEN,

@@ -1,6 +1,9 @@
 import type { ServerResponse } from 'node:http';
 
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeStorage,
+  resolveRuntimePersonIdentity,
+} from '../../../adapters/storage/postgres/runtime-store.js';
 import { createRepositoryRuntimeSecretProvider } from '../../../adapters/credentials/repository-runtime-secret-provider.js';
 import { ConversationAdministrationService } from '../../../application/provider-conversations/conversation-administration-service.js';
 import { RuntimeSecretConversationMembershipValidator } from '../../../channels/conversation-membership-validation.js';
@@ -36,5 +39,6 @@ export function createBrowserConversationAdministrationService(appId: AppId) {
         repository: repositories.capabilitySecrets,
       }),
     ),
+    resolveRuntimePersonIdentity,
   );
 }

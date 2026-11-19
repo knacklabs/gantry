@@ -133,10 +133,19 @@ export async function sendTeamsProgressUpdate(input: {
   jid: string;
   text: string;
   options?: ProgressUpdateOptions;
+  /** Skip plain status cards ("Working", "Done.") when answers already stream. */
+  hidePlainProgress?: boolean;
 }): Promise<boolean> {
   const options = input.options ?? {};
   const conversationId = teamsConversationIdFromJid(input.jid);
   if (!conversationId) return false;
+  if (
+    input.hidePlainProgress &&
+    !options.actionOnly &&
+    !options.actionAffordances?.length
+  ) {
+    return true;
+  }
   const generationKey = teamsProgressGenerationKey({
     jid: input.jid,
     threadId: options.threadId,
