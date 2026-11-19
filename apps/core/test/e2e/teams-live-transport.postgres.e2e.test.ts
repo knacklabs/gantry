@@ -204,9 +204,18 @@ memory:
           return { status: 200, body: { id: 'updated-card' } };
         },
       });
+      // The conversation id ends in @thread.tacv2, so the approver check reads
+      // channel membership: find the channel's team, then list its members.
+      const team = 'team-teams-live';
       nock('https://graph.microsoft.com')
         .persist()
-        .get(`/v1.0/chats/${encodeURIComponent(chat)}/members`)
+        .get('/v1.0/teams')
+        .query({ $select: 'id' })
+        .reply(200, { value: [{ id: team }] })
+        .get(`/v1.0/teams/${team}/channels`)
+        .query({ $select: 'id' })
+        .reply(200, { value: [{ id: chat }] })
+        .get(`/v1.0/teams/${team}/channels/${encodeURIComponent(chat)}/members`)
         .reply(200, {
           value: [
             { userId: teamsTestPeople.permitted },
