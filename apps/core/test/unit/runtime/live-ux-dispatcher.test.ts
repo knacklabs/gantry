@@ -100,7 +100,7 @@ describe('live UX dispatcher', () => {
       canonicalTarget: expect.any(Function),
     });
     expect(teams.liveUx).toMatchObject({
-      typing: 'none',
+      typing: 'expiring',
       reactions: 'none',
       canonicalTarget: expect.any(Function),
     });

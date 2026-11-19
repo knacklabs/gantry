@@ -1012,7 +1012,7 @@ export class PostgresConversationRepository implements ConversationRepository {
           target: conversations.id,
           set: {
             providerAccountId: conversation.providerAccountId,
-            // Merge, so transport-owned keys (Teams serviceUrl, tenantId, ...)
+            // Merge, so transport-owned keys (service URL, tenant id, ...)
             // written by the channel survive a settings reconcile re-save.
             ...(conversation.externalRef === undefined
               ? {}

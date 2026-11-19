@@ -293,14 +293,9 @@ export function createGroupAgentRunner(input: {
           logger.info(
             {
               runId: runState.runId,
-              agentId: turnContext?.agentId,
               jid: chatJid,
+              ...output.usage,
               model: output.usage.model ?? defaultRuntimeModel,
-              inputTokens: output.usage.inputTokens,
-              outputTokens: output.usage.outputTokens,
-              cacheReadTokens: output.usage.cacheReadTokens,
-              cacheWriteTokens: output.usage.cacheWriteTokens,
-              estimatedCostUsd: output.usage.estimatedCostUsd,
             },
             'Run model usage',
           );

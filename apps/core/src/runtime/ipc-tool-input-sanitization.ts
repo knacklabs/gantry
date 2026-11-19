@@ -125,6 +125,15 @@ function sanitizeValue(
   return String(value);
 }
 
+export function sanitizeIpcToolInputForTool(
+  toolName: string,
+  value: unknown,
+  maxStringLength = TOOL_INPUT_MAX_STRING_LENGTH,
+): ReturnType<typeof sanitizeIpcToolInput> {
+  const maxDepth = toolInputMaxDepthForTool(toolName);
+  return sanitizeIpcToolInput(value, maxStringLength, maxDepth);
+}
+
 export function sanitizeIpcToolInput(
   value: unknown,
   maxStringLength = TOOL_INPUT_MAX_STRING_LENGTH,

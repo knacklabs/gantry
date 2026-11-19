@@ -53,6 +53,18 @@ vi.mock('@core/platform/sender-allowlist.js', async (importOriginal) => {
     await importOriginal<typeof import('@core/platform/sender-allowlist.js')>();
   return {
     ...actual,
+    loadSenderAllowlist: (
+      settingsPathOverride?: string,
+    ): ReturnType<typeof actual.loadSenderAllowlist> => {
+      if (settingsPathOverride !== undefined)
+        return actual.loadSenderAllowlist(settingsPathOverride);
+      // importOriginal retains the early config graph across resetModules.
+      const runtimeHome = process.env.GANTRY_HOME;
+      if (!runtimeHome) throw new Error('Expected a temporary GANTRY_HOME');
+      return actual.loadSenderAllowlist(
+        path.join(runtimeHome, 'settings.yaml'),
+      );
+    },
     isSenderControlAllowed: (
       ...args: Parameters<typeof actual.isSenderControlAllowed>
     ) => args[1] === 'quiet-admin' || actual.isSenderControlAllowed(...args),
@@ -1259,7 +1271,9 @@ maybeDescribe('live turn real runner (Postgres)', () => {
     expect(childRecord.input).toEqual(
       expect.objectContaining({
         chatJid,
-        compiledSystemPrompt: 'compiled live e2e prompt',
+        compiledSystemPrompt: expect.stringMatching(
+          /^compiled live e2e prompt\n\n## Gantry tools in this run\nAvailable: \S/,
+        ),
         workspaceFolder: folder,
       }),
     );

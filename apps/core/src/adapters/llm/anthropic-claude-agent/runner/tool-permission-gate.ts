@@ -109,13 +109,9 @@ export function createPermissionApprovalContextChannel() {
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
-  // A locked agent never shows a permission prompt (the host denies it), so do
-  // not end the interaction there: that would post held-back working text.
-  const lockedPreset = input.sdkEnv.GANTRY_AGENT_ACCESS_PRESET === 'locked' ||
-    process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked';
-  const emitPromptBoundary = (): void => {
-    if (!lockedPreset) input.emitInteractionBoundary();
-  };
+  // Locked agents are denied without a prompt; a boundary posts held-back text.
+  const locked = process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked';
+  const emitPromptBoundary = () => locked || input.emitInteractionBoundary();
   const currentModel = findModelByRunnerModel(input.configuredModel);
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();

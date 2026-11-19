@@ -1158,16 +1158,32 @@ describe('tool permission gate', () => {
     });
     const emitInteractionBoundary = vi.fn();
     const options = {
-      capabilities: { allowedTools: [], alwaysAllowedTools: [], permissionMode: 'deny' } as never,
+      capabilities: {
+        allowedTools: [],
+        alwaysAllowedTools: [],
+        permissionMode: 'deny',
+      } as never,
       emitInteractionBoundary,
     };
-    const locked = makeCallback({ ...options, sdkEnv: { GANTRY_AGENT_ACCESS_PRESET: 'locked' } });
-    await locked('Bash', { command: 'npm install left-pad' }, makePermissionOptions() as never);
-    expect(emitInteractionBoundary).not.toHaveBeenCalled();
+    try {
+      vi.stubEnv('GANTRY_AGENT_ACCESS_PRESET', 'locked');
+      await makeCallback(options)(
+        'Bash',
+        { command: 'npm install left-pad' },
+        makePermissionOptions() as never,
+      );
+      expect(emitInteractionBoundary).not.toHaveBeenCalled();
 
-    const full = makeCallback({ ...options, sdkEnv: { GANTRY_AGENT_ACCESS_PRESET: 'full' } });
-    await full('Bash', { command: 'npm install left-pad' }, makePermissionOptions() as never);
-    expect(emitInteractionBoundary).toHaveBeenCalledTimes(1);
+      vi.stubEnv('GANTRY_AGENT_ACCESS_PRESET', 'full');
+      await makeCallback(options)(
+        'Bash',
+        { command: 'npm install left-pad' },
+        makePermissionOptions() as never,
+      );
+      expect(emitInteractionBoundary).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {

@@ -17,7 +17,8 @@ function writeLock(startedAt: string): string {
 }
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe('recoverStaleIpcRootLock with a reused pid', () => {
@@ -31,7 +32,10 @@ describe('recoverStaleIpcRootLock with a reused pid', () => {
   it('keeps a lock this process wrote itself', () => {
     const lockPath = writeLock(new Date().toISOString());
     const result = recoverStaleIpcRootLock(lockPath);
-    expect(result).toMatchObject({ recovered: false, recoveryReason: 'same_process' });
+    expect(result).toMatchObject({
+      recovered: false,
+      recoveryReason: 'same_process',
+    });
     expect(fs.existsSync(lockPath)).toBe(true);
   });
 });

@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Ordinary scheduler cases need background budget alongside interactive work.
+// Keep the real planner, with a four-CPU OS fixture; capacity cases override it.
+const hostCpu = vi.hoisted(() => ({
+  threads: 4,
+}));
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return {
+    ...actual,
+    availableParallelism: () => hostCpu.threads,
+  };
+});
+
 const runtimeStore = vi.hoisted(() => ({
   controlRepository: {
     getTriggerById: vi.fn(),
@@ -97,6 +111,7 @@ function createJob(overrides: Partial<Job> = {}): Job {
 
 describe('PgBossSchedulerEngine', () => {
   afterEach(() => {
+    hostCpu.threads = 4;
     deploymentModeMock.mode = 'workstation';
     runtimeQueueConfigMock.value = undefined;
     workerCoordination.markStaleWorkersUnhealthy.mockResolvedValue([]);
@@ -814,86 +829,101 @@ describe('PgBossSchedulerEngine', () => {
     expect(boss.send.mock.calls[0][2].id).not.toContain('gantry.send.');
   });
 
-  it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
-    runtimeQueueConfigMock.value = {
-      maxMessageRuns: 0,
-      maxJobRuns: 4,
-      maxRetries: 5,
-    };
-    const acquireRunSlot = vi.fn(async () => true);
-    configureRunSlotBackend({
-      repository: {
-        acquireRunSlot,
-        renewRunSlot: vi.fn(async () => true),
-        releaseRunSlot: vi.fn(async () => undefined),
-      },
-      workerInstanceId: 'worker-test',
-    });
-    const job = createJob({
-      workspace_key: 'tg:team',
-    });
-    const callbacks = {
-      registerSystemJobs: vi.fn().mockResolvedValue(undefined),
-      runJob: vi.fn().mockResolvedValue(undefined),
-      sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
-    };
-    const engine = new PgBossSchedulerEngine(
-      {
-        conversationRoutes: () => ({}),
-        queue: {} as never,
-        onProcess: vi.fn(),
-        sendMessage: vi.fn(),
-        opsRepository: {
-          getJobById: vi.fn().mockResolvedValue(job),
-        } as never,
-      },
-      callbacks,
-    );
-    const requestSync = vi
-      .spyOn(engine, 'requestSync')
-      .mockImplementation(() => undefined);
+  it.each([
+    { cpuThreads: 1, expectedHostCapacity: 1 },
+    { cpuThreads: 2, expectedHostCapacity: 2 },
+    { cpuThreads: 4, expectedHostCapacity: 4 },
+  ])(
+    'dispatches jobs through a job-scoped scheduler queue key and releases the slot with $cpuThreads CPUs',
+    async ({ cpuThreads, expectedHostCapacity }) => {
+      hostCpu.threads = cpuThreads;
+      runtimeQueueConfigMock.value = {
+        maxMessageRuns: 0,
+        maxJobRuns: 4,
+        maxRetries: 5,
+      };
+      const acquireRunSlot = vi.fn(async () => true);
+      configureRunSlotBackend({
+        repository: {
+          acquireRunSlot,
+          renewRunSlot: vi.fn(async () => true),
+          releaseRunSlot: vi.fn(async () => undefined),
+        },
+        workerInstanceId: 'worker-test',
+      });
+      const job = createJob({
+        workspace_key: 'tg:team',
+      });
+      const callbacks = {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      };
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          opsRepository: {
+            getJobById: vi.fn().mockResolvedValue(job),
+          } as never,
+        },
+        callbacks,
+      );
+      const requestSync = vi
+        .spyOn(engine, 'requestSync')
+        .mockImplementation(() => undefined);
 
-    await (
-      engine as unknown as {
-        processBossJobs: (
-          jobs: Array<{
-            data: { jobId: string; triggerId?: string; runId?: string };
-          }>,
-        ) => Promise<void>;
-      }
-    ).processBossJobs([
-      { data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } },
-    ]);
+      await (
+        engine as unknown as {
+          processBossJobs: (
+            jobs: Array<{
+              data: { jobId: string; triggerId?: string; runId?: string };
+            }>,
+          ) => Promise<void>;
+        }
+      ).processBossJobs([
+        { data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } },
+      ]);
 
-    expect(callbacks.runJob).toHaveBeenCalledWith(
-      job,
-      expect.any(Object),
-      '__scheduler__:tg:team:job-1',
-      { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
-      expect.objectContaining({ abortSignal: expect.any(AbortSignal) }),
-    );
-    const workspaceAcquire = acquireRunSlot.mock.calls.find(
-      ([input]) => input.slotKey === 'tg:team',
-    )?.[0];
-    expect(workspaceAcquire).toEqual(
-      expect.objectContaining({ slotKey: 'tg:team' }),
-    );
-    expect(workspaceAcquire?.capacity).toBe(4);
-    expect(workspaceAcquire?.runId).toBe('run-1');
-    const hostAcquire = acquireRunSlot.mock.calls.find(([input]) =>
-      String(input.slotKey).endsWith(':background'),
-    )?.[0];
-    expect(hostAcquire?.capacity).toBe(4);
-    expect(hostAcquire?.runId).toBe('run-1');
-    expect(
-      acquireRunSlot.mock.calls.some(
+      expect(callbacks.runJob).toHaveBeenCalledWith(
+        job,
+        expect.any(Object),
+        '__scheduler__:tg:team:job-1',
+        { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
+        expect.objectContaining({ abortSignal: expect.any(AbortSignal) }),
+      );
+      const workspaceAcquire = acquireRunSlot.mock.calls.find(
+        ([input]) => input.slotKey === 'tg:team',
+      )?.[0];
+      expect(workspaceAcquire).toEqual(
+        expect.objectContaining({ slotKey: 'tg:team' }),
+      );
+      expect(workspaceAcquire?.capacity).toBe(4);
+      expect(workspaceAcquire?.runId).toBe('run-1');
+      const hostAcquire = acquireRunSlot.mock.calls.find(([input]) =>
+        String(input.slotKey).endsWith(':background'),
+      )?.[0];
+      expect(hostAcquire?.capacity).toBe(expectedHostCapacity);
+      expect(hostAcquire?.runId).toBe('run-1');
+      expect(
+        acquireRunSlot.mock.calls.some(
+          ([input]) =>
+            String(input.slotKey).startsWith('host:execution:') &&
+            !String(input.slotKey).endsWith(':background'),
+        ),
+      ).toBe(true);
+      const hostBudgetAcquire = acquireRunSlot.mock.calls.find(
         ([input]) =>
           String(input.slotKey).startsWith('host:execution:') &&
           !String(input.slotKey).endsWith(':background'),
-      ),
-    ).toBe(true);
-    expect(requestSync).toHaveBeenCalledWith();
-  });
+      )?.[0];
+      expect(hostBudgetAcquire?.capacity).toBe(expectedHostCapacity);
+      expect(hostBudgetAcquire?.runId).toBe('run-1');
+      expect(requestSync).toHaveBeenCalledWith();
+    },
+  );
 
   it('dispatches background jobs before system maintenance jobs', async () => {
     configureRunSlotBackend({
