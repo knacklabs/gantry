@@ -4,17 +4,47 @@
     "apps/core/src/app/bootstrap/durable-inbound-messages.ts",
     "apps/core/src/channels/teams/sdk-client.ts",
     "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
-    "docs/operations/teams-live-transport.md"
+    "docs/operations/teams-live-transport.md",
+    "package.json"
   ],
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "7b7cc010a1e9c93a5dcac77e0b5f56b05fc1a066629bd2ac8c1b81e5ac0d7f9f",
-    "changed": "b83443e24144399458058fb5d3cfebaf8e83cd570537e5a44122fea48fe56812",
-    "commit": "e9e03996d6e416677d2ebd4812826c0070a98f70",
+    "branch_diff": "d0bc597570ea91f4aad3eab906cbfc51759a6528db0cb372ae80a128e4024b44",
+    "changed": "d5761dfdb6f2ebb9cc6dd466f82fe1825a9b05e4caac7a3d9186a9962522ed08",
+    "commit": "7f8fb8761e41df9953130b5253fb796a52cb3127",
     "dismissals": [],
-    "findings": [],
-    "id": "4bcf5aa6-3fde-4467-8187-565fa0c2ae5c",
-    "status": "clean"
+    "findings": [
+      {
+        "body": "The new override forces production installs to node-forge 1.4.1. The maintainer's [GHSA-3cc4-3294-vgjf advisory](https://github.com/digitalbazaar/forge/security/advisories/GHSA-3cc4-3294-vgjf), published November 4, identifies versions through 1.4.2 as affected by a HIGH-severity certificate-validation vulnerability and fixes it in 1.4.3. This is newer evidence than the documented 1.4.1 remediation. Update the override and lockfile to a patched version so this change does not lock its production dependency below the fix required by the image-vulnerability policy.",
+        "file": "package.json",
+        "line": 184,
+        "priority": "P1",
+        "title": "Pin node-forge to a version containing the current HIGH-severity fix"
+      },
+      {
+        "body": "The supplied commit evidence reports that the worker's final commit has no required `Functional check:` paragraph. This documentation records exercises of all three flows, but it does not satisfy the explicitly required commit handoff. Include what was exercised and observed for inbound replies, restart/proactive delivery, and approval decisions in the final commit message.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 87,
+        "priority": "P1",
+        "title": "Not done: functional check"
+      },
+      {
+        "body": "The supplied evidence says the latest commit's proof list is missing. Although this document contains a proof table, the required list was not supplied in the commit handoff that Forge copies into the pull request. Supply the complete mapping of the covered requirements to their named proofs and results there.",
+        "file": "docs/operations/teams-live-transport.md",
+        "line": 97,
+        "priority": "P1",
+        "title": "Not done: proof list"
+      },
+      {
+        "body": "Typing indicators are explicitly deferred, but this change advertises expiring typing and implements delivery for it. No covered Done-when item needs that capability. Remove the typing-specific additions in `index.ts`, `sdk-client.ts`, and `types.ts`, together with their assertions in `teams.test.ts` and `live-ux-dispatcher.test.ts`, keeping the transport slice within its agreed scope.",
+        "file": "apps/core/src/channels/teams/index.ts",
+        "line": 115,
+        "priority": "P2",
+        "title": "Simpler: Teams typing support \u2192 retain the deferred capability"
+      }
+    ],
+    "id": "3e12f75d-f0ec-40fd-9091-dd14b79faa21",
+    "status": "blocked"
   },
   "round": 6,
   "status": "fixing",
@@ -74,6 +104,10 @@
     {
       "at": "2026-11-05T11:04:23+00:00",
       "step": "review"
+    },
+    {
+      "at": "2026-11-19T12:10:15+00:00",
+      "step": "review"
     }
   ],
   "stop": {
@@ -81,6 +115,5 @@
     "file": "apps/core/src/channels/teams/sdk-client.ts",
     "reason": "Owner replied fix to the pending choice to keep the same PR and narrow remaining work to the verified discovery and route-store construction repairs. All approved Teams features remain in scope; review the corrected source and commit proof record. No merge."
   },
-  "tests": "`npx --yes -p node@24 -- sh -c \"npm ci && (npm run format:check && npm run check:architecture && npm run lint:changed) && npm run typecheck\"` exited with status 1 on this machine.\n\nTo address all issues, run:\n  npm audit fix --force\n\nRun `npm audit` for details.\n\n> @gantry/runtime@1.2.52 format:check\n> prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"\n\nChecking formatting...\nAll matched files use Prettier code style!\n\n> @gantry/runtime@1.2.52 check:architecture\n> node scripts/check-architecture.mjs\n\nArchitecture checks failed.\n\n[Empty Folders]\n- apps/core/src/infrastructure/local-services is empty and needs a purpose file or an exception.\n- apps/core/src/memory/persistence is empty and needs a purpose file or an exception.\n- apps/core/src/runner/mcp/transport is empty and needs a purpose file or an exception.\n- apps/core/src/runtime/agent is empty and needs a purpose file or an exception.\n- apps/core/src/runtime/host is empty and needs a purpose file or an exception.\n- apps/core/src/runtime/permissions is empty and needs a purpose file or an exception.\n- packages/agent-gantry/scripts is empty and needs a purpose file or an exception.\n- packages/agent-gantry/src/adapters/teams is empty and needs a purpose file or an exception.\n- packages/agent-gantry/src/shared is empty and needs a purpose file or an exception.\n- packages/agent-gantry/src/tasks is empty and needs a purpose file or an exception.\n- packages/agent-gantry/src/tools is empty and needs a purpose file or an exception.\n- packages/agent-gantry/test is empty and needs a purpose file or an exception.",
   "worker": "codex"
 }
