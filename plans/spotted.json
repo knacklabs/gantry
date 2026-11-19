@@ -166,6 +166,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tapps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts\tNot done: authorized approval end-to-end proof\tTEAMS-1/T5",
+      "kind": "bug",
+      "path": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
+      "line": 209,
+      "text": "Not done: authorized approval end-to-end proof",
+      "from": "blocking",
+      "item": "TEAMS-1/T5",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tapps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts\tNot done: automatic Teams ingress recovery end-to-end proof\tTEAMS-1/T5",
       "kind": "bug",
       "path": "apps/core/test/e2e/teams-live-transport.postgres.e2e.test.ts",
