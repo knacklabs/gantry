@@ -1,7 +1,13 @@
+import { createSourceModelSnapshot } from '../../../src/shared/source-model-snapshot.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as catalog from '../../../src/shared/model-catalog.js';
 afterEach(() => vi.restoreAllMocks());
 import { prepareSourceSummary } from '../../../src/runtime/source-discussion-summary.js';
+const pin = () => {
+  const model = catalog.resolveModelSelectionForWorkload('haiku', 'chat');
+  if (!model.ok) throw new Error('Fixture model missing');
+  return createSourceModelSnapshot('haiku', model.entry);
+};
 describe('source scoped summary', () => {
   it.each(['anthropic', 'openai'])(
     'summarizes exact sources on configured %s route and preserves coverage',
@@ -52,6 +58,7 @@ describe('source scoped summary', () => {
           id: 'a',
           claimToken: 'c',
           request: { model: 'haiku' } as never,
+          modelSnapshot: pin(),
           messages: [],
           selectedSourceIds: ['M1', 'M2'],
           summaryWork: work,
@@ -91,6 +98,7 @@ describe('source scoped summary', () => {
         id: 'a',
         claimToken: 'c',
         request: { model: 'haiku' } as never,
+        modelSnapshot: pin(),
         messages: [],
         selectedSourceIds: [],
         summaryWork: { id: 'digest1' } as never,
@@ -116,6 +124,7 @@ describe('source scoped summary', () => {
           id: 'a',
           claimToken: 'c',
           request: { model: 'haiku' } as never,
+          modelSnapshot: pin(),
           messages: [{ content: 'large current source' }] as never,
           selectedSourceIds: [],
           summaryWork: { id: 'digest1' } as never,
@@ -143,6 +152,7 @@ describe('source scoped summary', () => {
           id: 'a',
           claimToken: 'c',
           request: { model: 'haiku' } as never,
+          modelSnapshot: pin(),
           messages: [],
           selectedSourceIds: [],
           summaryWork: {
@@ -190,6 +200,7 @@ describe('source scoped summary', () => {
       id: 'a',
       claimToken: 'c',
       request: { model: 'haiku' } as never,
+      modelSnapshot: pin(),
       messages,
       selectedSourceIds: messages.map((row) => row.id),
       summaryCandidate: work,

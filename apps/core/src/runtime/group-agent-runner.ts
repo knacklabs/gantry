@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../shared/source-model-snapshot.js';
 import { captureSourceOutputDiagnostic } from '../shared/source-output-diagnostic.js';
 import { Ajv } from 'ajv';
 import { formatMessages } from '../messaging/router.js';
@@ -119,6 +120,9 @@ export function createGroupAgentRunner(input: {
     const sourceExecutionDeadline = options?.sourceAnswer
       ? Date.now() + Math.min(180000, options.timeoutMs ?? 180000)
       : undefined;
+    const sourceModelSnapshot = options?.sourceAnswer
+      ? requireSourceModelSnapshot(options.sourceAnswer.modelSnapshot)
+      : undefined;
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
     const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
@@ -137,6 +141,7 @@ export function createGroupAgentRunner(input: {
         : group,
       appId: turnAppId,
       defaultModel: defaultInteractiveModel,
+      pinnedModel: sourceModelSnapshot?.entry,
       // Native requests pin their configured model; provider availability must not rewrite it.
       listConfiguredProviders: options?.sourceAnswer
         ? undefined
@@ -404,7 +409,13 @@ export function createGroupAgentRunner(input: {
       }
       if (output.contextUsage) {
         modelStatus.updateSelection({
-          ...defaultModelStatusSelection(defaultRuntimeModel),
+          ...(sourceModelSnapshot
+            ? {
+                selectionSource: 'source admission snapshot',
+                modelAlias: sourceModelSnapshot.alias,
+                model: sourceModelSnapshot.entry,
+              }
+            : defaultModelStatusSelection(defaultRuntimeModel)),
           selectionSource: group.agentConfig?.model
             ? 'session override'
             : 'chat default',
@@ -740,7 +751,7 @@ export function createGroupAgentRunner(input: {
             appId: runtimeAppId,
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(options?.sourceAnswer
-              ? { model: options.sourceAnswer.request.model }
+              ? { model: sourceModelSnapshot!.alias, sourceModelSnapshot }
               : agentInput.model
                 ? { model: agentInput.model }
                 : {}),

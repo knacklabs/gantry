@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../../shared/source-model-snapshot.js';
 import type { ConversationRoute } from '../../../../domain/types.js';
 import { folderForAgentId } from '../../../../domain/agent/agent-folder-id.js';
 import { hash, type AnswerPayload } from './source-answer-base.postgres.js';
@@ -42,7 +43,22 @@ export class SourceAnswerQueueRepository extends SourceAnswerMemoryRepository {
       .orderBy(asc(s.pendingInteractionsPostgres.createdAt))
       .limit(1);
     if (!answer) return;
-    const request = (answer.payloadJson as AnswerPayload).request;
+    const payload = answer.payloadJson as AnswerPayload;
+    const request = payload.request;
+    try {
+      requireSourceModelSnapshot(payload.modelSnapshot);
+    } catch {
+      await this.db.transaction((tx) =>
+        this.finish(
+          tx,
+          appId,
+          answer.id,
+          'failed',
+          'Source answer model snapshot unavailable; start a new attempt',
+        ),
+      );
+      return { source: true };
+    }
     const [agent] = await this.db
       .select()
       .from(s.agentsPostgres)

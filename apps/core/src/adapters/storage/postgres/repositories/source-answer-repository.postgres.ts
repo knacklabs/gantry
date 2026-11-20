@@ -1,3 +1,4 @@
+import { createSourceModelSnapshot } from '../../../../shared/source-model-snapshot.js';
 import { sourceChannelNativePersonId } from '../../../../memory/source-channel-memory-scope.js';
 import { sourceChatModelAllowed } from '../../../../shared/source-chat-model-policy.js';
 import { configureSourceChannelProfile } from './source-channel-profile.postgres.js';
@@ -54,12 +55,6 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
       Date.parse(request.deadlineAt) <= Date.now()
     )
       fail('Answer authority or deadline expired');
-    const selectedModel = resolveModelSelectionForWorkload(
-      request.model,
-      'chat',
-    );
-    if (!selectedModel.ok || !sourceChatModelAllowed(selectedModel.entry))
-      fail('Source answers require a compatible configured chat model');
     return this.db.transaction(async (tx) => {
       await lockSourceEventApp(tx, appId);
       const session = await this.session(tx, appId, sessionId, request.binding);
@@ -104,6 +99,14 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
           fail('Answer attempt identity conflicts');
         return this.receipt(payload, true);
       }
+      const selectedModel = resolveModelSelectionForWorkload(
+        request.model,
+        'chat',
+      );
+      if (!selectedModel.ok || !sourceChatModelAllowed(selectedModel.entry))
+        return fail(
+          'Source answers require a compatible configured chat model',
+        );
       const [question] = await tx
         .select()
         .from(s.messagesPostgres)
@@ -168,6 +171,10 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
         interactionType: 'source_answer',
         request,
         requestHash: hash(request),
+        modelSnapshot: createSourceModelSnapshot(
+          request.model,
+          selectedModel.entry,
+        ),
         state: 'preparing',
         acceptedEventId: String(event!.eventId),
         questionMessageId: question.id,

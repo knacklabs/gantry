@@ -1,3 +1,4 @@
+import type { SourceModelSnapshot } from '../../shared/source-model-snapshot.js';
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import type { NewMessage } from '../types.js';
 export interface SourceSummaryWork {
@@ -17,6 +18,7 @@ export interface SourceSummaryWork {
 export interface PreparedSourceAnswer {
   id: string;
   request: RequestSourceAnswer;
+  modelSnapshot?: SourceModelSnapshot;
   messages: NewMessage[];
   selectedSourceIds: string[];
   claimToken: string;

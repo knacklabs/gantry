@@ -1,4 +1,5 @@
-import {sourceMessageArtifacts} from './source-message-artifacts.postgres.js';
+import { requireSourceModelSnapshot } from '../../../../shared/source-model-snapshot.js';
+import { sourceMessageArtifacts } from './source-message-artifacts.postgres.js';
 import { SourceAnswerQueueRepository } from './source-answer-queue.postgres.js';
 import type { SourceSummaryWork } from '../../../../domain/ports/source-discussion.js';
 import { lockSourceEventApp } from './source-channel-event-lock.postgres.js';
@@ -58,6 +59,21 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
     if (!answer) return;
     const payload = answer.payloadJson as AnswerPayload;
     const request = payload.request;
+    let modelSnapshot;
+    try {
+      modelSnapshot = requireSourceModelSnapshot(payload.modelSnapshot);
+    } catch {
+      await this.db.transaction((tx) =>
+        this.finish(
+          tx,
+          appId,
+          answer.id,
+          'failed',
+          'Source answer model snapshot unavailable; start a new attempt',
+        ),
+      );
+      return;
+    }
     if (Date.parse(request.deadlineAt) <= Date.now()) {
       await this.db.transaction((tx) =>
         this.finish(tx, appId, answer.id, 'failed', 'Answer deadline expired'),
@@ -236,11 +252,25 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
       );
       return;
     }
-    const selectedArtifacts=await sourceMessageArtifacts(this.db,{appId,sessionId:session.sessionId,binding:request.binding,messages:rows.map(row=>row.message)});
+    const selectedArtifacts = await sourceMessageArtifacts(this.db, {
+      appId,
+      sessionId: session.sessionId,
+      binding: request.binding,
+      messages: rows.map((row) => row.message),
+    });
     let messages = rows.map(({ message, text }) => {
       const source = (message.externalRefJson as { source: SourceMessage })
         .source;
-      const artifacts=(selectedArtifacts.get(message.id)??[]).map(({artifactId,fileName,format,sizeBytes,sha256})=>({artifactId,fileName,format,sizeBytes,sha256,sourceMessageId:source.sourceMessageId}));
+      const artifacts = (selectedArtifacts.get(message.id) ?? []).map(
+        ({ artifactId, fileName, format, sizeBytes, sha256 }) => ({
+          artifactId,
+          fileName,
+          format,
+          sizeBytes,
+          sha256,
+          sourceMessageId: source.sourceMessageId,
+        }),
+      );
       return {
         id: source.sourceMessageId,
         chat_jid: conversationJid,
@@ -248,7 +278,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
         providerAccountId: `control:${appId}`,
         sender: source.authorId,
         sender_name: source.authorDisplayName,
-        content: `[Source ${source.sourceMessageId}; position ${source.sourcePosition}; revision ${source.revisionId}]\n${(text as { text: string }).text}${artifacts.length?`\n[Verified published files] ${JSON.stringify(artifacts)}`:""}`,
+        content: `[Source ${source.sourceMessageId}; position ${source.sourcePosition}; revision ${source.revisionId}]\n${(text as { text: string }).text}${artifacts.length ? `\n[Verified published files] ${JSON.stringify(artifacts)}` : ''}`,
         timestamp: source.createdAt,
         is_from_me: source.authorKind === 'assistant',
         is_bot_message: source.authorKind === 'assistant',
@@ -256,7 +286,11 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
       } satisfies NewMessage;
     });
     const selectedSourceIds = messages.map((row) => row.id);
-    const sources = rows.map(({message}) => ({sourceMessageId: message.sourceMessageId!, sourcePosition: String(message.sourcePosition), contentHash: message.sourceContentHash!}));
+    const sources = rows.map(({ message }) => ({
+      sourceMessageId: message.sourceMessageId!,
+      sourcePosition: String(message.sourcePosition),
+      contentHash: message.sourceContentHash!,
+    }));
     let summaryWork: SourceSummaryWork | undefined;
     let summaryCandidate: SourceSummaryWork | undefined;
     let contextSummary = prior?.digest;
@@ -305,7 +339,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
       .set({
         payloadJson: {
           ...payload,
-          ...(prior ? {contextSummaryId: prior.id} : {}),
+          ...(prior ? { contextSummaryId: prior.id } : {}),
           contextSnapshot: {
             selectedSourceIds,
             sources,
@@ -414,7 +448,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
         payloadJson: {
           ...payload,
           sourceSlotKeys: [poolKey, discussionKey],
-          ...(prior ? {contextSummaryId: prior.id} : {}),
+          ...(prior ? { contextSummaryId: prior.id } : {}),
           contextSnapshot: {
             selectedSourceIds,
             sources,
@@ -443,6 +477,7 @@ export class SourceAnswerContextRepository extends SourceAnswerQueueRepository {
     return {
       id: answer.id,
       request,
+      modelSnapshot,
       messages,
       selectedSourceIds,
       claimToken,

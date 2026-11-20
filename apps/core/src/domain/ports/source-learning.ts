@@ -1,3 +1,4 @@
+import type { SourceModelSnapshot } from '../../shared/source-model-snapshot.js';
 import type { RequestSourceAnswer } from '@gantry/contracts';
 import type { NormalizedMemorySubject } from '../../memory/memory-types.js';
 export interface SourceLearningScope {
@@ -29,6 +30,7 @@ export interface SourceLearningContext {
   conversationId: string;
   claimToken: string;
   request: RequestSourceAnswer;
+  modelSnapshot?: SourceModelSnapshot;
   scope: SourceLearningScope;
   subject: NormalizedMemorySubject;
   deadlineAtMs: number;

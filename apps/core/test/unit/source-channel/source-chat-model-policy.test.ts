@@ -69,7 +69,7 @@ it.each(['grok', 'kimi'])(
         client: { isConfigured: () => true, countTokens, query },
         repository: {},
       }),
-    ).rejects.toThrow('compatible configured chat model');
+    ).rejects.toThrow('model snapshot unavailable');
     expect(countTokens).not.toHaveBeenCalled();
     expect(query).not.toHaveBeenCalled();
   },

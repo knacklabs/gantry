@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../shared/source-model-snapshot.js';
 import { randomUUID } from 'node:crypto';
 import type { MemoryLlmQueryOpts } from '../../../domain/ports/memory-llm-client.js';
 import type { AgentRunId } from '../../../domain/events/events.js';
@@ -9,10 +10,16 @@ import { runWithMemoryOperationTimeout } from '../../../shared/memory-dreaming-t
 export async function countOpenAiSourceTokens(
   opts: MemoryLlmQueryOpts,
 ): Promise<number> {
-  const selected = resolveModelSelectionForWorkload(
-    opts.modelProfile?.alias ?? opts.model,
-    'chat',
-  );
+  const selected = opts.modelProfile?.sourceModelSnapshot
+    ? {
+        ok: true as const,
+        entry: requireSourceModelSnapshot(opts.modelProfile.sourceModelSnapshot)
+          .entry,
+      }
+    : resolveModelSelectionForWorkload(
+        opts.modelProfile?.alias ?? opts.model,
+        'chat',
+      );
   if (!selected.ok || selected.entry.modelRoute.id !== 'openai')
     throw new Error('Source token count requires the OpenAI route');
   const provider = getModelProviderDefinition('openai')!;

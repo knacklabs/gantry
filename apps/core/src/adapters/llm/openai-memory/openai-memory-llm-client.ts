@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../shared/source-model-snapshot.js';
 import { queryOpenAiSourceValidation } from './source-validation-query.js';
 import { countOpenAiSourceTokens } from './source-token-count.js';
 import { randomUUID } from 'node:crypto';
@@ -86,9 +87,11 @@ async function runOpenAiMemoryQuery(opts: MemoryLlmQueryOpts): Promise<string> {
 
 async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
   opts.signal?.throwIfAborted();
-  const modelEntry = opts.modelProfile
-    ? findModelByRunnerModel(opts.modelProfile.runnerModel)
-    : findModelByRunnerModel(opts.model);
+  const modelEntry = opts.modelProfile?.sourceModelSnapshot
+    ? requireSourceModelSnapshot(opts.modelProfile.sourceModelSnapshot).entry
+    : opts.modelProfile
+      ? findModelByRunnerModel(opts.modelProfile.runnerModel)
+      : findModelByRunnerModel(opts.model);
   const routeId: ModelRouteId =
     (opts.modelProfile?.modelRoute as ModelRouteId | undefined) ??
     modelEntry?.modelRoute.id ??

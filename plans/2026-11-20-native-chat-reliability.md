@@ -36,3 +36,13 @@ Select the chat and research models through Gantry application settings and cred
 Keep sandbox restrictions, private token authority, document download authorization and proxy routes intact. Rollback uses the prior image and settings snapshot. No new migration rollback is required for this patch.
 
 Full pre-commit checks were intentionally skipped. Previously waived architecture/autoreview helper gates are not recorded as passed. Paid Luna/Claude and live concurrency/browser acceptance are outside this local verification unless separately recorded by the coordinator.
+
+## Durable model selection
+
+Admission now saves a server-created model snapshot in the existing private pending-interaction JSON. Public requests and their replay hashes remain unchanged. A replay returns its original receipt before resolving any current alias. New attempts use the current settings. Queued and active native answers use the original provider, model and capabilities for execution, summaries, source token counts and learning validation. Credential authorization is still checked for the current application. Credential rotation is permitted. Revocation fails without a provider fallback.
+
+Existing accepted attempts without a snapshot cannot reconstruct their historical model. They fail clearly with “Source answer model snapshot unavailable; start a new attempt”. Operators should allow in-flight old-version work to finish before replacing the image, or ask those callers to start a new attempt. No public API, table or migration is added.
+
+A deterministic test changed and removed the configured alias after admission. It verified both Anthropic-to-OpenAI and OpenAI-to-Anthropic changes without making provider calls. A fresh local PostgreSQL test verified durable storage, repository restart, replay after alias removal and explicit legacy failure. Historical claims that alias override alone pinned active work were incorrect; this snapshot is the repair.
+
+The broader spawn regression run found two existing failures. Both also fail unchanged on baseline `bbba9c315`: the recipe async-tool visibility expectation and the worker response-schema rejection timeout. These are recorded as unresolved test failures, not new snapshot regressions. The snapshot-focused tests, summary/learning/counter checks and real PostgreSQL persistence tests pass.

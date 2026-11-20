@@ -1,3 +1,4 @@
+import type { SourceModelSnapshot } from '../../../../shared/source-model-snapshot.js';
 import { appendSourceRuntimeEvent } from './source-channel-event-lock.postgres.js';
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
@@ -40,6 +41,7 @@ export const sameBinding = (a: SourceBinding, b: SourceBinding) =>
 export type AnswerPayload = {
   interactionType: 'source_answer';
   request: RequestSourceAnswer;
+  modelSnapshot?: SourceModelSnapshot;
   requestHash: string;
   state: RequestSourceAnswerResponse['state'];
   acceptedEventId: string;

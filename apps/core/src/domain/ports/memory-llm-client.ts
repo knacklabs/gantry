@@ -1,6 +1,8 @@
+import type { SourceModelSnapshot } from '../../shared/source-model-snapshot.js';
 import type { AppId } from '../app/app.js';
 
 export interface MemoryLlmModelProfile {
+  sourceModelSnapshot?: SourceModelSnapshot;
   alias: string;
   runnerModel: string;
   responseFamily: string;

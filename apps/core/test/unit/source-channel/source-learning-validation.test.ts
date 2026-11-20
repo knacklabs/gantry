@@ -1,3 +1,4 @@
+import { createSourceModelSnapshot } from '../../../src/shared/source-model-snapshot.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as catalog from '../../../src/shared/model-catalog.js';
 afterEach(() => {
@@ -13,6 +14,8 @@ const scope = {
   workspaceId: 'W1',
   runId: 'run1',
 };
+const haiku = catalog.resolveModelSelectionForWorkload('haiku', 'chat');
+if (!haiku.ok) throw new Error('Fixture missing');
 const context = {
   answerId: 'answer',
   sessionId: 'session',
@@ -20,6 +23,7 @@ const context = {
   scope,
   subject: { subjectType: 'group' },
   request: { model: 'haiku', questionSourceId: 'M2' },
+  modelSnapshot: createSourceModelSnapshot('haiku', haiku.entry),
   deadlineAtMs: Date.now() + 180000,
 } as never;
 const evidence = [
@@ -74,7 +78,15 @@ describe('separate source learning validation', () => {
       (
         await validateSourceLearningProposal({
           candidateId: 'candidate',
-          context,
+          context: {
+            ...(context as object),
+            modelSnapshot: createSourceModelSnapshot('configured-chat', {
+              ...haiku.entry,
+              runnerModel: 'gpt-6-luna',
+              responseFamily: 'openai',
+              modelRoute: { ...haiku.entry.modelRoute, id: 'openai' },
+            }),
+          } as never,
           evidence,
           proposal,
           client: { isConfigured: () => true, query },

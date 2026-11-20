@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../shared/source-model-snapshot.js';
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -293,9 +294,11 @@ function requireGantryBroker(
 
 async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   opts.signal?.throwIfAborted();
-  const modelEntry = opts.modelProfile
-    ? findModelByRunnerModel(opts.modelProfile.runnerModel)
-    : findModelByRunnerModel(opts.model);
+  const modelEntry = opts.modelProfile?.sourceModelSnapshot
+    ? requireSourceModelSnapshot(opts.modelProfile.sourceModelSnapshot).entry
+    : opts.modelProfile
+      ? findModelByRunnerModel(opts.modelProfile.runnerModel)
+      : findModelByRunnerModel(opts.model);
   const runId = (opts.operationId ??
     `memory-query:${randomUUID()}`) as AgentRunId;
   const gateway = await resolveGantryMemoryInjection(

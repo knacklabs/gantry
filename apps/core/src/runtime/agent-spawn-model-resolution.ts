@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../shared/source-model-snapshot.js';
 import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../domain/models/credentials.js';
 import type { ConversationRoute } from '../domain/types.js';
 import {
@@ -35,13 +36,18 @@ export async function resolveSpawnModel(input: {
       : 'recurring_job'
     : 'chat';
   const requestedModel = input.agentInput.model || input.modelConfig.model;
-  const familyResolvedModel = await rewriteModelFamilyAliasForApp({
-    alias:
-      requestedModel || input.modelConfig.model || DEFAULT_SETUP_MODEL_ALIAS,
-    appId: input.appId,
-    listConfiguredProviders: input.listConfiguredProviders,
-    familyOrder: input.modelFamilyOrder,
-  });
+  const snapshot = input.agentInput.sourceModelSnapshot
+    ? requireSourceModelSnapshot(input.agentInput.sourceModelSnapshot)
+    : undefined;
+  const familyResolvedModel =
+    snapshot?.alias ??
+    (await rewriteModelFamilyAliasForApp({
+      alias:
+        requestedModel || input.modelConfig.model || DEFAULT_SETUP_MODEL_ALIAS,
+      appId: input.appId,
+      listConfiguredProviders: input.listConfiguredProviders,
+      familyOrder: input.modelFamilyOrder,
+    }));
   const profileTimestamp = nowIso();
   const runtimeLlmProfile: LlmProfile = {
     id: `transient-runtime-profile:${input.group.folder}:${modelWorkload}` as never,
@@ -56,6 +62,7 @@ export async function resolveSpawnModel(input: {
     profile: runtimeLlmProfile,
     workload: modelWorkload,
     agentHarness: input.agentHarness,
+    ...(snapshot ? { pinnedModel: snapshot.entry } : {}),
   });
   return { modelWorkload, resolvedModel };
 }

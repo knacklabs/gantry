@@ -1,3 +1,4 @@
+import type { SourceModelSnapshot } from '../shared/source-model-snapshot.js';
 import { ChildProcess } from 'child_process';
 
 import {
@@ -63,6 +64,7 @@ export interface AgentInput {
   appId?: string;
   agentId?: string;
   model?: string;
+  sourceModelSnapshot?: SourceModelSnapshot;
   sessionId?: string;
   workspaceFolder: string;
   chatJid: string;

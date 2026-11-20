@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../../shared/source-model-snapshot.js';
 import { assertSourceLearningRunPublication } from '../../../../memory/source-learning-activation.js';
 import {
   parseItemSource,
@@ -108,6 +109,7 @@ export class PostgresSourceLearningRepository extends SourceAnswerRepositoryBase
       conversationId: session!.conversationId,
       claimToken: answer!.runLeaseToken!,
       request,
+      modelSnapshot: requireSourceModelSnapshot(payload.modelSnapshot),
       scope,
       subject,
       deadlineAtMs: Math.min(

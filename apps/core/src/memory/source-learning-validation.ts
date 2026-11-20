@@ -1,4 +1,7 @@
-import { sourceChatModelAllowed } from '../shared/source-chat-model-policy.js';
+import {
+  requireSourceModelSnapshot,
+  sourceModelProfile,
+} from '../shared/source-model-snapshot.js';
 import { z } from 'zod';
 import type {
   MemoryLlmClient,
@@ -9,7 +12,6 @@ import type {
   SourceLearningProposal,
   SourceLearningEvidence,
 } from '../domain/ports/source-learning.js';
-import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 const verdictSchema = z
   .object({
     decision: z.enum(['allow', 'reject', 'uncertain']),
@@ -57,21 +59,12 @@ export async function validateSourceLearningProposal(input: {
   const remaining = context.deadlineAtMs - Date.now() - 500;
   if (remaining < 1000)
     throw new Error('Learning validation execution budget exhausted');
-  const model = resolveModelSelectionForWorkload(context.request.model, 'chat');
-  if (!model.ok || !sourceChatModelAllowed(model.entry))
-    throw new Error('Learning validation requires an approved scoped model');
-  const entry = model.entry;
+  const snapshot = requireSourceModelSnapshot(context.modelSnapshot);
+  const entry = snapshot.entry;
   const raw = await input.client.query({
     appId: context.scope.appId as never,
     model: entry.runnerModel,
-    modelProfile: {
-      alias: context.request.model,
-      runnerModel: entry.runnerModel,
-      responseFamily: entry.responseFamily,
-      modelRoute: entry.modelRoute.id,
-      modelRouteLabel: entry.modelRoute.label,
-      displayName: entry.displayName,
-    },
+    modelProfile: sourceModelProfile(snapshot),
     toolPolicy: 'none',
     maxOutputTokens: 1024,
     operationId: `source-learning:${input.candidateId}`,
