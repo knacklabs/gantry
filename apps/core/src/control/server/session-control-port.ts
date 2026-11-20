@@ -27,6 +27,25 @@ export function adaptSessionControlPort(
   control: RuntimeControlRepository,
 ): SessionControlPort {
   return {
+    configureSourceChannelProfile: (appId, agentId, profile, concurrency) =>
+      control.configureSourceChannelProfile(
+        appId,
+        agentId,
+        profile,
+        concurrency,
+      ),
+    readSourceDocument: (appId, sessionId, input) =>
+      control.readSourceDocument(appId, sessionId, input),
+    requestSourceAnswer: (appId, sessionId, input) =>
+      control.requestSourceAnswer(appId, sessionId, input),
+    settleSourceHistory: (appId, sessionId, input) =>
+      control.settleSourceHistory(appId, sessionId, input),
+    settleExecutionAuthority: (appId, sessionId, input) =>
+      control.settleExecutionAuthority(appId, sessionId, input),
+    rebuildSourceGeneration: (appId, sessionId, input) =>
+      control.rebuildSourceGeneration(appId, sessionId, input),
+    appendSourceMessage: (appId, sessionId, input) =>
+      control.appendSourceMessage(appId, sessionId, input),
     async ensureAppSession(input) {
       const session = await control.ensureAppSession({
         appId: input.appId,

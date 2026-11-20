@@ -1,4 +1,22 @@
-# node-forge signature-verification guard
+# node-forge signature verification
+
+Gantry now pins upstream **node-forge 1.4.3** through npm and overrides every
+transitive copy to that direct dependency. sandbox-runtime uses it to generate
+and verify MITM certificates. It is required and is not removed from the runtime.
+
+The security test preserves malformed DigestInfo regression fixtures for
+CVE-2026-85393, valid signatures and a sandbox-runtime TLS handshake. They pass
+against 1.4.3 in an isolated dependency tree. The advisory still lists no patched
+release while its affected range ends at 1.4.0. The upstream 1.4.3 source contains
+canonical DER verification. This is verified through the regression tests,
+not through a scanner exclusion. Final image scan is still required.
+
+References:
+- https://github.com/digitalbazaar/forge/blob/main/CHANGELOG.md
+- https://github.com/advisories/GHSA-86w9-cpqp-85rv
+
+The following describes the superseded 1.4.0 backport. Its source/tarball remain
+as historical provenance and are no longer installed or copied into the image.
 
 `node-forge-1.4.0.tgz` retains the upstream `node-forge@1.4.0` package name,
 version, main entry point, and dual BSD-3-Clause/GPL-2.0 license while

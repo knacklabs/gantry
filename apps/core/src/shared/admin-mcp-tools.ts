@@ -184,6 +184,7 @@ export const OPTIONAL_GANTRY_MCP_TOOL_NAMES = [
 ] as const;
 
 export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
+  'source_document',
   'memory_patch',
   'memory_demote',
   'procedure_patch',

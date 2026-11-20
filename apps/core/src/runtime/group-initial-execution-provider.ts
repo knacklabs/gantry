@@ -1,3 +1,4 @@
+import type { ModelCatalogEntry } from '../shared/model-catalog.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import type { ConversationRoute } from '../domain/types.js';
@@ -20,6 +21,7 @@ export async function resolveInitialGroupExecutionProviderId(input: {
   group: Pick<ConversationRoute, 'agentConfig' | 'folder'>;
   appId: string;
   defaultModel?: string;
+  pinnedModel?: ModelCatalogEntry;
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   agentHarness: AgentHarness;
   listConfiguredProviders?: GroupProcessingDeps['getConfiguredModelProviders'];
@@ -33,15 +35,21 @@ export async function resolveInitialGroupExecutionProviderId(input: {
   initialModelSelection: ModelStatusSelectionUpdate;
 }> {
   const requestedModel = input.group.agentConfig?.model ?? input.defaultModel;
-  const initialModelSelection = defaultModelStatusSelection(
-    requestedModel ?? DEFAULT_MODEL_ALIAS,
-  );
-  const failoverCandidates = await resolveTurnFailoverCandidates({
-    requestedModel,
-    appId: input.appId,
-    listConfiguredProviders: input.listConfiguredProviders,
-    familyOrder: input.familyOrder,
-  });
+  const initialModelSelection = input.pinnedModel
+    ? {
+        selectionSource: 'source admission snapshot',
+        modelAlias: requestedModel,
+        model: input.pinnedModel,
+      }
+    : defaultModelStatusSelection(requestedModel ?? DEFAULT_MODEL_ALIAS);
+  const failoverCandidates = input.pinnedModel
+    ? []
+    : await resolveTurnFailoverCandidates({
+        requestedModel,
+        appId: input.appId,
+        listConfiguredProviders: input.listConfiguredProviders,
+        familyOrder: input.familyOrder,
+      });
   const firstModel = failoverCandidates[0];
   const liveTurnRoute = initialModelSelection.model
     ? resolveExecutionRoute({

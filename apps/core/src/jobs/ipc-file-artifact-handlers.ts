@@ -1,3 +1,5 @@
+import { logger } from '../infrastructure/logging/logger.js';
+import { handleSourceDocumentTask } from './ipc-source-document-handler.js';
 import {
   describeFileArtifact,
   type FileArtifactId,
@@ -43,10 +45,74 @@ const fileArtifactHandler: TaskHandler = async (context) => {
     requestKind: 'FileArtifact',
     reject,
   });
-  if (!requestedTargetJid) return;
+  if (!requestedTargetJid) {
+    if (data.payload?.action === 'render_source_document')
+      logger.warn(
+        {
+          appId: data.appId,
+          sourceRunId: data.sourceRunId,
+          stage: 'target',
+          failureCode: 'TARGET_SCOPE',
+        },
+        'Source document generation rejected',
+      );
+    return;
+  }
 
   const payload = data.payload || {};
   const action = toTrimmedString(payload.action, { maxLen: 32 });
+  if (action === 'render_source_document') {
+    try {
+      acceptData(
+        'Source document generated.',
+        await handleSourceDocumentTask(context),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : '';
+      const failureCode = reason.includes('signature')
+        ? 'AUTH_SIGNATURE'
+        : reason.includes('freshness')
+          ? 'AUTH_FRESHNESS'
+          : reason.includes('scope') || reason.includes('context.')
+            ? 'AUTH_SCOPE'
+            : reason === 'Source document storage unavailable'
+              ? 'STORE_UNAVAILABLE'
+              : reason === 'Invalid document renderer request.'
+                ? 'DOCUMENT_INPUT_INVALID'
+                : reason.startsWith('Learning ') ||
+                    reason.includes('lease') ||
+                    reason.includes('active source')
+                  ? 'SOURCE_CONTEXT_INVALID'
+                  : reason.includes('authority')
+                    ? 'AUTHORITY_DENIED'
+                    : reason.startsWith('Document rendering')
+                      ? 'RENDER_FAILED'
+                      : reason ===
+                          'Another native source operation is in progress'
+                        ? 'SOURCE_BUSY'
+                        : 'INTERNAL_FAILURE';
+      const stage = failureCode.startsWith('AUTH_')
+        ? 'authorization'
+        : failureCode.startsWith('SOURCE_')
+          ? 'context'
+          : failureCode.startsWith('STORE_')
+            ? 'storage'
+            : failureCode.startsWith('RENDER_')
+              ? 'renderer'
+              : 'request';
+      logger.warn(
+        {
+          appId: data.appId,
+          sourceRunId: data.sourceRunId,
+          stage,
+          failureCode,
+        },
+        'Source document generation rejected',
+      );
+      reject('Source document generation failed or was canceled.', 'forbidden');
+    }
+    return;
+  }
   if (
     action !== 'list' &&
     action !== 'read' &&
@@ -303,6 +369,9 @@ function validateSameChannelTarget(input: {
   if (
     !requestedTargetJid ||
     (!input.sourceAgentFolderJids.includes(requestedTargetJid) &&
+      // Native documents are authorized by their signed source-operation proof
+      // and active source context in handleSourceDocumentTask, not static routes.
+      input.context.data.payload?.action !== 'render_source_document' &&
       !isAuthenticatedScheduledAppConversation(
         input.context,
         requestedTargetJid,

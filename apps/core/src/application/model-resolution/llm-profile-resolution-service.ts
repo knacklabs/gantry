@@ -52,11 +52,29 @@ export class LlmProfileResolutionService {
     profile: LlmProfile;
     workload: ModelWorkload;
     agentHarness?: AgentHarness;
+    pinnedModel?: ModelCatalogEntry;
   }): LlmProfileResolution {
-    const resolved = resolveModelSelectionForWorkload(
-      input.profile.modelAlias,
-      input.workload,
-    );
+    if (
+      input.pinnedModel &&
+      !input.pinnedModel.supportedWorkloads.includes(input.workload)
+    ) {
+      return {
+        ok: false,
+        reason: 'unsupported-workload',
+        message: 'Pinned model does not support this workload.',
+      };
+    }
+    const resolved = input.pinnedModel
+      ? {
+          ok: true as const,
+          entry: input.pinnedModel,
+          alias: input.profile.modelAlias,
+          runnerModel: input.pinnedModel.runnerModel,
+        }
+      : resolveModelSelectionForWorkload(
+          input.profile.modelAlias,
+          input.workload,
+        );
     if (!resolved.ok) {
       return {
         ok: false,

@@ -1,6 +1,8 @@
+import type { SourceModelSnapshot } from '../../shared/source-model-snapshot.js';
 import type { AppId } from '../app/app.js';
 
 export interface MemoryLlmModelProfile {
+  sourceModelSnapshot?: SourceModelSnapshot;
   alias: string;
   runnerModel: string;
   responseFamily: string;
@@ -10,6 +12,9 @@ export interface MemoryLlmModelProfile {
 }
 
 export interface MemoryLlmQueryOpts {
+  toolPolicy?: 'none';
+  maxOutputTokens?: number;
+  operationId?: string;
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
@@ -102,5 +107,6 @@ export interface MemoryLlmBatchCapability {
 export interface MemoryLlmClient {
   isConfigured(): boolean;
   query(opts: MemoryLlmQueryOpts): Promise<string>;
+  countTokens?(opts: MemoryLlmQueryOpts): Promise<number>;
   batch?: MemoryLlmBatchCapability;
 }

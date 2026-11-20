@@ -60,6 +60,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -75,6 +76,69 @@ const OPENAI_PROFILE = {
 };
 
 describe('OpenAI memory LLM client', () => {
+  it('uses configured bounded tool-free Responses validation without testing flags', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output: [
+              {
+                type: 'message',
+                content: [
+                  { type: 'output_text', text: '{"decision":"reject"}' },
+                ],
+              },
+            ],
+            usage: {
+              input_tokens: 120,
+              output_tokens: 24,
+              input_tokens_details: { cached_tokens: 30 },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+    const usage: MemoryLlmUsage[] = [];
+    const result = await createOpenAiMemoryLlmClient().query({
+      appId: 'validation-app' as never,
+      model: 'gpt-configured',
+      modelProfile: { ...OPENAI_PROFILE, runnerModel: 'gpt-configured' },
+      prompt: 'Check exact human sources and return JSON',
+      systemPrompt: 'Separate JSON admission check',
+      toolPolicy: 'none',
+      maxOutputTokens: 1024,
+      operationId: 'source-learning:candidate-1',
+      onUsage: (value) => usage.push(value),
+    });
+    expect(result).toBe('{"decision":"reject"}');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${GATEWAY_HOST_BASE}/openai/v1/responses`);
+    expect(JSON.parse(init.body)).toEqual({
+      model: 'gpt-configured',
+      input: [
+        { role: 'system', content: 'Separate JSON admission check' },
+        { role: 'user', content: 'Check exact human sources and return JSON' },
+      ],
+      max_output_tokens: 1024,
+      tools: [],
+      store: false,
+      text: { format: { type: 'json_object' } },
+    });
+    expect(resolveGatewayMemoryInjectionMock).toHaveBeenCalledWith({
+      appId: 'validation-app',
+      modelRouteId: 'openai',
+      runId: 'source-learning:candidate-1',
+    });
+    expect(usage).toEqual([
+      { input_tokens: 90, output_tokens: 24, cache_read_input_tokens: 30 },
+    ]);
+    expect(revokeMock).toHaveBeenCalledOnce();
+    vi.unstubAllEnvs();
+  });
+
   it('posts to the brokered chat-completions endpoint with the gateway bearer token', async () => {
     const fetchMock = vi.fn(
       async () =>

@@ -1,3 +1,6 @@
+import { requireSourceModelSnapshot } from '../../../shared/source-model-snapshot.js';
+import { queryOpenAiSourceValidation } from './source-validation-query.js';
+import { countOpenAiSourceTokens } from './source-token-count.js';
 import { randomUUID } from 'node:crypto';
 
 import type {
@@ -33,6 +36,7 @@ export function createOpenAiMemoryLlmClient(): MemoryLlmClient {
   return {
     isConfigured: hasGatewayMemoryAccess,
     query: runOpenAiMemoryQuery,
+    countTokens: countOpenAiSourceTokens,
     batch: createOpenAiChatBatchCapability(),
   };
 }
@@ -83,15 +87,22 @@ async function runOpenAiMemoryQuery(opts: MemoryLlmQueryOpts): Promise<string> {
 
 async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
   opts.signal?.throwIfAborted();
-  const modelEntry = opts.modelProfile
-    ? findModelByRunnerModel(opts.modelProfile.runnerModel)
-    : findModelByRunnerModel(opts.model);
+  const modelEntry = opts.modelProfile?.sourceModelSnapshot
+    ? requireSourceModelSnapshot(opts.modelProfile.sourceModelSnapshot).entry
+    : opts.modelProfile
+      ? findModelByRunnerModel(opts.modelProfile.runnerModel)
+      : findModelByRunnerModel(opts.model);
   const routeId: ModelRouteId =
     (opts.modelProfile?.modelRoute as ModelRouteId | undefined) ??
     modelEntry?.modelRoute.id ??
     'openai';
   const provider = requireOpenAiCompatibleProvider(routeId);
-  const runId = `memory-query:${randomUUID()}` as AgentRunId;
+  const sourceValidation = routeId === 'openai' && opts.toolPolicy === 'none';
+  const runId = (
+    sourceValidation && opts.operationId
+      ? opts.operationId
+      : `memory-query:${randomUUID()}`
+  ) as AgentRunId;
   const gateway = await resolveGatewayMemoryInjection({
     appId: opts.appId,
     modelRouteId: routeId,
@@ -103,9 +114,18 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
       provider,
       gateway.injection.env,
     );
+    if (sourceValidation) {
+      return await queryOpenAiSourceValidation({
+        opts,
+        baseUrl,
+        token,
+        messages: buildMessages(opts),
+      });
+    }
     const body = JSON.stringify({
       model: opts.model,
       messages: buildMessages(opts),
+      ...(opts.maxOutputTokens ? { max_tokens: opts.maxOutputTokens } : {}),
       ...((opts as MemoryLlmQueryOpts & { singleRequest?: boolean })
         .singleRequest === true
         ? { response_format: PERMISSION_VERDICT_RESPONSE_FORMAT }

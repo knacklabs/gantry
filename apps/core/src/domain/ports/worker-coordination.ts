@@ -299,6 +299,11 @@ export interface RunnerControlEventRepository {
 }
 
 export interface PendingInteractionRepository {
+  readCallerInteractionRecord?(input: {
+    appId: string;
+    sourceAgentFolder: string;
+    requestId: string;
+  }): Promise<PendingInteraction | null>;
   /**
    * Durable interaction record, created before any provider prompt renders.
    * Idempotent on idempotencyKey: a duplicate create returns the existing row.

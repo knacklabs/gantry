@@ -1,3 +1,4 @@
+import { appendSourceAnswerTerminal } from './source-answer-terminal.postgres.js';
 import {
   and,
   asc,
@@ -496,6 +497,13 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
           .set(runUpdates)
           .where(eq(pgSchema.agentRunsPostgres.id, turn.runId));
       }
+      if (input.agentRunCompletion)
+        await appendSourceAnswerTerminal(
+          tx,
+          turn.runId,
+          input.agentRunCompletion.status,
+          now,
+        );
       await tx
         .update(turns)
         .set({ state: input.turnState, updatedAt: now, endedAt: now })

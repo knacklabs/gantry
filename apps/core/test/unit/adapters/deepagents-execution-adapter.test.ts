@@ -460,6 +460,20 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     ).not.toHaveBeenCalled();
   });
 
+  it('requires an administrator-provisioned checkpoint schema for source answers', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const input = prepareInput();
+    input.input.sourceWorkspaceMemoryId = 'workspace:source';
+    await adapter.prepare(input);
+    expect(
+      checkpointSetupMock.ensureDeepAgentsCheckpointSchema,
+    ).toHaveBeenCalledWith({
+      databaseUrl: runtimePostgresUrl,
+      schema: 'gantry_deepagents',
+      requirePreprovisionedSchema: true,
+    });
+  });
+
   it('projects selected DeepAgents skills from reviewed Gantry artifacts', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     const prepared = await adapter.prepare(

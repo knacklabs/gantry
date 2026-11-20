@@ -195,6 +195,7 @@ export interface GroupProcessingDeps {
   getAvailableGroups: () => Promise<AvailableGroup[]> | AvailableGroup[];
   getRegisteredJids: () => Set<string>;
   queue: {
+    enqueueSourceAnswerCheck?: (queueJid: string) => void | boolean;
     enqueueMessageCheck: (chatJid: string) => boolean | void;
     closeStdin: (chatJid: string) => void;
     notifyIdle: (chatJid: string) => void;

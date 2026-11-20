@@ -1,3 +1,4 @@
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { randomUUID } from 'node:crypto';
 import type {
   LiveAdmissionWakeupSource,
@@ -63,6 +64,16 @@ export type ActiveControlCommandHandler = (args: {
 }) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
+  failSourceAnswerDispatch?: (
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ) => Promise<void>;
+  sourceAnswerDispatchRoute?: (
+    appId: string,
+    conversationJid: string,
+  ) => Promise<{ source: true; route?: ConversationRoute } | undefined>;
+  hasQueuedSourceAnswer?: (appId: string, chatJid: string) => Promise<boolean>;
   getAgentTurnContext?: (input: {
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
@@ -100,6 +111,10 @@ interface AdmissionOpsRepository {
 }
 
 interface AdmissionApp {
+  projectConversationRoute?: (
+    jid: string,
+    group: ConversationRoute,
+  ) => Promise<void>;
   getConversationRoutes(): Record<string, ConversationRoute>;
   resolveExecutionProviderId?: (
     route: ConversationRoute,
@@ -190,6 +205,42 @@ export function buildLiveAdmissionProcessor(input: {
     queueJid: string,
     context?: GroupMessageRunContext,
   ): Promise<boolean> => {
+    let nativeSourceDispatch = false;
+    const sourceChatJid = parseAgentThreadQueueKey(queueJid).chatJid;
+    const sourceAppId = appIdFromConversationJid(sourceChatJid);
+    if (sourceAppId && opsRepository.sourceAnswerDispatchRoute) {
+      const dispatch = await opsRepository.sourceAnswerDispatchRoute(
+        sourceAppId,
+        sourceChatJid,
+      );
+      if (!dispatch && context?.sourceAnswerOnly) return true;
+      if (dispatch) {
+        nativeSourceDispatch = true;
+        if (!dispatch.route) return true;
+        try {
+          if (!app.projectConversationRoute)
+            throw new Error('Source answer route projection is unavailable');
+          await app.projectConversationRoute(sourceChatJid, dispatch.route);
+          if (
+            !findConversationRouteForQueue(
+              app.getConversationRoutes(),
+              queueJid,
+              (candidate) => agentIdForFolder(candidate.folder),
+            )
+          )
+            throw new Error('Source answer route did not materialize');
+        } catch {
+          if (!opsRepository.failSourceAnswerDispatch)
+            throw new Error('Source answer routing prerequisite failed');
+          await opsRepository.failSourceAnswerDispatch(
+            sourceAppId,
+            sourceChatJid,
+            'Source answer routing prerequisite unavailable',
+          );
+          return true;
+        }
+      }
+    }
     if (!liveTurnAuthority) {
       return app.processGroupMessages(queueJid, {
         queued: true,
@@ -230,7 +281,17 @@ export function buildLiveAdmissionProcessor(input: {
         queueJid,
         (candidate) => agentIdForFolder(candidate.folder),
       );
-      if (!route) return false;
+      if (!route) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer route projection is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const executionProviderId =
         (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
@@ -243,13 +304,28 @@ export function buildLiveAdmissionProcessor(input: {
         conversationKind: route.conversationKind,
         hydrateMemory: false,
       });
-      if (!turnContext?.agentSessionId) return false;
+      if (!turnContext?.agentSessionId) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer native session context is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const scope: LiveTurnScope = {
         appId: turnContext.appId,
         agentSessionId: turnContext.agentSessionId,
         conversationId: chatJid,
         threadId: threadId ?? null,
       };
+      const sourceAnswer =
+        (await opsRepository.hasQueuedSourceAnswer?.(
+          turnContext.appId,
+          chatJid,
+        )) ?? false;
       const replayCursor = await app.getOrRecoverCursor(queueJid);
       // Pre-check: with N pollers the common case is that another worker already
       // owns this scope. Route the continuation WITHOUT minting a run row that
@@ -272,14 +348,24 @@ export function buildLiveAdmissionProcessor(input: {
         providerSessionId: turnContext.providerSessionId,
         cause: 'message',
       });
-      if (!liveRunId) return false;
+      if (!liveRunId) {
+        if (nativeSourceDispatch) {
+          await opsRepository.failSourceAnswerDispatch?.(
+            sourceAppId!,
+            sourceChatJid,
+            'Source answer current agent configuration is unavailable',
+          );
+          return true;
+        }
+        return false;
+      }
       const admission = await liveTurnAuthority.admit({
         queueJid,
         scope,
         turnId: `live-turn:${randomUUID()}`,
         runId: liveRunId,
         pendingMessage: {
-          kind: 'message_cursor',
+          kind: sourceAnswer ? 'source_answer' : 'message_cursor',
           queueJid,
           cursorBefore: replayCursor,
         },
@@ -591,6 +677,10 @@ export function startLiveExecutionServices(input: {
               app,
               liveTurnAuthority,
               liveTurnLeaseDeps,
+              sourceRecovery:
+                messageLoopDeps.opsRepository?.recoverSourceAnswerRun?.bind(
+                  messageLoopDeps.opsRepository,
+                ),
               warn,
             }),
         });
@@ -644,6 +734,9 @@ async function resumeRecoveredTurn(input: {
   };
   liveTurnAuthority: LiveTurnAuthority;
   liveTurnLeaseDeps: LiveTurnLeaseDeps;
+  sourceRecovery?: (
+    runId: string,
+  ) => Promise<'completed' | 'failed' | undefined>;
   warn: WarnLog;
 }): Promise<void> {
   const { turn, lease, app, liveTurnAuthority, liveTurnLeaseDeps, warn } =
@@ -667,6 +760,29 @@ async function resumeRecoveredTurn(input: {
       fencingVersion: lease.fencingVersion,
     },
   });
+  if (pendingMessage?.kind === 'source_answer') {
+    const recovered = turn.runId
+      ? await input.sourceRecovery?.(turn.runId)
+      : undefined;
+    const complete = recovered === 'completed';
+    await liveTurnAuthority.finalize(
+      queueJid,
+      complete ? 'completed' : 'failed',
+      {
+        status: complete ? 'completed' : 'failed',
+        ...(complete
+          ? {
+              resultSummary:
+                'Recovered full durable source answer without another provider call.',
+            }
+          : {
+              errorSummary:
+                'Provider process interrupted before durable full source answer. Submit a new explicit attempt.',
+            }),
+      },
+    );
+    return;
+  }
   const replayQueueJid =
     pendingMessage?.queueJid === queueJid ? queueJid : null;
   const cursorBefore =

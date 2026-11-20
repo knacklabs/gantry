@@ -1,9 +1,11 @@
+import type { SourceDocumentArtifactReceipt } from '@gantry/contracts';
 import { Ajv, type AnySchema } from 'ajv';
 
 export class DeepAgentStructuredOutputError extends Error {
   constructor(
     message: string,
     readonly attemptedJson?: string,
+    readonly validationErrors: readonly string[] = [],
   ) {
     super(message);
     this.name = 'DeepAgentStructuredOutputError';
@@ -31,11 +33,9 @@ export function preserveOriginalTaskPrompt(
   originalPrompt: string,
   continuationPrompt: string,
 ): string {
-  return [
-    originalPrompt,
-    'RUNTIME_CONTINUATION',
-    continuationPrompt,
-  ].join('\n\n');
+  return [originalPrompt, 'RUNTIME_CONTINUATION', continuationPrompt].join(
+    '\n\n',
+  );
 }
 
 export const STRUCTURED_OUTPUT_ENVELOPE_SCHEMA = {
@@ -74,6 +74,7 @@ export function appendStructuredOutputContract(
 export function serializeValidatedStructuredOutput(
   value: unknown,
   responseSchema: Record<string, unknown>,
+  sourceDocuments?: ReadonlyMap<string, SourceDocumentArtifactReceipt>,
 ): string {
   const json = envelopeJson(value);
   let parsed: unknown;
@@ -84,6 +85,31 @@ export function serializeValidatedStructuredOutput(
       'DeepAgents structured output returned invalid JSON.',
       json,
     );
+  }
+
+  if (
+    sourceDocuments &&
+    parsed &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    'artifacts' in parsed &&
+    Array.isArray(parsed.artifacts)
+  ) {
+    // Artifact metadata belongs to the trusted tool result, not the model's copy.
+    parsed.artifacts = parsed.artifacts.map((artifact: unknown) => {
+      const id =
+        artifact && typeof artifact === 'object' && 'artifactId' in artifact
+          ? artifact.artifactId
+          : undefined;
+      const receipt =
+        typeof id === 'string' ? sourceDocuments.get(id) : undefined;
+      if (!receipt)
+        throw new DeepAgentStructuredOutputError(
+          'Source answer references an unknown document artifact.',
+          json,
+        );
+      return receipt;
+    });
   }
 
   const validate = new Ajv({
@@ -102,6 +128,10 @@ export function serializeValidatedStructuredOutput(
     throw new DeepAgentStructuredOutputError(
       `DeepAgents structured output failed response_schema validation${detail ? `: ${detail}` : '.'}`,
       json,
+      (validate.errors ?? []).map(
+        (error) =>
+          `${error.instancePath || '/'} ${error.keyword} ${error.message ?? ''}`,
+      ),
     );
   }
   return JSON.stringify(parsed);

@@ -32,6 +32,7 @@ import {
   permissionLane,
   runId,
   memoryDefaultScope,
+  sourceWorkspaceMemoryId,
   memoryIpcAllowedActions,
   memoryReviewerIsControlApprover,
   memoryUserId,
@@ -121,7 +122,10 @@ export async function requestMemoryAction(
   ensurePrivateDirSync(MEMORY_REQUESTS_DIR);
   ensurePrivateDirSync(MEMORY_RESPONSES_DIR);
 
-  const timeoutMs = getMemoryActionTimeoutMs(action);
+  const timeoutMs =
+    sourceWorkspaceMemoryId && action === 'memory_save'
+      ? 30000
+      : getMemoryActionTimeoutMs(action);
   const requestId = makeIpcId('mem');
   const reqPath = path.join(MEMORY_REQUESTS_DIR, `${requestId}.json`);
   const tmpReqPath = `${reqPath}.tmp`;
@@ -137,6 +141,8 @@ export async function requestMemoryAction(
       ...(memoryUserId ? { personId: memoryUserId } : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       defaultScope: memoryDefaultScope,
+      ...(sourceWorkspaceMemoryId ? { sourceWorkspaceMemoryId } : {}),
+      ...(sourceWorkspaceMemoryId && runId ? { sourceRunId: runId } : {}),
       allowedActions: memoryIpcAllowedActions,
       reviewerIsControlApprover: memoryReviewerIsControlApprover,
     },

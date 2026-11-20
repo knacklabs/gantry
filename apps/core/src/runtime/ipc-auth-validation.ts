@@ -40,6 +40,8 @@ interface IpcBrowserBinding extends IpcThreadBinding {
 }
 
 interface IpcMemoryBinding extends IpcThreadBinding {
+  sourceWorkspaceMemoryId?: string;
+  sourceRunId?: string;
   chatJid?: string;
   userId?: string;
   defaultScope?: 'user' | 'group';
@@ -627,6 +629,11 @@ export function validateMemoryIpcAuthRequest(
   }
   const chatJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
   const personId = toTrimmedString(context?.personId, { maxLen: 255 });
+  const sourceRunId = toTrimmedString(context?.sourceRunId, { maxLen: 256 });
+  const sourceWorkspaceMemoryId = toTrimmedString(
+    context?.sourceWorkspaceMemoryId,
+    { maxLen: 256 },
+  );
   const defaultScopeRaw = toTrimmedString(context?.defaultScope, {
     maxLen: 16,
   });
@@ -651,6 +658,8 @@ export function validateMemoryIpcAuthRequest(
     agentId,
     ...(chatJid ? { chatJid } : {}),
     ...(personId ? { personId } : {}),
+    ...(sourceWorkspaceMemoryId ? { sourceWorkspaceMemoryId } : {}),
+    ...(sourceRunId ? { sourceRunId } : {}),
     defaultScope: defaultScope || 'group',
     threadId: binding.authThreadId,
     allowedActions,
@@ -676,6 +685,8 @@ export function validateMemoryIpcAuthRequest(
     ...binding,
     ...(chatJid ? { chatJid } : {}),
     ...(personId ? { userId: personId } : {}),
+    ...(sourceWorkspaceMemoryId ? { sourceWorkspaceMemoryId } : {}),
+    ...(sourceRunId ? { sourceRunId } : {}),
     ...(defaultScope ? { defaultScope } : {}),
     ...(reviewerIsControlApprover ? { reviewerIsControlApprover } : {}),
     allowedActions,

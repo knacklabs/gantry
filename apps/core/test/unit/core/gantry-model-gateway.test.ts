@@ -3014,3 +3014,283 @@ describe('provider billing events through real gateway HTTP requests', () => {
     },
   );
 });
+
+it.each(['ok', 'upstream_401', 'gateway_401'] as const)(
+  'crosses source counting and the real loopback gateway (%s)',
+  async (mode) => {
+    const { countAnthropicSourceTokens } =
+      await import('@core/adapters/llm/anthropic-claude-agent/source-token-count.js');
+    const injectionModule =
+      await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-fixture-upstream');
+    const audit = vi.fn(async () => {});
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    const binding = {
+      profile: 'gantry',
+      purpose: 'model_runtime',
+      appId,
+      runId: 'source-token-count:fixture' as never,
+      modelRouteId: 'anthropic' as never,
+    };
+    const injection = await broker.getInjection({ binding });
+    if (mode === 'gateway_401')
+      for (const key of Object.keys(injection.env))
+        if (key.includes('TOKEN') || key === 'ANTHROPIC_API_KEY')
+          injection.env[key] = 'gtw_invalid_fixture';
+    const resolve = vi
+      .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+      .mockResolvedValue({
+        injection,
+        revoke: () => broker.revokeInjection({ binding }),
+      });
+    const nativeFetch = globalThis.fetch;
+    const upstream = vi.fn(
+      async () =>
+        new Response(
+          mode === 'upstream_401'
+            ? JSON.stringify({
+                error: {
+                  type: 'authentication_error',
+                  message: 'fixture rejected',
+                },
+              })
+            : JSON.stringify({ input_tokens: 37 }),
+          {
+            status: mode === 'upstream_401' ? 401 : 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+    );
+    vi.stubGlobal(
+      'fetch',
+      async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        String(url).startsWith('https://api.anthropic.com/')
+          ? upstream(url, init)
+          : nativeFetch(url, init),
+    );
+    try {
+      const operation = countAnthropicSourceTokens({
+        appId,
+        model: 'haiku',
+        prompt: 'Exact authorized source',
+        timeoutMs: 2000,
+      });
+      if (mode === 'ok') expect(await operation).toBe(37);
+      else await expect(operation).rejects.toThrow(/401/);
+      if (mode === 'gateway_401') expect(upstream).not.toHaveBeenCalled();
+      else {
+        expect(upstream).toHaveBeenCalledTimes(1);
+        const [url, options] = upstream.mock.calls[0];
+        expect(String(url)).toBe(
+          'https://api.anthropic.com/v1/messages/count_tokens',
+        );
+        expect(options?.headers).toMatchObject({
+          'x-api-key': 'sk-ant-fixture-upstream',
+        });
+        expect(options?.headers).not.toHaveProperty('authorization');
+      }
+      if (mode === 'upstream_401')
+        expect(audit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: expect.objectContaining({
+              outcome: 'upstream_error',
+              status: 401,
+            }),
+          }),
+        );
+    } finally {
+      resolve.mockRestore();
+      vi.unstubAllGlobals();
+      await broker.close();
+    }
+  },
+);
+
+it('counts exact Luna input through the real scoped OpenAI gateway without model generation', async () => {
+  const { countOpenAiSourceTokens } =
+    await import('@core/adapters/llm/openai-memory/source-token-count.js');
+  const injectionModule =
+    await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+  const catalog = await import('@core/shared/model-catalog.js');
+  const base = catalog.findModelByRunnerModel('gpt')!;
+  const model = vi
+    .spyOn(catalog, 'resolveModelSelectionForWorkload')
+    .mockReturnValue({
+      ok: true,
+      entry: {
+        ...base,
+        runnerModel: 'gpt-6-luna',
+        modelRoute: {
+          ...base.modelRoute,
+          id: 'openai',
+          providerModelId: 'gpt-6-luna',
+        },
+      },
+    } as never);
+  const repo = new MutableModelCredentialRepository();
+  repo.set('openai', 'sk-openai-fixture');
+  const broker = new GantryModelGatewayBroker(repo);
+  const binding = {
+    profile: 'gantry',
+    purpose: 'model_runtime',
+    appId,
+    runId: 'source-token-count:luna-fixture' as never,
+    modelRouteId: 'openai' as never,
+  };
+  const injection = await broker.getInjection({ binding });
+  const resolve = vi
+    .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+    .mockResolvedValue({
+      injection,
+      revoke: () => broker.revokeInjection({ binding }),
+    });
+  const nativeFetch = globalThis.fetch;
+  const upstream = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({ object: 'response.input_tokens', input_tokens: 41 }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+  vi.stubGlobal(
+    'fetch',
+    async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      String(url).startsWith('https://api.openai.com/')
+        ? upstream(url, init)
+        : nativeFetch(url, init),
+  );
+  try {
+    expect(
+      await countOpenAiSourceTokens({
+        appId,
+        model: 'manipal.chat',
+        prompt: 'Authorized discussion',
+      }),
+    ).toBe(41);
+    const [url, options] = upstream.mock.calls[0];
+    expect(String(url)).toBe(
+      'https://api.openai.com/v1/responses/input_tokens',
+    );
+    expect(options?.headers).toMatchObject({
+      authorization: 'Bearer sk-openai-fixture',
+    });
+    expect(JSON.parse(Buffer.from(options?.body as Buffer).toString())).toEqual(
+      { model: 'gpt-6-luna', input: 'Authorized discussion' },
+    );
+  } finally {
+    resolve.mockRestore();
+    model.mockRestore();
+    vi.unstubAllGlobals();
+    await broker.close();
+  }
+});
+
+it.each([200, 401])(
+  'separate Luna learning check crosses the real gateway and revokes its token (status %s)',
+  async (status) => {
+    const injectionModule =
+      await import('@core/adapters/llm/openai-memory/memory-gateway-injection.js');
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+    vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
+    vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
+    vi.stubEnv('GANTRY_APP_ID', appId);
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'sk-openai-fixture');
+    const broker = new GantryModelGatewayBroker(repo);
+    const binding = {
+      profile: 'gantry',
+      purpose: 'model_runtime',
+      appId,
+      runId: 'source-learning:gateway-fixture' as never,
+      modelRouteId: 'openai' as never,
+    };
+    const injection = await broker.getInjection({ binding });
+    const access = vi
+      .spyOn(injectionModule, 'hasGatewayMemoryAccess')
+      .mockReturnValue(true);
+    const revoke = vi.fn(() => broker.revokeInjection({ binding }));
+    const resolve = vi
+      .spyOn(injectionModule, 'resolveGatewayMemoryInjection')
+      .mockResolvedValue({ injection, revoke });
+    const nativeFetch = globalThis.fetch;
+    const upstream = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify(
+            status === 200
+              ? {
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      content: [
+                        { type: 'output_text', text: '{"decision":"reject"}' },
+                      ],
+                    },
+                  ],
+                  usage: { input_tokens: 40, output_tokens: 8 },
+                }
+              : { error: { message: 'private upstream diagnostic' } },
+          ),
+          { status, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal(
+      'fetch',
+      async (url: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        String(url).startsWith('https://api.openai.com/')
+          ? upstream(url, init)
+          : nativeFetch(url, init),
+    );
+    try {
+      const usage = vi.fn();
+      const result = createOpenAiMemoryLlmClient().query({
+        appId,
+        model: 'gpt-6-luna',
+        modelProfile: {
+          alias: 'manipal.chat',
+          runnerModel: 'gpt-6-luna',
+          responseFamily: 'openai',
+          modelRoute: 'openai',
+          modelRouteLabel: 'OpenAI',
+          displayName: 'Luna',
+        },
+        prompt: 'Check exact source evidence and return JSON',
+        toolPolicy: 'none',
+        maxOutputTokens: 1024,
+        operationId: binding.runId,
+        onUsage: usage,
+      });
+      if (status === 200) {
+        expect(await result).toBe('{"decision":"reject"}');
+        expect(usage).toHaveBeenCalledWith({
+          input_tokens: 40,
+          output_tokens: 8,
+        });
+      } else
+        await expect(result).rejects.toThrow(
+          'Source validation Responses query failed (401)',
+        );
+      expect(upstream).toHaveBeenCalledOnce();
+      const [url, options] = upstream.mock.calls[0];
+      expect(String(url)).toBe('https://api.openai.com/v1/responses');
+      const body = JSON.parse(Buffer.from(options?.body as Buffer).toString());
+      expect(body).toMatchObject({
+        model: 'gpt-6-luna',
+        max_output_tokens: 1024,
+        tools: [],
+        reasoning: { effort: 'none' },
+        store: false,
+      });
+      expect(revoke).toHaveBeenCalledOnce();
+    } finally {
+      resolve.mockRestore();
+      access.mockRestore();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+      await broker.close();
+    }
+  },
+);

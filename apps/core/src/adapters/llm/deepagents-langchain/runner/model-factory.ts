@@ -1,3 +1,4 @@
+import { sourceProviderFailedAttempt } from './source-provider-retry.js';
 import { initChatModel } from 'langchain/chat_models/universal';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatOpenRouterInput } from '@langchain/openrouter';
@@ -90,6 +91,7 @@ export async function buildRunnerModel(input: {
   effort?: AgentControlEffort;
   configuredThinking?: AgentControlThinking;
   maxOutputTokens?: number;
+  sourceAnswer?: boolean;
   openRouterProviderRouting?: OpenRouterProviderPreferences;
 }): Promise<ResolvedRunnerModel> {
   const provider = input.provider.trim().toLowerCase();
@@ -122,6 +124,9 @@ export async function buildRunnerModel(input: {
       baseURL: `${trimTrailingSlash(baseURL)}/v1`,
       streamUsage: true,
       maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
+      ...(input.sourceAnswer
+        ? { onFailedAttempt: sourceProviderFailedAttempt(provider) }
+        : {}),
       ...(maxInputTokens !== undefined
         ? { profileOverride: { maxInputTokens } }
         : {}),
@@ -150,6 +155,9 @@ export async function buildRunnerModel(input: {
       disableStreaming: true,
       streamUsage: false,
       maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
+      ...(input.sourceAnswer
+        ? { onFailedAttempt: sourceProviderFailedAttempt(provider) }
+        : {}),
       ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
       ...(maxInputTokens !== undefined ? { profile: { maxInputTokens } } : {}),
     });
@@ -182,6 +190,9 @@ export async function buildRunnerModel(input: {
       ...(provider === 'openai' ? { disableStreaming: true } : {}),
       streamUsage: true,
       maxRetries: MODEL_TRANSPORT_MAX_RETRIES,
+      ...(input.sourceAnswer
+        ? { onFailedAttempt: sourceProviderFailedAttempt(provider) }
+        : {}),
       // initChatModel stores `profile` on the ConfigurableModel wrapper and its
       // `.profile` getter returns it first, so the curated window reaches both
       // DeepAgents summarization and the stream-normalizer. Omit it when no

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
+import {
+  validateSemanticCapabilityDefinition,
+  type SemanticCapabilityDefinition,
+} from '@core/shared/semantic-capabilities.js';
+import { stableSha256Json } from '@core/shared/stable-hash.js';
 import { PassThrough } from 'stream';
 
 // Sentinel markers must match runtime agent output framing.
@@ -1218,34 +1223,80 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBe('1');
   });
 
-  it('does not expose async task polling to website recipe jobs', async () => {
-    const resultPromise = spawnTestAgent(
-      testGroup,
-      {
-        ...testInput,
-        semanticCapabilities: [
+  it.each([
+    {
+      capabilityId: 'manipal.website-recipe-evaluator',
+      mode: 'durable_async',
+      enabled: undefined,
+    },
+    {
+      capabilityId: 'manipal.website-recipe-evaluator',
+      mode: 'gantry_hosted',
+      enabled: undefined,
+    },
+    {
+      capabilityId: 'manipal.website-recipe-evaluator',
+      mode: 'sync',
+      enabled: '1',
+    },
+    {
+      capabilityId: 'acme.reviewed-evaluator',
+      mode: 'gantry_hosted',
+      enabled: undefined,
+    },
+  ] as const)(
+    'projects polling from the declared $mode operation for $capabilityId',
+    async ({ capabilityId, mode, enabled }) => {
+      const inputSchema = { type: 'object', additionalProperties: false };
+      const capability: SemanticCapabilityDefinition = {
+        capabilityId,
+        version: '1',
+        displayName: 'Reviewed recipe evaluator',
+        category: 'mcp',
+        risk: 'read',
+        can: 'Validate a supplied public recipe.',
+        cannot: 'Access private workspace information.',
+        credentialSource: 'none',
+        implementationBindings: [
           {
-            capabilityId: 'manipal.website-recipe-evaluator',
-            version: '1',
-          } as never,
+            kind: 'mcp_pattern',
+            mcpServer: 'fixture',
+            mcpToolPatterns: ['recipe_test'],
+          },
         ],
-      },
-      () => {},
-      undefined,
-      { asyncTaskRepositoryAvailable: true },
-    );
-    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
-    await vi.advanceTimersByTimeAsync(10);
-    fakeProc.emit('close', 0);
-    await vi.advanceTimersByTimeAsync(10);
-    await resultPromise;
-
-    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
-      string,
-      string
-    >;
-    expect(env.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBeUndefined();
-  });
+        operations: [
+          {
+            mcpTool: 'mcp__fixture__recipe_test',
+            schemaDialect: 'json-schema-draft-07',
+            inputSchema,
+            inputSchemaDigest: `sha256:${stableSha256Json(inputSchema)}`,
+            executionMode: mode,
+          },
+        ],
+      };
+      expect(validateSemanticCapabilityDefinition(capability)).toEqual({
+        ok: true,
+      });
+      const resultPromise = spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          isScheduledJob: true,
+          semanticCapabilities: [capability],
+        },
+        () => {},
+        undefined,
+        { asyncTaskRepositoryAvailable: true },
+      );
+      emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await expect(resultPromise).resolves.toMatchObject({ status: 'success' });
+      const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env;
+      expect(env?.GANTRY_ASYNC_TASK_TOOLS_ENABLED).toBe(enabled);
+    },
+  );
 
   it('projects the fleet deployment mode into the runner env', async () => {
     vi.mocked(getDeploymentMode).mockReturnValueOnce('fleet');
@@ -4733,21 +4784,54 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
-  it('rejects response schemas for worker runtime before spawning', async () => {
-    const result = await spawnTestAgent(
-      testGroup,
-      { ...testInput, responseSchema: { type: 'object' } },
-      vi.fn(),
-    );
-
-    expect(result).toMatchObject({
-      status: 'error',
-      result: null,
-      error: 'response_schema requires an inline agent runtime',
-    });
-    expect(getSelectedAgentRuntime).toHaveBeenCalledOnce();
-    expect(spawn).not.toHaveBeenCalled();
-  });
+  it.each([undefined, 'worker'] as const)(
+    'projects strict response schemas to the %s worker and retains validated output',
+    async (runtime) => {
+      const schema = {
+        type: 'object',
+        properties: { status: { const: 'complete' } },
+        required: ['status'],
+        additionalProperties: false,
+      };
+      const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+      const onOutput = vi.fn(async () => {});
+      const resultPromise = spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          ...(runtime ? { runtime } : {}),
+          responseSchema: schema,
+        },
+        vi.fn(),
+        onOutput,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      expect(spawn).toHaveBeenCalledOnce();
+      const projected = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+      expect(projected.responseSchema).toEqual(schema);
+      emitOutputMarker(fakeProc, {
+        status: 'success',
+        result: '{"status":"complete"}',
+        structuredResultValidated: true,
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      // Streaming callers receive the validated payload through onOutput, not twice.
+      await expect(resultPromise).resolves.toMatchObject({
+        status: 'success',
+        result: null,
+      });
+      expect(onOutput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'success',
+          result: '{"status":"complete"}',
+          structuredResultValidated: true,
+        }),
+      );
+      expect(getSelectedAgentRuntime).toHaveBeenCalledTimes(runtime ? 0 : 1);
+    },
+  );
 
   it('uses an explicit worker runtime for worker admission and spawning', async () => {
     vi.mocked(getSelectedAgentRuntime).mockReturnValue('inline');

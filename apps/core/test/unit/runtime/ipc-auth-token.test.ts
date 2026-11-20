@@ -117,6 +117,23 @@ describe('ipc auth token', () => {
     );
   });
 
+  it('binds source memory authority to the exact native run', () => {
+    const scope = {
+      appId: 'app',
+      agentId: 'agent',
+      sourceWorkspaceMemoryId: 'workspace',
+      personId: 'person',
+    };
+    const token = computeMemoryIpcAuthToken('group', {
+      ...scope,
+      sourceRunId: 'run1',
+    });
+    expect(token).not.toBe(
+      computeMemoryIpcAuthToken('group', { ...scope, sourceRunId: 'run2' }),
+    );
+    expect(token).not.toBe(computeMemoryIpcAuthToken('group', scope));
+  });
+
   it('rejects empty or malformed tokens', () => {
     expect(validateIpcAuthToken('team-alpha', '')).toBe(false);
     expect(validateIpcAuthToken('team-alpha', 'not-a-real-token')).toBe(false);

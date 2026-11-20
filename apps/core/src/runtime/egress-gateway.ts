@@ -247,6 +247,14 @@ async function handleConnectRequest(
   }
   const mappedTarget = mappedEgressTarget(state, target);
   if (mappedTarget) {
+    const mappedDeny = evaluateEgressDenylist({
+      settings: state.settings,
+      host: mappedTarget.connectHost!,
+    });
+    if (mappedDeny) {
+      await denyConnectRequest(state, clientSocket, mappedDeny, target.port);
+      return;
+    }
     await auditConnect(state, {
       host: mappedTarget.host,
       port: target.port,
@@ -326,6 +334,14 @@ async function handleHttpProxyRequest(
     authority: target.host,
   });
   if (mappedTarget) {
+    const mappedDeny = evaluateEgressDenylist({
+      settings: state.settings,
+      host: mappedTarget.connectHost!,
+    });
+    if (mappedDeny) {
+      await denyHttpRequest(state, res, mappedDeny, urlPort(target));
+      return;
+    }
     await auditConnect(state, {
       host: mappedTarget.host,
       port: urlPort(target),

@@ -163,7 +163,12 @@ export async function syncRuntimeSettingsFromProjection(input: {
     appId: input.appId,
   });
   for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
-    const settings = loadRuntimeSettings(input.runtimeHome);
+    const base = await loadSyncedMutationBaseSettings({
+      runtimeHome: input.runtimeHome,
+      settingsRevisions: input.settingsRevisions,
+      appId: input.appId ?? ('default' as AppId),
+    });
+    const settings = base.settings;
     const exported = await service.exportCurrent(settings);
     const providerAccountOverride = input.overrides?.providerAccount;
     if (providerAccountOverride) {
@@ -187,6 +192,7 @@ export async function syncRuntimeSettingsFromProjection(input: {
             repositories: input.repositories,
             appId,
             previousSettings: settings,
+            expectedRevision: base.expectedRevision,
             reloadRuntimeState: input.reloadRuntimeState,
             revisionMirror: {
               settingsRevisions: input.settingsRevisions,

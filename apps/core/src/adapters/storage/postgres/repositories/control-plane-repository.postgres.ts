@@ -1,3 +1,14 @@
+import { readSourceDocumentForSession } from './source-document-read.postgres.js';
+import type { ReadSourceDocument } from '@gantry/contracts';
+import type { RebuildSourceGeneration } from '@gantry/contracts';
+import { PostgresSourceAnswerRepository } from './source-answer-repository.postgres.js';
+import type {
+  RequestSourceAnswer,
+  SettleSourceHistory,
+  SettleExecutionAuthority,
+} from '@gantry/contracts';
+import type { AppendSourceMessageRequest } from '@gantry/contracts';
+import { PostgresSourceChannelRepository } from './source-channel-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -44,6 +55,83 @@ export class PostgresControlPlaneRepository {
   constructor(private readonly db: CanonicalDb) {
     this.externalIngress = new PostgresExternalIngressRepository(db);
     this.jobTriggers = new PostgresJobTriggerRepository(db);
+  }
+
+  async readSourceDocument(
+    appId: string,
+    sessionId: string,
+    input: ReadSourceDocument,
+  ) {
+    return readSourceDocumentForSession(this.db, appId, sessionId, input);
+  }
+  async configureSourceChannelProfile(
+    appId: string,
+    agentId: string,
+    profile: NonNullable<RequestSourceAnswer['executionProfile']>,
+    concurrency: number,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).configureProfile(
+      appId,
+      agentId,
+      profile,
+      concurrency,
+    );
+  }
+  async requestSourceAnswer(
+    appId: string,
+    sessionId: string,
+    input: RequestSourceAnswer,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).request(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+  async settleSourceHistory(
+    appId: string,
+    sessionId: string,
+    input: SettleSourceHistory,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).settleHistory(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+  async settleExecutionAuthority(
+    appId: string,
+    sessionId: string,
+    input: SettleExecutionAuthority,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).settleAuthority(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+
+  async rebuildSourceGeneration(
+    appId: string,
+    sessionId: string,
+    input: RebuildSourceGeneration,
+  ) {
+    return new PostgresSourceChannelRepository(this.db).rebuild(
+      appId,
+      sessionId,
+      input,
+    );
+  }
+  async appendSourceMessage(
+    appId: string,
+    sessionId: string,
+    input: AppendSourceMessageRequest,
+  ) {
+    return new PostgresSourceChannelRepository(this.db).append(
+      appId,
+      sessionId,
+      input,
+    );
   }
 
   async ensureAppSession(input: {
@@ -164,13 +252,7 @@ export class PostgresControlPlaneRepository {
             agentId: graph.agentId,
             defaultResponseMode: input.defaultResponseMode ?? 'sse',
             defaultWebhookId: input.defaultWebhookId ?? null,
-            externalRefJson: jsonb({
-              externalConversationId: input.conversationId,
-              chatJid: input.chatJid,
-              workspaceFolder: workspaceKey,
-              title: input.title ?? null,
-              ...(appUser ? { appUser } : {}),
-            }),
+            externalRefJson: sql`COALESCE(${pgSchema.controlHttpSessionsPostgres.externalRefJson},'{}'::jsonb) || ${JSON.stringify({ externalConversationId: input.conversationId, chatJid: input.chatJid, workspaceFolder: workspaceKey, title: input.title ?? null, ...(appUser ? { appUser } : {}) })}::jsonb`,
             updatedAt: now,
           },
         })

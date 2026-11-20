@@ -182,6 +182,9 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
       await ensureDeepAgentsCheckpointSchema({
         databaseUrl: postgresUrl,
         schema: checkpointSchema,
+        ...(input.input.sourceWorkspaceMemoryId
+          ? { requirePreprovisionedSchema: true }
+          : {}),
       });
       runnerInputPatch.deepAgentCheckpointer = {
         databaseUrl: postgresUrl,

@@ -142,6 +142,7 @@ vi.mock(
 
 describe('startGantryRuntime preflight', () => {
   it('honors skipPreflight at runtime entry', async () => {
+    vi.stubEnv('GANTRY_APP_ID', '');
     const { startGantryRuntime } = await import('@core/app/index.js');
 
     await expect(startGantryRuntime({ skipPreflight: true })).rejects.toThrow(
@@ -149,6 +150,13 @@ describe('startGantryRuntime preflight', () => {
     );
 
     expect(validateRuntimePreflightWithStorage).not.toHaveBeenCalled();
+    const { createChannelWiring } =
+      await import('@core/app/bootstrap/channel-wiring.js');
+    expect(createChannelWiring).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ appId: 'default' }),
+    );
+    vi.unstubAllEnvs();
   });
 
   it('uses GANTRY_APP_ID for workstation settings and secret state', async () => {
@@ -167,6 +175,12 @@ describe('startGantryRuntime preflight', () => {
       else process.env.GANTRY_APP_ID = previousAppId;
     }
 
+    const { createChannelWiring } =
+      await import('@core/app/bootstrap/channel-wiring.js');
+    expect(createChannelWiring).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ appId: 'manipal-tender-copilot' }),
+    );
     expect(startSettingsReloadWatcher).toHaveBeenCalledWith(
       expect.objectContaining({ appId: 'manipal-tender-copilot' }),
     );

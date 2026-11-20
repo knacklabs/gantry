@@ -35,6 +35,60 @@ describe('caller-resolved tool coordinator', () => {
     expect(durableCallerToolResolution([], origin)).toBe(origin);
   });
 
+  it('settles a persisted tool on another worker and reuses its result after restart', async () => {
+    const record: any = {
+      appId: 'app',
+      runId: null,
+      sourceAgentFolder: 'folder',
+      requestId: 'cross-worker',
+      status: 'pending',
+      payload: { sessionId: 'session-cross', interactionVersion: 1 },
+      expiresAt: '2027-01-01T00:00:00.000Z',
+      resolution: null,
+    };
+    configurePendingInteractionDurability({
+      repository: {
+        readCallerInteractionRecord: vi.fn(async () => record),
+        resolvePendingInteraction: vi.fn(async (input) => {
+          record.status = input.status;
+          record.resolution = input.resolution;
+          return true;
+        }),
+      } as never,
+    });
+    const settlement = {
+      appId: 'app',
+      sessionId: 'session-cross',
+      interactionId: 'cross-worker',
+      sourceAgentFolder: 'folder',
+      idempotencyKey: 'persisted-answer',
+      resolution: { status: 'resolved' as const, result: { answer: 42 } },
+    };
+    expect(await settleCallerResolvedTool(settlement)).toBe('resolved');
+    expect(await settleCallerResolvedTool(settlement)).toBe('idempotent');
+    expect(
+      await settleCallerResolvedTool({
+        ...settlement,
+        resolution: { status: 'resolved', result: { answer: 43 } },
+      }),
+    ).toBe('conflict');
+    const emit = vi.fn();
+    expect(
+      await requestCallerResolvedTool({
+        appId: 'app',
+        sourceAgentFolder: 'folder',
+        sessionId: 'session-cross',
+        interactionId: 'cross-worker',
+        toolName: 'evidence',
+        toolInput: {},
+        timeoutMs: 5000,
+        signal: new AbortController().signal,
+        emitRequired: emit,
+      }),
+    ).toEqual({ answer: 42 });
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it('settles the waiting tool exactly once', async () => {
     let emitted!: () => void;
     const required = new Promise<void>((resolve) => (emitted = resolve));

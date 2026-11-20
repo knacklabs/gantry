@@ -42,7 +42,9 @@ describe('egress gateway', () => {
         upstream.once('response', (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-          res.once('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+          res.once('end', () =>
+            resolve(Buffer.concat(chunks).toString('utf-8')),
+          );
         });
         upstream.once('error', reject);
       });
@@ -966,3 +968,24 @@ function httpRequestThroughGateway(input: {
     req.end();
   });
 }
+
+it('does not let a trusted private alias bypass the real endpoint denylist', async () => {
+  const target = await startTargetServer();
+  const authority = `gantry-runtime-checkpoint.internal:${target.port}`;
+  const gateway = await ensureEgressGateway({
+    key: 'test:checkpoint-real-endpoint-deny',
+    settings: { denylist: ['127.0.0.1'] },
+    principal: { appId: 'default' },
+    privateNetworkHostMappings: [{ authority, connectHost: '127.0.0.1' }],
+  });
+  try {
+    const response = await connectThroughGateway({
+      gatewayPort: gateway.port,
+      authority,
+    });
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body).matchedPattern).toBe('127.0.0.1');
+  } finally {
+    await target.close();
+  }
+});

@@ -1,3 +1,8 @@
+import { and, eq } from 'drizzle-orm';
+import * as pgSchema from './schema.js';
+import type { SourceSummaryWork } from '../../../../domain/ports/source-discussion.js';
+import { appendSourceAnswerTerminal } from '../repositories/source-answer-terminal.postgres.js';
+import { PostgresSourceAnswerRepository } from '../repositories/source-answer-repository.postgres.js';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 
@@ -36,9 +41,7 @@ import type { RuntimeEventPublishInput } from '../../../../domain/events/events.
 import { PostgresCanonicalBindingRepository } from '../repositories/canonical-binding-repository.postgres.js';
 import {
   type CanonicalDb,
-  DEFAULT_LLM_PROFILE_ID,
   PostgresCanonicalGraphRepository,
-  configVersionIdForAgent,
 } from '../repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import { PostgresCanonicalMessageRepository } from '../repositories/canonical-message-repository.postgres.js';
@@ -158,6 +161,89 @@ export class PostgresRuntimeRepositoryBundle
 
   async getAllChats(): Promise<ChatInfo[]> {
     return this.graph.listChats();
+  }
+
+  async recoverSourceAnswerRun(runId: string) {
+    return new PostgresSourceAnswerRepository(this.db).recoverRun(runId);
+  }
+  async failSourceAnswerDispatch(
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ) {
+    await new PostgresSourceAnswerRepository(this.db).dispatchRoute(
+      appId,
+      conversationJid,
+      reason,
+    );
+  }
+  async sourceAnswerDispatchRoute(appId: string, conversationJid: string) {
+    return new PostgresSourceAnswerRepository(this.db).dispatchRoute(
+      appId,
+      conversationJid,
+    );
+  }
+  async pendingSourceAnswerQueueKeys() {
+    return new PostgresSourceAnswerRepository(this.db).pendingQueueKeys();
+  }
+  async hasQueuedSourceAnswer(appId: string, conversationJid: string) {
+    return new PostgresSourceAnswerRepository(this.db).hasQueued(
+      appId,
+      conversationJid,
+    );
+  }
+  async readSourceSummary(id: string) {
+    return new PostgresSourceAnswerRepository(this.db).readSummary(id);
+  }
+  async saveSourceSummary(input: {
+    answerId: string;
+    claimToken: string;
+    work: SourceSummaryWork;
+    text: string;
+    usage: Record<string, unknown>[];
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).saveSummary(input);
+  }
+  async markSourceAnswerRun(id: string, runId: string) {
+    await new PostgresSourceAnswerRepository(this.db).markRun(id, runId);
+  }
+  async persistSourceAnswerOutput(id: string, runId: string, text: string) {
+    await new PostgresSourceAnswerRepository(this.db).output(id, runId, text);
+  }
+  async sourceWorkspaceMemoryContext(input: {
+    answerId: string;
+    appId: string;
+    agentId: string;
+    workspaceId: string;
+    personId?: string;
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).memoryContext(input);
+  }
+  async getPreparedSourceAnswer(input: {
+    appId: string;
+    conversationJid: string;
+  }) {
+    return new PostgresSourceAnswerRepository(this.db).prepared(
+      input.appId,
+      input.conversationJid,
+    );
+  }
+  async finishPreparedSourceAnswer(
+    id: string,
+    success: boolean,
+    claimToken?: string,
+  ) {
+    await new PostgresSourceAnswerRepository(this.db).finishPrepared(
+      id,
+      success,
+      claimToken,
+    );
+  }
+  async renewPreparedSourceAnswer(id: string, claimToken: string) {
+    return new PostgresSourceAnswerRepository(this.db).renewPrepared(
+      id,
+      claimToken,
+    );
   }
 
   async storeMessage(msg: NewMessage): Promise<void> {
@@ -587,6 +673,37 @@ export class PostgresRuntimeRepositoryBundle
       input.agentSessionId as never,
     );
     if (!session) return undefined;
+    const [currentConfig] = await this.db
+      .select({
+        id: pgSchema.agentConfigVersionsPostgres.id,
+        llmProfileId: pgSchema.agentConfigVersionsPostgres.llmProfileId,
+      })
+      .from(pgSchema.agentsPostgres)
+      .innerJoin(
+        pgSchema.agentConfigVersionsPostgres,
+        and(
+          eq(
+            pgSchema.agentConfigVersionsPostgres.id,
+            pgSchema.agentsPostgres.currentConfigVersionId,
+          ),
+          eq(
+            pgSchema.agentConfigVersionsPostgres.appId,
+            pgSchema.agentsPostgres.appId,
+          ),
+          eq(
+            pgSchema.agentConfigVersionsPostgres.agentId,
+            pgSchema.agentsPostgres.id,
+          ),
+        ),
+      )
+      .where(
+        and(
+          eq(pgSchema.agentsPostgres.id, session.agentId),
+          eq(pgSchema.agentsPostgres.appId, session.appId),
+        ),
+      )
+      .limit(1);
+    if (!currentConfig) return undefined;
     const runId = `agent-run:${randomUUID()}`;
     const now = nowIso();
     const jobId = input.cause === 'job' ? undefined : session.jobId;
@@ -594,12 +711,12 @@ export class PostgresRuntimeRepositoryBundle
       id: runId,
       appId: session.appId,
       agentId: session.agentId,
-      configVersionId: configVersionIdForAgent(session.agentId),
+      configVersionId: currentConfig.id,
       sessionId: session.id,
       conversationId: session.conversationId,
       threadId: session.threadId,
       jobId,
-      llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      llmProfileId: currentConfig.llmProfileId,
       executionProviderId: input.executionProviderId,
       providerSessionId: input.providerSessionId ?? undefined,
       permissionDecisionIds: [],
@@ -672,6 +789,9 @@ export class PostgresRuntimeRepositoryBundle
       resultSummary: resultSummary ?? run.resultSummary,
       errorSummary: errorSummary ?? run.errorSummary,
     });
+    await this.db.transaction((tx) =>
+      appendSourceAnswerTerminal(tx, input.runId, input.status, now),
+    );
     await this.options.runtimeEvents.publish({
       appId: run.appId,
       agentId: run.agentId,

@@ -37,7 +37,6 @@ COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY examples/nextjs-workflows/package.json examples/nextjs-workflows/package.json
 COPY vendor/braces-3.0.3.tgz ./vendor/braces-3.0.3.tgz
-COPY vendor/node-forge-1.4.0.tgz ./vendor/node-forge-1.4.0.tgz
 
 # Full install (dev deps included) — needed for tsc + workspace builds.
 # `--ignore-scripts` keeps install hermetic; the prepare hook (husky) is a no-op
@@ -78,17 +77,17 @@ FROM ${UBUNTU_IMAGE} AS runtime
 COPY --from=python-runtime /usr/local /usr/local
 RUN ldconfig
 
-# Refresh pip's vendored urllib3/msgpack as well; provenance/reproducer lives in
+# Refresh pip and its actual pkg_resources source; provenance/reproducer lives in
 # ops/docker/security/pip. Preserve pip's real version and wheel RECORD hashes.
-COPY vendor/pip-26.2.2-py3-none-any.whl /tmp/pip-26.2.2-py3-none-any.whl
-RUN echo 'e2ea38fcf3cac60020a6bce296e7f4af9f729501c8271f0eab202e6d9adb8fd2  /tmp/pip-26.2.2-py3-none-any.whl' | sha256sum -c - \
-    && python3 -m pip install --no-cache-dir --no-deps --upgrade --force-reinstall /tmp/pip-26.2.2-py3-none-any.whl \
+COPY vendor/pip-26.3-py3-none-any.whl /tmp/pip-26.3-py3-none-any.whl
+RUN echo 'd2c2d4586364ffb9f78edaf46a5c51dd92da4fae0fcc3e738ed629b782adff50  /tmp/pip-26.3-py3-none-any.whl' | sha256sum -c - \
+    && python3 -m pip install --no-cache-dir --no-deps --upgrade --force-reinstall /tmp/pip-26.3-py3-none-any.whl \
     && rm -f /usr/local/lib/python3.13/ensurepip/_bundled/pip-*.whl \
-    && cp /tmp/pip-26.2.2-py3-none-any.whl /usr/local/lib/python3.13/ensurepip/_bundled/ \
-    && chmod 0644 /usr/local/lib/python3.13/ensurepip/_bundled/pip-26.2.2-py3-none-any.whl \
-    && sed -i 's/_PIP_VERSION = "26\.2\.1"/_PIP_VERSION = "26.2.2"/' /usr/local/lib/python3.13/ensurepip/__init__.py \
-    && grep -qx '_PIP_VERSION = "26.2.2"' /usr/local/lib/python3.13/ensurepip/__init__.py \
-    && rm -f /tmp/pip-26.2.2-py3-none-any.whl
+    && cp /tmp/pip-26.3-py3-none-any.whl /usr/local/lib/python3.13/ensurepip/_bundled/ \
+    && chmod 0644 /usr/local/lib/python3.13/ensurepip/_bundled/pip-26.3-py3-none-any.whl \
+    && sed -i 's/_PIP_VERSION = "26\.2\.1"/_PIP_VERSION = "26.3"/' /usr/local/lib/python3.13/ensurepip/__init__.py \
+    && grep -qx '_PIP_VERSION = "26.3"' /usr/local/lib/python3.13/ensurepip/__init__.py \
+    && rm -f /tmp/pip-26.3-py3-none-any.whl
 
 COPY --from=deps /usr/local/bin/node /usr/local/bin/node
 COPY --from=chrome-for-testing /opt/chrome-for-testing /opt/chrome-for-testing

@@ -17,7 +17,7 @@ describe('host capacity planning', () => {
     }
   });
 
-  it('reserves interactive capacity before background work in all-in-one mode', () => {
+  it('lets background work borrow idle capacity while retaining one interactive slot in all-in-one mode', () => {
     const plan = computeHostCapacityPlan({
       queue: { maxMessageRuns: 3, maxJobRuns: 4 },
       processRole: 'all',
@@ -28,7 +28,7 @@ describe('host capacity planning', () => {
       cpuThreads: 4,
       budget: 4,
       interactiveCapacity: 3,
-      backgroundCapacity: 1,
+      backgroundCapacity: 3,
     });
   });
 

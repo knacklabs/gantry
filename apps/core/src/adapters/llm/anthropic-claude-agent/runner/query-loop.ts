@@ -1,3 +1,4 @@
+import { sourceChannelNativeControls } from './source-channel-model-controls.js';
 import {
   query,
   type EffortLevel,
@@ -298,12 +299,18 @@ export async function runQuery(
   const sdkFilesystemSandbox = undefined;
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
+  const sourceControls = sourceChannelNativeControls(
+    process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID,
+    agentInput.maxOutputTokens,
+  );
   const isolatedSdkEnv: Record<string, string | undefined> = {
     ...sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    ...sourceControls?.env,
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
+  if (sourceControls) delete isolatedSdkEnv.CLAUDE_CODE_EFFORT_LEVEL;
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
       ? allowedOuterSandboxClaudeExecutable(
@@ -345,6 +352,7 @@ export async function runQuery(
     ipcAuthToken: process.env.GANTRY_IPC_AUTH_TOKEN,
     browserIpcAuthToken: process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN,
     memoryIpcAuthToken: process.env.GANTRY_MEMORY_IPC_AUTH_TOKEN,
+    sourceWorkspaceMemoryId: process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID,
     ipcResponseVerifyKey: process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY,
     ipcResponseKeyId: process.env.GANTRY_IPC_RESPONSE_KEY_ID,
     externalMcpServers: readExternalMcpServers(),
@@ -542,8 +550,9 @@ export async function runQuery(
     options: {
       model: configuredModel,
       ...sdkStructuredOutputOptions(agentInput.responseSchema),
-      thinking: queryThinking,
-      effort: queryEffort,
+      ...(sourceControls
+        ? {}
+        : { thinking: queryThinking, effort: queryEffort }),
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories:
         additionalDirectories.length > 0 ? additionalDirectories : undefined,
@@ -894,9 +903,8 @@ export async function runQuery(
           // request continuation; normal structured-output repair still runs
           // below when the gate accepts.
         }
-        const completionDecision = await completionGate?.check(
-          completionCandidate,
-        );
+        const completionDecision =
+          await completionGate?.check(completionCandidate);
         const continuedByCompletionGate =
           completionDecision?.decision === 'continue';
         completionGateAccepted = !completionGate || !continuedByCompletionGate;

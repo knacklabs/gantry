@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+afterEach(() => vi.unstubAllEnvs());
 
 const model = vi.hoisted(() => ({
   build: vi.fn(async () => ({
@@ -54,42 +55,47 @@ beforeEach(() => {
 });
 
 describe('DeepAgents worker model controls', () => {
-  it('consumes worker effort, thinking, and output cap when building the model', async () => {
-    await runDeepAgentTurn({
-      agentInput: {
-        prompt: 'hello',
-        workspaceFolder: '/tmp/workspace',
-        chatJid: 'conversation:test',
-        effort: 'high',
-        configuredThinking: { mode: 'on' },
-        maxOutputTokens: 4096,
-        modelCredentialEnv: {
-          OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
-          OPENAI_API_KEY: 'gtw_test',
+  it.each([undefined, 'workspace:test'])(
+    'consumes worker controls and source retry scope %s when building the model',
+    async (sourceWorkspace) => {
+      vi.stubEnv('GANTRY_SOURCE_WORKSPACE_MEMORY_ID', sourceWorkspace);
+      await runDeepAgentTurn({
+        agentInput: {
+          prompt: 'hello',
+          workspaceFolder: '/tmp/workspace',
+          chatJid: 'conversation:test',
+          effort: 'high',
+          configuredThinking: { mode: 'on' },
+          maxOutputTokens: 4096,
+          modelCredentialEnv: {
+            OPENAI_BASE_URL: 'http://127.0.0.1:4567/openai',
+            OPENAI_API_KEY: 'gtw_test',
+          },
         },
-      },
-      provider: 'openai',
-      modelId: 'gpt-5.5',
-      newSessionId: 'session-1',
-      includeMemoryContext: true,
-      emit: vi.fn(),
-    });
+        provider: 'openai',
+        modelId: 'gpt-5.5',
+        newSessionId: 'session-1',
+        includeMemoryContext: true,
+        emit: vi.fn(),
+      });
 
-    expect(model.build).toHaveBeenCalledWith(
-      expect.objectContaining({
-        effort: 'high',
-        configuredThinking: { mode: 'on' },
-        maxOutputTokens: 4096,
-      }),
-    );
-    expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty('toolRules');
-    expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty(
-      'toolSuccessLedger',
-    );
-    expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty(
-      'onToolRuleDenial',
-    );
-  });
+      expect(model.build).toHaveBeenCalledWith(
+        expect.objectContaining({
+          effort: 'high',
+          configuredThinking: { mode: 'on' },
+          maxOutputTokens: 4096,
+          sourceAnswer: Boolean(sourceWorkspace),
+        }),
+      );
+      expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty('toolRules');
+      expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty(
+        'toolSuccessLedger',
+      );
+      expect(mcp.connect.mock.calls[0]?.[0]).not.toHaveProperty(
+        'onToolRuleDenial',
+      );
+    },
+  );
 
   it('threads declarative rules and emits the existing tool-activity denial event', async () => {
     const emit = vi.fn();

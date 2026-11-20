@@ -102,7 +102,7 @@ export function searchInputForResolvedMemorySubject(
 > {
   const scoped: Partial<MemoryBoundaryContext> = {};
   if (subject.subjectType === 'user') {
-    scoped.userId = subject.userId ?? subject.subjectId;
+    scoped.userId = subject.subjectId;
   } else if (subject.subjectType === 'channel') {
     scoped.channelId = subject.channelId ?? subject.subjectId;
   } else if (subject.subjectType === 'group') {

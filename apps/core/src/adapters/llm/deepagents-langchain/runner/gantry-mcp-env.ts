@@ -110,36 +110,48 @@ export function buildGantryMcpProjection(
   const managedCapabilityToolNames = hasManagedCapability(semanticCapabilities)
     ? MANAGED_CAPABILITY_TOOL_NAMES
     : [];
-  const selectedToolNames = browserIpcEnabled
+  const sourceScope = Boolean(env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID?.trim());
+  const selectedToolNames = sourceScope
     ? [
-        ...new Set([
-          ...selectedToolNamesBase,
-          ...managedCapabilityToolNames,
-          ...callableAgentToolNames,
-          ...callerToolNames,
-          ...(callerConfig?.allowSelectedMcpToolCalls ? ['mcp_call_tool'] : []),
-        ]),
+        ...callerToolNames,
+        'memory_search',
+        'memory_save',
+        'memory_demote',
+        'source_document',
       ]
-    : [
-        ...new Set([
-          ...selectedToolNamesBase.filter(
-            (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
-          ),
-          ...managedCapabilityToolNames,
-          ...callableAgentToolNames,
-          ...callerToolNames,
-          ...(callerConfig?.allowSelectedMcpToolCalls ? ['mcp_call_tool'] : []),
-        ]),
-      ];
+    : browserIpcEnabled
+      ? [
+          ...new Set([
+            ...selectedToolNamesBase,
+            ...managedCapabilityToolNames,
+            ...callableAgentToolNames,
+            ...callerToolNames,
+            ...(callerConfig?.allowSelectedMcpToolCalls
+              ? ['mcp_call_tool']
+              : []),
+          ]),
+        ]
+      : [
+          ...new Set([
+            ...selectedToolNamesBase.filter(
+              (toolName) => !BROWSER_GATEWAY_TOOL_NAME_SET.has(toolName),
+            ),
+            ...managedCapabilityToolNames,
+            ...callableAgentToolNames,
+            ...callerToolNames,
+            ...(callerConfig?.allowSelectedMcpToolCalls
+              ? ['mcp_call_tool']
+              : []),
+          ]),
+        ];
 
-  const memoryIpcActions = selectedMemoryIpcActions(
-    input.configuredAllowedTools,
-    {
-      excludeAuthorityTools: input.hideAuthorityTools,
-      memoryReviewerIsControlApprover,
-      asyncTaskToolsEnabled,
-    },
-  );
+  const memoryIpcActions = sourceScope
+    ? ['memory_search', 'memory_save', 'memory_demote']
+    : selectedMemoryIpcActions(input.configuredAllowedTools, {
+        excludeAuthorityTools: input.hideAuthorityTools,
+        memoryReviewerIsControlApprover,
+        asyncTaskToolsEnabled,
+      });
 
   const serverEnv: Record<string, string> = {
     ...passthrough(env, 'GANTRY_IPC_DIR'),
@@ -164,6 +176,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_JOB_RUN_LEASE_FENCING_VERSION'),
     ...passthrough(env, 'GANTRY_LIVE_STOP_ACTION_TOKEN'),
     ...passthrough(env, 'GANTRY_MEMORY_USER_ID'),
+    ...passthrough(env, 'GANTRY_SOURCE_WORKSPACE_MEMORY_ID'),
     ...passthrough(env, 'GANTRY_MEMORY_DEFAULT_SCOPE'),
     ...passthrough(env, 'GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER'),
     ...passthrough(env, 'GANTRY_NO_PERMISSION_TOOLS'),

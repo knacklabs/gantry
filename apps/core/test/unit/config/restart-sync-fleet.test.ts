@@ -34,6 +34,7 @@ function mockProjectionSync(
   }));
   vi.doMock('@core/config/settings/settings-import-service.js', () => ({
     importWorkstationSettings,
+    settingsFromRevisionDocument: (document: unknown) => document,
     SettingsStaleMutationError: MockSettingsStaleMutationError,
     SettingsRevisionConflictError: MockSettingsRevisionConflictError,
   }));
@@ -104,6 +105,43 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
     vi.doUnmock('@core/config/settings/runtime-settings-validation.js');
   });
 
+  it('uses the canonical app revision rather than a permanently stale local file for projection sync', async () => {
+    const stale = {
+      runtime: { deploymentMode: 'workstation' },
+      revisionMarker: 'stale-file',
+    };
+    const latest = {
+      runtime: { deploymentMode: 'workstation' },
+      revisionMarker: 'canonical-head',
+    };
+    const mocks = mockProjectionSync([stale]);
+    mocks.importWorkstationSettings.mockResolvedValue({ revision: 8 });
+    const { syncRuntimeSettingsFromProjection } =
+      await import('@core/config/settings/restart-sync.js');
+    await syncRuntimeSettingsFromProjection({
+      runtimeHome: '/tmp/gantry-test',
+      ops: {} as never,
+      repositories: {} as never,
+      appId: 'app:test' as never,
+      settingsRevisions: {
+        getLatestSettingsRevision: vi.fn(async () => ({
+          revision: 7,
+          settingsDocument: latest,
+        })),
+      } as never,
+      leases,
+    });
+    expect(mocks.exportCurrent).toHaveBeenCalledWith(latest);
+    expect(mocks.importWorkstationSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousSettings: latest,
+        expectedRevision: 7,
+      }),
+      expect.objectContaining({ revisionMarker: 'canonical-head' }),
+    );
+    expect(mocks.loadRuntimeSettings).not.toHaveBeenCalled();
+  });
+
   it('appends a fleet settings revision instead of applying local YAML', async () => {
     const exported = { runtime: { deploymentMode: 'fleet' } };
     const mocks = mockProjectionSync([exported]);
@@ -157,7 +195,9 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       runtimeHome: '/tmp/gantry-test',
       ops: {} as never,
       repositories: {} as never,
-      settingsRevisions: {} as never,
+      settingsRevisions: {
+        getLatestSettingsRevision: vi.fn(async () => null),
+      } as never,
       leases,
       overrides: {
         providerAccount: { id: 'slack-one', runtimeSecretRefs: {} },
@@ -194,7 +234,9 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       runtimeHome: '/tmp/gantry-test',
       ops: {} as never,
       repositories: {} as never,
-      settingsRevisions: {} as never,
+      settingsRevisions: {
+        getLatestSettingsRevision: vi.fn(async () => null),
+      } as never,
       leases,
     });
 
@@ -222,7 +264,9 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
         runtimeHome: '/tmp/gantry-test',
         ops: {} as never,
         repositories: {} as never,
-        settingsRevisions: {} as never,
+        settingsRevisions: {
+          getLatestSettingsRevision: vi.fn(async () => null),
+        } as never,
         leases,
       }),
     ).rejects.toBe(failure);

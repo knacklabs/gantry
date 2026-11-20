@@ -492,3 +492,38 @@ describe('runner MCP browser IPC signature verification', () => {
     expect(fs.existsSync(requestPath)).toBe(false);
   });
 });
+
+it('signs source memory with the native run ID rather than the subprocess handle', async () => {
+  const root = makeTempRoot();
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  vi.stubEnv('GANTRY_SOURCE_WORKSPACE_MEMORY_ID', 'W1');
+  vi.stubEnv('GANTRY_RUN_ID', 'native-run-id');
+  vi.stubEnv('GANTRY_AGENT_RUN_HANDLE', 'subprocess-handle');
+  const { requestMemoryAction } = await loadIpcModule(
+    root,
+    publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+  );
+  const promise = requestMemoryAction('memory_search', {});
+  const id = await waitForRequestId(path.join(root, 'memory-requests'));
+  const request = JSON.parse(
+    fs.readFileSync(path.join(root, 'memory-requests', `${id}.json`), 'utf8'),
+  );
+  const response = {
+    ok: true,
+    requestId: id,
+    provider: 'postgres',
+    data: { items: [] },
+  };
+  fs.writeFileSync(
+    path.join(root, 'memory-responses', `${id}.json`),
+    JSON.stringify({
+      ...response,
+      signature: signPayload(
+        privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+        response,
+      ),
+    }),
+  );
+  await promise;
+  expect(request.context.sourceRunId).toBe('native-run-id');
+});

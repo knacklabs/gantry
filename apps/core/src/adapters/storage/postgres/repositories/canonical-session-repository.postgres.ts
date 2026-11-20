@@ -150,11 +150,24 @@ export class PostgresCanonicalSessionRepository {
         },
         tx,
       );
-      const agentSessionId = makeOwnedAgentSessionId(
-        route.agentId,
-        scopeKey,
-        appId,
-      );
+      const sourceControl = await tx
+        .select({ sessionId: pgSchema.controlHttpSessionsPostgres.sessionId })
+        .from(pgSchema.controlHttpSessionsPostgres)
+        .where(
+          and(
+            eq(pgSchema.controlHttpSessionsPostgres.appId, appId),
+            eq(
+              pgSchema.controlHttpSessionsPostgres.conversationId,
+              route.conversationId,
+            ),
+            sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson} ? 'sourceBinding'`,
+          ),
+        )
+        .limit(1);
+      const agentSessionId =
+        !threadId && !normalizedJobId && sourceControl[0]
+          ? sourceControl[0].sessionId
+          : makeOwnedAgentSessionId(route.agentId, scopeKey, appId);
       await tx
         .insert(pgSchema.agentSessionsPostgres)
         .values({
