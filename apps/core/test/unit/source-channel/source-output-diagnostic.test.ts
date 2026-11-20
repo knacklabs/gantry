@@ -1,4 +1,6 @@
 import { mkdtemp, readFile, readdir, stat, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import os from 'node:os';
 import { afterEach, expect, it } from 'vitest';
@@ -74,4 +76,37 @@ it('bounds retained diagnostics and redacts credentials', async () => {
     expect(row.output).not.toContain('sk-abcdefghijklmnopqrstuvwxyz1234567890');
     expect(row.outputStatus).toBe('credential_redacted');
   }
+});
+
+it('imports and captures inside a clean runner process without runtime settings', async () => {
+  const dir = await directory();
+  const moduleUrl = new URL(
+    '../../../src/shared/source-output-diagnostic.ts',
+    import.meta.url,
+  ).href;
+  const script = `const {captureSourceOutputDiagnostic} = await import(${JSON.stringify(moduleUrl)}); if (!await captureSourceOutputDiagnostic({runId:'clean-runner', output:'{}', errors:['required']})) process.exit(2);`;
+  await promisify(execFile)(
+    process.execPath,
+    ['--import', 'tsx', '--input-type=module', '--eval', script],
+    {
+      env: {
+        PATH: process.env.PATH,
+        HOME: path.join(dir, 'empty-home'),
+        GANTRY_IPC_DIR: dir,
+      },
+      timeout: 15000,
+    },
+  );
+  await expect(stat(path.join(dir, 'empty-home'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+  const [name] = await readdir(path.join(dir, 'private-source-diagnostics'));
+  const row = JSON.parse(
+    await readFile(path.join(dir, 'private-source-diagnostics', name), 'utf8'),
+  );
+  expect(row).toMatchObject({
+    runId: 'clean-runner',
+    output: '{}',
+    outputStatus: 'complete',
+  });
 });

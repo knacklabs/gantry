@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { DATA_DIR } from '../config/index.js';
+import { getGantryHome } from './gantry-home.js';
 import { redactString } from '../infrastructure/logging/logger.js';
 
 const MAX_OUTPUT_BYTES = 65536;
@@ -25,7 +25,7 @@ export async function captureSourceOutputDiagnostic(
     errors: readonly string[];
   },
   directory = path.join(
-    process.env.GANTRY_IPC_DIR?.trim() || DATA_DIR,
+    process.env.GANTRY_IPC_DIR?.trim() || path.resolve(getGantryHome(), 'data'),
     'private-source-diagnostics',
   ),
 ): Promise<boolean> {

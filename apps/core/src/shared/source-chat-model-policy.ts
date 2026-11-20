@@ -1,5 +1,4 @@
 import type { ModelCatalogEntry } from './model-catalog.js';
-import { getModelProviderDefinition } from './model-provider-registry.js';
 
 /** Catalog compatibility only. Admission still checks application authority and credentials. */
 export function sourceChatModelAllowed(
@@ -8,13 +7,13 @@ export function sourceChatModelAllowed(
     'modelRoute' | 'supportedWorkloads' | 'capabilities'
   >,
 ): boolean {
-  const provider = getModelProviderDefinition(entry.modelRoute.id);
+  // Native source counting currently has direct adapters for these routes only.
+  const supportedRoute =
+    entry.modelRoute.id === 'openai' || entry.modelRoute.id === 'anthropic';
   return Boolean(
-    provider &&
+    supportedRoute &&
     entry.supportedWorkloads.includes('chat') &&
     entry.capabilities.toolUse &&
-    entry.capabilities.tokenAccounting &&
-    (provider.responseFamily === 'anthropic' ||
-      provider.responseFamily === 'openai'),
+    entry.capabilities.tokenAccounting,
   );
 }
