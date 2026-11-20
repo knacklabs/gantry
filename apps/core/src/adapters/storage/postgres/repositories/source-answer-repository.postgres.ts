@@ -58,13 +58,8 @@ export class PostgresSourceAnswerRepository extends SourceAnswerExecutionReposit
       request.model,
       'chat',
     );
-    if (
-      !selectedModel.ok ||
-      !sourceChatModelAllowed(selectedModel.entry, appId)
-    )
-      fail(
-        'Source answers require a configured alias for approved Claude Haiku 4.5',
-      );
+    if (!selectedModel.ok || !sourceChatModelAllowed(selectedModel.entry))
+      fail('Source answers require a compatible configured chat model');
     return this.db.transaction(async (tx) => {
       await lockSourceEventApp(tx, appId);
       const session = await this.session(tx, appId, sessionId, request.binding);

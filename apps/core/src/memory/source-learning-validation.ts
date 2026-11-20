@@ -58,7 +58,7 @@ export async function validateSourceLearningProposal(input: {
   if (remaining < 1000)
     throw new Error('Learning validation execution budget exhausted');
   const model = resolveModelSelectionForWorkload(context.request.model, 'chat');
-  if (!model.ok || !sourceChatModelAllowed(model.entry, context.scope.appId))
+  if (!model.ok || !sourceChatModelAllowed(model.entry))
     throw new Error('Learning validation requires an approved scoped model');
   const entry = model.entry;
   const raw = await input.client.query({

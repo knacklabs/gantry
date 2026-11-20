@@ -76,10 +76,7 @@ const OPENAI_PROFILE = {
 };
 
 describe('OpenAI memory LLM client', () => {
-  it('uses a separate bounded tool-free Luna Responses validation and reports its own usage', async () => {
-    vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
-    vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
-    vi.stubEnv('GANTRY_APP_ID', 'validation-app');
+  it('uses configured bounded tool-free Responses validation without testing flags', async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -107,8 +104,8 @@ describe('OpenAI memory LLM client', () => {
     const usage: MemoryLlmUsage[] = [];
     const result = await createOpenAiMemoryLlmClient().query({
       appId: 'validation-app' as never,
-      model: 'gpt-6-luna',
-      modelProfile: { ...OPENAI_PROFILE, runnerModel: 'gpt-6-luna' },
+      model: 'gpt-configured',
+      modelProfile: { ...OPENAI_PROFILE, runnerModel: 'gpt-configured' },
       prompt: 'Check exact human sources and return JSON',
       systemPrompt: 'Separate JSON admission check',
       toolPolicy: 'none',
@@ -120,13 +117,12 @@ describe('OpenAI memory LLM client', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe(`${GATEWAY_HOST_BASE}/openai/v1/responses`);
     expect(JSON.parse(init.body)).toEqual({
-      model: 'gpt-6-luna',
+      model: 'gpt-configured',
       input: [
         { role: 'system', content: 'Separate JSON admission check' },
         { role: 'user', content: 'Check exact human sources and return JSON' },
       ],
       max_output_tokens: 1024,
-      reasoning: { effort: 'none' },
       tools: [],
       store: false,
       text: { format: { type: 'json_object' } },

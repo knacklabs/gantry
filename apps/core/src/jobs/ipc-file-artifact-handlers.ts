@@ -369,6 +369,9 @@ function validateSameChannelTarget(input: {
   if (
     !requestedTargetJid ||
     (!input.sourceAgentFolderJids.includes(requestedTargetJid) &&
+      // Native documents are authorized by their signed source-operation proof
+      // and active source context in handleSourceDocumentTask, not static routes.
+      input.context.data.payload?.action !== 'render_source_document' &&
       !isAuthenticatedScheduledAppConversation(
         input.context,
         requestedTargetJid,

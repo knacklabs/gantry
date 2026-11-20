@@ -1,31 +1,33 @@
-import { it, expect, afterEach, vi } from 'vitest';
+import { it, expect } from 'vitest';
 import { sourceChatModelAllowed } from '../../../src/shared/source-chat-model-policy.js';
-const luna = {
-  runnerModel: 'gpt-6-luna',
-  modelRoute: { id: 'openai' },
-} as never;
-afterEach(() => vi.unstubAllEnvs());
-it('retains production Haiku-only selection and requires an explicit isolated app-matched Luna override', () => {
-  expect(sourceChatModelAllowed(luna, 'app')).toBe(false);
+const model = (route: string, overrides = {}) =>
+  ({
+    modelRoute: { id: route },
+    supportedWorkloads: ['chat'],
+    capabilities: { toolUse: true, tokenAccounting: true },
+    ...overrides,
+  }) as never;
+it('allows configured compatible providers without model-name or test-environment exceptions', () => {
+  expect(sourceChatModelAllowed(model('openai'))).toBe(true);
+  expect(sourceChatModelAllowed(model('anthropic'))).toBe(true);
+});
+it('rejects unknown routes and missing required workload or capabilities', () => {
+  expect(sourceChatModelAllowed(model('unknown'))).toBe(false);
+  expect(
+    sourceChatModelAllowed(model('openai', { supportedWorkloads: [] })),
+  ).toBe(false);
   expect(
     sourceChatModelAllowed(
-      {
-        runnerModel: 'claude-haiku-4-5-20251001',
-        modelRoute: { id: 'anthropic' },
-      } as never,
-      'app',
+      model('openai', {
+        capabilities: { toolUse: false, tokenAccounting: true },
+      }),
     ),
-  ).toBe(true);
-  vi.stubEnv('GANTRY_APP_ID', 'app');
-  vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
-  expect(sourceChatModelAllowed(luna, 'app')).toBe(false);
-  vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
-  expect(sourceChatModelAllowed(luna, 'app')).toBe(true);
-  expect(sourceChatModelAllowed(luna, 'other')).toBe(false);
+  ).toBe(false);
   expect(
     sourceChatModelAllowed(
-      { runnerModel: 'gpt-5.5', modelRoute: { id: 'openai' } } as never,
-      'app',
+      model('openai', {
+        capabilities: { toolUse: true, tokenAccounting: false },
+      }),
     ),
   ).toBe(false);
 });

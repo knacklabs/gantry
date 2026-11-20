@@ -1,5 +1,4 @@
 import { queryOpenAiSourceValidation } from './source-validation-query.js';
-import { sourceChatLunaValidationEnabled } from '../../../shared/source-chat-model-policy.js';
 import { countOpenAiSourceTokens } from './source-token-count.js';
 import { randomUUID } from 'node:crypto';
 
@@ -95,13 +94,9 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
     modelEntry?.modelRoute.id ??
     'openai';
   const provider = requireOpenAiCompatibleProvider(routeId);
-  const isolatedValidation =
-    routeId === 'openai' &&
-    opts.model === 'gpt-6-luna' &&
-    opts.toolPolicy === 'none' &&
-    sourceChatLunaValidationEnabled(opts.appId);
+  const sourceValidation = routeId === 'openai' && opts.toolPolicy === 'none';
   const runId = (
-    isolatedValidation && opts.operationId
+    sourceValidation && opts.operationId
       ? opts.operationId
       : `memory-query:${randomUUID()}`
   ) as AgentRunId;
@@ -116,7 +111,7 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
       provider,
       gateway.injection.env,
     );
-    if (isolatedValidation) {
+    if (sourceValidation) {
       return await queryOpenAiSourceValidation({
         opts,
         baseUrl,
@@ -127,6 +122,7 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
     const body = JSON.stringify({
       model: opts.model,
       messages: buildMessages(opts),
+      ...(opts.maxOutputTokens ? { max_tokens: opts.maxOutputTokens } : {}),
       ...((opts as MemoryLlmQueryOpts & { singleRequest?: boolean })
         .singleRequest === true
         ? { response_format: PERMISSION_VERDICT_RESPONSE_FORMAT }

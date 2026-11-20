@@ -57,7 +57,7 @@ const allow = {
   reason: 'Repeated human process instruction',
 };
 describe('separate source learning validation', () => {
-  it('uses exact Luna for a separate check only in the approved isolated application', async () => {
+  it('uses the configured OpenAI model for a separate check without test flags', async () => {
     const haiku = catalog.resolveModelSelectionForWorkload('haiku', 'chat');
     if (!haiku.ok) throw new Error('Haiku fixture missing');
     vi.spyOn(catalog, 'resolveModelSelectionForWorkload').mockReturnValue({
@@ -69,9 +69,6 @@ describe('separate source learning validation', () => {
         modelRoute: { ...haiku.entry.modelRoute, id: 'openai' },
       },
     });
-    vi.stubEnv('GANTRY_FLEET_REHEARSAL_AUTO_SECRETS', '1');
-    vi.stubEnv('GANTRY_CHAT_VALIDATION_MODEL', 'gpt-6-luna');
-    vi.stubEnv('GANTRY_APP_ID', 'app');
     const query = vi.fn(async () => JSON.stringify(allow));
     expect(
       (
@@ -90,16 +87,6 @@ describe('separate source learning validation', () => {
       maxOutputTokens: 1024,
       operationId: 'source-learning:candidate',
     });
-    vi.stubEnv('GANTRY_APP_ID', 'another-app');
-    await expect(
-      validateSourceLearningProposal({
-        candidateId: 'candidate',
-        context,
-        evidence,
-        proposal,
-        client: { isConfigured: () => true, query },
-      }),
-    ).rejects.toThrow('approved');
     expect(query).toHaveBeenCalledOnce();
   });
 

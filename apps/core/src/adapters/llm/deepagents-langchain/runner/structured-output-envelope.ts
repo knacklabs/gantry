@@ -5,6 +5,7 @@ export class DeepAgentStructuredOutputError extends Error {
   constructor(
     message: string,
     readonly attemptedJson?: string,
+    readonly validationErrors: readonly string[] = [],
   ) {
     super(message);
     this.name = 'DeepAgentStructuredOutputError';
@@ -32,11 +33,9 @@ export function preserveOriginalTaskPrompt(
   originalPrompt: string,
   continuationPrompt: string,
 ): string {
-  return [
-    originalPrompt,
-    'RUNTIME_CONTINUATION',
-    continuationPrompt,
-  ].join('\n\n');
+  return [originalPrompt, 'RUNTIME_CONTINUATION', continuationPrompt].join(
+    '\n\n',
+  );
 }
 
 export const STRUCTURED_OUTPUT_ENVELOPE_SCHEMA = {
@@ -129,6 +128,10 @@ export function serializeValidatedStructuredOutput(
     throw new DeepAgentStructuredOutputError(
       `DeepAgents structured output failed response_schema validation${detail ? `: ${detail}` : '.'}`,
       json,
+      (validate.errors ?? []).map(
+        (error) =>
+          `${error.instancePath || '/'} ${error.keyword} ${error.message ?? ''}`,
+      ),
     );
   }
   return JSON.stringify(parsed);

@@ -1,20 +1,20 @@
 import type { ModelCatalogEntry } from './model-catalog.js';
-/** Explicit operator-only exception for isolated validation. No automatic provider fallback. */
-export function sourceChatLunaValidationEnabled(appId: string): boolean {
-  return (
-    process.env.GANTRY_FLEET_REHEARSAL_AUTO_SECRETS === '1' &&
-    process.env.GANTRY_CHAT_VALIDATION_MODEL === 'gpt-6-luna' &&
-    process.env.GANTRY_APP_ID === appId
-  );
-}
+import { getModelProviderDefinition } from './model-provider-registry.js';
+
+/** Catalog compatibility only. Admission still checks application authority and credentials. */
 export function sourceChatModelAllowed(
-  entry: Pick<ModelCatalogEntry, 'runnerModel' | 'modelRoute'>,
-  appId: string,
+  entry: Pick<
+    ModelCatalogEntry,
+    'modelRoute' | 'supportedWorkloads' | 'capabilities'
+  >,
 ): boolean {
-  return (
-    /^claude-haiku-4-5(?:-|$)/.test(entry.runnerModel) ||
-    (sourceChatLunaValidationEnabled(appId) &&
-      entry.modelRoute.id === 'openai' &&
-      entry.runnerModel === 'gpt-6-luna')
+  const provider = getModelProviderDefinition(entry.modelRoute.id);
+  return Boolean(
+    provider &&
+    entry.supportedWorkloads.includes('chat') &&
+    entry.capabilities.toolUse &&
+    entry.capabilities.tokenAccounting &&
+    (provider.responseFamily === 'anthropic' ||
+      provider.responseFamily === 'openai'),
   );
 }

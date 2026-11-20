@@ -1,57 +1,88 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import * as catalog from '../../../src/shared/model-catalog.js';
+afterEach(() => vi.restoreAllMocks());
 import { prepareSourceSummary } from '../../../src/runtime/source-discussion-summary.js';
 describe('source scoped summary', () => {
-  it('summarizes exact supplied sources with Haiku and saves coverage independently of answer success', async () => {
-    const query = vi.fn(async () =>
-      JSON.stringify({ summary: 'Earlier decision: check both stages.' }),
-    );
-    const save = vi.fn(async (input) => input.text);
-    const work = {
-      id: 'digest1',
-      mode: 'ancestry' as const,
-      generation: 1,
-      workspaceId: 'W1',
-      sourceVersion: 'R1',
-      profileVersion: 'v1',
-      sourceIds: ['M1'],
-      throughPosition: '1',
-      messages: [
-        {
-          id: 'M1',
-          content: 'Exact parent',
-          chat_jid: 'D1',
-          sender: 'p',
-          sender_name: 'P',
-          timestamp: '2026-11-17',
+  it.each(['anthropic', 'openai'])(
+    'summarizes exact sources on configured %s route and preserves coverage',
+    async (route) => {
+      const selected = catalog.resolveModelSelectionForWorkload(
+        'haiku',
+        'chat',
+      );
+      if (!selected.ok) throw new Error('Catalog fixture missing');
+      const runnerModel =
+        route === 'openai' ? 'gpt-6-luna' : selected.entry.runnerModel;
+      vi.spyOn(catalog, 'resolveModelSelectionForWorkload').mockReturnValue({
+        ...selected,
+        entry: {
+          ...selected.entry,
+          runnerModel,
+          responseFamily: route,
+          modelRoute: { ...selected.entry.modelRoute, id: route },
         },
-      ],
-    };
-    const text = await prepareSourceSummary({
-      answer: {
-        id: 'a',
-        claimToken: 'c',
-        request: { model: 'haiku' } as never,
-        messages: [],
-        selectedSourceIds: ['M1', 'M2'],
-        summaryWork: work,
-      },
-      appId: 'app' as never,
-      deadline: Date.now() + 180000,
-      client: { query, countTokens: async () => 100, isConfigured: () => true },
-      repository: {
-        readSourceSummary: async () => undefined,
-        saveSourceSummary: save,
-      },
-    });
-    expect(text).toContain('Earlier decision');
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0][0].prompt).toContain('Exact parent');
-    expect(query.mock.calls[0][0].model).toMatch(/^claude-haiku-4-5/);
-    expect(query.mock.calls[0][0]).not.toHaveProperty('reasoningEffort');
-    expect(query.mock.calls[0][0].toolPolicy).toBe('none');
-    expect(query.mock.calls[0][0].maxOutputTokens).toBe(4096);
-    expect(save.mock.calls[0][0].work.sourceIds).toEqual(['M1']);
-  });
+      } as never);
+      const query = vi.fn(async () =>
+        JSON.stringify({ summary: 'Earlier decision: check both stages.' }),
+      );
+      const save = vi.fn(async (input) => input.text);
+      const work = {
+        id: 'digest1',
+        mode: 'ancestry' as const,
+        generation: 1,
+        workspaceId: 'W1',
+        sourceVersion: 'R1',
+        profileVersion: 'v1',
+        sourceIds: ['M1'],
+        throughPosition: '1',
+        messages: [
+          {
+            id: 'M1',
+            content: 'Exact parent',
+            chat_jid: 'D1',
+            sender: 'p',
+            sender_name: 'P',
+            timestamp: '2026-11-17',
+          },
+        ],
+      };
+      const countTokens = vi.fn(async () => 100);
+      const text = await prepareSourceSummary({
+        answer: {
+          id: 'a',
+          claimToken: 'c',
+          request: { model: 'haiku' } as never,
+          messages: [],
+          selectedSourceIds: ['M1', 'M2'],
+          summaryWork: work,
+        },
+        appId: 'app' as never,
+        deadline: Date.now() + 180000,
+        client: {
+          query,
+          countTokens,
+          isConfigured: () => true,
+        },
+        repository: {
+          readSourceSummary: async () => undefined,
+          saveSourceSummary: save,
+        },
+      });
+      expect(text).toContain('Earlier decision');
+      expect(countTokens.mock.calls[0][0]).toMatchObject({
+        model: runnerModel,
+        modelProfile: { modelRoute: route, alias: 'haiku' },
+      });
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(query.mock.calls[0][0].prompt).toContain('Exact parent');
+      expect(query.mock.calls[0][0].model).toBe(runnerModel);
+      expect(query.mock.calls[0][0].modelProfile.modelRoute).toBe(route);
+      expect(query.mock.calls[0][0]).not.toHaveProperty('reasoningEffort');
+      expect(query.mock.calls[0][0].toolPolicy).toBe('none');
+      expect(query.mock.calls[0][0].maxOutputTokens).toBe(4096);
+      expect(save.mock.calls[0][0].work.sourceIds).toEqual(['M1']);
+    },
+  );
   it('reuses a durable exact digest without another provider call', async () => {
     const query = vi.fn();
     const save = vi.fn();

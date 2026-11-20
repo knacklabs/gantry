@@ -158,6 +158,7 @@ export interface CallerResolvedToolsConfig {
   tools: CallerResolvedToolDefinition[];
   maxInteractions: number;
   interactionTimeoutMs: number;
+  exhaustionBehavior?: 'return_result';
   allowSelectedMcpToolCalls?: boolean;
   includeDurableExecutionTools?: boolean;
 }

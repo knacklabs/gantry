@@ -1,3 +1,4 @@
+import { captureSourceOutputDiagnostic } from '../../../../shared/source-output-diagnostic.js';
 import {
   SourceDocumentArtifactReceiptSchema,
   type SourceDocumentArtifactReceipt,
@@ -487,6 +488,21 @@ export async function runDeepAgentTurn(input: {
       terminalContextUsage: normalized.terminalContextUsage,
       startupRuntimeEvents,
     };
+  } catch (error) {
+    if (
+      error instanceof DeepAgentStructuredOutputError &&
+      input.agentInput.callerResolvedTools
+    ) {
+      await captureSourceOutputDiagnostic({
+        appId: input.agentInput.appId,
+        runId: input.agentInput.runId,
+        output: error.attemptedJson,
+        errors: error.validationErrors.length
+          ? error.validationErrors
+          : [error.message],
+      });
+    }
+    throw error;
   } finally {
     await connected.close().catch(() => {});
   }

@@ -1,6 +1,6 @@
 import type { MemoryLlmQueryOpts } from '../../../domain/ports/memory-llm-client.js';
 
-/** Independent tool-free request for the explicit isolated source validation lane. */
+/** Independent tool-free request for the configured OpenAI source operation. */
 export async function queryOpenAiSourceValidation(input: {
   opts: MemoryLlmQueryOpts;
   baseUrl: string;
@@ -15,9 +15,7 @@ export async function queryOpenAiSourceValidation(input: {
     maxOutputTokens < 1 ||
     maxOutputTokens > 4096
   )
-    throw new Error(
-      'Isolated source validation requires a bounded output budget',
-    );
+    throw new Error('Source validation requires a bounded output budget');
   const response = await fetch(`${baseUrl}/v1/responses`, {
     method: 'POST',
     headers: {
@@ -28,7 +26,6 @@ export async function queryOpenAiSourceValidation(input: {
       model: opts.model,
       input: messages,
       max_output_tokens: maxOutputTokens,
-      reasoning: { effort: 'none' },
       tools: [],
       store: false,
       ...(opts.operationId?.startsWith('source-learning:')

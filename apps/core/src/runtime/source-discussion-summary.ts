@@ -30,8 +30,10 @@ export async function prepareSourceSummary(input: {
     input.answer.request.model,
     'chat',
   );
-  if (!selected.ok || !sourceChatModelAllowed(selected.entry, input.appId))
-    throw new Error('Source summary requires approved Haiku 4.5');
+  if (!selected.ok || !sourceChatModelAllowed(selected.entry))
+    throw new Error(
+      'Source summary requires a compatible configured chat model',
+    );
   const entry = selected.entry;
   const client = input.client ?? getMemoryLlmClient();
   if (!client.countTokens)
@@ -45,7 +47,15 @@ export async function prepareSourceSummary(input: {
       : input.answer.messages;
   const inputTokens = await client.countTokens({
     appId: input.appId,
-    model: input.answer.request.model,
+    model: entry.runnerModel,
+    modelProfile: {
+      alias: input.answer.request.model,
+      runnerModel: entry.runnerModel,
+      responseFamily: entry.responseFamily,
+      modelRoute: entry.modelRoute.id,
+      modelRouteLabel: entry.modelRoute.label,
+      displayName: entry.displayName,
+    },
     prompt: JSON.stringify({
       priorSummary: cached ?? input.answer.contextSummary ?? null,
       messages: selectedMessages,

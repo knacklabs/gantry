@@ -18,6 +18,7 @@ import {
 } from '../context.js';
 import { writeIpcFile, waitForTaskResponse } from '../ipc.js';
 import { makeIpcId } from '../ipc-ids.js';
+import { parseRendererRequest } from '../../../source-documents/renderer/validation.js';
 const text = z.string().min(1).max(100000);
 const block = z.discriminatedUnion('type', [
   z.object({ type: z.literal('paragraph'), text }).strict(),
@@ -86,11 +87,25 @@ export function registerSourceDocumentTools(server: McpServer) {
     'source_document',
     {
       description:
-        'Create a cited PDF/DOCX, or convert an existing selected published artifact by supplying ONLY convertExistingArtifactId and targetFormat. Conversion preserves the original title, blocks and references exactly. Never rewrite content for a format-only request. Returns a trusted receipt for final artifacts; no file bytes or paths.',
+        'Create a cited PDF/DOCX with a safe filename ending in the selected format extension. Every table row must have exactly as many cells as its headers; total title and block text must not exceed 100000 characters. Or convert an existing selected published artifact by supplying ONLY convertExistingArtifactId and targetFormat. Conversion preserves the original title, blocks and references exactly. Never rewrite content for a format-only request. Returns a trusted receipt for final artifacts; no file bytes or paths. An invalid_document_input result is not an artifact: correct the input before retrying.',
       inputSchema: advertised,
     },
     async (rawArgs) => {
       const args = operation.parse(rawArgs);
+      if ('format' in args) {
+        const { citationIds: _citations, metadataFields: _metadata, ...document } = args;
+        try {
+          parseRendererRequest(Buffer.from(JSON.stringify({ version: 1, ...document })));
+        } catch {
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              status: 'invalid_document_input',
+              retryable: true,
+              message: 'No document was submitted or created. Correct the input: use a safe non-reserved filename ending in the chosen .pdf or .docx extension, rectangular tables, valid text without control characters, and at most 100000 total title/block characters. Retry only after correcting the input; do not claim a file exists.',
+            }) }],
+          };
+        }
+      }
       if (!sourceWorkspaceMemoryId || !runId)
         throw new Error(
           'Document generation requires an active authorized source answer',

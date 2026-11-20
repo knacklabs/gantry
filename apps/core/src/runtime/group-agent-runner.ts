@@ -1,3 +1,4 @@
+import { captureSourceOutputDiagnostic } from '../shared/source-output-diagnostic.js';
 import { Ajv } from 'ajv';
 import { formatMessages } from '../messaging/router.js';
 import { TIMEZONE } from '../config/index.js';
@@ -136,7 +137,10 @@ export function createGroupAgentRunner(input: {
         : group,
       appId: turnAppId,
       defaultModel: defaultInteractiveModel,
-      listConfiguredProviders: deps.getConfiguredModelProviders,
+      // Native requests pin their configured model; provider availability must not rewrite it.
+      listConfiguredProviders: options?.sourceAnswer
+        ? undefined
+        : deps.getConfiguredModelProviders,
       familyOrder: deps.getModelFamilyOrder?.(),
       executionAdapter: deps.executionAdapter,
       agentHarness,
@@ -158,6 +162,7 @@ export function createGroupAgentRunner(input: {
     const streamedResult = createRuntimeResultSummaryAccumulator();
     let sourceStructuredResult: string | undefined;
     let sourceStructuredError: Error | undefined;
+    const sourceDiagnosticWrites: Promise<boolean>[] = [];
     let sourceRunnerError: AgentOutput | undefined;
     const sourceSchema =
       options?.sourceAnswer?.request.executionProfile?.responseSchema;
@@ -172,6 +177,16 @@ export function createGroupAgentRunner(input: {
       if (!options?.sourceAnswer) return;
       if (output.status === 'error') {
         sourceRunnerError = output;
+        sourceDiagnosticWrites.push(
+          captureSourceOutputDiagnostic({
+            appId: turnAppId,
+            runId: runState.runId,
+            sourceIds: options.sourceAnswer.selectedSourceIds,
+            errors: [
+              'Native runner failed; inspect matching private runner diagnostic',
+            ],
+          }),
+        );
         return;
       }
       if (
@@ -201,6 +216,24 @@ export function createGroupAgentRunner(input: {
           );
         sourceStructuredResult = output.result;
       } catch (error) {
+        sourceDiagnosticWrites.push(
+          captureSourceOutputDiagnostic({
+            appId: turnAppId,
+            runId: runState.runId,
+            sourceIds: options.sourceAnswer.selectedSourceIds,
+            output:
+              typeof output.result === 'string' ? output.result : undefined,
+            errors: [
+              error instanceof Error
+                ? error.message
+                : 'Invalid source terminal',
+              ...(validateSourceResult?.errors ?? []).map(
+                (row) =>
+                  `${row.instancePath || '/'} ${row.keyword} ${row.message ?? ''}`,
+              ),
+            ],
+          }),
+        );
         sourceStructuredError =
           error instanceof Error
             ? error
@@ -686,6 +719,7 @@ export function createGroupAgentRunner(input: {
             ...(options?.sourceAnswer?.request.executionProfile
               ? {
                   callerResolvedTools: {
+                    exhaustionBehavior: 'return_result' as const,
                     sessionId: turnContext!.agentSessionId,
                     tools:
                       options.sourceAnswer.request.executionProfile.callerResolvedTools.map(
@@ -848,6 +882,7 @@ export function createGroupAgentRunner(input: {
         forwardedKeys: forwardedRuntimeEventKeys,
       });
       if (output.status === 'error') {
+        await Promise.all(sourceDiagnosticWrites);
         if (isStoppedByRequest(output)) {
           logger.warn({ group: group.name }, 'Agent runner stopped by request');
           if (!liveRunFenced) {
@@ -872,6 +907,7 @@ export function createGroupAgentRunner(input: {
         }
         return 'error';
       }
+      await Promise.all(sourceDiagnosticWrites);
       if (sourceStructuredError) throw sourceStructuredError;
       if (options?.sourceAnswer && runState.runId) {
         if (!sourceStructuredResult)
@@ -939,6 +975,17 @@ export function createGroupAgentRunner(input: {
       }
       return 'success';
     } catch (err) {
+      if (options?.sourceAnswer) {
+        await Promise.all(sourceDiagnosticWrites);
+        await captureSourceOutputDiagnostic({
+          appId: turnAppId,
+          runId: runState.runId,
+          sourceIds: options.sourceAnswer.selectedSourceIds,
+          errors: [
+            'Native source run failed; inspect matching private runner diagnostic',
+          ],
+        });
+      }
       logger.error({ group: group.name, err }, 'Agent error');
       if (!liveRunFenced) {
         await completeFailedRuntimeSessionRun({

@@ -301,6 +301,14 @@ export const callerResolvedToolTaskHandler: TaskHandler = async (context) => {
       used.total >= config.maxInteractions ||
       scopeUsed >= config.maxInteractions
     ) {
+      if (config.exhaustionBehavior === 'return_result') {
+        responder.acceptData('Caller-resolved tool budget exhausted.', {
+          status: 'tool_budget_exhausted',
+          remainingInteractions: 0,
+          message: 'No more evidence or metadata calls are permitted for this answer. Finish using already returned evidence and citations; explicitly identify any unresolved gaps. Do not claim full coverage or repeat this tool call.',
+        });
+        return;
+      }
       responder.reject(
         'Caller-resolved tool budget exhausted.',
         'tool_budget_exhausted',
