@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { connect as connectTls, createServer } from 'node:tls';
 import { after, test } from 'node:test';
@@ -16,7 +15,6 @@ import {
 const require = createRequire(import.meta.url);
 const forge = require('node-forge');
 const packageMetadata = require('node-forge/package.json');
-const packageRoot = new URL('../../../../node_modules/node-forge/', import.meta.url);
 const ca = createMitmCA({});
 const vulnerabilityModulus =
   'E932AC92252F585B3A80A4DD76A897C8B7652952FE788F6EC8DD640587A1EE56' +
@@ -48,11 +46,10 @@ after(async () => {
   await disposeMitmCA(ca);
 });
 
-test('materializes the guarded Node entry without an unpatched browser bundle', () => {
+test('materializes the patched upstream Node entry', () => {
   assert.equal(packageMetadata.name, 'node-forge');
-  assert.equal(packageMetadata.version, '1.4.0');
+  assert.equal(packageMetadata.version, '1.4.3');
   assert.match(require.resolve('node-forge'), /node-forge\/lib\/index\.js$/);
-  assert.equal(existsSync(new URL('dist', packageRoot)), false);
 });
 
 test('verifies SHA-256, SHA-384, and SHA-512 signatures for common RSA exponents', () => {
