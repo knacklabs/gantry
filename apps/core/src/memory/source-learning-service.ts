@@ -18,7 +18,7 @@ import {
   SOURCE_LEARNING_VALIDATOR_VERSION,
 } from './source-learning-validation.js';
 import { normalizeModelUsage } from '../shared/model-usage.js';
-import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
+import { requireSourceModelSnapshot } from '../shared/source-model-snapshot.js';
 export async function saveSourceLearning(input: {
   scope: SourceLearningScope;
   proposal: SourceLearningProposal;
@@ -46,15 +46,13 @@ export async function saveSourceLearning(input: {
   const persistUsage = async () => {
     if (usageRecorded) return;
     if (candidateId && latestUsage) {
-      const model = resolveModelSelectionForWorkload(
-        context.request.model,
-        'chat',
-      );
+      const snapshot = requireSourceModelSnapshot(context.modelSnapshot);
       const usage = normalizeModelUsage({
         message: { usage: latestUsage },
-        fallbackModel: model.ok
-          ? model.entry.runnerModel
-          : context.request.model,
+        fallbackModel: snapshot.entry.runnerModel,
+        modelEntry: snapshot.entry,
+        modelAlias: snapshot.alias,
+        canonicalUsage: true,
       });
       if (usage) {
         await repository.audit(candidateId, {
@@ -76,7 +74,7 @@ export async function saveSourceLearning(input: {
           payload: {
             usage,
             usageEventId: `${candidateId}:validator`,
-            modelAlias: context.request.model,
+            modelAlias: snapshot.alias,
             providerId: usage.provider,
             stage: 'source_learning_validation',
             candidateId,
