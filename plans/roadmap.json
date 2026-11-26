@@ -1820,7 +1820,7 @@
         "WCAG 2.1 AA: keyboard operable, labelled controls, contrast, zoom to 200%, screen-reader names on actions"
       ],
       "order": 90,
-      "status": "pending",
+      "status": "superseded",
       "epic": "ai-employee-v1",
       "skill": "fullstack",
       "depends_on": [
@@ -1831,7 +1831,8 @@
         "RBAC-1"
       ],
       "origin": "adhoc",
-      "spec": "docs/specs/console-ai-employee-management.md"
+      "spec": "docs/specs/console-ai-employee-management.md",
+      "superseded_by": "docs/specs/v2-first-agent-onboarding.md"
     },
     {
       "key": "PEOPLE-UI-1",
@@ -2594,6 +2595,13 @@
       "spec": "docs/specs/job-background-work-saves.md",
       "status": "pending",
       "order": 163
+    },
+    {
+      "key": "ONBOARD-2",
+      "title": "Browser onboarding for the first AI employee",
+      "spec": "docs/specs/v2-first-agent-onboarding.md",
+      "status": "pending",
+      "order": 164
     }
   ],
   "epics": [
