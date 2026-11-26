@@ -1,12 +1,12 @@
 ---
 reader: codex (gpt-6.1-sol)
-read_at: 2026-11-26T09:55:48+00:00
-read_hash: 19954dda0732926fcd52a74f540b754316971aa2
-round: 2
+read_at: 2026-11-26T09:57:44+00:00
+read_hash: fb5ee8cfebf8ee660540b810519bcb0c91720d0a
+round: 3
 passed: yes
-doc_seen: 19954dda0732926fcd52a74f540b754316971aa2
+doc_seen: fb5ee8cfebf8ee660540b810519bcb0c91720d0a
 spec_seen: e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-notes_seen: 3590af6cc1c7fde978120b396696303e2963f8ad
+notes_seen: 1abe9b56c0ed1b8b3e9dcd08c692c734f56b1052
 ---
 # Cold read notes
 
@@ -34,5 +34,9 @@ Only a genuine trade-off goes to the human, as a question with options.
    Disposition: keep. The owner explicitly decided to reset the existing web unit tests because they are stale, and to re-add coverage later (owner, 2026-11-26). The decision record onboarding-v2-fresh-rebuild records it, and core, Postgres and end-to-end tests keep the authentication and runtime proof.
 
 ## Round 2
+
+No findings.
+
+## Round 3
 
 No findings.
