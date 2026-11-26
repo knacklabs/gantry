@@ -2595,6 +2595,13 @@
       "spec": "docs/specs/job-background-work-saves.md",
       "status": "pending",
       "order": 163
+    },
+    {
+      "key": "ONBOARD-2",
+      "title": "Browser onboarding for the first AI employee",
+      "spec": "docs/specs/v2-first-agent-onboarding.md",
+      "status": "pending",
+      "order": 164
     }
   ],
   "epics": [
