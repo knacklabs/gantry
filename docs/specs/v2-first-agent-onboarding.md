@@ -1,10 +1,8 @@
 ---
 slug: v2-first-agent-onboarding
 title: V2 first-agent onboarding
-status: confirmed
-saved: 2026-11-26T09:51:45+00:00
-confirmed_by: "Ashirwad Shetye"
-confirmed_hash: 55a39e5c1b960d60c2989c61e4938cee00c6a17096ff772bb9166d82335e0bb5
+status: draft
+saved: 2026-11-26T09:57:02+00:00
 ---
 
 # V2 first-agent onboarding
@@ -229,3 +227,7 @@ readiness decisions always win over prototype behavior.
 - Completing onboarding through Teams or any provider other than Slack.
 - Blocking or dropping messages from members who are not on the reply list
   (decision 0090 keeps the list trigger-only).
+
+## Roadmap
+
+- ONBOARD-2: Browser onboarding for the first AI employee
