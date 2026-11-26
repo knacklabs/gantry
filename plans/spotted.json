@@ -386,6 +386,17 @@
       "closed_by": null
     },
     {
+      "key": "bug\tdocs/specs/v2-first-agent-onboarding.md\tNot done: proof list\tonboarding-v2-spec",
+      "kind": "bug",
+      "path": "docs/specs/v2-first-agent-onboarding.md",
+      "line": 4,
+      "text": "Not done: proof list",
+      "from": "blocking",
+      "item": "onboarding-v2-spec",
+      "status": "open",
+      "closed_by": null
+    },
+    {
       "key": "bug\tforge.toml\tNot done: proof list\tupgrade-forge-to-v1-2-7",
       "kind": "bug",
       "path": "forge.toml",
