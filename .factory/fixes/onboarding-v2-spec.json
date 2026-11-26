@@ -1,0 +1,14 @@
+{
+  "base": "d4a1da9156947c98631c5dee79bcddbc007fe3e3",
+  "branch": "fix/onboarding-v2-spec",
+  "done_when": "The onboarding spec is confirmed on main with Slack-first completion, a trigger-only conversation allowlist, Slack channel join, a completion reminder and error recovery, and a decision records the fresh rebuild with one onboarding migration",
+  "kind": "fix",
+  "status": "started",
+  "steps": [
+    {
+      "at": "2026-11-26T09:48:54+00:00",
+      "step": "start"
+    }
+  ],
+  "why": "Bring the V2 first-agent onboarding spec, its visual contract and design reference onto main, updated for the fresh rebuild"
+}
