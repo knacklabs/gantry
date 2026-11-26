@@ -87,6 +87,11 @@ readiness decisions always win over prototype behavior.
   saved and available as context, whoever sent it. The approver is always on the
   list. Leaving the list empty means every member can trigger a reply, as today.
   The rule applies for the life of the conversation, not only during onboarding.
+- Choosing a different conversation in Step 3 disables the installation that
+  onboarding created for the earlier choice and removes it from the runtime
+  projection, so the employee stops replying there. Its reply list goes with it.
+  A conversation installation that existed before onboarding is never disabled
+  by onboarding.
 - Step 4 creates a server-owned challenge for that installed conversation and
   reports pending, inbound-received, expired, or completed state. Readiness
   requires the real correlated inbound event and the Agent's correlated
