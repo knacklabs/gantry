@@ -1,8 +1,10 @@
 ---
 slug: v2-first-agent-onboarding
 title: V2 first-agent onboarding
-status: draft
+status: confirmed
 saved: 2026-11-26T09:51:45+00:00
+confirmed_by: "Ashirwad Shetye"
+confirmed_hash: 55a39e5c1b960d60c2989c61e4938cee00c6a17096ff772bb9166d82335e0bb5
 ---
 
 # V2 first-agent onboarding
