@@ -8,23 +8,15 @@
   "kind": "fix",
   "review": {
     "blocking_level": "P1",
-    "branch_diff": "1c6d00548e33a2a9c27fb455b258846f65789f57bacc2af7395095eef9cd8cf5",
+    "branch_diff": "30effb97444d0901371400609cf22c8bd35a25de1e2585052dbb6405befca5ea",
     "changed": "24c22940d22ec9b979844e6a44d1aa8b9df5c1627ea11d720a36a09c633eb729",
-    "commit": "12181b5b4d8826edd3acc69c47b67cf778581c51",
+    "commit": "c93241f89235c5cb5fea56036fc5c5ecc9e6dc44",
     "dismissals": [],
-    "findings": [
-      {
-        "body": "The supplied proof list is missing, and the latest commit message contains only its subject. Add the required list mapping every Done-when detail to its documentation and named proof: spec confirmation, Slack-only completion, trigger-only allowlist, Slack channel join, completion reminder, error recovery, and the fresh-rebuild decision with exactly one onboarding migration. Include verification of the visual contract and design reference. This documentation-only change does not require runtime tests, but the required proof list must exist.",
-        "file": "docs/specs/v2-first-agent-onboarding.md",
-        "line": 4,
-        "priority": "P1",
-        "title": "Not done: proof list"
-      }
-    ],
-    "id": "fb87ce58-83e1-4ab2-879d-055904354f57",
-    "status": "blocked"
+    "findings": [],
+    "id": "011e6fb2-658a-49d2-8f6e-8660e40c0054",
+    "status": "clean"
   },
-  "status": "fixing",
+  "status": "waiting for checks",
   "steps": [
     {
       "at": "2026-11-26T09:48:54+00:00",
@@ -32,6 +24,10 @@
     },
     {
       "at": "2026-11-26T10:06:01+00:00",
+      "step": "review"
+    },
+    {
+      "at": "2026-11-26T10:07:30+00:00",
       "step": "review"
     }
   ],
