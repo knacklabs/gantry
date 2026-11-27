@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { PostgresStorageService } from '../../../src/adapters/storage/postgres/storage-service.js';
+import {
+  PostgresStorageService,
+  quotePostgresIdentifier,
+} from '../../../src/adapters/storage/postgres/storage-service.js';
 import { PostgresControlPlaneRepository } from '../../../src/adapters/storage/postgres/repositories/control-plane-repository.postgres.js';
 import { PostgresSourceAnswerRepository } from '../../../src/adapters/storage/postgres/repositories/source-answer-repository.postgres.js';
 import { hashSourceMessage } from '../../../../../packages/sdk/src/source-channel.js';
@@ -9,9 +12,10 @@ import * as s from '../../../src/adapters/storage/postgres/schema/schema.js';
 const run = process.env.GANTRY_DATABASE_URL ? describe : describe.skip;
 run('expired queued source admission', () => {
   it('publishes a correlated terminal before source provider preparation without extending the immutable deadline', async () => {
+    const schema = 'expired_admission_' + randomUUID().replaceAll('-', '');
     const db = new PostgresStorageService(
       process.env.GANTRY_DATABASE_URL!,
-      'gantry',
+      schema,
     );
     const appId = `expiry-${randomUUID()}`;
     const control = new PostgresControlPlaneRepository(db.db);
@@ -127,7 +131,9 @@ run('expired queued source admission', () => {
       ).toHaveLength(0);
     } finally {
       vi.useRealTimers();
-      await db.db.delete(s.appsPostgres).where(eq(s.appsPostgres.id, appId));
+      await db.pool.query(
+        `drop schema ${quotePostgresIdentifier(schema)} cascade`,
+      );
       await db.close();
     }
   }, 60000);

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { PostgresStorageService } from '../../../src/adapters/storage/postgres/storage-service.js';
+import {
+  PostgresStorageService,
+  quotePostgresIdentifier,
+} from '../../../src/adapters/storage/postgres/storage-service.js';
 import { PostgresControlPlaneRepository } from '../../../src/adapters/storage/postgres/repositories/control-plane-repository.postgres.js';
 import { PostgresSourceAnswerRepository } from '../../../src/adapters/storage/postgres/repositories/source-answer-repository.postgres.js';
 import { hashSourceMessage } from '../../../../../packages/sdk/src/source-channel.js';
@@ -11,9 +14,10 @@ run('fresh authority for an owned prepared source answer', () => {
   it.each(['allowed', 'denied', 'expired', 'stale-owner'] as const)(
     'handles %s without preparing or dispatching another answer',
     async (decision) => {
+      const schema = 'source_authority_' + randomUUID().replaceAll('-', '');
       const service = new PostgresStorageService(
         process.env.GANTRY_DATABASE_URL!,
-        'gantry',
+        schema,
       );
       const appId = `provider-authority-${randomUUID()}`;
       try {
@@ -176,9 +180,9 @@ run('fresh authority for an owned prepared source answer', () => {
         } else
           expect(result.error?.message).toMatch(/denied|expired|ownership/);
       } finally {
-        await service.db
-          .delete(s.appsPostgres)
-          .where(eq(s.appsPostgres.id, appId));
+        await service.pool.query(
+          `drop schema ${quotePostgresIdentifier(schema)} cascade`,
+        );
         await service.close();
       }
     },
