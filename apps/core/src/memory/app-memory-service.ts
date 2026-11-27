@@ -1,3 +1,7 @@
+import {
+  assertSourceLearningActivation,
+  recordSourceLearningActivation,
+} from './source-learning-activation.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -197,6 +201,106 @@ export class AppMemoryService {
     }
     const key = input.key.trim();
     const value = input.value.trim();
+    if (input.sourceLearningWrite) {
+      return this.db.transaction(async (tx) => {
+        // Both explicit and inferred source writes use the exact key lock. This
+        // prevents an inference that read an empty key from replacing a correction.
+        if (input.sourceLearningWrite)
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['source-learning', subjectIdFor(subject), key])},0))`,
+          );
+        const activation = await assertSourceLearningActivation(
+          tx,
+          input,
+          subject,
+        );
+        if (activation?.existing) return toAppItem(activation.existing);
+        const finish = async (
+          row: typeof pgSchema.memoryItemsPostgres.$inferSelect,
+        ) => {
+          await recordSourceLearningActivation(tx, activation?.candidate, row);
+          return toAppItem(row);
+        };
+        const existing = await findActiveMemoryByKey({ db: tx, subject, key });
+        if (
+          input.sourceLearningWrite === 'inferred' &&
+          existing &&
+          parseItemValue(existing).value !== value
+        )
+          throw new Error(
+            'Conflicting inferred learning requires clarification; the active instruction remains unchanged',
+          );
+        const now = nowIso();
+        const base = buildMemoryItemWriteBase({
+          subject,
+          saveInput: input,
+          key,
+          value,
+          evidenceIds,
+          existingSource: existing ? parseItemSource(existing) : null,
+          timestamp: now,
+        });
+        if (existing) {
+          const [updated] = await tx
+            .update(pgSchema.memoryItemsPostgres)
+            .set(base)
+            .where(
+              and(
+                eq(pgSchema.memoryItemsPostgres.id, existing.id),
+                eq(pgSchema.memoryItemsPostgres.status, 'active'),
+              ),
+            )
+            .returning();
+          if (!updated)
+            throw new Error('Memory key changed during source save');
+          return finish(updated);
+        }
+        const [inserted] = await tx
+          .insert(pgSchema.memoryItemsPostgres)
+          .values({
+            id: `mem_${randomUUID().replace(/-/g, '')}`,
+            ...base,
+            createdAt: now,
+          })
+          .onConflictDoNothing()
+          .returning();
+        if (inserted) return finish(inserted);
+        const conflicting = await findActiveMemoryByKey({
+          db: tx,
+          subject,
+          key,
+        });
+        if (!conflicting) throw new Error('Memory key changed during save');
+        if (
+          input.sourceLearningWrite === 'inferred' &&
+          parseItemValue(conflicting).value !== value
+        )
+          throw new Error(
+            'Conflicting inferred learning requires clarification; the active instruction remains unchanged',
+          );
+        const conflictBase = buildMemoryItemWriteBase({
+          subject,
+          saveInput: input,
+          key,
+          value,
+          evidenceIds,
+          existingSource: parseItemSource(conflicting),
+          timestamp: nowIso(),
+        });
+        const [row] = await tx
+          .update(pgSchema.memoryItemsPostgres)
+          .set(conflictBase)
+          .where(
+            and(
+              eq(pgSchema.memoryItemsPostgres.id, conflicting.id),
+              eq(pgSchema.memoryItemsPostgres.status, 'active'),
+            ),
+          )
+          .returning();
+        if (!row) throw new Error('Memory key changed during save');
+        return finish(row);
+      });
+    }
     const existing = await findActiveMemoryByKey({
       db: this.db,
       subject,

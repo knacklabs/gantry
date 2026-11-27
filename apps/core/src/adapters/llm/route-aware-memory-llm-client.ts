@@ -49,6 +49,14 @@ export function createRouteAwareMemoryLlmClient(
     isConfigured: () =>
       deps.anthropic.isConfigured() || deps.openai.isConfigured(),
     query: async (opts) => clientForQuery(deps, opts).query(opts),
+    countTokens: async (opts) => {
+      const counter = clientForQuery(deps, opts).countTokens;
+      if (!counter)
+        throw new Error(
+          'Selected model route has no token counting capability',
+        );
+      return counter(opts);
+    },
     ...(batch ? { batch } : {}),
   };
 }

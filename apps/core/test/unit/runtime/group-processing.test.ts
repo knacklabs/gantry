@@ -1,5 +1,14 @@
+import { createSourceModelSnapshot } from '../../../src/shared/source-model-snapshot.js';
+import { resolveModelSelectionForWorkload } from '../../../src/shared/model-catalog.js';
+import {
+  registerMemoryLlmClient,
+  getMemoryLlmClient,
+} from '../../../src/memory/memory-llm-port.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
 import {
   decodeGroupMessageCursor,
@@ -43,7 +52,9 @@ const mockGetRuntimeSettingsForConfig = vi.hoisted(
       },
     })) as ReturnType<typeof vi.fn>,
 );
-vi.mock('@core/config/index.js', () => ({
+vi.mock('@core/config/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@core/config/index.js')>()),
+  GANTRY_IPC_AUTH_SECRET: 'native-bootstrap-test-secret',
   ASSISTANT_NAME: 'Andy',
   IDLE_TIMEOUT: 1_800_000,
   MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
@@ -428,6 +439,445 @@ describe('createGroupProcessor', () => {
       },
     });
   });
+
+  it.each([false, true])(
+    'rechecks provider authority after slow source preparation (denied=%s)',
+    async (denied) => {
+      const previous = getMemoryLlmClient();
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const trace: string[] = [];
+      const selected = resolveModelSelectionForWorkload('haiku', 'chat');
+      if (!selected.ok) throw new Error('Fixture model missing');
+      const chosen = [
+        makeMessage({ id: 'M1', content: 'Exact selected question' }),
+      ];
+      const { deps } = setupHappyPath({ messages: chosen });
+      const prepared = {
+        id: 'source-answer',
+        claimToken: 'claim',
+        selectedSourceIds: ['M1'],
+        messages: chosen,
+        executionAuthorityDeadline: now + 5000,
+        modelSnapshot: createSourceModelSnapshot('haiku', selected.entry),
+        request: {
+          model: 'haiku',
+          maxOutputTokens: 2000,
+          deadlineAt: new Date(now + 120000).toISOString(),
+          binding: {
+            discussionId: 'D1',
+            generation: 1,
+            workspaceId: 'W1',
+            tenderId: 'T1',
+          },
+        },
+      };
+      let grants = 0,
+        providerCalls = 0;
+      Object.assign(deps.opsRepository!, {
+        getPreparedSourceAnswer: async () => prepared,
+        authorizePreparedSourceAnswer: async () => {
+          trace.push('authority');
+          grants++;
+          if (denied && grants > 1)
+            throw new Error('Fresh execution authority denied');
+          return Date.now() + 5000;
+        },
+        createSessionAgentRun: async () => 'run1',
+        markSourceAnswerRun: async () => {},
+        finishPreparedSourceAnswer: async () => {},
+        persistSourceAnswerOutput: async () => {},
+      });
+      registerMemoryLlmClient({
+        isConfigured: () => true,
+        query: async () => '',
+        countTokens: async () => {
+          trace.push('count');
+          vi.mocked(Date.now).mockReturnValue(now + 6000);
+          return 100;
+        },
+      });
+      mockSpawnAgent.mockImplementationOnce(
+        async (_group, input, _onProcess, _onOutput, options) => {
+          await options.beforeProviderStart?.();
+          providerCalls++;
+          trace.push('provider');
+          expect(input.prompt).toContain('Exact selected question');
+          return { status: 'success', result: 'Exact answer' };
+        },
+      );
+      try {
+        await createGroupProcessor(deps).processGroupMessages('group1@g.us');
+        expect(providerCalls).toBe(denied ? 0 : 1);
+        expect(trace).toEqual(
+          denied
+            ? ['authority', 'count', 'authority']
+            : ['authority', 'count', 'authority', 'provider'],
+        );
+      } finally {
+        registerMemoryLlmClient(previous);
+        vi.restoreAllMocks();
+      }
+    },
+  );
+  it.each([
+    'direct',
+    'streamed',
+    'large',
+    'partial',
+    'invalid',
+    'missing',
+    'conflict',
+    'canceled',
+    'invalid-canceled',
+    'failed',
+    'fenced',
+  ] as const)(
+    'native source answer preserves exact validated terminal across %s transport',
+    async (scenario) => {
+      const previousMemoryClient = getMemoryLlmClient();
+      registerMemoryLlmClient({
+        isConfigured: () => true,
+        query: async () => '',
+        countTokens: async () => 100,
+      });
+      const chosen = [
+        makeMessage({ id: 'M1', content: 'selected ancestor' }),
+        makeMessage({ id: 'M2', content: 'selected question' }),
+      ];
+      const { deps } = setupHappyPath({
+        group: makeGroup({
+          requiresTrigger: true,
+          agentConfig: { model: 'opus' },
+        }),
+        messages: [makeMessage({ id: 'M3', content: 'excluded sibling' })],
+        agentOutput: {
+          status: 'success',
+          result:
+            '{"version":1,"answer":"ok","answerUnits":[{"text":"ok","source":"unconfirmed","citationIds":[],"metadataFields":[]}]}',
+          structuredResultValidated: true,
+        },
+      });
+      const request = {
+        binding: {
+          discussionId: 'D1',
+          generation: 1,
+          workspaceId: 'workspace-a',
+          tenderId: 'T1',
+        },
+        authority: {
+          authorityId: 'people',
+          authorityVersion: '1',
+          kind: 'person' as const,
+          subject: 'requester',
+          expiresAt: '2027-01-01T00:00:00.000Z',
+        },
+        questionSourceId: 'M2',
+        sourceCutoff: '2',
+        requesterId: 'requester',
+        answerGoalId: 'goal1',
+        attemptId: 'attempt1',
+        idempotencyKey: 'answer1',
+        revisionId: 'R1',
+        analysisReady: true as const,
+        model: 'haiku',
+        maxOutputTokens: 2000,
+        deadlineAt: '2027-01-01T00:00:00.000Z',
+        executionProfile: {
+          instructionsVersion: 'v1',
+          responseSchema: {
+            type: 'object',
+            required: ['version', 'answer', 'answerUnits'],
+            additionalProperties: false,
+            properties: {
+              version: { const: 1 },
+              answer: { type: 'string' },
+              answerUnits: {
+                type: 'array',
+                minItems: 1,
+                items: {
+                  type: 'object',
+                  required: ['text', 'source', 'citationIds', 'metadataFields'],
+                  properties: {
+                    text: { type: 'string' },
+                    source: { type: 'string' },
+                    citationIds: { type: 'array' },
+                    metadataFields: { type: 'array' },
+                  },
+                },
+              },
+            },
+          },
+          callerResolvedTools: [
+            {
+              name: 'get_tender_metadata',
+              description: 'authorized evidence',
+              inputSchema: { type: 'object' },
+            },
+            {
+              name: 'search_tender_evidence',
+              description: 'authorized search',
+              inputSchema: { type: 'object' },
+            },
+          ],
+          maxToolInteractions: 4,
+          interactionTimeoutMs: 90000,
+        },
+      };
+      Object.assign(deps.opsRepository!, {
+        getPreparedSourceAnswer: vi.fn(async () => ({
+          id: 'native1',
+          request,
+          messages: chosen,
+          selectedSourceIds: ['M1', 'M2'],
+          claimToken: 'fence',
+          modelSnapshot: (() => {
+            const selected = resolveModelSelectionForWorkload('haiku', 'chat');
+            if (!selected.ok) throw new Error('Fixture model missing');
+            return createSourceModelSnapshot('haiku', selected.entry);
+          })(),
+        })),
+        getAgentTurnContext: vi.fn(async () => ({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'session1',
+          providerSessionId: 'old',
+          externalSessionId: 'old-provider-history',
+          memoryContextBlock: 'wrong workspace memory',
+        })),
+        createSessionAgentRun: vi.fn(async () => 'run1'),
+        markSourceAnswerRun: vi.fn(async () => {}),
+        authorizePreparedSourceAnswer: async () => Date.now() + 5000,
+        persistSourceAnswerOutput: vi.fn(async () => {}),
+        finishPreparedSourceAnswer: vi.fn(async () => {}),
+        sourceWorkspaceMemoryContext: vi.fn(async () => 'workspace-a learning'),
+      });
+      const full = JSON.stringify({
+        version: 1,
+        answer: scenario === 'large' ? 'complete '.repeat(1000) : 'ok',
+        answerUnits: [
+          {
+            text: 'ok',
+            source: 'unconfirmed',
+            citationIds: [],
+            metadataFields: [],
+          },
+        ],
+      });
+      if (scenario === 'fenced')
+        vi.mocked(
+          deps.opsRepository!.persistSourceAnswerOutput!,
+        ).mockRejectedValueOnce(new Error('Source answer slot lease expired'));
+      if (scenario !== 'direct')
+        mockSpawnAgent.mockImplementationOnce(
+          async (group, agentInput, onProcess, onOutput, options) => {
+            const { executeRunnerProcess } = await vi.importActual<
+              typeof import('@core/runtime/agent-spawn-process.js')
+            >('@core/runtime/agent-spawn-process.js');
+            const dir = fs.mkdtempSync(
+              path.join(os.tmpdir(), 'source-terminal-stream-'),
+            );
+            const terminal = {
+              status: 'success',
+              result: full,
+              structuredResultValidated: true,
+            };
+            const frames =
+              scenario === 'streamed' ||
+              scenario === 'large' ||
+              scenario === 'fenced'
+                ? [{ status: 'success', result: 'partial text' }, terminal]
+                : scenario === 'partial'
+                  ? [{ status: 'success', result: 'partial text' }]
+                  : scenario === 'invalid'
+                    ? [{ ...terminal, result: '{"answer":"incomplete"}' }]
+                    : scenario === 'missing'
+                      ? []
+                      : scenario === 'conflict'
+                        ? [
+                            terminal,
+                            {
+                              ...terminal,
+                              result: full.replaceAll('ok', 'different'),
+                            },
+                          ]
+                        : scenario === 'failed'
+                          ? [
+                              { status: 'success', result: 'partial text' },
+                              {
+                                status: 'error',
+                                result: null,
+                                error: 'Provider failed',
+                              },
+                            ]
+                          : [
+                              {
+                                ...terminal,
+                                result:
+                                  scenario === 'invalid-canceled'
+                                    ? 'invalid JSON'
+                                    : full,
+                              },
+                              {
+                                status: 'error',
+                                result: null,
+                                error: 'Stopped by request',
+                              },
+                            ];
+            const code =
+              "process.stdin.resume();process.stdin.on('end',()=>{for(const frame of " +
+              JSON.stringify(frames) +
+              ")process.stdout.write('---GANTRY_OUTPUT_START---'+JSON.stringify(frame)+'---GANTRY_OUTPUT_END---');})";
+            try {
+              const output = await executeRunnerProcess({
+                group,
+                input: agentInput,
+                command: process.execPath,
+                args: ['-e', code],
+                env: { HOME: dir },
+                onProcess,
+                onOutput,
+                options: {
+                  ...options,
+                  runnerSandboxProvider: {
+                    id: 'test-node',
+                    enforcing: true,
+                    start: (spec) =>
+                      spawn(spec.command, spec.args, {
+                        cwd: dir,
+                        env: spec.env,
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                      }),
+                  },
+                },
+                runnerLabel: 'test-node',
+                processName: 'source-terminal',
+                startTime: Date.now(),
+                logsDir: dir,
+                runtimeDetails: [],
+                sandbox: {
+                  cwd: dir,
+                  workspaceRoot: dir,
+                  configFilePath: path.join(dir, 'sandbox.json'),
+                  allowedNetworkHosts: [],
+                  runtimeReadPaths: [],
+                  runtimeWritePaths: [],
+                  protectedReadPaths: [],
+                  protectedWritePaths: [],
+                  resourceLimits: {
+                    cpuSeconds: 0,
+                    memoryMb: 0,
+                    maxProcesses: 0,
+                  },
+                  sandboxProfile: {
+                    id: 'test-node',
+                    network: 'none',
+                    filesystem: 'workspace_write',
+                  },
+                  principal: {},
+                },
+              } as never);
+              expect(output.result).toBeNull();
+              return output;
+            } finally {
+              fs.rmSync(dir, { recursive: true, force: true });
+            }
+          },
+        );
+      await createGroupProcessor(deps).processGroupMessages('group1@g.us');
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+      const call = mockSpawnAgent.mock.calls[0]![1];
+      expect(call.model).toBe('haiku');
+      expect(call).not.toHaveProperty('sessionId');
+      expect(call.effort).toBeUndefined();
+      expect(call.maxOutputTokens).toBe(2000);
+      expect(mockSpawnAgent.mock.calls[0]![4].timeoutMs).toBeLessThanOrEqual(
+        180000,
+      );
+      expect(call.sourceWorkspaceMemoryId).toBe('workspace-a');
+      expect(call.memoryContextBlock).toContain('workspace-a learning');
+      expect(call.memoryContextBlock).not.toContain('wrong workspace');
+      expect(call.callerResolvedTools.tools).toEqual(
+        request.executionProfile.callerResolvedTools.map((tool) => ({
+          ...tool,
+          transportMode: 'direct_caller',
+        })),
+      );
+      if (scenario === 'direct') {
+        const { buildGantryMcpProjection } = await vi.importActual<
+          typeof import('@core/adapters/llm/deepagents-langchain/runner/gantry-mcp-env.js')
+        >('@core/adapters/llm/deepagents-langchain/runner/gantry-mcp-env.js');
+        const previousWorkspace = process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID;
+        const previousIpc = process.env.GANTRY_IPC_DIR;
+        process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID = 'workspace-a';
+        process.env.GANTRY_IPC_DIR = '/tmp/source-tool-manifest-test';
+        try {
+          const { effectiveEnabledMcpToolNames } = await vi.importActual<
+            typeof import('@core/runner/mcp/server.js')
+          >('@core/runner/mcp/server.js');
+          const projection = buildGantryMcpProjection({
+            configuredAllowedTools: [],
+            hideAuthorityTools: true,
+            processEnv: {
+              GANTRY_CHAT_JID: 'app:test:D1',
+              GANTRY_SOURCE_WORKSPACE_MEMORY_ID: 'workspace-a',
+              GANTRY_CALLER_RESOLVED_TOOLS_JSON: JSON.stringify(
+                call.callerResolvedTools,
+              ),
+            },
+          });
+          const names = effectiveEnabledMcpToolNames(
+            projection.env.GANTRY_MCP_TOOL_NAMES_JSON,
+            undefined,
+            undefined,
+            false,
+            undefined,
+            'app:test:D1',
+            'interactive',
+            projection.env.GANTRY_CALLER_RESOLVED_TOOLS_JSON,
+          );
+          expect([...names].sort()).toEqual(
+            [
+              'get_tender_metadata',
+              'search_tender_evidence',
+              'memory_search',
+              'memory_save',
+              'memory_demote',
+              'source_document',
+            ].sort(),
+          );
+        } finally {
+          if (previousWorkspace === undefined)
+            delete process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID;
+          else
+            process.env.GANTRY_SOURCE_WORKSPACE_MEMORY_ID = previousWorkspace;
+          if (previousIpc === undefined) delete process.env.GANTRY_IPC_DIR;
+          else process.env.GANTRY_IPC_DIR = previousIpc;
+        }
+      }
+      expect(mockFormatMessages).toHaveBeenCalledWith(chosen, 'UTC');
+      if (
+        scenario === 'direct' ||
+        scenario === 'streamed' ||
+        scenario === 'large'
+      ) {
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).toHaveBeenCalledExactlyOnceWith('native1', 'run1', full);
+      } else if (scenario === 'fenced') {
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).toHaveBeenCalledExactlyOnceWith('native1', 'run1', full);
+        expect(
+          deps.opsRepository!.finishPreparedSourceAnswer,
+        ).toHaveBeenCalledWith('native1', false, 'fence');
+      } else
+        expect(
+          deps.opsRepository!.persistSourceAnswerOutput,
+        ).not.toHaveBeenCalled();
+      registerMemoryLlmClient(previousMemoryClient);
+    },
+  );
 
   // =======================================================================
   // Early returns
@@ -10254,4 +10704,553 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent.mock.calls[0][1]).toHaveProperty('model', 'opus');
     });
   });
+});
+
+const nativeBootstrap = process.env.GANTRY_DATABASE_URL
+  ? describe
+  : describe.skip;
+nativeBootstrap('native HTTP admission across worker routing', () => {
+  it.each(['future', 'expired', 'count_failure'] as const)(
+    'routes %s native work through the configured worker after restart',
+    async (mode) => {
+      vi.clearAllMocks();
+      const { makeAgentThreadQueueKey } =
+        await import('@core/shared/thread-queue-key.js');
+      const { randomUUID, createHash } = await import('node:crypto');
+      const { createServer } = await import('node:http');
+      const { eq, and, sql } = await import('drizzle-orm');
+      const { PostgresStorageService } =
+        await import('@core/adapters/storage/postgres/storage-service.js');
+      const { PostgresControlPlaneRepository } =
+        await import('@core/adapters/storage/postgres/repositories/control-plane-repository.postgres.js');
+      const { PostgresSourceAnswerRepository } =
+        await import('@core/adapters/storage/postgres/repositories/source-answer-repository.postgres.js');
+      const { PostgresRuntimeRepositoryBundle } =
+        await import('@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js');
+      const { PostgresLiveTurnRepository } =
+        await import('@core/adapters/storage/postgres/repositories/live-turn-repository.postgres.js');
+      const { PostgresWorkerCoordinationRepository } =
+        await import('@core/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.js');
+      const { LiveTurnAuthority } =
+        await import('@core/runtime/live-turn-authority.js');
+      const { GroupQueue } = await import('@core/runtime/group-queue.js');
+      const { buildLiveAdmissionProcessor } =
+        await import('@core/app/bootstrap/live-execution.js');
+      const { startLiveAdmissionWorkLoop } =
+        await import('@core/runtime/live-admission-work-loop.js');
+      const { registerGroup } = await import('@core/runtime/group-registry.js');
+      const { resolveConversationRoute } =
+        await import('@core/app/bootstrap/runtime-app-routes.js');
+      const { SessionInteractionModule } =
+        await import('@core/application/sessions/session-interaction-module.js');
+      const { adaptSessionControlPort } =
+        await import('@core/control/server/session-control-port.js');
+      const { handleSessionRoutes } =
+        await import('@core/control/server/routes/sessions.js');
+      const { createClient, hashSourceMessage } =
+        await import('../../../../../packages/sdk/src/index.js');
+      const s =
+        await import('@core/adapters/storage/postgres/schema/schema.js');
+      const db = new PostgresStorageService(
+        process.env.GANTRY_DATABASE_URL!,
+        'gantry',
+      );
+      const appId = `bootstrap-${randomUUID()}`;
+      const folder = `bootstrap-${randomUUID()}`;
+      let queue: InstanceType<typeof GroupQueue> | undefined;
+      let workerId: string | undefined;
+      let server: ReturnType<typeof createServer> | undefined;
+      let loop: ReturnType<typeof startLiveAdmissionWorkLoop> | undefined;
+      let authority: InstanceType<typeof LiveTurnAuthority> | undefined;
+      let pump: ReturnType<typeof setInterval> | undefined;
+      let restoreEventExchange: (() => void) | undefined;
+      const previous = getMemoryLlmClient();
+      const sourceCounts = vi.fn(async () => {
+        if (mode === 'count_failure')
+          throw new Error('Source token count failed (401)');
+        return 100;
+      });
+      registerMemoryLlmClient({
+        isConfigured: () => true,
+        query: async () => '',
+        countTokens: sourceCounts,
+      });
+      try {
+        await db.migrate();
+        const control = new PostgresControlPlaneRepository(db.db);
+        const native = new PostgresSourceAnswerRepository(db.db);
+        const ops = new PostgresRuntimeRepositoryBundle(db.pool, db.db, {
+          runtimeEvents: { publish: async () => {} },
+        });
+        const session = await control.ensureAppSession({
+          appId,
+          conversationId: 'D1',
+          chatJid: `app:${appId}:D1`,
+          workspaceFolder: folder,
+        });
+        const [agentBefore] = await db.db
+          .select()
+          .from(s.agentsPostgres)
+          .where(eq(s.agentsPostgres.id, session.agentId));
+        const [originalConfig] = await db.db
+          .select()
+          .from(s.agentConfigVersionsPostgres)
+          .where(
+            eq(
+              s.agentConfigVersionsPostgres.id,
+              agentBefore!.currentConfigVersionId!,
+            ),
+          );
+        const nativeConfigId = `native-config-${randomUUID()}`;
+        await db.db.insert(s.agentConfigVersionsPostgres).values({
+          ...originalConfig!,
+          id: nativeConfigId,
+          version: originalConfig!.version + 1,
+        });
+        await db.db
+          .update(s.agentsPostgres)
+          .set({ currentConfigVersionId: nativeConfigId })
+          .where(eq(s.agentsPostgres.id, session.agentId));
+        await db.db
+          .delete(s.agentConfigVersionsPostgres)
+          .where(eq(s.agentConfigVersionsPostgres.id, originalConfig!.id));
+        const binding = {
+          discussionId: 'D1',
+          generation: 1,
+          workspaceId: 'W1',
+          tenderId: 'T1',
+        };
+        const token = randomUUID();
+        const runtimeStore =
+          await import('@core/adapters/storage/postgres/runtime-store.js');
+        const { RuntimeEventExchange } =
+          await import('@core/application/runtime-events/runtime-event-exchange.js');
+        const { PostgresRuntimeEventRepository } =
+          await import('@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js');
+        const { handleRuntimeEventRoutes } =
+          await import('@core/control/server/routes/runtime-events.js');
+        const exchange = new RuntimeEventExchange(
+          new PostgresRuntimeEventRepository(db.db),
+          { notify: async () => {}, subscribe: () => () => {} },
+        );
+        const eventExchange = vi
+          .spyOn(runtimeStore, 'getRuntimeEventExchange')
+          .mockReturnValue(exchange);
+        restoreEventExchange = () => eventExchange.mockRestore();
+        const module = new SessionInteractionModule({
+          control: adaptSessionControlPort(control),
+          ops: ops as never,
+          repositories: {} as never,
+          runtimeEvents: {} as never,
+          now: () => new Date().toISOString() as never,
+          createId: randomUUID,
+          stableHash: (value) =>
+            createHash('sha256').update(value).digest('hex'),
+        });
+        const ctx = {
+          keys: [
+            {
+              kid: 'bootstrap-test',
+              tokenHash: createHash('sha256').update(token).digest(),
+              scopes: new Set(['sessions:write', 'sessions:read', 'jobs:read']),
+              appId,
+            },
+          ],
+          sessionInteraction: module,
+          state: { activeStreams: 0 },
+          maxConcurrentStreams: 4,
+        } as never;
+        server = createServer((req, res) => {
+          const url = new URL(req.url!, 'http://localhost');
+          void (async () =>
+            (await handleRuntimeEventRoutes(
+              req,
+              res,
+              ctx,
+              url,
+              url.pathname,
+            )) ||
+            (await handleSessionRoutes(req, res, ctx, url, url.pathname)))()
+            .then((ok) => {
+              if (!ok) {
+                res.statusCode = 404;
+                res.end();
+              }
+            })
+            .catch((error) => {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: String(error) }));
+            });
+        });
+        await new Promise<void>((resolve) =>
+          server!.listen(0, '127.0.0.1', resolve),
+        );
+        const address = server.address();
+        if (!address || typeof address === 'string')
+          throw new Error('HTTP fixture absent');
+        const sdk = createClient({
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          apiKey: token,
+        });
+        const message = {
+          sourceMessageId: 'M1',
+          sourcePosition: '1',
+          authorId: 'person',
+          authorKind: 'human' as const,
+          authorDisplayName: 'Person',
+          text: 'Return a basic answer',
+          createdAt: new Date().toISOString(),
+          replyToSourceId: null,
+          revisionId: 'R1',
+          origin: 'human' as const,
+        };
+        await sdk.sessions.appendSourceMessage(session.sessionId, {
+          binding,
+          authority: {
+            authorityId: 'service',
+            authorityVersion: '1',
+            kind: 'service',
+            subject: 'service',
+            expiresAt: '2027-01-01T00:00:00Z',
+          },
+          message: { ...message, contentHash: hashSourceMessage(message) },
+          idempotencyKey: 'source1',
+        });
+        await sdk.sessions.requestAnswer(session.sessionId, {
+          binding,
+          authority: {
+            authorityId: 'person',
+            authorityVersion: '1',
+            kind: 'person',
+            subject: 'person',
+            expiresAt: '2027-01-01T00:00:00Z',
+          },
+          questionSourceId: 'M1',
+          sourceCutoff: '1',
+          requesterId: 'person',
+          answerGoalId: 'bootstrap-goal',
+          attemptId: 'bootstrap-attempt',
+          idempotencyKey: 'bootstrap-attempt',
+          revisionId: 'R1',
+          analysisReady: true,
+          model: 'haiku',
+          maxOutputTokens: 2000,
+          deadlineAt: new Date(Date.now() + 60000).toISOString(),
+        });
+        const handled = new Set<string>();
+        let pumping = false;
+        pump = setInterval(() => {
+          if (pumping) return;
+          pumping = true;
+          void (async () => {
+            for (const row of await db.db
+              .select()
+              .from(s.pendingInteractionsPostgres)
+              .where(
+                and(
+                  eq(s.pendingInteractionsPostgres.appId, appId),
+                  eq(s.pendingInteractionsPostgres.status, 'pending'),
+                  sql`${s.pendingInteractionsPostgres.payloadJson}#>>'{request,interactionType}'='execution_authority'`,
+                ),
+              )) {
+              if (handled.has(row.id)) continue;
+              handled.add(row.id);
+              await sdk.sessions.settleExecutionAuthority(session.sessionId, {
+                binding,
+                interactionId: row.id,
+                idempotencyKey: `settle-${row.id}`,
+                answerGoalId: 'bootstrap-goal',
+                attemptId: 'bootstrap-attempt',
+                allowed: true,
+                authorityVersion: '1',
+                expiresAt: new Date(Date.now() + 4000).toISOString(),
+              });
+            }
+          })().finally(() => (pumping = false));
+        }, 20);
+        const routes: Record<string, ConversationRoute> = {};
+        const { deps } = setupHappyPath({
+          agentOutput: {
+            status: 'success',
+            result:
+              '{"version":1,"answer":"controlled answer","answerUnits":[{"text":"controlled answer","source":"unconfirmed","citationIds":[],"metadataFields":[]}]}',
+          },
+        });
+        queue = new GroupQueue();
+        Object.assign(deps, {
+          opsRepository: ops,
+          queue,
+          getGroup: (
+            jid: string,
+            thread?: string,
+            agent?: string,
+            provider?: string,
+          ) => resolveConversationRoute(routes, jid, thread, agent, provider),
+          getConversationRoutes: () => routes,
+          getRegisteredJids: () => new Set(Object.keys(routes)),
+          getConfiguredModelProviders: async () => new Set(['anthropic']),
+        });
+        const groupProcessor = createGroupProcessor(deps);
+        workerId = `worker-${randomUUID()}`;
+        await new PostgresWorkerCoordinationRepository(db.db).registerWorker({
+          id: workerId,
+          bootNonce: randomUUID(),
+          processRole: 'all',
+        });
+        const liveTurns = new PostgresLiveTurnRepository(db.db);
+        authority = new LiveTurnAuthority({
+          leaseDeps: {
+            liveTurns,
+            coordination: new PostgresWorkerCoordinationRepository(db.db),
+            workerInstanceId: workerId,
+          },
+          slotCapacity: () => 4,
+          warn: () => {},
+        });
+        const app = {
+          getConversationRoutes: () => routes,
+          projectConversationRoute: async (
+            jid: string,
+            group: ConversationRoute,
+          ) =>
+            registerGroup(
+              routes,
+              makeAgentThreadQueueKey(
+                jid,
+                session.agentId,
+                null,
+                group.providerAccountId,
+              ),
+              group,
+              {
+                assistantName: 'Andy',
+                persist: async () => {},
+                ensureCredentialBinding: async () => {},
+              },
+            ),
+          processGroupMessages: groupProcessor.processGroupMessages,
+          getOrRecoverCursor: async () => '',
+          setAgentCursor: () => {},
+          saveState: async () => {},
+        };
+        queue.setProcessMessagesFn(
+          buildLiveAdmissionProcessor({
+            app,
+            opsRepository: ops,
+            liveTurnAuthority: authority,
+            executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+            messageFetchPageSize: 50,
+            timezone: 'UTC',
+            enqueueMessageCheck: (jid) => {
+              queue.enqueueMessageCheck(jid);
+            },
+            warn: () => {},
+          }),
+        );
+        const messageLoopDeps = {
+          opsRepository: ops,
+          queue,
+          getConversationRoutes: () => routes,
+          getOrRecoverCursor: async () => '',
+          setAgentCursor: () => {},
+          saveState: () => {},
+          hasChannel: () => true,
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        };
+        if (mode === 'expired') {
+          for (let i = 0; i < 100; i++) {
+            const [auth] = await db.db
+              .select()
+              .from(s.pendingInteractionsPostgres)
+              .where(
+                eq(
+                  s.pendingInteractionsPostgres.id,
+                  `authority:source-answer:${appId}:bootstrap-attempt`,
+                ),
+              );
+            if (auth?.status === 'resolved') break;
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          vi.useFakeTimers({ toFake: ['Date'] });
+          vi.setSystemTime(Date.now() + 60001);
+        }
+        loop = startLiveAdmissionWorkLoop({
+          appId,
+          liveAdmissions: liveTurns,
+          workerInstanceId: workerId,
+          messageLoopDeps,
+          intervalMs: 20,
+          warn: () => {},
+        });
+        let events: (typeof s.runtimeEventsPostgres.$inferSelect)[] = [];
+        for (let i = 0; i < 300; i++) {
+          events = await db.db
+            .select()
+            .from(s.runtimeEventsPostgres)
+            .where(eq(s.runtimeEventsPostgres.appId, appId));
+          if (
+            events.some(
+              (e) =>
+                e.eventType ===
+                (mode === 'future'
+                  ? 'run.completed'
+                  : mode === 'expired'
+                    ? 'source.answer.failed'
+                    : 'run.failed'),
+            )
+          )
+            break;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        if (mode === 'future') {
+          const streamAbort = new AbortController();
+          const stream = sdk.runtimeEvents
+            .stream({
+              sessionId: session.sessionId,
+              eventType: 'source.answer.running',
+              signal: streamAbort.signal,
+            })
+            [Symbol.asyncIterator]();
+          const timer = setTimeout(() => streamAbort.abort(), 3000);
+          try {
+            const running = await stream.next();
+            expect(running.value).toMatchObject({
+              eventType: 'source.answer.running',
+              sessionId: session.sessionId,
+              correlationId: 'bootstrap-goal',
+              payload: {
+                answerGoalId: 'bootstrap-goal',
+                attemptId: 'bootstrap-attempt',
+                binding,
+              },
+            });
+            expect(running.value!.runId).toBeTruthy();
+            const repeated = await sdk.runtimeEvents.list({
+              sessionId: session.sessionId,
+              eventType: 'source.answer.running',
+            });
+            expect(repeated.events).toHaveLength(1);
+          } finally {
+            clearTimeout(timer);
+            streamAbort.abort();
+            await stream.return?.();
+          }
+          if (!Object.keys(routes).length)
+            throw new Error(
+              JSON.stringify(
+                {
+                  warn: mockLogger.warn.mock.calls,
+                  error: mockLogger.error.mock.calls,
+                  events: events.map((e) => e.eventType),
+                },
+                (_key, value) =>
+                  value instanceof Error
+                    ? { message: value.message, stack: value.stack }
+                    : value,
+              ),
+            );
+          if (mockSpawnAgent.mock.calls.length !== 1)
+            throw new Error(
+              JSON.stringify(
+                {
+                  warn: mockLogger.warn.mock.calls,
+                  error: mockLogger.error.mock.calls,
+                  events: events.map((e) => ({
+                    type: e.eventType,
+                    payload: e.payloadJson,
+                  })),
+                },
+                (_key, value) =>
+                  value instanceof Error
+                    ? { message: value.message, stack: value.stack }
+                    : value,
+              ),
+            );
+          expect(
+            events.some(
+              (e) =>
+                e.eventType === 'session.message.outbound' &&
+                e.correlationId === 'bootstrap-goal',
+            ),
+          ).toBe(true);
+        } else {
+          expect(mockSpawnAgent).not.toHaveBeenCalled();
+          expect(
+            events.some(
+              (e) =>
+                e.eventType ===
+                  (mode === 'expired'
+                    ? 'source.answer.failed'
+                    : 'run.failed') && e.correlationId === 'bootstrap-goal',
+            ),
+          ).toBe(true);
+          if (mode === 'expired') {
+            expect(
+              await db.db
+                .select()
+                .from(s.agentRunsPostgres)
+                .where(eq(s.agentRunsPostgres.appId, appId)),
+            ).toHaveLength(0);
+          } else {
+            expect(sourceCounts).toHaveBeenCalledTimes(1);
+            const key = makeAgentThreadQueueKey(
+              `app:${appId}:D1`,
+              session.agentId,
+              null,
+              `control:${appId}`,
+            );
+            const runsBeforeRetry = await db.db
+              .select()
+              .from(s.agentRunsPostgres)
+              .where(eq(s.agentRunsPostgres.appId, appId));
+            queue.enqueueSourceAnswerCheck(key);
+            await new Promise((r) => setTimeout(r, 1200));
+            expect(sourceCounts).toHaveBeenCalledTimes(1);
+            expect(mockSpawnAgent).not.toHaveBeenCalled();
+            expect(
+              await db.db
+                .select()
+                .from(s.agentRunsPostgres)
+                .where(eq(s.agentRunsPostgres.appId, appId)),
+            ).toHaveLength(runsBeforeRetry.length);
+          }
+        }
+        const runs = await db.db
+          .select()
+          .from(s.agentRunsPostgres)
+          .where(eq(s.agentRunsPostgres.appId, appId));
+        for (const run of runs)
+          expect(run.configVersionId).toBe(nativeConfigId);
+        expect(
+          await db.db
+            .select()
+            .from(s.agentConfigVersionsPostgres)
+            .where(eq(s.agentConfigVersionsPostgres.id, originalConfig!.id)),
+        ).toHaveLength(0);
+        const [work] = await db.db
+          .select()
+          .from(s.liveAdmissionWorkItemsPostgres)
+          .where(eq(s.liveAdmissionWorkItemsPostgres.appId, appId));
+        expect(work?.claimWorkerInstanceId).toBe(workerId);
+      } finally {
+        vi.useRealTimers();
+        restoreEventExchange?.();
+        if (pump) clearInterval(pump);
+        await loop?.stop();
+        await queue?.shutdown(1000);
+        await authority?.shutdown();
+        if (server)
+          await new Promise<void>((resolve) => server!.close(() => resolve()));
+        registerMemoryLlmClient(previous);
+        await db.db.delete(s.appsPostgres).where(eq(s.appsPostgres.id, appId));
+        if (workerId)
+          await db.db
+            .delete(s.workerInstancesPostgres)
+            .where(eq(s.workerInstancesPostgres.id, workerId));
+        await db.close();
+      }
+    },
+    60000,
+  );
 });

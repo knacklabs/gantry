@@ -67,7 +67,11 @@ export class PostgresAgentRepository implements AgentRepository {
         set: {
           name: agent.name,
           status: agent.status,
-          currentConfigVersionId: agent.currentConfigVersionId ?? null,
+          // Desired-state identity updates omit native configuration. Preserve
+          // its current pointer unless the caller explicitly supplies one.
+          ...(agent.currentConfigVersionId !== undefined
+            ? { currentConfigVersionId: agent.currentConfigVersionId }
+            : {}),
           updatedAt: agent.updatedAt,
         },
       });

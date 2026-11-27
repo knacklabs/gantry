@@ -1,4 +1,144 @@
 export interface paths {
+    "/v1/sessions/{sessionId}/source-documents/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read generated source document
+         * @description Returns a verified goal-bound artifact receipt and bounded binary bytes for trusted application publication.
+         */
+        post: operations["readSourceDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/source-generation/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild source generation
+         * @description Invalidates derived context and attempts while preserving canonical prior source history. Does not admit model work.
+         */
+        post: operations["rebuildSourceGeneration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agentId}/source-channel-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Provision native source profile
+         * @description Pins the app agent allowed answer tools and native source capacity.
+         */
+        put: operations["configureSourceChannelProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/source-messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Persist source history
+         * @description Stores source history without admitting any model work.
+         */
+        post: operations["appendSourceMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a stored question
+         * @description Admits an explicit answer using an immutable source cutoff.
+         */
+        post: operations["requestSourceAnswer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/source-history/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle source history
+         * @description Settles one durable bounded history request.
+         */
+        post: operations["settleSourceHistory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{sessionId}/execution-authority/settle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Settle current authority
+         * @description Settles current answer execution authority.
+         */
+        post: operations["settleExecutionAuthority"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/status": {
         parameters: {
             query?: never;
@@ -861,6 +1001,26 @@ export interface paths {
          * @description Updates install metadata, memory, or thread policy.
          */
         patch: operations["updateConversationInstall"];
+        trace?: never;
+    };
+    "/v1/capability-tasks/{taskId}/artifacts/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a capability task artifact
+         * @description Reads one JSON FileArtifact for a waiting task using a capability-audience-restricted API key and fenced task token.
+         */
+        post: operations["readCapabilityTaskArtifact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/usage": {
@@ -3366,7 +3526,7 @@ export interface components {
             /** Format: uri */
             url: string;
             enabled: boolean;
-            eventTypes: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.running" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId: string | null;
             sessionId: string | null;
             jobId: string | null;
@@ -3384,7 +3544,7 @@ export interface components {
             url: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.running" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -3395,7 +3555,7 @@ export interface components {
             url?: string;
             secret?: string;
             enabled?: boolean;
-            eventTypes?: ("session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
+            eventTypes?: ("source.generation.rebuilt" | "source.message.stored" | "source.answer.accepted" | "source.answer.running" | "source.answer.failed" | "source.answer.canceled" | "session.message.inbound" | "session.message.outbound" | "session.message.rejected" | "session.message.streaming" | "session.typing" | "session.progress" | "session.compaction.queued" | "session.compaction.running" | "session.compaction.ready" | "session.compaction.degraded" | "session.compaction.failed" | "session.compaction.timeout" | "conversation.message.inbound" | "conversation.message.outbound" | "identity.resolved" | "identity.alias.linked" | "identity.alias.retired" | "identity.merged" | "identity.unmerged" | "memory.hydration.decision" | "job.triggered" | "job.run.started" | "job.started" | "job.streaming" | "job.heartbeat" | "job.setup_required" | "job.tool_denied" | "job.tool_activity" | "task.started" | "task.progress" | "task.updated" | "task.notification" | "job.completed" | "job.failed" | "job.run.completed" | "job.run.failed" | "permission.requested" | "permission.allowed" | "permission.denied" | "permission.cancelled" | "permission.persisted" | "permission.resumed" | "permission.final_outcome" | "permission.yolo_denylist_hit" | "permission.classifier_decision" | "interaction.pending" | "interaction.cancellation_discarded" | "credential.capability.updated" | "credential.capability.removed" | "credential.model.updated" | "credential.model.disabled" | "credential.model.used" | "profile.file.read" | "profile.file.updated" | "egress.connect" | "mcp.tool_activity" | "sandbox.blocked" | "model.usage" | "run.started" | "run.startup_diagnostic" | "run.failover" | "run.canceled" | "run.paused" | "run.completed" | "run.failed" | "run.timeout" | "run.dead_lettered" | "proactive.surfacing.outcome" | "webhook.test")[] | null;
             agentId?: string | null;
             sessionId?: string | null;
             jobId?: string | null;
@@ -3818,6 +3978,10 @@ export interface components {
             capabilityId: string;
             operation: string;
         };
+        CapabilityTaskArtifactReadRequest: {
+            completionToken: string;
+            artifactId: string;
+        };
         CapabilityTaskSettlementResponse: {
             /** @enum {string} */
             outcome: "completed" | "idempotent" | "late_ignored";
@@ -3832,6 +3996,12 @@ export interface components {
             status: "waiting_external";
             /** @constant */
             created: false;
+        };
+        CapabilityTaskArtifactReadResponse: {
+            artifactId: string;
+            contentHash: string;
+            contentType: string;
+            value: unknown;
         };
         LlmJsonValue: unknown;
         LlmJsonObject: unknown;
@@ -4445,6 +4615,483 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readSourceDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    artifactId: string;
+                    answerGoalId: string;
+                    attemptId: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        receipt: {
+                            artifactId: string;
+                            sessionId: string;
+                            runId: string;
+                            answerGoalId: string;
+                            attemptId: string;
+                            binding: {
+                                discussionId: string;
+                                generation: number;
+                                workspaceId: string;
+                                tenderId: string;
+                            };
+                            /** @enum {string} */
+                            format: "pdf" | "docx";
+                            fileName: string;
+                            /** @enum {string} */
+                            contentType: "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                            sizeBytes: number;
+                            sha256: string;
+                            rendererVersion: string;
+                            manifestHash: string;
+                            canonicalContentHash?: string;
+                            conversion?: {
+                                artifactId: string;
+                                sourceMessageId: string;
+                                sha256: string;
+                                manifestHash: string;
+                            };
+                            citationIds: string[];
+                            metadataFields: string[];
+                        };
+                        bytesBase64: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rebuildSourceGeneration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    nextGeneration: number;
+                    idempotencyKey: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        binding: {
+                            discussionId: string;
+                            generation: number;
+                            workspaceId: string;
+                            tenderId: string;
+                        };
+                        contiguousPosition: string;
+                        persistedEventId: string;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    configureSourceChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Agent id. */
+                agentId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    appId: string;
+                    profile: {
+                        instructionsVersion: string;
+                        responseSchema: {
+                            [key: string]: unknown;
+                        };
+                        callerResolvedTools: {
+                            name: string;
+                            description: string;
+                            inputSchema: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        maxToolInteractions: number;
+                        interactionTimeoutMs: number;
+                    };
+                    concurrency: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        profileHash: string;
+                        effectiveConcurrency: number;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    appendSourceMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    authority: {
+                        authorityId: string;
+                        authorityVersion: string;
+                        /** @enum {string} */
+                        kind: "service" | "person";
+                        subject: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                    message: {
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        authorId: string;
+                        /** @enum {string} */
+                        authorKind: "human" | "system" | "assistant";
+                        authorDisplayName: string;
+                        text: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        replyToSourceId: string | null;
+                        revisionId: string;
+                        /** @enum {string} */
+                        origin: "human" | "revision" | "runtime_output";
+                        contentHash: string;
+                        runtimeOutputId?: string;
+                        answerGoalId?: string;
+                    };
+                    idempotencyKey: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        stored: true;
+                        replayed: boolean;
+                        messageId: string;
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        generation: number;
+                        persistedEventId: string;
+                        contiguousPosition: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    requestSourceAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    authority: {
+                        authorityId: string;
+                        authorityVersion: string;
+                        /** @enum {string} */
+                        kind: "service" | "person";
+                        subject: string;
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                    questionSourceId: string;
+                    sourceCutoff: string;
+                    requesterId: string;
+                    answerGoalId: string;
+                    attemptId: string;
+                    idempotencyKey: string;
+                    revisionId: string;
+                    /** @enum {boolean} */
+                    analysisReady: true;
+                    executionProfile?: {
+                        instructionsVersion: string;
+                        responseSchema: {
+                            [key: string]: unknown;
+                        };
+                        callerResolvedTools: {
+                            name: string;
+                            description: string;
+                            inputSchema: {
+                                [key: string]: unknown;
+                            };
+                        }[];
+                        maxToolInteractions: number;
+                        interactionTimeoutMs: number;
+                    };
+                    model: string;
+                    maxOutputTokens: number;
+                    /** Format: date-time */
+                    deadlineAt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                        answerGoalId: string;
+                        attemptId: string;
+                        questionMessageId: string;
+                        acceptedEventId: string;
+                        /** @enum {string} */
+                        state: "preparing" | "queued" | "running" | "completed" | "failed" | "canceled";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    settleSourceHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    interactionId: string;
+                    idempotencyKey: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    sourceVersion: string;
+                    /** @enum {string} */
+                    status: "ok" | "unavailable" | "rejected" | "temporary_failure";
+                    messages: {
+                        sourceMessageId: string;
+                        sourcePosition: string;
+                        authorId: string;
+                        /** @enum {string} */
+                        authorKind: "human" | "system" | "assistant";
+                        authorDisplayName: string;
+                        text: string;
+                        /** Format: date-time */
+                        createdAt: string;
+                        replyToSourceId: string | null;
+                        revisionId: string;
+                        /** @enum {string} */
+                        origin: "human" | "revision" | "runtime_output";
+                        contentHash: string;
+                        runtimeOutputId?: string;
+                        answerGoalId?: string;
+                    }[];
+                    returnedThrough: string;
+                    hasMore: boolean;
+                    errorCode?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    settleExecutionAuthority: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session id. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": {
+                    interactionId: string;
+                    idempotencyKey: string;
+                    binding: {
+                        discussionId: string;
+                        generation: number;
+                        workspaceId: string;
+                        tenderId: string;
+                    };
+                    answerGoalId: string;
+                    attemptId: string;
+                    allowed: boolean;
+                    authorityVersion: string;
+                    /** Format: date-time */
+                    expiresAt: string;
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {boolean} */
+                        accepted: true;
+                        replayed: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getStatus: {
         parameters: {
             query?: never;
@@ -6087,6 +6734,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationInstall"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    readCapabilityTaskArtifact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Durable external capability task id. */
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityTaskArtifactReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityTaskArtifactReadResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -112,6 +112,7 @@ export async function startGantryRuntime(
     },
   });
   const channelWiring = createChannelWiring(app, {
+    appId: runtimeAppId,
     brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
     groupJoinOnboarding: createGroupJoinOnboardingCoordinator({
       runtimeHome: GANTRY_HOME,

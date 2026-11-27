@@ -10,6 +10,7 @@ import {
   type LiveTurnLeaseDeps,
 } from '@core/application/live-turns/live-turn-lease-service.js';
 import {
+  computeHostCapacityPlan,
   hostExecutionSlotHolderId,
   hostExecutionSlotKey,
 } from '@core/shared/host-capacity.js';
@@ -19,6 +20,12 @@ import type {
 } from '@core/domain/ports/live-turns.js';
 
 import { FakeCoordination, FakeLiveTurns } from './live-turn-lease-fakes.js';
+
+import {
+  configureRunSlotBackend,
+  resetSchedulerRunSlots,
+  tryAcquireRunSlot,
+} from '@core/jobs/concurrency.js';
 
 const originalHostId = process.env.GANTRY_HOST_ID;
 
@@ -60,6 +67,70 @@ function makeDeps(): {
 }
 
 describe('claimLiveTurnExecution', () => {
+  it('runs independent long background work and source chat under one four-slot host budget', async () => {
+    process.env.GANTRY_HOST_ID = 'mixed-workload-host';
+    const { deps, coordination } = makeDeps();
+    const plan = computeHostCapacityPlan({
+      queue: { maxMessageRuns: 3, maxJobRuns: 4 },
+      processRole: 'all',
+      cpuThreads: 4,
+    });
+    configureRunSlotBackend({
+      repository: coordination,
+      workerInstanceId: 'w1',
+    });
+    const releases: Array<() => void> = [];
+    try {
+      for (const scope of [
+        'long-browser-work',
+        'document-research-a',
+        'document-research-b',
+      ]) {
+        const release = await tryAcquireRunSlot(scope, 4, {
+          hostCapacity: plan.backgroundCapacity,
+          hostBudgetCapacity: plan.budget,
+        });
+        expect(release, scope).toBeTypeOf('function');
+        if (release) releases.push(release);
+      }
+      expect(
+        await tryAcquireRunSlot('excess-background', 4, {
+          hostCapacity: plan.backgroundCapacity,
+          hostBudgetCapacity: plan.budget,
+        }),
+      ).toBeNull();
+      const chat = await claimLiveTurnExecution({
+        deps,
+        turnId: 'chat-turn',
+        scope: makeScope(),
+        runId: 'chat-run',
+        slotCapacity: plan.interactiveCapacity,
+        hostSlotCapacity: plan.interactiveCapacity,
+        hostBudgetCapacity: plan.budget,
+        leaseTtlMs: 60000,
+        pendingMessage: { kind: 'source_answer' },
+      });
+      expect(chat.outcome).toBe('claimed');
+      expect(coordination.slotHolders(hostExecutionSlotKey('w1'))).toHaveLength(
+        4,
+      );
+      const extra = await claimLiveTurnExecution({
+        deps,
+        turnId: 'extra-chat-turn',
+        scope: makeScope({ conversationId: 'another-discussion' }),
+        runId: 'extra-run',
+        slotCapacity: plan.interactiveCapacity,
+        hostSlotCapacity: plan.interactiveCapacity,
+        hostBudgetCapacity: plan.budget,
+        leaseTtlMs: 60000,
+      });
+      expect(extra.outcome).toBe('no_capacity');
+    } finally {
+      releases.forEach((release) => release());
+      resetSchedulerRunSlots();
+    }
+  });
+
   it('claims slot, scope, and lease, then projects the lease onto the turn', async () => {
     const { deps, liveTurns, coordination } = makeDeps();
     const result = await claimLiveTurnExecution({

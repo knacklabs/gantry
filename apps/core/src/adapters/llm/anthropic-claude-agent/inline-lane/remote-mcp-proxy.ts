@@ -152,7 +152,7 @@ async function forwardRequest(
   const upstream = await input.guardedFetch(target, {
     method: request.method,
     headers: forwardedRequestHeaders(request.headers, input.configuredHeaders),
-    ...(body.length > 0 ? { body } : {}),
+    ...(body.length > 0 ? { body: Buffer.from(body) } : {}),
     redirect: 'error',
     signal: abort.signal,
   });

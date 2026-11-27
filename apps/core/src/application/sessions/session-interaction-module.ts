@@ -1,3 +1,21 @@
+import type {
+  ReadSourceDocument,
+  ReadSourceDocumentResponse,
+} from '@gantry/contracts';
+import type {
+  RebuildSourceGeneration,
+  RebuildSourceGenerationResponse,
+} from '@gantry/contracts';
+import type {
+  RequestSourceAnswer,
+  RequestSourceAnswerResponse,
+  SettleSourceHistory,
+  SettleExecutionAuthority,
+} from '@gantry/contracts';
+import type {
+  AppendSourceMessageRequest,
+  AppendSourceMessageResponse,
+} from '@gantry/contracts';
 import type { AgentControlOverrides, NewMessage } from '../../domain/types.js';
 import { AgentRunResponseSchema } from '@gantry/contracts';
 import type {
@@ -52,6 +70,42 @@ export type SessionResponseRouteRecord = {
 };
 
 export interface SessionControlPort {
+  readSourceDocument?(
+    appId: string,
+    sessionId: string,
+    input: ReadSourceDocument,
+  ): Promise<ReadSourceDocumentResponse>;
+  configureSourceChannelProfile?(
+    appId: string,
+    agentId: string,
+    profile: NonNullable<RequestSourceAnswer['executionProfile']>,
+    concurrency: number,
+  ): Promise<{ profileHash: string; effectiveConcurrency: number }>;
+  requestSourceAnswer?(
+    appId: string,
+    sessionId: string,
+    input: RequestSourceAnswer,
+  ): Promise<RequestSourceAnswerResponse>;
+  settleSourceHistory?(
+    appId: string,
+    sessionId: string,
+    input: SettleSourceHistory,
+  ): Promise<{ accepted: true; replayed: boolean }>;
+  settleExecutionAuthority?(
+    appId: string,
+    sessionId: string,
+    input: SettleExecutionAuthority,
+  ): Promise<{ accepted: true; replayed: boolean }>;
+  rebuildSourceGeneration?(
+    appId: string,
+    sessionId: string,
+    input: RebuildSourceGeneration,
+  ): Promise<RebuildSourceGenerationResponse>;
+  appendSourceMessage?(
+    appId: string,
+    sessionId: string,
+    input: AppendSourceMessageRequest,
+  ): Promise<AppendSourceMessageResponse>;
   ensureAppSession(input: {
     appId: string;
     conversationId: string;
@@ -109,6 +163,124 @@ export type SessionQueueIntent = {
 
 export class SessionInteractionModule {
   constructor(private readonly deps: SessionInteractionDeps) {}
+
+  async readSourceDocument(input: {
+    appId: string;
+    sessionId: string;
+    request: ReadSourceDocument;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.readSourceDocument)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source document read unavailable',
+      );
+    return this.deps.control.readSourceDocument(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
+  async configureSourceChannelProfile(input: {
+    appId: string;
+    agentId: string;
+    profile: NonNullable<RequestSourceAnswer['executionProfile']>;
+    concurrency: number;
+  }) {
+    if (!this.deps.control.configureSourceChannelProfile)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source profile provisioning unavailable',
+      );
+    return this.deps.control.configureSourceChannelProfile(
+      input.appId,
+      input.agentId,
+      input.profile,
+      input.concurrency,
+    );
+  }
+  async requestSourceAnswer(input: {
+    appId: string;
+    sessionId: string;
+    request: RequestSourceAnswer;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.requestSourceAnswer)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source answers unavailable',
+      );
+    return this.deps.control.requestSourceAnswer(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
+  async settleSourceHistory(input: {
+    appId: string;
+    sessionId: string;
+    request: SettleSourceHistory;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.settleSourceHistory)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source history unavailable',
+      );
+    return this.deps.control.settleSourceHistory(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
+  async settleExecutionAuthority(input: {
+    appId: string;
+    sessionId: string;
+    request: SettleExecutionAuthority;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.settleExecutionAuthority)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source authority unavailable',
+      );
+    return this.deps.control.settleExecutionAuthority(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
+
+  async rebuildSourceGeneration(input: {
+    appId: string;
+    sessionId: string;
+    request: RebuildSourceGeneration;
+  }) {
+    if (!this.deps.control.rebuildSourceGeneration)
+      throw new Error('Native source generation rebuild unavailable');
+    return this.deps.control.rebuildSourceGeneration(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
+  async appendSourceMessage(input: {
+    appId: string;
+    sessionId: string;
+    request: AppendSourceMessageRequest;
+  }) {
+    await this.requireSession(input);
+    if (!this.deps.control.appendSourceMessage)
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Source channel persistence unavailable',
+      );
+    return this.deps.control.appendSourceMessage(
+      input.appId,
+      input.sessionId,
+      input.request,
+    );
+  }
 
   async ensureSession(input: {
     appId: string;
@@ -394,9 +566,10 @@ export class SessionInteractionModule {
     enqueue: SessionQueueIntent;
   }> {
     const session = await this.requireSession(input);
-    const agentSession = await this.deps.repositories.agentSessions?.getAgentSession(
-      session.sessionId as never,
-    );
+    const agentSession =
+      await this.deps.repositories.agentSessions?.getAgentSession(
+        session.sessionId as never,
+      );
     if (agentSession?.status === 'archived') {
       throw new ApplicationError('CONFLICT', 'Session is archived');
     }

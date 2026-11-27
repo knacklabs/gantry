@@ -39,6 +39,32 @@ describe('GroupQueue', () => {
     vi.useRealTimers();
   });
 
+  it('reserves a native source execution lane while ordinary message capacity is occupied', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1 });
+    const release = new Map<string, () => void>();
+    const started: string[] = [];
+    queue.setProcessMessagesFn(async (jid) => {
+      started.push(jid);
+      await new Promise<void>((resolve) => release.set(jid, resolve));
+      return true;
+    });
+    queue.enqueueMessageCheck('ordinary');
+    for (let index = 0; index < 4; index++)
+      queue.enqueueSourceAnswerCheck(`source-${index}`);
+    queue.enqueueSourceAnswerCheck('source-0');
+    await Promise.resolve();
+    expect(started).toEqual([
+      'ordinary',
+      'source-0',
+      'source-1',
+      'source-2',
+      'source-3',
+    ]);
+    for (const resolve of release.values()) resolve();
+    await vi.runAllTimersAsync();
+    expect(started.filter((jid) => jid === 'source-0').length).toBe(2);
+  });
+
   // --- Single group at a time ---
 
   it('selects priority task groups from large backlogs without rotating the queue', () => {

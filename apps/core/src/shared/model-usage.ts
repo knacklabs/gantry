@@ -119,6 +119,11 @@ export function accumulateModelUsage(
 export function normalizeModelUsage(input: {
   message: unknown;
   fallbackModel?: string;
+  /** Explicit pinned metadata for a single-model host usage result. */
+  modelEntry?: ModelCatalogEntry;
+  modelAlias?: string;
+  /** Host memory usage reports fresh input and cache tokens separately. */
+  canonicalUsage?: boolean;
 }): NormalizedModelUsage | undefined {
   const result = input.message as {
     total_cost_usd?: number;
@@ -214,8 +219,9 @@ export function normalizeModelUsage(input: {
   }
 
   if (result.usage) {
-    const entry = findModelByRunnerModel(input.fallbackModel);
-    const inputTokens =
+    const entry =
+      input.modelEntry ?? findModelByRunnerModel(input.fallbackModel);
+    const freshOrWireInputTokens =
       numeric(result.usage.input_tokens) || numeric(result.usage.prompt_tokens);
     const outputTokens =
       numeric(result.usage.output_tokens) ||
@@ -226,13 +232,21 @@ export function normalizeModelUsage(input: {
       ? resolveModelCacheSupport(entry).prompt.usageFields
       : undefined;
     const cacheReadTokens = numeric(
-      readPath(result.usage, usageFields?.readTokens),
+      input.canonicalUsage
+        ? result.usage.cache_read_input_tokens
+        : readPath(result.usage, usageFields?.readTokens),
     );
     const cacheWriteTokens = numeric(
-      readPath(result.usage, usageFields?.writeTokens),
+      input.canonicalUsage
+        ? result.usage.cache_creation_input_tokens
+        : readPath(result.usage, usageFields?.writeTokens),
     );
+    const inputTokens =
+      input.canonicalUsage && cacheProvider !== DIRECT_CACHE_PROVIDER
+        ? freshOrWireInputTokens + cacheReadTokens + cacheWriteTokens
+        : freshOrWireInputTokens;
     return {
-      model: entry?.recommendedAlias ?? input.fallbackModel,
+      model: input.modelAlias ?? entry?.recommendedAlias ?? input.fallbackModel,
       responseFamily: entry?.responseFamily,
       modelRoute: entry?.modelRoute.id,
       provider: entry?.modelRoute.id,
@@ -240,9 +254,11 @@ export function normalizeModelUsage(input: {
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
-      totalBillableInputTokens: supportsCacheAccounting
-        ? Math.max(0, inputTokens - cacheReadTokens)
-        : inputTokens,
+      totalBillableInputTokens: input.canonicalUsage
+        ? freshOrWireInputTokens
+        : supportsCacheAccounting
+          ? Math.max(0, inputTokens - cacheReadTokens)
+          : inputTokens,
       estimatedCostUsd: estimateUsageCostUsd(entry, {
         inputTokens,
         outputTokens,

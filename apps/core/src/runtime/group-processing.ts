@@ -1,3 +1,4 @@
+import { formatMessages } from '../messaging/router.js';
 import * as config from '../config/index.js';
 import {
   encodeGroupMessageCursor,
@@ -94,20 +95,46 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const scopedQueue = options.queued === true || threadId !== undefined;
     const opsRepository = ops();
     const replayCursor = await deps.getCursor(queueJid);
-    const replay = await collectPendingMessagesSince({
-      getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
-      chatJid,
-      sinceCursor: replayCursor,
-      pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
-      maxMessages: config.MAX_MESSAGES_PER_PROMPT,
-      options: {
-        ...(scopedQueue ? { threadId: threadId ?? null } : {}),
-        ...(group.providerAccountId
-          ? { providerAccountId: group.providerAccountId }
-          : {}),
-      },
+    const sourceAnswer = await opsRepository.getPreparedSourceAnswer?.({
+      appId: turnAppId,
+      conversationJid: chatJid,
     });
+    const replay = sourceAnswer
+      ? {
+          messages: sourceAnswer.messages,
+          hasMore: false,
+          cursorAfter: null,
+          responseSchema: sourceAnswer.request.executionProfile?.responseSchema,
+          agentControls: {
+            maxOutputTokens: sourceAnswer.request.maxOutputTokens,
+          },
+        }
+      : await collectPendingMessagesSince({
+          getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
+          chatJid,
+          sinceCursor: replayCursor,
+          pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+          maxMessages: config.MAX_MESSAGES_PER_PROMPT,
+          options: {
+            ...(scopedQueue ? { threadId: threadId ?? null } : {}),
+            ...(group.providerAccountId
+              ? { providerAccountId: group.providerAccountId }
+              : {}),
+          },
+        });
     const { messages: missedMessages } = replay;
+    const sourceHeartbeat = sourceAnswer
+      ? setInterval(() => {
+          void opsRepository
+            .renewPreparedSourceAnswer?.(
+              sourceAnswer.id,
+              sourceAnswer.claimToken,
+            )
+            .then((valid) => {
+              if (!valid) void deps.queue.closeStdin(queueJid);
+            });
+        }, 15000)
+      : undefined;
     if (missedMessages.length === 0) return true;
     const latestMessage = missedMessages[missedMessages.length - 1];
     const cursorForMessage = (message: typeof latestMessage) =>
@@ -155,7 +182,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       group.conversationKind,
     );
     const rawMemoryUserId =
-      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
+      sourceAnswer?.request.requesterId ??
+      options.memoryContext?.userId ??
+      resolveMemoryUserId(missedMessages);
     const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
       deps,
       appId: turnAppId,
@@ -165,54 +194,62 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       chatJid,
       threadId: activeThreadId,
     });
-    const cmdResult = await handleSessionCommand({
-      missedMessages,
-      groupName: group.name,
-      triggerPattern: config.getTriggerPattern(group.trigger),
-      timezone: config.TIMEZONE,
-      deps: createGroupProcessingSessionCommandHandlers({
-        ops,
-        appId: turnAppId,
-        defaultModel: config.getDefaultModelConfig('interactive', group.folder)
-          .model,
-        group,
-        chatJid,
-        threadId: activeThreadId,
-        defaultScope: defaultMemoryScope,
-        memoryUserId: resolveActionMemoryUserId,
-        collectMemory: collectSessionMemory,
-        deps,
-        queueJid,
-        missedMessages,
-        runAgent,
-        processOptions: options,
-        commandOverrideRouteKey,
-        setTyping: setTurnTyping,
-        sendMessage: sendMessageToChannel,
-        buildMessageOptions,
-        triggerPattern: config.getTriggerPattern(group.trigger),
-        getDefaultModel: () =>
-          config.getDefaultModelConfig('interactive', group.folder).model,
-        getJobModelDefaults: () => ({
-          oneTime: config.getDefaultModelConfig('oneTimeJob', group.folder)
-            .model,
-          recurring: config.getDefaultModelConfig('recurringJob', group.folder)
-            .model,
-        }),
-        getConfiguredModelProviders: () =>
-          getConfiguredModelProvidersForApp(turnAppId),
-        getModelFamilyOrder: () =>
-          config.getRuntimeSettingsForConfig().modelFamilies,
-        getDefaultPermissionMode: () =>
-          config.getSelectedAgentPermissionMode(group.folder),
-        getMemorySettings: () => config.getRuntimeSettingsForConfig().memory,
-      }),
-    });
+    const cmdResult = sourceAnswer
+      ? { handled: false, success: true }
+      : await handleSessionCommand({
+          missedMessages,
+          groupName: group.name,
+          triggerPattern: config.getTriggerPattern(group.trigger),
+          timezone: config.TIMEZONE,
+          deps: createGroupProcessingSessionCommandHandlers({
+            ops,
+            appId: turnAppId,
+            defaultModel: config.getDefaultModelConfig(
+              'interactive',
+              group.folder,
+            ).model,
+            group,
+            chatJid,
+            threadId: activeThreadId,
+            defaultScope: defaultMemoryScope,
+            memoryUserId: resolveActionMemoryUserId,
+            collectMemory: collectSessionMemory,
+            deps,
+            queueJid,
+            missedMessages,
+            runAgent,
+            processOptions: options,
+            commandOverrideRouteKey,
+            setTyping: setTurnTyping,
+            sendMessage: sendMessageToChannel,
+            buildMessageOptions,
+            triggerPattern: config.getTriggerPattern(group.trigger),
+            getDefaultModel: () =>
+              config.getDefaultModelConfig('interactive', group.folder).model,
+            getJobModelDefaults: () => ({
+              oneTime: config.getDefaultModelConfig('oneTimeJob', group.folder)
+                .model,
+              recurring: config.getDefaultModelConfig(
+                'recurringJob',
+                group.folder,
+              ).model,
+            }),
+            getConfiguredModelProviders: () =>
+              getConfiguredModelProvidersForApp(turnAppId),
+            getModelFamilyOrder: () =>
+              config.getRuntimeSettingsForConfig().modelFamilies,
+            getDefaultPermissionMode: () =>
+              config.getSelectedAgentPermissionMode(group.folder),
+            getMemorySettings: () =>
+              config.getRuntimeSettingsForConfig().memory,
+          }),
+        });
     if (cmdResult.handled) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return (sendProgressToChannel.retire(), cmdResult.success);
     }
     if (
+      !sourceAnswer &&
       !(await groupTurnHasRequiredTrigger({
         group,
         chatJid,
@@ -259,27 +296,35 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           ? { jid: chatJid, ...latestMessageReactionTarget }
           : null,
       );
-      const memoryUserId = await resolveActionMemoryUserId();
-      const { prompt, recallQuery } =
-        await buildGroupProcessingConversationContext({
-          deps,
-          repository: opsRepository,
-          groupName: group.name,
-          agentFolder: group.folder,
-          chatJid,
-          conversationId: group.conversationId,
-          providerAccountId: group.providerAccountId,
-          activeThreadId,
-          latestMessage,
-          currentMessages: missedMessages,
-          timezone: config.TIMEZONE,
-        });
+      const memoryUserId =
+        sourceAnswer?.request.requesterId ??
+        (await resolveActionMemoryUserId());
+      const { prompt, recallQuery } = sourceAnswer
+        ? {
+            prompt: formatMessages(sourceAnswer.messages, config.TIMEZONE),
+            recallQuery: sourceAnswer.messages.at(-1)?.content ?? '',
+          }
+        : await buildGroupProcessingConversationContext({
+            deps,
+            repository: opsRepository,
+            groupName: group.name,
+            agentFolder: group.folder,
+            chatJid,
+            conversationId: group.conversationId,
+            providerAccountId: group.providerAccountId,
+            activeThreadId,
+            latestMessage,
+            currentMessages: missedMessages,
+            timezone: config.TIMEZONE,
+          });
       const previousCursor = (await deps.getCursor(queueJid)) || '';
-      deps.setCursor(
-        queueJid,
-        cursorForMessage(missedMessages[missedMessages.length - 1]),
-      );
-      await deps.saveState();
+      if (!sourceAnswer) {
+        deps.setCursor(
+          queueJid,
+          cursorForMessage(missedMessages[missedMessages.length - 1]),
+        );
+        await deps.saveState();
+      }
       resetGroupStreamingForTurn({
         chatJid,
         groupName: group.name,
@@ -665,6 +710,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           queueJid,
           outputCallbacks.enqueue,
           {
+            sourceAnswer,
+            ...(sourceAnswer
+              ? {
+                  timeoutMs: Math.max(
+                    1,
+                    Math.min(
+                      180000,
+                      Date.parse(sourceAnswer.request.deadlineAt) - Date.now(),
+                    ),
+                  ),
+                }
+              : {}),
             memoryContext: {
               source: 'message',
               userId: memoryUserId,
@@ -809,10 +866,23 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         sendProgress: sendProgressToChannel,
         sendDone: sendTrackedDoneProgress,
       });
+      if (sourceAnswer) {
+        await opsRepository.finishPreparedSourceAnswer?.(
+          sourceAnswer.id,
+          resultOk && output === 'success' && !hadError,
+          sourceAnswer.claimToken,
+        );
+        for (const key of (await opsRepository.pendingSourceAnswerQueueKeys?.()) ??
+          [])
+          if (deps.queue.enqueueSourceAnswerCheck)
+            deps.queue.enqueueSourceAnswerCheck(key);
+          else deps.queue.enqueueMessageCheck(key);
+      }
       if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       options?.onRunResult?.(output);
       return resultOk;
     } finally {
+      if (sourceHeartbeat) clearInterval(sourceHeartbeat);
       await liveness.terminal();
       const activeCleanup =
         turnCleanup.activeTurnUiCleanupByQueue.get(queueJid);

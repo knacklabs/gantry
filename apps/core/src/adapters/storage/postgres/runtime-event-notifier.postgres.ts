@@ -1,3 +1,5 @@
+import { sql } from 'drizzle-orm';
+import type { CanonicalExecutor } from './repositories/canonical-graph-repository.postgres.js';
 import type { Pool, PoolClient } from 'pg';
 
 import type { RuntimeEventNotifier } from '../../../application/runtime-events/runtime-event-exchange.js';
@@ -25,19 +27,49 @@ export interface RuntimeEventWakeup {
   eventType: RuntimeEvent['eventType'];
 }
 
-function wakeupFromEvent(event: RuntimeEvent): RuntimeEventWakeup {
-  return {
+type RuntimeEventWakeupInput = {
+  eventId: number;
+  appId: string;
+  eventType: string;
+  sessionId?: string | null;
+  runId?: string | null;
+  jobId?: string | null;
+  triggerId?: string | null;
+  conversationId?: string | null;
+  threadId?: string | null;
+};
+
+function runtimeEventWakeupPayload(event: RuntimeEventWakeupInput): string {
+  const payload = JSON.stringify({
     eventId: event.eventId,
     appId: event.appId,
     complete: true,
-    sessionId: event.sessionId,
-    runId: event.runId,
-    jobId: event.jobId,
-    triggerId: event.triggerId,
-    conversationId: event.conversationId,
-    threadId: event.threadId,
+    sessionId: event.sessionId ?? undefined,
+    runId: event.runId ?? undefined,
+    jobId: event.jobId ?? undefined,
+    triggerId: event.triggerId ?? undefined,
+    conversationId: event.conversationId ?? undefined,
+    threadId: event.threadId ?? undefined,
     eventType: event.eventType,
-  };
+  });
+  return Buffer.byteLength(payload, 'utf8') <= PG_NOTIFY_PAYLOAD_SAFE_BYTES
+    ? payload
+    : JSON.stringify({
+        eventId: event.eventId,
+        appId: event.appId,
+        complete: false,
+        eventType: event.eventType,
+      });
+}
+
+/** PostgreSQL delivers this wakeup only after the event's transaction commits. */
+export async function queueRuntimeEventWakeup(
+  tx: CanonicalExecutor,
+  event: RuntimeEventWakeupInput,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_notify(${RUNTIME_EVENTS_CHANNEL}, ${runtimeEventWakeupPayload(event)})`,
+  );
 }
 
 export function parseRuntimeEventWakeup(
@@ -98,16 +130,7 @@ export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
   constructor(private readonly pool: Pool) {}
 
   async notify(event: RuntimeEvent): Promise<void> {
-    const fullPayload = JSON.stringify(wakeupFromEvent(event));
-    const payload =
-      Buffer.byteLength(fullPayload, 'utf8') <= PG_NOTIFY_PAYLOAD_SAFE_BYTES
-        ? fullPayload
-        : JSON.stringify({
-            eventId: event.eventId,
-            appId: event.appId,
-            complete: false,
-            eventType: event.eventType,
-          });
+    const payload = runtimeEventWakeupPayload(event);
     try {
       await this.pool.query('SELECT pg_notify($1, $2)', [
         RUNTIME_EVENTS_CHANNEL,

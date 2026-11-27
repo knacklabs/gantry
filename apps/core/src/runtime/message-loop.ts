@@ -70,6 +70,9 @@ export interface MessageLoopDeps {
     options?: { providerAccountId?: string; threadId?: string },
   ) => Promise<void>;
   queue: {
+    enqueueSourceAnswerCheck?: (
+      queueJid: string,
+    ) => void | boolean | Promise<void | boolean>;
     sendMessage: (
       chatJid: string,
       text: string,
@@ -472,6 +475,12 @@ export async function processLiveAdmissionWorkItem(
   deps: MessageLoopDeps,
   item: LiveAdmissionWorkItem,
 ): Promise<MessageAdmissionProcessingResult> {
+  if (item.triggerDecision.source === 'source_answer') {
+    const accepted = await (deps.queue.enqueueSourceAnswerCheck?.(
+      item.queueJid,
+    ) ?? deps.queue.enqueueMessageCheck(item.queueJid));
+    return accepted === false ? 'queued_capacity' : 'completed';
+  }
   const opsRepository = resolveMessageRepository(deps);
   const { chatJid, threadId, agentId, providerAccountId } =
     parseAgentThreadQueueKey(item.queueJid);
@@ -529,6 +538,13 @@ export async function recoverPendingMessages(
   deps: MessageLoopDeps,
 ): Promise<void> {
   const opsRepository = resolveMessageRepository(deps);
+  for (const queueJid of (await opsRepository.pendingSourceAnswerQueueKeys?.()) ??
+    []) {
+    const accepted = await (deps.queue.enqueueSourceAnswerCheck?.(queueJid) ??
+      deps.queue.enqueueMessageCheck(queueJid));
+    if (accepted === false)
+      throw new Error('Queued source answer recovery admission is unavailable');
+  }
   const routesByChatAgentThread = new Map<
     string,
     [string, ConversationRoute]

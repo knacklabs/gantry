@@ -104,6 +104,7 @@ export interface JobAgentTask {
       sensitiveResultFields?: string[];
     }>;
     maxInteractions: number;
+    exhaustionBehavior?: 'return_result';
     interactionTimeoutMs: number;
     allowSelectedMcpToolCalls?: boolean;
     includeDurableExecutionTools?: boolean;

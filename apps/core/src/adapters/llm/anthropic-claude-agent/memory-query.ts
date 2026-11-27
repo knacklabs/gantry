@@ -1,3 +1,4 @@
+import { requireSourceModelSnapshot } from '../../../shared/source-model-snapshot.js';
 import {
   query,
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
@@ -35,6 +36,9 @@ import {
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 export interface ClaudeQueryOpts {
+  toolPolicy?: 'none';
+  maxOutputTokens?: number;
+  operationId?: string;
   appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
@@ -290,10 +294,13 @@ function requireGantryBroker(
 
 async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   opts.signal?.throwIfAborted();
-  const modelEntry = opts.modelProfile
-    ? findModelByRunnerModel(opts.modelProfile.runnerModel)
-    : findModelByRunnerModel(opts.model);
-  const runId = `memory-query:${randomUUID()}` as AgentRunId;
+  const modelEntry = opts.modelProfile?.sourceModelSnapshot
+    ? requireSourceModelSnapshot(opts.modelProfile.sourceModelSnapshot).entry
+    : opts.modelProfile
+      ? findModelByRunnerModel(opts.modelProfile.runnerModel)
+      : findModelByRunnerModel(opts.model);
+  const runId = (opts.operationId ??
+    `memory-query:${randomUUID()}`) as AgentRunId;
   const gateway = await resolveGantryMemoryInjection(
     opts.appId,
     modelEntry?.modelRoute.id ?? 'anthropic',
@@ -322,6 +329,12 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
     const sdkEnv = {
       ...scrubAmbientAgentCredentials(injection.env),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,
+      ...(opts.toolPolicy === 'none'
+        ? {
+            CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(opts.maxOutputTokens ?? 4096),
+            MAX_THINKING_TOKENS: '0',
+          }
+        : {}),
     };
     const abortController = new AbortController();
     const onAbort = () => abortController.abort(abortReason(opts.signal!));
@@ -336,6 +349,7 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
         abortController,
         model: opts.model,
         maxTurns: 1,
+        ...(opts.toolPolicy === 'none' ? { tools: [], mcpServers: {} } : {}),
         systemPrompt: buildCacheableSystemPrompt(opts.systemPrompt),
         env: sdkEnv,
         settings: {

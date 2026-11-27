@@ -195,7 +195,7 @@ async function handleAdmittedLlmRequest(
       const response = await fetch(`${baseUrl}${resolved.tail}`, {
         method: 'POST',
         headers,
-        body: resolved.body,
+        body: Buffer.from(resolved.body),
         signal: gatewayAbort.signal,
       });
       statusCode = response.status;

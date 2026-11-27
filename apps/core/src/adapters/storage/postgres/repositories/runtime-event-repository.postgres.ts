@@ -113,6 +113,64 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     executor: CanonicalExecutor,
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
+    if (input.runId) {
+      const [source] = await executor
+        .select()
+        .from(pgSchema.pendingInteractionsPostgres)
+        .where(
+          and(
+            eq(pgSchema.pendingInteractionsPostgres.appId, String(input.appId)),
+            eq(pgSchema.pendingInteractionsPostgres.runId, String(input.runId)),
+            sql`${pgSchema.pendingInteractionsPostgres.payloadJson}->>'interactionType' = 'source_answer'`,
+          ),
+        )
+        .limit(1);
+      if (source) {
+        const request = (
+          source.payloadJson as {
+            request: {
+              answerGoalId: string;
+              attemptId: string;
+              binding: {
+                discussionId: string;
+                generation: number;
+                workspaceId: string;
+                tenderId: string;
+              };
+            };
+          }
+        ).request;
+        const [session] = await executor
+          .select()
+          .from(pgSchema.controlHttpSessionsPostgres)
+          .where(
+            and(
+              eq(pgSchema.controlHttpSessionsPostgres.appId, source.appId),
+              eq(
+                pgSchema.controlHttpSessionsPostgres.externalConversationId,
+                request.binding.discussionId,
+              ),
+            ),
+          );
+        if (session)
+          input = {
+            ...input,
+            sessionId: session.sessionId as never,
+            conversationId: session.conversationId as never,
+            correlationId: request.answerGoalId,
+            payload: {
+              ...(input.payload &&
+              typeof input.payload === 'object' &&
+              !Array.isArray(input.payload)
+                ? (input.payload as Record<string, unknown>)
+                : {}),
+              answerGoalId: request.answerGoalId,
+              attemptId: request.attemptId,
+              binding: request.binding,
+            },
+          };
+      }
+    }
     const event = await this.insertRuntimeEvent(executor, input);
     await this.eventBus.publish(eventBusInputForRuntimeEvent(event), executor);
     await this.enqueueWebhookDeliveryIfNeeded(executor, event);

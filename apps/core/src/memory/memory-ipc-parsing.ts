@@ -71,6 +71,7 @@ export function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     confidence: num(input, 'confidence', { min: 0, max: 1 }),
     why: str(input, 'why', 500),
     source_turn_id: str(input, 'source_turn_id', 255),
+    supporting_source_ids: stringList(input.supporting_source_ids, 256, true),
     load_bearing: bool(input, 'load_bearing'),
     supersedes: stringList(input.supersedes, 128, true),
     source: str(input, 'source', 255),

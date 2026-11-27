@@ -48,6 +48,7 @@ export interface AgentExecutionRunInput {
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
+  sourceWorkspaceMemoryId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
@@ -146,6 +147,7 @@ export interface PreparedAgentExecution {
       databaseUrl: string;
       schema: string;
       proxyUrl?: string;
+      proxyTargetAuthority?: string;
     };
     deepAgentSkills?: DeepAgentSkillProjection;
   };

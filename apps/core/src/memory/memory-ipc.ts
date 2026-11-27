@@ -1,3 +1,11 @@
+import {
+  saveSourceLearning,
+  forgetSourceLearning,
+} from './source-learning-service.js';
+import {
+  sourceChannelMemorySubject,
+  assertSourceLearningContent,
+} from './source-channel-memory-scope.js';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -58,6 +66,8 @@ import { incrementOperationalError } from '../shared/operational-error-counters.
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
+  sourceWorkspaceMemoryId?: string;
+  sourceRunId?: string;
   appId: string;
   agentId: string;
   threadId?: string;
@@ -181,6 +191,17 @@ export function resolveTrustedMemorySubject(
   if (!context?.appId?.trim()) {
     throw new Error('memory IPC context.appId is required');
   }
+  if (context.sourceWorkspaceMemoryId) {
+    if (scope === 'global')
+      throw new Error('Source discussion memory cannot widen to common scope');
+    return sourceChannelMemorySubject({
+      appId: context.appId,
+      agentId: context.agentId,
+      workspaceId: context.sourceWorkspaceMemoryId,
+      personId: context.personId,
+      scope: scope ?? 'group',
+    });
+  }
   const defaultScope = context?.defaultScope === 'user' ? 'user' : 'group';
   if (scope && scope !== defaultScope) {
     throw new Error('memory scope must match the trusted conversation scope');
@@ -205,6 +226,13 @@ export async function processMemoryRequest(
   try {
     assertValidRequestId(request.requestId);
     assertMemoryActionAllowed(request);
+    if (
+      request.context?.sourceWorkspaceMemoryId &&
+      !['memory_search', 'memory_save', 'memory_demote'].includes(
+        request.action,
+      )
+    )
+      throw new Error('Source discussion memory action cannot widen authority');
     assertMemoryRequestNotExpired(request, nowMs);
     const getMemory = (): AppMemoryService => {
       const memory = AppMemoryService.getInstance();
@@ -220,6 +248,11 @@ export async function processMemoryRequest(
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
+          request.payload.scope === 'user'
+            ? 'user'
+            : request.payload.scope === 'group'
+              ? 'group'
+              : undefined,
         );
         // IPC memory reads are always scoped to the source group to prevent
         // cross-group data access from agent processes.
@@ -294,7 +327,12 @@ export async function processMemoryRequest(
           requestId: request.requestId,
           provider,
           data: {
-            results,
+            results: request.context?.sourceWorkspaceMemoryId
+              ? results.map((row) => ({
+                  ...row,
+                  item: { ...row.item, why: null, evidenceIds: [] },
+                }))
+              : results,
             resolved_subject: outcome.resolvedSubject,
             ...(outcome.empty_reason
               ? { empty_reason: outcome.empty_reason }
@@ -304,6 +342,11 @@ export async function processMemoryRequest(
       }
       case 'memory_save': {
         const input = parseSaveMemoryInput(request.payload);
+        if (request.context?.sourceWorkspaceMemoryId)
+          assertSourceLearningContent({
+            ...input,
+            kind: input.kind ?? 'preference',
+          });
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
@@ -312,6 +355,45 @@ export async function processMemoryRequest(
         if (!hasEnoughMemoryBudget(request, nowMs)) {
           provider = 'postgres';
           return deadlineUnavailableResponse(request, provider);
+        }
+        if (request.context?.sourceWorkspaceMemoryId) {
+          const ctx = request.context;
+          if (!ctx.sourceRunId || !ctx.chatJid || !ctx.personId)
+            throw new Error('Learning requires run-bound source authority');
+          if (
+            input.source !== 'discussion-explicit' &&
+            input.source !== 'discussion-inferred'
+          )
+            throw new Error(
+              'Learning requires explicit or repeated-correction provenance',
+            );
+          const memory = await saveSourceLearning({
+            scope: {
+              appId: ctx.appId,
+              agentId: ctx.agentId,
+              chatJid: ctx.chatJid,
+              personId: ctx.personId,
+              workspaceId: ctx.sourceWorkspaceMemoryId!,
+              runId: ctx.sourceRunId,
+            },
+            proposal: {
+              kind: input.kind ?? 'preference',
+              key: input.key,
+              value: input.value,
+              why: input.why,
+              source: input.source,
+              supportingSourceIds: input.supporting_source_ids ?? [],
+            },
+            subject,
+            memory: getMemory(),
+            requestDeadlineAtMs: request.deadlineAtMs,
+          });
+          return {
+            ok: true,
+            requestId: request.requestId,
+            provider,
+            data: { memory },
+          };
         }
         const saved = await runMemoryMutation(request, () =>
           getMemory().save({
@@ -325,6 +407,7 @@ export async function processMemoryRequest(
             why: input.why,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
+
             actorId: 'mcp-tool',
             isAdminWrite: false,
             evidenceText: input.why || input.value,
@@ -412,26 +495,56 @@ export async function processMemoryRequest(
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
+          request.payload.scope === 'user'
+            ? 'user'
+            : request.payload.scope === 'group'
+              ? 'group'
+              : undefined,
         );
         if (!hasEnoughMemoryBudget(request, nowMs)) {
           provider = 'postgres';
           return deadlineUnavailableResponse(request, provider);
         }
+        const sourceContext = request.context?.sourceWorkspaceMemoryId
+          ? request.context
+          : undefined;
+        if (
+          sourceContext &&
+          (!sourceContext.sourceRunId ||
+            !sourceContext.chatJid ||
+            !sourceContext.personId)
+        )
+          throw new Error('Forgetting requires run-bound source authority');
         const demoted = await runMemoryMutation(request, () =>
-          asMemoryDemoteService(getMemory()).demote({
-            ...subject,
-            appId: subject.appId,
-            agentId: subject.agentId,
-            subjectType: subject.subjectType,
-            subjectId: subject.subjectId,
-            id: input.id,
-            ...(input.expectedVersion !== undefined
-              ? { expectedVersion: input.expectedVersion }
-              : {}),
-            ...(input.reason ? { reason: input.reason } : {}),
-            actorId: 'mcp-tool',
-            isAdminWrite: false,
-          }),
+          sourceContext
+            ? forgetSourceLearning({
+                scope: {
+                  appId: sourceContext.appId,
+                  agentId: sourceContext.agentId,
+                  chatJid: sourceContext.chatJid!,
+                  personId: sourceContext.personId!,
+                  workspaceId: sourceContext.sourceWorkspaceMemoryId!,
+                  runId: sourceContext.sourceRunId!,
+                },
+                subject,
+                id: input.id,
+                expectedVersion: input.expectedVersion,
+                requestDeadlineAtMs: request.deadlineAtMs,
+              })
+            : asMemoryDemoteService(getMemory()).demote({
+                ...subject,
+                appId: subject.appId,
+                agentId: subject.agentId,
+                subjectType: subject.subjectType,
+                subjectId: subject.subjectId,
+                id: input.id,
+                ...(input.expectedVersion !== undefined
+                  ? { expectedVersion: input.expectedVersion }
+                  : {}),
+                ...(input.reason ? { reason: input.reason } : {}),
+                actorId: 'mcp-tool',
+                isAdminWrite: false,
+              }),
         );
         return {
           ok: true,
@@ -572,6 +685,7 @@ export async function processMemoryRequest(
             why: input.trigger || undefined,
             confidence: input.confidence,
             source: input.source || 'mcp-tool',
+
             actorId: 'mcp-tool',
             isAdminWrite: false,
             evidenceText: input.body,

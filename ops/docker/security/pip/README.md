@@ -1,30 +1,31 @@
 # pip vendor refresh
 
-The runtime keeps Python's standard `venv` behavior, including its bundled pip
-seed. pip 26.2.2 fixes the certifi advisory, but still vendors vulnerable
-urllib3 2.7.0 and msgpack 1.1.2. No newer pip release contains both fixes.
+The runtime uses upstream **pip 26.3**. It includes msgpack 1.2.4 and urllib3
+2.8.0. Its bundled setuptools `pkg_resources` subset still comes from 70.3.0.
 
-`rebuild.py` starts from the checksum-pinned pip 26.2.2 wheel, replaces only
-those two vendored libraries with urllib3 2.8.0 and msgpack 1.2.1, applies pip's
-own 26.2.2 urllib3 vendoring patches, updates `vendor.txt` and the shipped CycloneDX component inventory, and regenerates the
-wheel `RECORD`. It writes deterministic zip metadata so independent rebuilds
-produce the same SHA-256. Source URLs, hashes, the pip tag commit, validation,
-and the local-backport limitation are recorded in `provenance.json`.
+`rebuild.py` replaces that actual subset with the code and license from
+setuptools **78.1.1**. It adapts imports to pip's existing vendored packaging,
+platformdirs and jaraco-text helper. It removes setuptools's external vendor-path
+injection. The full setuptools package is not installed. The component inventory
+is updated only after the source replacement. Wheel RECORD hashes are regenerated.
+No finding is suppressed or removed from inventory without a source change.
 
-Rebuild from the repository root:
+Rebuild and test from the repository root:
 
 ```sh
-python3 ops/docker/security/pip/rebuild.py vendor/pip-26.2.2-py3-none-any.whl
-shasum -a 256 vendor/pip-26.2.2-py3-none-any.whl
+python3 ops/docker/security/pip/rebuild.py vendor/pip-26.3-py3-none-any.whl
+python3 ops/docker/security/pip/test.py
 ```
 
-Expected artifact SHA-256:
-`e2ea38fcf3cac60020a6bce296e7f4af9f729501c8271f0eab202e6d9adb8fd2`.
+Expected SHA-256:
+`d2c2d4586364ffb9f78edaf46a5c51dd92da4fae0fcc3e738ed629b782adff50`.
 
-The Docker build installs this wheel as the runtime pip and copies the same
-wheel into `ensurepip/_bundled`; otherwise a new virtual environment would
-restore the affected vendor versions.
+The Dockerfile installs this wheel and places the identical wheel in
+`ensurepip/_bundled`. Newly created Python environments retain the patched seed.
+Source hashes and validation scope are in `provenance.json`. The earlier
+26.2.2 backport and urllib3 patches are historical files and are no longer used.
 
-The setuptools entry is retained: pip includes its pkg_resources subset. The
-full setuptools package_index module is not shipped; preserve the advisory for
-explicit applicability review rather than deleting the inventory entry.
+Primary references:
+- [pip 26.3](https://pypi.org/project/pip/26.3/)
+- [msgpack release notes](https://github.com/msgpack/msgpack-python/blob/main/CHANGELOG.md)
+- [setuptools advisory](https://github.com/pypa/setuptools/security/advisories/GHSA-5rjg-fvgr-3xxf)

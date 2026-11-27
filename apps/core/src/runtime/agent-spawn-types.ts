@@ -1,3 +1,4 @@
+import type { SourceModelSnapshot } from '../shared/source-model-snapshot.js';
 import { ChildProcess } from 'child_process';
 
 import {
@@ -63,12 +64,14 @@ export interface AgentInput {
   appId?: string;
   agentId?: string;
   model?: string;
+  sourceModelSnapshot?: SourceModelSnapshot;
   sessionId?: string;
   workspaceFolder: string;
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
+  sourceWorkspaceMemoryId?: string;
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
@@ -165,6 +168,7 @@ export interface AgentOutputRuntimeEvent {
 }
 
 export interface RunAgentOptions {
+  beforeProviderStart?: () => Promise<void>;
   timeoutMs?: number;
   signal?: AbortSignal;
   correlationRunId?: string;

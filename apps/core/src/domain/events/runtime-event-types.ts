@@ -1,4 +1,10 @@
 export const RUNTIME_EVENT_TYPES = {
+  SOURCE_GENERATION_REBUILT: 'source.generation.rebuilt',
+  SOURCE_MESSAGE_STORED: 'source.message.stored',
+  SOURCE_ANSWER_ACCEPTED: 'source.answer.accepted',
+  SOURCE_ANSWER_RUNNING: 'source.answer.running',
+  SOURCE_ANSWER_FAILED: 'source.answer.failed',
+  SOURCE_ANSWER_CANCELED: 'source.answer.canceled',
   SESSION_MESSAGE_INBOUND: 'session.message.inbound',
   SESSION_MESSAGE_OUTBOUND: 'session.message.outbound',
   SESSION_MESSAGE_REJECTED: 'session.message.rejected',

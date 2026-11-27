@@ -1,3 +1,11 @@
+import { requireSourceModelSnapshot } from '../shared/source-model-snapshot.js';
+import { captureSourceOutputDiagnostic } from '../shared/source-output-diagnostic.js';
+import { Ajv } from 'ajv';
+import { formatMessages } from '../messaging/router.js';
+import { TIMEZONE } from '../config/index.js';
+import { normalizeModelUsage } from '../shared/model-usage.js';
+import type { PreparedSourceAnswer } from '../domain/ports/source-discussion.js';
+import { prepareSourceSummary } from './source-discussion-summary.js';
 // prettier-ignore
 import type { AgentControlOverrides, ConversationRoute } from '../domain/types.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
@@ -104,19 +112,40 @@ export function createGroupAgentRunner(input: {
         externalSessionId: string;
       };
       maintenanceCompaction?: boolean;
+      sourceAnswer?: PreparedSourceAnswer;
       responseSchema?: Record<string, unknown>;
       agentControls?: AgentControlOverrides;
     },
   ): Promise<GroupAgentRunResult> {
+    const sourceExecutionDeadline = options?.sourceAnswer
+      ? Date.now() + Math.min(180000, options.timeoutMs ?? 180000)
+      : undefined;
+    const sourceModelSnapshot = options?.sourceAnswer
+      ? requireSourceModelSnapshot(options.sourceAnswer.modelSnapshot)
+      : undefined;
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
     const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
-      deps.getDefaultInteractiveModel?.(group.folder) ?? 'opus';
+      options?.sourceAnswer?.request.model ??
+      deps.getDefaultInteractiveModel?.(group.folder) ??
+      'opus';
     const initialProvider = await resolveInitialGroupExecutionProviderId({
-      group,
+      group: options?.sourceAnswer
+        ? {
+            ...group,
+            agentConfig: {
+              ...group.agentConfig,
+              model: options.sourceAnswer.request.model,
+            },
+          }
+        : group,
       appId: turnAppId,
       defaultModel: defaultInteractiveModel,
-      listConfiguredProviders: deps.getConfiguredModelProviders,
+      pinnedModel: sourceModelSnapshot?.entry,
+      // Native requests pin their configured model; provider availability must not rewrite it.
+      listConfiguredProviders: options?.sourceAnswer
+        ? undefined
+        : deps.getConfiguredModelProviders,
       familyOrder: deps.getModelFamilyOrder?.(),
       executionAdapter: deps.executionAdapter,
       agentHarness,
@@ -136,6 +165,86 @@ export function createGroupAgentRunner(input: {
     const modelStatus = createModelStatus(group.folder, sessionThreadId);
     const runTokenBudget = createConfiguredRunTokenBudget(group.folder);
     const streamedResult = createRuntimeResultSummaryAccumulator();
+    let sourceStructuredResult: string | undefined;
+    let sourceStructuredError: Error | undefined;
+    const sourceDiagnosticWrites: Promise<boolean>[] = [];
+    let sourceRunnerError: AgentOutput | undefined;
+    const sourceSchema =
+      options?.sourceAnswer?.request.executionProfile?.responseSchema;
+    const validateSourceResult = sourceSchema
+      ? new Ajv({
+          addUsedSchema: false,
+          allErrors: true,
+          strict: false,
+        }).compile(sourceSchema)
+      : undefined;
+    const observeSourceTerminal = (output: AgentOutput): void => {
+      if (!options?.sourceAnswer) return;
+      if (output.status === 'error') {
+        sourceRunnerError = output;
+        sourceDiagnosticWrites.push(
+          captureSourceOutputDiagnostic({
+            appId: turnAppId,
+            runId: runState.runId,
+            sourceIds: options.sourceAnswer.selectedSourceIds,
+            errors: [
+              'Native runner failed; inspect matching private runner diagnostic',
+            ],
+          }),
+        );
+        return;
+      }
+      if (
+        !output.structuredResultValidated ||
+        output.continuedByFollowup ||
+        output.runtimeEventOnly ||
+        output.sessionInit ||
+        output.compactBoundary ||
+        output.interactionBoundary
+      )
+        return;
+      try {
+        if (
+          typeof output.result !== 'string' ||
+          !validateSourceResult ||
+          !validateSourceResult(JSON.parse(output.result))
+        )
+          throw new Error(
+            'Source answer terminal failed its approved response schema',
+          );
+        if (
+          sourceStructuredResult !== undefined &&
+          sourceStructuredResult !== output.result
+        )
+          throw new Error(
+            'Source answer produced conflicting complete structured results',
+          );
+        sourceStructuredResult = output.result;
+      } catch (error) {
+        sourceDiagnosticWrites.push(
+          captureSourceOutputDiagnostic({
+            appId: turnAppId,
+            runId: runState.runId,
+            sourceIds: options.sourceAnswer.selectedSourceIds,
+            output:
+              typeof output.result === 'string' ? output.result : undefined,
+            errors: [
+              error instanceof Error
+                ? error.message
+                : 'Invalid source terminal',
+              ...(validateSourceResult?.errors ?? []).map(
+                (row) =>
+                  `${row.instancePath || '/'} ${row.keyword} ${row.message ?? ''}`,
+              ),
+            ],
+          }),
+        );
+        sourceStructuredError =
+          error instanceof Error
+            ? error
+            : new Error('Invalid source answer terminal');
+      }
+    };
     const loadTurnContext = async (
       promoteReadyProviderSession: boolean,
       hydrateMemory = true,
@@ -151,7 +260,7 @@ export function createGroupAgentRunner(input: {
         memoryUserId: options?.memoryContext?.userId,
         hydrationMode: 'first_visible',
         promoteReadyProviderSession,
-        hydrateMemory,
+        hydrateMemory: options?.sourceAnswer ? false : hydrateMemory,
         query:
           options?.memoryContext?.source === 'message'
             ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
@@ -170,7 +279,9 @@ export function createGroupAgentRunner(input: {
     const turnContext = compactionDeltaReplay.turnContext;
     const runtimeAppId = turnContext?.appId ?? turnAppId;
     const defaultRuntimeModel =
-      group.agentConfig?.model ?? defaultInteractiveModel;
+      options?.sourceAnswer?.request.model ??
+      group.agentConfig?.model ??
+      defaultInteractiveModel;
     const forwardedRuntimeEventKeys = new Set<string>();
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
@@ -191,9 +302,10 @@ export function createGroupAgentRunner(input: {
     let resumeProviderSessionId =
       options?.maintenanceProviderSession?.providerSessionId ??
       turnContext?.providerSessionId;
-    let resumeExternalSessionId =
-      options?.maintenanceProviderSession?.externalSessionId ??
-      turnContext?.externalSessionId;
+    let resumeExternalSessionId = options?.sourceAnswer
+      ? undefined
+      : (options?.maintenanceProviderSession?.externalSessionId ??
+        turnContext?.externalSessionId);
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -265,6 +377,7 @@ export function createGroupAgentRunner(input: {
       await updateRunProviderMetadata({ providerSessionId: nextSessionId });
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
+      observeSourceTerminal(output);
       await persistProviderSessionFromOutput(output);
       let normalizedUsageRuntimeEvent:
         | NonNullable<AgentOutput['runtimeEvents']>[number]
@@ -296,7 +409,13 @@ export function createGroupAgentRunner(input: {
       }
       if (output.contextUsage) {
         modelStatus.updateSelection({
-          ...defaultModelStatusSelection(defaultRuntimeModel),
+          ...(sourceModelSnapshot
+            ? {
+                selectionSource: 'source admission snapshot',
+                modelAlias: sourceModelSnapshot.alias,
+                model: sourceModelSnapshot.entry,
+              }
+            : defaultModelStatusSelection(defaultRuntimeModel)),
           selectionSource: group.agentConfig?.model
             ? 'session override'
             : 'chat default',
@@ -451,10 +570,21 @@ export function createGroupAgentRunner(input: {
         outcome: surfacingGate.failClosedOutcome,
       });
     }
+    const sourceMemoryContext =
+      options?.sourceAnswer && turnContext?.agentId
+        ? await ops().sourceWorkspaceMemoryContext?.({
+            answerId: options.sourceAnswer.id,
+            appId: runtimeAppId,
+            agentId: turnContext.agentId,
+            workspaceId: options.sourceAnswer.request.binding.workspaceId,
+            personId: options.memoryContext?.userId,
+          })
+        : undefined;
     const memoryContextBlock = [
-      compactionDeltaReplay.block,
-      turnContext?.memoryContextBlock,
-      patternsContext.block,
+      sourceMemoryContext,
+      options?.sourceAnswer ? undefined : compactionDeltaReplay.block,
+      options?.sourceAnswer ? undefined : turnContext?.memoryContextBlock,
+      options?.sourceAnswer ? undefined : patternsContext.block,
       approvedSkillContextBlock,
     ]
       .filter((block): block is string => Boolean(block?.trim()))
@@ -472,6 +602,11 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
+    if (options?.sourceAnswer && runState.runId)
+      await ops().markSourceAnswerRun?.(
+        options.sourceAnswer.id,
+        runState.runId,
+      );
     updateLogContext({
       runId: runState.runId,
       appId: runtimeAppId,
@@ -479,9 +614,54 @@ export function createGroupAgentRunner(input: {
         turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
     });
     try {
+      const startSourceProvider = async () => {
+        if (!options?.sourceAnswer) return;
+        const repository = ops();
+        if (!repository.authorizePreparedSourceAnswer)
+          throw new Error('Fresh source execution authority is unavailable');
+        await repository.authorizePreparedSourceAnswer(
+          options.sourceAnswer.id,
+          options.sourceAnswer.claimToken,
+          sourceExecutionDeadline!,
+        );
+      };
+      const sourceSummary = options?.sourceAnswer
+        ? await prepareSourceSummary({
+            answer: options.sourceAnswer,
+            appId: runtimeAppId as import('../domain/app/app.js').AppId,
+            deadline: sourceExecutionDeadline!,
+            repository: ops(),
+            onFirstProviderCall: startSourceProvider,
+            onUsage: (value) => {
+              const usage = normalizeModelUsage({
+                message: { usage: value },
+                fallbackModel: options.sourceAnswer!.request.model,
+              });
+              if (usage)
+                void deps.publishRuntimeEvent?.({
+                  appId: runtimeAppId as import('../domain/app/app.js').AppId,
+                  runId: runState.runId as never,
+                  agentId: turnContext?.agentId as never,
+                  sessionId: turnContext?.agentSessionId as never,
+                  eventType: 'model.usage',
+                  actor: 'agent',
+                  payload: {
+                    usage,
+                    modelAlias: options.sourceAnswer!.request.model,
+                    providerId: usage.provider,
+                    stage: 'source_summary',
+                  },
+                });
+            },
+          })
+        : undefined;
+      if (sourceExecutionDeadline && Date.now() >= sourceExecutionDeadline)
+        throw new Error('Source execution budget exhausted');
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({
-        timeoutMs: options?.timeoutMs,
+        timeoutMs: sourceExecutionDeadline
+          ? Math.max(1, sourceExecutionDeadline - Date.now())
+          : options?.timeoutMs,
         credentialBroker,
         skillRepository: deps.getSkillRepository?.(),
         skillArtifactStore: deps.getSkillArtifactStore?.(),
@@ -498,6 +678,8 @@ export function createGroupAgentRunner(input: {
         turnContext,
       });
       if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
+      if (options?.sourceAnswer)
+        runOptions.beforeProviderStart = startSourceProvider;
       const expireTurnProviderSession = async (
         reason: string,
       ): Promise<boolean> => {
@@ -531,16 +713,45 @@ export function createGroupAgentRunner(input: {
         runAgentImpl(
           group,
           {
-            prompt: maintenanceCompactionPrompt ?? prompt,
+            prompt: sourceSummary
+              ? `Historical discussion summary (bounded exact source coverage; not tender evidence):\n${sourceSummary}\n\nRecent or reply-chain source messages:\n${options?.sourceAnswer ? formatMessages(options.sourceAnswer.messages, TIMEZONE) : prompt}`
+              : (maintenanceCompactionPrompt ?? prompt),
+            ...(options?.sourceAnswer?.request.executionProfile
+              ? {
+                  callerResolvedTools: {
+                    exhaustionBehavior: 'return_result' as const,
+                    sessionId: turnContext!.agentSessionId,
+                    tools:
+                      options.sourceAnswer.request.executionProfile.callerResolvedTools.map(
+                        (tool) => ({
+                          ...tool,
+                          transportMode: 'direct_caller' as const,
+                        }),
+                      ),
+                    maxInteractions:
+                      options.sourceAnswer.request.executionProfile
+                        .maxToolInteractions,
+                    interactionTimeoutMs:
+                      options.sourceAnswer.request.executionProfile
+                        .interactionTimeoutMs,
+                  },
+                }
+              : {}),
             appId: runtimeAppId,
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
-            ...(agentInput.model ? { model: agentInput.model } : {}),
+            ...(options?.sourceAnswer
+              ? { model: sourceModelSnapshot!.alias, sourceModelSnapshot }
+              : agentInput.model
+                ? { model: agentInput.model }
+                : {}),
             chatJid,
             // Exact key the finalizer consumes activity with; stored with the
             // browser credential so the IPC side never rebuilds it.
             turnQueueKey: queueJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
+            sourceWorkspaceMemoryId:
+              options?.sourceAnswer?.request.binding.workspaceId,
             memoryDefaultScope: defaultMemoryScope,
             memoryReviewerIsControlApprover,
             persona: group.agentConfig?.persona,
@@ -631,7 +842,9 @@ export function createGroupAgentRunner(input: {
         });
       }
       output = await runFamilyFailoverLoop({
-        candidates: failoverCandidates,
+        candidates: options?.sourceAnswer
+          ? [options.sourceAnswer.request.model]
+          : failoverCandidates,
         initialOutput: output,
         fallbackProviderId: executionProviderId,
         agentHarness,
@@ -656,6 +869,8 @@ export function createGroupAgentRunner(input: {
         log: (message) =>
           logger.warn({ group: group.name }, redactString(message)),
       });
+      observeSourceTerminal(output);
+      if (sourceRunnerError) output = sourceRunnerError;
       await forwardRuntimeEvents({
         output,
         publishRuntimeEvent: deps.publishRuntimeEvent,
@@ -667,6 +882,7 @@ export function createGroupAgentRunner(input: {
         forwardedKeys: forwardedRuntimeEventKeys,
       });
       if (output.status === 'error') {
+        await Promise.all(sourceDiagnosticWrites);
         if (isStoppedByRequest(output)) {
           logger.warn({ group: group.name }, 'Agent runner stopped by request');
           if (!liveRunFenced) {
@@ -691,6 +907,19 @@ export function createGroupAgentRunner(input: {
         }
         return 'error';
       }
+      await Promise.all(sourceDiagnosticWrites);
+      if (sourceStructuredError) throw sourceStructuredError;
+      if (options?.sourceAnswer && runState.runId) {
+        if (!sourceStructuredResult)
+          throw new Error(
+            'Source answer completed without full validated structured result',
+          );
+        await ops().persistSourceAnswerOutput?.(
+          options.sourceAnswer.id,
+          runState.runId,
+          sourceStructuredResult,
+        );
+      }
       if (!liveRunFenced) {
         await completeSuccessfulRuntimeSessionRun({
           ops: ops(),
@@ -708,11 +937,13 @@ export function createGroupAgentRunner(input: {
               : summarizeRuntimeResultForPersistence(output.result),
         });
       }
-      await compactionDeltaReplay.markApplied?.(ops());
-      await markPatternsContextSurfaced(
-        patternCandidateRepo,
-        patternsContext.surfacedCandidateIds,
-      );
+      if (!options?.sourceAnswer)
+        await compactionDeltaReplay.markApplied?.(ops());
+      if (!options?.sourceAnswer)
+        await markPatternsContextSurfaced(
+          patternCandidateRepo,
+          patternsContext.surfacedCandidateIds,
+        );
       try {
         const surfacedSubject = patternSubjectForScope(surfacingScope);
         if (surfacedSubject && patternCandidateRepo) {
@@ -744,6 +975,17 @@ export function createGroupAgentRunner(input: {
       }
       return 'success';
     } catch (err) {
+      if (options?.sourceAnswer) {
+        await Promise.all(sourceDiagnosticWrites);
+        await captureSourceOutputDiagnostic({
+          appId: turnAppId,
+          runId: runState.runId,
+          sourceIds: options.sourceAnswer.selectedSourceIds,
+          errors: [
+            'Native source run failed; inspect matching private runner diagnostic',
+          ],
+        });
+      }
       logger.error({ group: group.name, err }, 'Agent error');
       if (!liveRunFenced) {
         await completeFailedRuntimeSessionRun({

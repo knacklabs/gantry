@@ -243,6 +243,7 @@ function allowedGatewayPostPaths(
       '/v1/embeddings',
       '/v1/chat/completions',
       '/v1/responses',
+      '/v1/responses/input_tokens',
       '/v1/files',
       '/v1/batches',
     ]);

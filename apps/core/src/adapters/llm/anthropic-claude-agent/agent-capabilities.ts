@@ -54,6 +54,7 @@ export interface AgentCapabilityContext {
   runLeaseFencingVersion?: number;
   liveStopActionToken?: string;
   memoryUserId?: string;
+  sourceWorkspaceMemoryId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
@@ -328,6 +329,15 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       chatJid: ctx.chatJid,
       permissionLane: ctx.isScheduledJob ? 'autonomous' : 'interactive',
     });
+    if (ctx.sourceWorkspaceMemoryId)
+      for (const name of [
+        'memory_search',
+        'memory_save',
+        'memory_demote',
+        'source_document',
+      ])
+        if (!selectedHostToolNames.includes(name))
+          selectedHostToolNames.push(name);
     const projectedHostTools = ctx.callerResolvedTools
       ? [
           ...selectedHostToolNames.map(gantryMcpFullToolName),
@@ -346,6 +356,9 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         ]
       : [];
     const env: Record<string, string> = {
+      ...(ctx.sourceWorkspaceMemoryId
+        ? { GANTRY_SOURCE_WORKSPACE_MEMORY_ID: ctx.sourceWorkspaceMemoryId }
+        : {}),
       ...(ctx.appId ? { GANTRY_APP_ID: ctx.appId } : {}),
       ...(ctx.agentId ? { GANTRY_AGENT_ID: ctx.agentId } : {}),
       GANTRY_CHAT_JID: ctx.chatJid,
@@ -425,11 +438,14 @@ const gantryMcpProvider: AgentCapabilityProvider = {
           }
         : {}),
       GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
-        selectedMemoryIpcActions(configuredTools, {
-          excludeAuthorityTools: ctx.hideAuthorityTools === true,
-          asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
-          memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
-        }),
+        ctx.sourceWorkspaceMemoryId
+          ? ['memory_search', 'memory_save', 'memory_demote']
+          : selectedMemoryIpcActions(configuredTools, {
+              excludeAuthorityTools: ctx.hideAuthorityTools === true,
+              asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
+              memoryReviewerIsControlApprover:
+                ctx.memoryReviewerIsControlApprover,
+            }),
       ),
       ...(ctx.ipcDir ? { GANTRY_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { GANTRY_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
@@ -467,6 +483,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
 function projectedCallableAgentManifest(
   ctx: AgentCapabilityContext,
 ): readonly CallableAgentToolManifestEntry[] {
+  if (ctx.sourceWorkspaceMemoryId) return [];
   return ctx.accessPreset !== 'locked' &&
     ctx.hideAuthorityTools !== true &&
     ctx.asyncTaskToolsEnabled === true &&
@@ -601,6 +618,7 @@ const configuredToolProvider: AgentCapabilityProvider = {
 function projectedConfiguredTools(
   ctx: AgentCapabilityContext,
 ): readonly string[] {
+  if (ctx.sourceWorkspaceMemoryId) return [];
   if (!ctx.callerResolvedTools) return ctx.configuredAllowedTools ?? [];
   return (ctx.configuredAllowedTools ?? []).filter(
     (tool) =>
@@ -611,9 +629,7 @@ function projectedConfiguredTools(
   );
 }
 
-function callerUsesDurableExecutionTools(
-  ctx: AgentCapabilityContext,
-): boolean {
+function callerUsesDurableExecutionTools(ctx: AgentCapabilityContext): boolean {
   return ctx.callerResolvedTools?.includeDurableExecutionTools === true;
 }
 

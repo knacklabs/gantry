@@ -59,6 +59,7 @@ export interface LiveTurnLocalRunnerHooks {
 }
 
 interface ActiveLiveTurnRegistration {
+  sourceAnswer?: boolean;
   turnId: string;
   runId: string;
   scope: LiveTurnScope;
@@ -174,6 +175,7 @@ export class LiveTurnAuthority {
       runId: input.runId,
       scope: input.scope,
       fence,
+      sourceAnswer: input.pendingMessage?.kind === 'source_answer',
     });
     return { outcome: 'claimed', turn: claim.turn, fence };
   }
@@ -197,6 +199,7 @@ export class LiveTurnAuthority {
         threadId: input.turn.threadId,
       },
       fence: input.fence,
+      sourceAnswer: input.turn.pendingMessage?.kind === 'source_answer',
     });
   }
 
@@ -207,6 +210,7 @@ export class LiveTurnAuthority {
       runId: string;
       scope: LiveTurnScope;
       fence: LiveTurnLeaseFence;
+      sourceAnswer?: boolean;
     },
   ): void {
     const registration: ActiveLiveTurnRegistration = {
@@ -214,6 +218,7 @@ export class LiveTurnAuthority {
       runId: input.runId,
       scope: input.scope,
       fence: input.fence,
+      sourceAnswer: input.sourceAnswer,
       hooks: null,
       fencedOut: false,
       pump: createLiveTurnCommandPump({
@@ -469,7 +474,10 @@ export class LiveTurnAuthority {
         outcome: 'released',
       });
       await this.deps.leaseDeps.coordination.releaseRunSlot({
-        slotKey: liveTurnSlotKey(this.deps.leaseDeps.workerInstanceId),
+        slotKey: liveTurnSlotKey(
+          this.deps.leaseDeps.workerInstanceId,
+          registration.sourceAnswer,
+        ),
         holderId: liveTurnSlotHolderId(
           registration.turnId,
           registration.fence.fencingVersion,
@@ -504,6 +512,7 @@ export class LiveTurnAuthority {
       turnState,
       leaseOutcome,
       agentRunCompletion,
+      sourceAnswer: registration.sourceAnswer,
       hostSlotCapacity: this.deps.hostSlotCapacity?.(),
       hostBudgetCapacity: this.deps.hostBudgetCapacity?.(),
     });
@@ -596,6 +605,7 @@ export class LiveTurnAuthority {
           fencingVersion: registration.fence.fencingVersion,
         },
         leaseTtlMs: this.leaseTtlMs,
+        sourceAnswer: registration.sourceAnswer,
         hostSlotCapacity: this.deps.hostSlotCapacity?.(),
         hostBudgetCapacity: this.deps.hostBudgetCapacity?.(),
       });

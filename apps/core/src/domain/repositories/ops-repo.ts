@@ -1,4 +1,9 @@
 import type {
+  PreparedSourceAnswer,
+  SourceSummaryWork,
+} from '../ports/source-discussion.js';
+import type { RequestSourceAnswer } from '@gantry/contracts';
+import type {
   ChatInfo,
   Job,
   JobEvent,
@@ -127,6 +132,59 @@ export interface RuntimeChatMetadataRepository {
 }
 
 export interface RuntimeMessageRepository {
+  failSourceAnswerDispatch?(
+    appId: string,
+    conversationJid: string,
+    reason: string,
+  ): Promise<void>;
+  sourceAnswerDispatchRoute?(
+    appId: string,
+    conversationJid: string,
+  ): Promise<{ source: true; route?: ConversationRoute } | undefined>;
+  hasQueuedSourceAnswer?(
+    appId: string,
+    conversationJid: string,
+  ): Promise<boolean>;
+  recoverSourceAnswerRun?(
+    runId: string,
+  ): Promise<'completed' | 'failed' | undefined>;
+  pendingSourceAnswerQueueKeys?(): Promise<string[]>;
+  markSourceAnswerRun?(id: string, runId: string): Promise<void>;
+  persistSourceAnswerOutput?(
+    id: string,
+    runId: string,
+    text: string,
+  ): Promise<void>;
+  sourceWorkspaceMemoryContext?(input: {
+    answerId: string;
+    appId: string;
+    agentId: string;
+    workspaceId: string;
+    personId?: string;
+  }): Promise<string>;
+  readSourceSummary?(id: string): Promise<string | undefined>;
+  saveSourceSummary?(input: {
+    answerId: string;
+    claimToken: string;
+    work: SourceSummaryWork;
+    text: string;
+    usage: Record<string, unknown>[];
+  }): Promise<string>;
+  getPreparedSourceAnswer?(input: {
+    appId: string;
+    conversationJid: string;
+  }): Promise<PreparedSourceAnswer | undefined>;
+  finishPreparedSourceAnswer?(
+    id: string,
+    success: boolean,
+    claimToken?: string,
+  ): Promise<void>;
+  authorizePreparedSourceAnswer?(
+    id: string,
+    claimToken: string,
+    deadline: number,
+  ): Promise<number>;
+  renewPreparedSourceAnswer?(id: string, claimToken: string): Promise<boolean>;
   storeMessage(msg: NewMessage): Promise<void>;
   storeMessageWithLiveAdmission?(
     msg: NewMessage,

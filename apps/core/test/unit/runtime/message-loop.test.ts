@@ -252,6 +252,21 @@ afterEach(() => {
 });
 
 describe('recoverPendingMessages', () => {
+  it('recovers explicit source work after restart even when projected routes and ordinary messages are absent', async () => {
+    const key = makeAgentThreadQueueKey(
+      'app:tenant:D1',
+      'agent:interactive',
+      null,
+      'control:tenant',
+    );
+    const deps = makeDeps({ getConversationRoutes: () => ({}) });
+    deps.opsRepository!.pendingSourceAnswerQueueKeys = async () => [key];
+    const enqueue = vi.fn(() => true);
+    deps.queue.enqueueSourceAnswerCheck = enqueue;
+    await recoverPendingMessages(deps);
+    expect(enqueue).toHaveBeenCalledExactlyOnceWith(key);
+  });
+
   it('enqueues message checks for groups with pending messages', async () => {
     mockGetMessagesSince.mockReturnValue([
       {

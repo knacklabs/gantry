@@ -19,3 +19,5 @@ export * from './skills/index.js';
 export * from './streaming/index.js';
 export * from './tools/index.js';
 export * from './users/index.js';
+
+export * from './source-document.js';

@@ -396,13 +396,16 @@ async function spawnAgentWithContext(
     const networkAttribution = egressNetworkAttributionFromRuntimeAccess(
       effectiveRuntimeAccess,
     );
-    const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
+    const configuredMemoryActions = selectedMemoryIpcActionsFromToolRules(
       trustedToolPolicyRules ?? [],
       {
         excludeAuthorityTools: hideAuthorityTools,
         memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       },
     );
+    const memoryIpcAllowedActions = input.sourceWorkspaceMemoryId
+      ? (['memory_search', 'memory_save', 'memory_demote'] as const)
+      : configuredMemoryActions;
     const upstreamProxyUrl =
       projectedCredentials.proxy?.https || projectedCredentials.proxy?.http;
     const runnerInputPatch = preparedExecution.runnerInputPatch ?? {};
@@ -426,7 +429,11 @@ async function spawnAgentWithContext(
       runnerSandboxProviderId,
       sandboxAllowedNetworkHosts,
       runnerInput.modelCredentialEnv,
+      runnerInputPatch.deepAgentCheckpointer,
     );
+    if (sandboxRuntimeNetwork.checkpointer)
+      runnerInputPatch.deepAgentCheckpointer =
+        sandboxRuntimeNetwork.checkpointer;
     runnerInput.modelCredentialEnv = sandboxRuntimeNetwork.modelCredentialEnv;
     runnerInputPatch.modelCredentialEnv =
       sandboxRuntimeNetwork.modelCredentialEnv;
@@ -552,6 +559,8 @@ async function spawnAgentWithContext(
         agentId: input.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
         chatJid: input.chatJid,
         personId: input.memoryUserId,
+        sourceWorkspaceMemoryId: input.sourceWorkspaceMemoryId,
+        sourceRunId: input.sourceWorkspaceMemoryId ? input.runId : undefined,
         defaultScope: input.memoryDefaultScope || 'group',
         threadId: input.threadId,
         allowedActions: memoryIpcAllowedActions,
@@ -562,6 +571,7 @@ async function spawnAgentWithContext(
       responseKeyId: ipcAuth.responseKeyId,
       threadId: input.threadId,
       memoryUserId: input.memoryUserId,
+      sourceWorkspaceMemoryId: input.sourceWorkspaceMemoryId,
       memoryDefaultScope: input.memoryDefaultScope,
       memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       hideAuthorityTools,

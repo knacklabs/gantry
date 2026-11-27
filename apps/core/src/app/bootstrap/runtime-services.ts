@@ -477,6 +477,7 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getAgentRepository: resolved.getAgentRepository,
       getSkillRepository: resolved.getSkillRepository,
+      getFileArtifactStore: resolved.getFileArtifactStore,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
       getJobSemanticCheckpointRepository:
         resolved.getJobSemanticCheckpointRepository,
@@ -572,6 +573,8 @@ export async function startRuntimeServices(
     }),
   );
   const liveMessageQueue = {
+    enqueueSourceAnswerCheck: (queueJid: string) =>
+      app.queue.enqueueSourceAnswerCheck(queueJid),
     sendMessage: async (
       queueJid: string,
       text: string,

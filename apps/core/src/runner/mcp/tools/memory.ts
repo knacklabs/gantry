@@ -5,6 +5,7 @@ import {
   workspaceFolder,
   memoryDefaultScope,
   memoryUserId,
+  sourceWorkspaceMemoryId,
 } from '../context.js';
 import {
   formatMemoryReviewDecisionResponse,
@@ -19,6 +20,30 @@ import {
 } from './memory-payload.js';
 
 const DEFAULT_MEMORY_REVIEW_CHAT_PAGE_SIZE = 10;
+
+function sourceMemorySaveResult(
+  status: 'invalid_memory_input' | 'memory_save_unconfirmed',
+  reason: string,
+) {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          status,
+          ...(status === 'invalid_memory_input' ? { saved: false } : {}),
+          confirmed: false,
+          retryable: status === 'invalid_memory_input',
+          reason,
+          guidance:
+            status === 'invalid_memory_input'
+              ? 'Correct the arguments only using the actual selected human message. source must be discussion-explicit for a clear human instruction or discussion-inferred for repeated corrections. Include exact supporting_source_ids, including the current question. Do not invent provenance. If support is missing, explain the limitation instead of claiming a save.'
+              : 'The save was not confirmed. Do not claim the preference was saved or retry indefinitely. Explain the limitation plainly. A rejected write does not require repeating the whole chat request.',
+        }),
+      },
+    ],
+  };
+}
 
 const memoryReviewPageContextSchema = z.object({
   subject: z.object({
@@ -71,6 +96,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Search durable Gantry memory. Returns real scoped memory statements, procedures, and source snippets with provenance; scores are only ranking metadata.',
     {
       query: z.string().describe('Search query'),
+      scope: z.enum(['group', 'user']).optional(),
       workspace_folder: z
         .string()
         .optional()
@@ -82,6 +108,7 @@ export function registerMemoryTools(server: McpServer): void {
     async (args) => {
       const response = await requestMemoryAction('memory_search', {
         query: args.query,
+        ...(args.scope ? { scope: args.scope } : {}),
         workspace_folder: args.workspace_folder || workspaceFolder,
         limit: args.limit,
       });
@@ -98,17 +125,53 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: sourceWorkspaceMemoryId
+              ? JSON.stringify(
+                  (
+                    response.data as {
+                      results?: Array<{
+                        item: {
+                          id: string;
+                          subjectType: string;
+                          key: string;
+                          value: string;
+                          version: number;
+                        };
+                      }>;
+                    }
+                  )?.results?.map((row) => ({
+                    id: row.item.id,
+                    scope: row.item.subjectType,
+                    key: row.item.key,
+                    value: row.item.value,
+                    version: row.item.version,
+                  })) ?? [],
+                )
+              : formatMemoryToolResponse(response),
+          },
         ],
       };
     },
   );
 
+  const sourceProvenance = z
+    .enum(['discussion-explicit', 'discussion-inferred'])
+    .optional();
+  const supportingSourceIds = z
+    .array(z.string().min(1).max(256))
+    .min(1)
+    .max(8)
+    .optional();
   server.tool(
     'memory_save',
-    'Save a durable memory statement to the trusted conversation scope: workspace memory in group/channel conversations and personal memory in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
+    sourceWorkspaceMemoryId
+      ? 'Propose a free-form reusable human instruction in the fixed workspace/person scope. It receives an independent scoped validation check before activation. source MUST be discussion-explicit for an explicit human request or discussion-inferred for repeated human corrections. Never use labels such as personal-preference. Supply supporting_source_ids from actual selected human messages, including the current question. Inferred learning needs repeated corrections. Tender/project/document facts, uncertain guesses and sensitive profiles cannot become reusable learning.'
+      : 'Save a durable memory statement to the trusted conversation scope: workspace memory in group/channel conversations and personal memory in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
     {
       workspace_folder: z.string().optional(),
+      scope: z.enum(['group', 'user']).optional(),
       kind: z
         .enum(['preference', 'decision', 'fact', 'correction', 'constraint'])
         .optional(),
@@ -123,14 +186,57 @@ export function registerMemoryTools(server: McpServer): void {
           'One human-readable durable statement, not a transcript dump',
         ),
       confidence: z.number().min(0).max(1).optional(),
-      source: z.string().optional(),
+      // Catch malformed native provenance so the handler can return a correction,
+      // rather than an MCP exception that terminates the entire source answer.
+      source: sourceWorkspaceMemoryId
+        ? sourceProvenance
+            .catch(undefined)
+            .describe(
+              'Required provenance: discussion-explicit for a clear human instruction; discussion-inferred only for repeated corrections.',
+            )
+        : z.string().optional(),
+      supporting_source_ids: (sourceWorkspaceMemoryId
+        ? supportingSourceIds.catch(undefined)
+        : supportingSourceIds
+      ).describe(
+        'Required in source discussions: exact selected human source IDs supporting this instruction. Include the current question. Never invent IDs.',
+      ),
     },
     async (args) => {
-      const response = await requestMemoryAction(
-        'memory_save',
-        buildMemorySavePayload(args, { memoryDefaultScope, memoryUserId }),
-      );
+      if (
+        sourceWorkspaceMemoryId &&
+        ((args.source !== 'discussion-explicit' &&
+          args.source !== 'discussion-inferred') ||
+          !args.supporting_source_ids?.length ||
+          new Set(args.supporting_source_ids).size !==
+            args.supporting_source_ids.length ||
+          args.kind === 'fact' ||
+          args.kind === 'decision')
+      )
+        return sourceMemorySaveResult(
+          'invalid_memory_input',
+          'Reusable source learning needs an explicit instruction or repeated corrections, exact supporting human source IDs, and a preference, correction or constraint kind.',
+        );
+      let response;
+      try {
+        response = await requestMemoryAction('memory_save', {
+          ...buildMemorySavePayload(args, { memoryDefaultScope, memoryUserId }),
+          ...(args.scope ? { scope: args.scope } : {}),
+        });
+      } catch (error) {
+        if (sourceWorkspaceMemoryId)
+          return sourceMemorySaveResult(
+            'memory_save_unconfirmed',
+            'Memory save did not return a confirmation.',
+          );
+        throw error;
+      }
       if (!response.ok) {
+        if (sourceWorkspaceMemoryId)
+          return sourceMemorySaveResult(
+            'memory_save_unconfirmed',
+            response.error || 'Memory save did not return a confirmation.',
+          );
         return {
           content: [
             {
@@ -191,6 +297,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Demote an active memory item from the current trusted memory subject using optimistic concurrency.',
     {
       id: z.string(),
+      scope: z.enum(['group', 'user']).optional(),
       expected_version: z.number().int().min(1).optional(),
       reason: z.string().optional(),
     },
