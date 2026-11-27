@@ -1,3 +1,5 @@
+import { createSourceModelSnapshot } from '../../../src/shared/source-model-snapshot.js';
+import { resolveModelSelectionForWorkload } from '../../../src/shared/model-catalog.js';
 import {
   registerMemoryLlmClient,
   getMemoryLlmClient,
@@ -438,6 +440,86 @@ describe('createGroupProcessor', () => {
     });
   });
 
+  it.each([false, true])(
+    'rechecks provider authority after slow source preparation (denied=%s)',
+    async (denied) => {
+      const previous = getMemoryLlmClient();
+      const now = Date.now();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      const trace: string[] = [];
+      const selected = resolveModelSelectionForWorkload('haiku', 'chat');
+      if (!selected.ok) throw new Error('Fixture model missing');
+      const chosen = [
+        makeMessage({ id: 'M1', content: 'Exact selected question' }),
+      ];
+      const { deps } = setupHappyPath({ messages: chosen });
+      const prepared = {
+        id: 'source-answer',
+        claimToken: 'claim',
+        selectedSourceIds: ['M1'],
+        messages: chosen,
+        executionAuthorityDeadline: now + 5000,
+        modelSnapshot: createSourceModelSnapshot('haiku', selected.entry),
+        request: {
+          model: 'haiku',
+          maxOutputTokens: 2000,
+          deadlineAt: new Date(now + 120000).toISOString(),
+          binding: {
+            discussionId: 'D1',
+            generation: 1,
+            workspaceId: 'W1',
+            tenderId: 'T1',
+          },
+        },
+      };
+      let grants = 0,
+        providerCalls = 0;
+      Object.assign(deps.opsRepository!, {
+        getPreparedSourceAnswer: async () => prepared,
+        authorizePreparedSourceAnswer: async () => {
+          trace.push('authority');
+          grants++;
+          if (denied && grants > 1)
+            throw new Error('Fresh execution authority denied');
+          return Date.now() + 5000;
+        },
+        createSessionAgentRun: async () => 'run1',
+        markSourceAnswerRun: async () => {},
+        finishPreparedSourceAnswer: async () => {},
+        persistSourceAnswerOutput: async () => {},
+      });
+      registerMemoryLlmClient({
+        isConfigured: () => true,
+        query: async () => '',
+        countTokens: async () => {
+          trace.push('count');
+          vi.mocked(Date.now).mockReturnValue(now + 6000);
+          return 100;
+        },
+      });
+      mockSpawnAgent.mockImplementationOnce(
+        async (_group, input, _onProcess, _onOutput, options) => {
+          await options.beforeProviderStart?.();
+          providerCalls++;
+          trace.push('provider');
+          expect(input.prompt).toContain('Exact selected question');
+          return { status: 'success', result: 'Exact answer' };
+        },
+      );
+      try {
+        await createGroupProcessor(deps).processGroupMessages('group1@g.us');
+        expect(providerCalls).toBe(denied ? 0 : 1);
+        expect(trace).toEqual(
+          denied
+            ? ['authority', 'count', 'authority']
+            : ['authority', 'count', 'authority', 'provider'],
+        );
+      } finally {
+        registerMemoryLlmClient(previous);
+        vi.restoreAllMocks();
+      }
+    },
+  );
   it.each([
     'direct',
     'streamed',
@@ -549,6 +631,11 @@ describe('createGroupProcessor', () => {
           messages: chosen,
           selectedSourceIds: ['M1', 'M2'],
           claimToken: 'fence',
+          modelSnapshot: (() => {
+            const selected = resolveModelSelectionForWorkload('haiku', 'chat');
+            if (!selected.ok) throw new Error('Fixture model missing');
+            return createSourceModelSnapshot('haiku', selected.entry);
+          })(),
         })),
         getAgentTurnContext: vi.fn(async () => ({
           appId: 'app:test',
@@ -560,6 +647,7 @@ describe('createGroupProcessor', () => {
         })),
         createSessionAgentRun: vi.fn(async () => 'run1'),
         markSourceAnswerRun: vi.fn(async () => {}),
+        authorizePreparedSourceAnswer: async () => Date.now() + 5000,
         persistSourceAnswerOutput: vi.fn(async () => {}),
         finishPreparedSourceAnswer: vi.fn(async () => {}),
         sourceWorkspaceMemoryContext: vi.fn(async () => 'workspace-a learning'),

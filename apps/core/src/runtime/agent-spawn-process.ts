@@ -75,7 +75,7 @@ function runnerContextPayload(input: RunnerProcessSpec['input']) {
   return { appId, agentId, sessionId, jobId, runId };
 }
 
-export function executeRunnerProcess(
+export async function executeRunnerProcess(
   spec: RunnerProcessSpec,
 ): Promise<AgentOutput> {
   const {
@@ -94,6 +94,8 @@ export function executeRunnerProcess(
     runtimeDetails,
     sandbox,
   } = spec;
+
+  if (options?.beforeProviderStart) await options.beforeProviderStart();
 
   return new Promise((resolve) => {
     const sandboxProvider = options?.runnerSandboxProvider;

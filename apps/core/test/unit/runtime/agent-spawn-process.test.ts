@@ -212,6 +212,23 @@ describe('executeRunnerProcess', () => {
   /* ============================================================== */
 
   describe('sandbox provider seam', () => {
+    it('does not start a runner after fresh provider authority is denied', async () => {
+      const spec = makeSpec({
+        options: {
+          beforeProviderStart: async () => {
+            throw new Error('Execution authority denied');
+          },
+        },
+      });
+      const result = expect(executeRunnerProcess(spec)).rejects.toThrow(
+        'Execution authority denied',
+      );
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await result;
+      expect(spec.options!.runnerSandboxProvider.start).not.toHaveBeenCalled();
+      expect(spec.onProcess).not.toHaveBeenCalled();
+    });
     it('uses the configured runner sandbox provider to start the process', async () => {
       const sandboxProvider = {
         id: 'direct' as const,

@@ -168,6 +168,7 @@ export interface AgentOutputRuntimeEvent {
 }
 
 export interface RunAgentOptions {
+  beforeProviderStart?: () => Promise<void>;
   timeoutMs?: number;
   signal?: AbortSignal;
   correlationRunId?: string;

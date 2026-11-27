@@ -33,6 +33,7 @@ export async function prepareSourceSummary(input: {
   const client = input.client ?? getMemoryLlmClient();
   if (!client.countTokens)
     throw new Error('Native source token counting is unavailable');
+  await input.onFirstProviderCall?.();
   const remaining = input.deadline - Date.now();
   if (remaining <= 0)
     throw new Error('Source execution budget exhausted before token counting');
@@ -90,10 +91,10 @@ export async function prepareSourceSummary(input: {
   let summary = work.previousText ?? '';
   const usage: Record<string, unknown>[] = [];
   for (const chunk of chunks) {
+    await input.onFirstProviderCall?.();
     const remaining = input.deadline - Date.now();
     if (remaining <= 0)
       throw new Error('Source execution budget exhausted before summary');
-    await input.onFirstProviderCall?.();
     const output = await client.query({
       toolPolicy: 'none',
       maxOutputTokens: 4096,

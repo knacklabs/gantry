@@ -239,6 +239,17 @@ export class PostgresRuntimeRepositoryBundle
       claimToken,
     );
   }
+  async authorizePreparedSourceAnswer(
+    id: string,
+    claimToken: string,
+    deadline: number,
+  ) {
+    return new PostgresSourceAnswerRepository(this.db).authorizePrepared(
+      id,
+      claimToken,
+      deadline,
+    );
+  }
   async renewPreparedSourceAnswer(id: string, claimToken: string) {
     return new PostgresSourceAnswerRepository(this.db).renewPrepared(
       id,

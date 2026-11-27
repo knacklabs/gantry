@@ -179,6 +179,11 @@ export interface RuntimeMessageRepository {
     success: boolean,
     claimToken?: string,
   ): Promise<void>;
+  authorizePreparedSourceAnswer?(
+    id: string,
+    claimToken: string,
+    deadline: number,
+  ): Promise<number>;
   renewPreparedSourceAnswer?(id: string, claimToken: string): Promise<boolean>;
   storeMessage(msg: NewMessage): Promise<void>;
   storeMessageWithLiveAdmission?(

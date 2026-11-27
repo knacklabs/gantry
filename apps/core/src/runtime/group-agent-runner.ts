@@ -614,28 +614,16 @@ export function createGroupAgentRunner(input: {
         turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
     });
     try {
-      let sourceProviderStarted = false;
       const startSourceProvider = async () => {
-        if (
-          !sourceProviderStarted &&
-          options?.sourceAnswer?.executionAuthorityDeadline !== undefined &&
-          Date.now() >= options.sourceAnswer.executionAuthorityDeadline
-        )
-          throw new Error(
-            'Fresh execution authority expired before provider start',
-          );
-        if (
-          options?.sourceAnswer &&
-          ops().renewPreparedSourceAnswer &&
-          !(await ops().renewPreparedSourceAnswer!(
-            options.sourceAnswer.id,
-            options.sourceAnswer.claimToken,
-          ))
-        )
-          throw new Error(
-            'Source execution ownership was invalidated before provider start',
-          );
-        sourceProviderStarted = true;
+        if (!options?.sourceAnswer) return;
+        const repository = ops();
+        if (!repository.authorizePreparedSourceAnswer)
+          throw new Error('Fresh source execution authority is unavailable');
+        await repository.authorizePreparedSourceAnswer(
+          options.sourceAnswer.id,
+          options.sourceAnswer.claimToken,
+          sourceExecutionDeadline!,
+        );
       };
       const sourceSummary = options?.sourceAnswer
         ? await prepareSourceSummary({
@@ -667,7 +655,6 @@ export function createGroupAgentRunner(input: {
             },
           })
         : undefined;
-      if (options?.sourceAnswer) await startSourceProvider();
       if (sourceExecutionDeadline && Date.now() >= sourceExecutionDeadline)
         throw new Error('Source execution budget exhausted');
       const credentialBroker = await deps.getCredentialBroker?.();
@@ -691,6 +678,8 @@ export function createGroupAgentRunner(input: {
         turnContext,
       });
       if (accessSnapshot) runOptions.accessSnapshot = accessSnapshot;
+      if (options?.sourceAnswer)
+        runOptions.beforeProviderStart = startSourceProvider;
       const expireTurnProviderSession = async (
         reason: string,
       ): Promise<boolean> => {

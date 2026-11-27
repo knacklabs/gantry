@@ -9,6 +9,98 @@ const pin = () => {
   return createSourceModelSnapshot('haiku', model.entry);
 };
 describe('source scoped summary', () => {
+  it('checks fresh execution authority before token counting and again after slow preparation', async () => {
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const calls: string[] = [];
+    let grantUntil = now;
+    const text = await prepareSourceSummary({
+      answer: {
+        id: 'a',
+        claimToken: 'c',
+        request: { model: 'haiku' } as never,
+        modelSnapshot: pin(),
+        messages: [],
+        selectedSourceIds: ['M1'],
+        summaryWork: {
+          id: 'digest',
+          mode: 'recent',
+          generation: 1,
+          workspaceId: 'W1',
+          sourceVersion: 'R1',
+          profileVersion: 'v1',
+          sourceIds: ['M1'],
+          throughPosition: '1',
+          messages: [
+            {
+              id: 'M1',
+              content: 'Exact context',
+              chat_jid: 'D1',
+              sender: 'p',
+              sender_name: 'P',
+              timestamp: '2026-11-17',
+            },
+          ],
+        },
+      },
+      appId: 'app' as never,
+      deadline: now + 180000,
+      onFirstProviderCall: async () => {
+        calls.push('authority');
+        grantUntil = Date.now() + 5000;
+      },
+      client: {
+        isConfigured: () => true,
+        countTokens: async () => {
+          expect(grantUntil).toBeGreaterThan(Date.now());
+          calls.push('count');
+          vi.mocked(Date.now).mockReturnValue(now + 6000);
+          return 100;
+        },
+        query: async () => {
+          expect(grantUntil).toBeGreaterThan(Date.now());
+          calls.push('query');
+          return JSON.stringify({ summary: 'Preserved exact context' });
+        },
+      },
+      repository: {
+        readSourceSummary: async () => undefined,
+        saveSourceSummary: async (value) => value.text,
+      },
+    });
+    expect(text).toBe('Preserved exact context');
+    expect(calls).toEqual(['authority', 'count', 'authority', 'query']);
+  });
+  it('does not contact the token counter after fresh execution authority is denied', async () => {
+    let providerCalls = 0;
+    await expect(
+      prepareSourceSummary({
+        answer: {
+          id: 'a',
+          claimToken: 'c',
+          request: { model: 'haiku' } as never,
+          modelSnapshot: pin(),
+          messages: [],
+          selectedSourceIds: [],
+        },
+        appId: 'app' as never,
+        deadline: Date.now() + 180000,
+        onFirstProviderCall: async () => {
+          throw new Error('Fresh execution authority denied');
+        },
+        client: {
+          isConfigured: () => true,
+          query: async () => '',
+          countTokens: async () => {
+            providerCalls++;
+            return 100;
+          },
+        },
+        repository: {},
+      }),
+    ).rejects.toThrow('Fresh execution authority denied');
+    expect(providerCalls).toBe(0);
+  });
   it.each(['anthropic', 'openai'])(
     'summarizes exact sources on configured %s route and preserves coverage',
     async (route) => {

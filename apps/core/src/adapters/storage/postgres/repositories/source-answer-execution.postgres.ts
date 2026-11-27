@@ -6,6 +6,8 @@ import {
   lockSourceEventApp,
 } from './source-channel-event-lock.postgres.js';
 import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
+import { randomUUID } from 'node:crypto';
+import type { SettleExecutionAuthority } from '@gantry/contracts';
 import { and, eq, sql } from 'drizzle-orm';
 import * as s from '../schema/schema.js';
 import { SourceAnswerContextRepository } from './source-answer-context.postgres.js';
@@ -252,6 +254,107 @@ export class SourceAnswerExecutionRepository extends SourceAnswerContextReposito
         }),
       });
     });
+  }
+  async authorizePrepared(
+    id: string,
+    claimToken: string,
+    deadline: number,
+  ): Promise<number> {
+    if (!(await this.renewPrepared(id, claimToken)))
+      fail('Source execution ownership was invalidated');
+    const [answer] = await this.db
+      .select()
+      .from(s.pendingInteractionsPostgres)
+      .where(eq(s.pendingInteractionsPostgres.id, id));
+    const payload = answer!.payloadJson as AnswerPayload;
+    const until = Math.min(
+      deadline,
+      Date.parse(payload.request.deadlineAt),
+      Date.parse(payload.request.authority.expiresAt),
+    );
+    if (!Number.isFinite(until) || Date.now() >= until)
+      fail('Source execution authority deadline expired');
+    const interactionId = `authority:${id}:provider:${randomUUID()}`;
+    await this.db.transaction(async (tx) => {
+      await lockSourceEventApp(tx, answer!.appId);
+      const [owner] = await tx
+        .select()
+        .from(s.pendingInteractionsPostgres)
+        .where(eq(s.pendingInteractionsPostgres.id, id))
+        .for('update');
+      if (
+        !owner ||
+        owner.status !== 'pending' ||
+        owner.runLeaseToken !== claimToken ||
+        (owner.payloadJson as { generationInvalidated?: boolean })
+          .generationInvalidated
+      )
+        fail('Source execution ownership was invalidated');
+      const [route] = await tx
+        .select()
+        .from(s.controlHttpSessionsPostgres)
+        .where(
+          and(
+            eq(s.controlHttpSessionsPostgres.appId, owner!.appId),
+            eq(
+              s.controlHttpSessionsPostgres.externalConversationId,
+              payload.request.binding.discussionId,
+            ),
+          ),
+        );
+      if (!route) fail('Source answer session absent');
+      const session = await this.session(
+        tx,
+        owner!.appId,
+        route!.sessionId,
+        payload.request.binding,
+      );
+      await this.interaction(
+        tx,
+        session,
+        id,
+        payload.request,
+        interactionId,
+        'execution_authority',
+        { phase: 'execution' },
+      );
+    });
+    while (Date.now() < until) {
+      const [interaction] = await this.db
+        .select()
+        .from(s.pendingInteractionsPostgres)
+        .where(eq(s.pendingInteractionsPostgres.id, interactionId));
+      if (interaction?.status === 'resolved') {
+        const grant = (
+          interaction.resolutionJson as {
+            result?: SettleExecutionAuthority;
+          } | null
+        )?.result;
+        const expiresAt = Date.parse(grant?.expiresAt ?? '');
+        const resolvedAt = Date.parse(interaction.resolvedAt ?? '');
+        if (
+          !grant?.allowed ||
+          !Number.isFinite(expiresAt) ||
+          !Number.isFinite(resolvedAt) ||
+          expiresAt <= Date.now() ||
+          Date.now() >= resolvedAt + 5000
+        )
+          fail('Fresh execution authority was denied or expired');
+        if (!(await this.renewPrepared(id, claimToken)))
+          fail('Source execution ownership was invalidated');
+        const validUntil = Math.min(expiresAt, resolvedAt + 5000, until);
+        if (Date.now() >= validUntil)
+          fail('Fresh execution authority expired before provider start');
+        return validUntil;
+      }
+      if (
+        interaction?.status === 'cancelled' ||
+        !(await this.renewPrepared(id, claimToken))
+      )
+        fail('Source execution ownership was invalidated');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return fail('Fresh execution authority timed out');
   }
   async renewPrepared(id: string, claimToken: string) {
     const [answer] = await this.db
